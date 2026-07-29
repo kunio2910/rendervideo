@@ -14,8 +14,16 @@ type Scene = {
   image: string;
   start: number;
   end: number;
+  zoomInDuration: number;
   popupDuration: number;
-  status: "Nháp" | "Chờ duyệt" | "Đã duyệt";
+  zoomOutDuration: number;
+  zoom: number;
+  centerX: number;
+  centerY: number;
+  voiceFile: string;
+  popupIn: string;
+  popupOut: string;
+  status: "Nháp" | "Đã duyệt";
 };
 
 const initialScenes: Scene[] = [
@@ -32,7 +40,15 @@ const initialScenes: Scene[] = [
     image: "media/samuel-anoints-david.jpg",
     start: 0,
     end: 5.5,
+    zoomInDuration: 1,
     popupDuration: 3,
+    zoomOutDuration: 1.5,
+    zoom: 2.25,
+    centerX: 20.6,
+    centerY: 10.7,
+    voiceFile: "audio/milestone-1.mp3",
+    popupIn: "fade-slide-up",
+    popupOut: "fade-slide-down",
     status: "Đã duyệt",
   },
   {
@@ -48,8 +64,16 @@ const initialScenes: Scene[] = [
     image: "media/david-goliath.jpg",
     start: 5.5,
     end: 12,
+    zoomInDuration: 1,
     popupDuration: 3,
-    status: "Chờ duyệt",
+    zoomOutDuration: 1.5,
+    zoom: 2.1,
+    centerX: 45.2,
+    centerY: 38.5,
+    voiceFile: "audio/milestone-2.mp3",
+    popupIn: "fade-slide-up",
+    popupOut: "fade-slide-down",
+    status: "Nháp",
   },
   {
     id: "scene-03",
@@ -63,14 +87,21 @@ const initialScenes: Scene[] = [
     image: "media/david-king.jpg",
     start: 12,
     end: 15,
+    zoomInDuration: 0.5,
     popupDuration: 2.5,
+    zoomOutDuration: 0,
+    zoom: 1.8,
+    centerX: 72.4,
+    centerY: 61.3,
+    voiceFile: "audio/milestone-3.mp3",
+    popupIn: "fade-slide-up",
+    popupOut: "fade-slide-down",
     status: "Nháp",
   },
 ];
 
 const statusClass: Record<Scene["status"], string> = {
   Nháp: "draft",
-  "Chờ duyệt": "review",
   "Đã duyệt": "approved",
 };
 
@@ -98,54 +129,60 @@ export default function Home() {
 
   const addScene = () => {
     const last = scenes.at(-1)!;
+    const number = scenes.length + 1;
     const next: Scene = {
-      ...last,
-      id: `scene-${String(scenes.length + 1).padStart(2, "0")}`,
-      number: scenes.length + 1,
+      id: `scene-${String(number).padStart(2, "0")}`,
+      number,
       title: "Cảnh mới",
+      location: "Địa danh mới",
+      reference: "",
       popup: "Nhập nội dung popup cho cảnh mới.",
       narration: "Nhập lời thuyết minh cho cảnh mới.",
+      voice: "Nam trầm",
+      image: `images/milestone-${number}.jpg`,
       start: last.end,
       end: last.end + 3,
+      zoomInDuration: 0.5,
+      popupDuration: 2,
+      zoomOutDuration: 0.5,
+      zoom: 2,
+      centerX: 50,
+      centerY: 50,
+      voiceFile: `audio/milestone-${number}.mp3`,
+      popupIn: "fade-slide-up",
+      popupOut: "fade-slide-down",
       status: "Nháp",
     };
-    setScenes([...scenes, next]);
+    setScenes((items) => [...items, next]);
     setSelectedId(next.id);
   };
 
   const exportPayload = useMemo(
     () => ({
-      schemaVersion: "1.0.0",
-      project: {
-        id: "david-journey",
-        title: "Hành trình Vua Đa-vít",
-        aspectRatio: "9:16",
-        duration: totalDuration,
-        locale: "vi-VN",
-        fps: 30,
-      },
-      assets: {
-        images: scenes.map((item) => ({
-          id: `image-${item.number}`,
-          src: item.image,
-          checksum: "sha256:pending",
-        })),
-        audio: [
-          { id: "background-music", src: "media/hopeful-journey.mp3", checksum: "sha256:pending" },
-        ],
-      },
-      scenes: scenes.map(({ image, ...item }) => ({
-        ...item,
-        media: { image: imageEnabled ? `image-${item.number}` : null },
-        narrationEnabled,
+      title: "Hành trình Vua Đa-vít",
+      duration: 15,
+      resolution: "1080x1920",
+      scenes: scenes.map((item) => ({
+        milestone: item.number,
+        title: item.title,
+        start: item.start,
+        zoomInDuration: item.zoomInDuration,
+        popupDuration: item.popupDuration,
+        zoomOutDuration: item.zoomOutDuration,
+        zoom: item.zoom,
+        centerX: item.centerX,
+        centerY: item.centerY,
+        location: item.location,
+        reference: item.reference.replaceAll("–", "-"),
+        body: item.popup,
+        image: imageEnabled ? item.image.replace(/^media\//, "images/") : "",
+        narration: narrationEnabled ? item.narration : "",
+        voiceFile: narrationEnabled ? item.voiceFile : "",
+        popupIn: item.popupIn,
+        popupOut: item.popupOut,
       })),
-      renderManifest: {
-        file: "render-manifest.json",
-        checksumAlgorithm: "sha256",
-        generatedAt: new Date().toISOString(),
-      },
     }),
-    [scenes, imageEnabled, narrationEnabled, totalDuration],
+    [scenes, imageEnabled, narrationEnabled],
   );
 
   const exportJson = () => {
