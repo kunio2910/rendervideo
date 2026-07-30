@@ -121,6 +121,7 @@ type StoredProject = {
   narrationEnabled: boolean;
   background?: string;
   backgroundVisible?: boolean;
+  backgroundMusic?: string;
   scenes: Scene[];
 };
 
@@ -146,6 +147,7 @@ export default function Home() {
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
+  const [backgroundMusic, setBackgroundMusic] = useState("");
   const [playing, setPlaying] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -217,6 +219,7 @@ export default function Home() {
       narrationEnabled,
       background,
       backgroundVisible,
+      backgroundMusic,
       scenes,
     }),
     [
@@ -227,6 +230,7 @@ export default function Home() {
       narrationEnabled,
       background,
       backgroundVisible,
+      backgroundMusic,
       scenes,
     ],
   );
@@ -245,6 +249,7 @@ export default function Home() {
     setNarrationEnabled(project.narrationEnabled);
     setBackground(project.background ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
+    setBackgroundMusic(project.backgroundMusic ?? "");
     setScenes(project.scenes);
     setSelectedId(project.scenes[0]?.id ?? "");
     setPlayTime(project.scenes[0]?.start ?? 0);
@@ -275,6 +280,7 @@ export default function Home() {
         narrationEnabled: data.narrationEnabled ?? true,
         background: data.background ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
+        backgroundMusic: data.backgroundMusic ?? "",
         scenes: data.scenes,
       };
       setProjects([migrated]);
@@ -447,6 +453,28 @@ export default function Home() {
     setPlayTime(item.start);
   };
 
+  const openTimelineEditor = (
+    item: Scene | null,
+    targetId: "editor-camera" | "editor-popup" | "editor-audio" | "editor-music",
+  ) => {
+    if (item) {
+      setSelectedId(item.id);
+      setPlayTime(item.start);
+    }
+    setPlaying(false);
+    window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      document.getElementById(targetId)?.classList.add("timeline-focus");
+      window.setTimeout(
+        () => document.getElementById(targetId)?.classList.remove("timeline-focus"),
+        1300,
+      );
+    }, 40);
+  };
+
   const togglePlayback = () => {
     if (playing) {
       setPlaying(false);
@@ -528,6 +556,7 @@ export default function Home() {
       narrationEnabled: true,
       background: "",
       backgroundVisible: true,
+      backgroundMusic: "",
       scenes: [blankScene],
     };
     setProjects((items) => [
@@ -554,7 +583,7 @@ export default function Home() {
       popup: "Nhập nội dung popup cho cảnh mới.",
       narration: "Nhập lời thuyết minh cho cảnh mới.",
       voice: "Nam trầm",
-      image: `images/milestone-${number}.jpg`,
+      image: "",
       start: last.end,
       end: last.end + 3,
       zoomInDuration: 0.5,
@@ -563,7 +592,7 @@ export default function Home() {
       zoom: 2,
       centerX: 50,
       centerY: 50,
-      voiceFile: `audio/milestone-${number}.mp3`,
+      voiceFile: "",
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
       status: "Nháp",
@@ -681,30 +710,38 @@ export default function Home() {
       title: projectTitle,
       duration: projectDuration,
       resolution: "1080x1920",
-      background,
-      backgroundVisible,
-      scenes: scenes.map((item) => ({
-        milestone: item.number,
-        title: item.title,
-        start: item.start,
-        zoomInDuration: item.zoomInDuration,
-        popupDuration: item.popupDuration,
-        zoomOutDuration: item.zoomOutDuration,
-        zoom: item.zoom,
-        centerX: item.centerX,
-        centerY: item.centerY,
-        location: item.location,
-        reference: item.reference.replaceAll("–", "-"),
-        body: item.popup,
-        image: imageEnabled ? item.image.replace(/^media\//, "images/") : "",
-        narration: narrationEnabled ? item.narration : "",
-        voiceFile: narrationEnabled ? item.voiceFile : "",
-        popupIn: item.popupIn,
-        popupOut: item.popupOut,
-        popupWidth: item.popupWidth ?? 90,
-        popupHeight: item.popupHeight ?? 255,
-        popupVisible: item.popupVisible !== false,
-      })),
+      ...(background.trim()
+        ? { background: background.trim(), backgroundVisible }
+        : {}),
+      ...(backgroundMusic.trim()
+        ? { backgroundMusic: backgroundMusic.trim() }
+        : {}),
+      scenes: scenes.map((item) => {
+        const image = imageEnabled ? item.image.trim().replace(/^media\//, "images/") : "";
+        const voiceFile = narrationEnabled ? item.voiceFile.trim() : "";
+        return {
+          milestone: item.number,
+          title: item.title,
+          start: item.start,
+          zoomInDuration: item.zoomInDuration,
+          popupDuration: item.popupDuration,
+          zoomOutDuration: item.zoomOutDuration,
+          zoom: item.zoom,
+          centerX: item.centerX,
+          centerY: item.centerY,
+          location: item.location,
+          reference: item.reference.replaceAll("–", "-"),
+          body: item.popup,
+          ...(image ? { image } : {}),
+          narration: narrationEnabled ? item.narration : "",
+          ...(voiceFile ? { voiceFile } : {}),
+          popupIn: item.popupIn,
+          popupOut: item.popupOut,
+          popupWidth: item.popupWidth ?? 90,
+          popupHeight: item.popupHeight ?? 255,
+          popupVisible: item.popupVisible !== false,
+        };
+      }),
     }),
     [
       scenes,
@@ -714,6 +751,7 @@ export default function Home() {
       projectTitle,
       background,
       backgroundVisible,
+      backgroundMusic,
     ],
   );
 
@@ -1111,7 +1149,29 @@ export default function Home() {
               </label>
             </div>
             <div className="editor-group-label"><span>03</span> Âm thanh</div>
-            <label className="field audio-field">
+            <label className="field audio-field" id="editor-music">
+              <span>Nhạc nền chủ đề</span>
+              <div className="audio-input-row">
+                <input
+                  value={backgroundMusic}
+                  placeholder="audio/background-music.mp3 hoặc URL"
+                  onChange={(event) => setBackgroundMusic(event.target.value)}
+                />
+                <label className="file-picker">
+                  Chọn file
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) setBackgroundMusic(`audio/${file.name}`);
+                    }}
+                  />
+                </label>
+              </div>
+              <small>Để trống nếu clip không có nhạc nền.</small>
+            </label>
+            <label className="field audio-field" id="editor-audio">
               <span>File âm thanh thuyết minh</span>
               <div className="audio-input-row">
                 <input
@@ -1142,7 +1202,7 @@ export default function Home() {
               <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
             </label>
             <div className="editor-group-label"><span>04</span> Chuyển động</div>
-            <div className="motion-settings-card">
+            <div className="motion-settings-card" id="editor-camera">
               <div className="motion-settings-title">
                 <strong>Zoom camera</strong>
                 <span>Xem thử dùng đúng các thông số này</span>
@@ -1192,7 +1252,7 @@ export default function Home() {
                 </div>
               </label>
             </div>
-            <label className="field range-field">
+            <label className="field range-field" id="editor-popup">
               <span>Thời gian popup</span>
               <div className="popup-duration-control">
                 <input
@@ -1225,6 +1285,10 @@ export default function Home() {
                 >
                   <option value="fade-slide-up">Fade + trượt lên</option>
                   <option value="zoom-soft">Zoom nhẹ</option>
+                  <option value="slide-left">Trượt từ trái</option>
+                  <option value="slide-right">Trượt từ phải</option>
+                  <option value="bounce">Nảy nhẹ</option>
+                  <option value="flip">Lật 3D</option>
                 </select>
               </label>
               <label className="field">
@@ -1235,6 +1299,10 @@ export default function Home() {
                 >
                   <option value="fade-slide-down">Fade + trượt xuống</option>
                   <option value="zoom-soft">Thu nhỏ</option>
+                  <option value="slide-left">Trượt sang trái</option>
+                  <option value="slide-right">Trượt sang phải</option>
+                  <option value="bounce">Nảy và biến mất</option>
+                  <option value="flip">Lật 3D</option>
                 </select>
               </label>
             </div>
@@ -1267,11 +1335,19 @@ export default function Home() {
           <div className="track">
             <strong>Camera</strong>
             <div className="track-content grid">
-              <div className="clip camera-a" style={{ left: "0%", width: "20%" }}>Zoom 1</div>
-              <div className="clip camera-b" style={{ left: "20%", width: "17%" }}>Giữ</div>
-              <div className="clip camera-a" style={{ left: "37%", width: "26%" }}>Zoom 2</div>
-              <div className="clip camera-b" style={{ left: "63%", width: "17%" }}>Giữ</div>
-              <div className="clip camera-c" style={{ left: "80%", width: "20%" }}>Kết</div>
+              {scenes.map((item, index) => (
+                <button
+                  key={item.id}
+                  className={`clip camera-clip ${index % 2 ? "camera-b" : "camera-a"} ${item.id === selectedId ? "selected" : ""}`}
+                  onClick={() => openTimelineEditor(item, "editor-camera")}
+                  style={{
+                    left: `${(item.start / projectDuration) * 100}%`,
+                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
+                  }}
+                >
+                  Zoom {item.zoom}× · {item.zoomInDuration}s
+                </button>
+              ))}
             </div>
           </div>
           <div className="track">
@@ -1280,7 +1356,7 @@ export default function Home() {
               {scenes.filter((item) => item.popupVisible !== false).map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => selectScene(item)}
+                  onClick={() => openTimelineEditor(item, "editor-popup")}
                   className={`clip popup-clip ${item.id === selectedId ? "selected" : ""}`}
                   style={{
                     left: `${(item.start / projectDuration) * 100}%`,
@@ -1296,25 +1372,30 @@ export default function Home() {
             <strong>Thuyết minh</strong>
             <div className="track-content grid">
               {narrationEnabled && scenes.map((item) => (
-                <div
+                <button
                   key={item.id}
                   className="clip voice-clip"
+                  onClick={() => openTimelineEditor(item, "editor-audio")}
                   style={{
                     left: `${(item.start / projectDuration) * 100}%`,
                     width: `${((item.end - item.start) / projectDuration) * 100}%`,
                   }}
                 >
                   🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
-                </div>
+                </button>
               ))}
             </div>
           </div>
           <div className="track">
             <strong>Nhạc nền</strong>
             <div className="track-content grid">
-              <div className="clip music-clip" style={{ left: "58%", width: "42%" }}>
-                ♫ Nhạc nền
-              </div>
+              <button
+                className={`clip music-clip ${backgroundMusic ? "" : "is-empty"}`}
+                onClick={() => openTimelineEditor(null, "editor-music")}
+                style={{ left: "0%", width: "100%" }}
+              >
+                ♫ {backgroundMusic || "Chưa có nhạc nền · Bấm để thêm"}
+              </button>
             </div>
           </div>
           <div className="playhead" style={{ left: `${8.2 + (playTime / projectDuration) * 91.8}%` }}>
