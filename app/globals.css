@@ -269,6 +269,14 @@ button { color: inherit; }
   inset: 0;
   background: radial-gradient(circle at 45% 35%, rgba(255,255,255,.75), transparent 42%);
 }
+.project-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .map-label {
   position: absolute;
   top: 86px;
@@ -327,14 +335,31 @@ button { color: inherit; }
   position: absolute;
   z-index: 5;
   left: 20px;
-  right: 20px;
+  right: auto;
   bottom: 20px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(35, 137, 255, .6);
   border-radius: 13px;
   background: rgba(255,255,255,.95);
   box-shadow: 0 18px 38px rgba(29, 52, 77, .2);
   backdrop-filter: blur(10px);
+}
+.preview-card .card-content { min-height: 0; overflow: auto; }
+.popup-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px 0 9px;
+  background:
+    linear-gradient(135deg, transparent 48%, rgba(35,137,255,.9) 49%, rgba(35,137,255,.9) 57%, transparent 58%) 5px 5px / 10px 10px,
+    linear-gradient(135deg, transparent 48%, rgba(35,137,255,.55) 49%, rgba(35,137,255,.55) 57%, transparent 58%) 10px 10px / 9px 9px;
+  cursor: nwse-resize;
+  touch-action: none;
 }
 .photo-placeholder { position: relative; height: 115px; overflow: hidden; background: linear-gradient(#c9e4f5, #f6d8af); }
 .photo-placeholder > img {
@@ -384,6 +409,43 @@ button { color: inherit; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(35,137,255,.1); }
 .field textarea { min-height: 63px; resize: vertical; line-height: 1.5; }
 .field > small { margin-top: -3px; text-align: right; color: #8d98a5; font-size: 8px; }
+.background-field {
+  padding: 11px;
+  border: 1px solid #d8e7f7;
+  border-radius: 11px;
+  background: #f7fbff;
+}
+.background-input-row { display: grid; grid-template-columns: 1fr 36px; gap: 7px; }
+.eye-button {
+  display: grid;
+  place-items: center;
+  border: 1px solid #d4dce5;
+  border-radius: 8px;
+  background: white;
+  color: #8793a1;
+  cursor: pointer;
+  font-size: 16px;
+}
+.eye-button.is-visible { border-color: #aad3ff; color: var(--blue-deep); background: #eaf5ff; }
+.background-url-preview {
+  position: relative;
+  height: 100px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e9edf1;
+}
+.background-url-preview.is-hidden { opacity: .42; filter: grayscale(1); }
+.background-url-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.background-url-preview span {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: rgba(7,21,36,.76);
+  color: white;
+  font-size: 8px;
+}
 .image-url-preview {
   position: relative;
   height: 92px;

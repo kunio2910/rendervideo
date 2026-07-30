@@ -24,6 +24,8 @@ type Scene = {
   voiceFile: string;
   popupIn: string;
   popupOut: string;
+  popupWidth?: number;
+  popupHeight?: number;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -116,6 +118,8 @@ type StoredProject = {
   projectDuration: 15 | 30 | 45;
   imageEnabled: boolean;
   narrationEnabled: boolean;
+  background?: string;
+  backgroundVisible?: boolean;
   scenes: Scene[];
 };
 
@@ -139,6 +143,8 @@ export default function Home() {
   const [projectDuration, setProjectDuration] = useState<15 | 30 | 45>(15);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
+  const [background, setBackground] = useState("");
+  const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -167,9 +173,20 @@ export default function Home() {
       projectDuration,
       imageEnabled,
       narrationEnabled,
+      background,
+      backgroundVisible,
       scenes,
     }),
-    [projectId, projectTitle, projectDuration, imageEnabled, narrationEnabled, scenes],
+    [
+      projectId,
+      projectTitle,
+      projectDuration,
+      imageEnabled,
+      narrationEnabled,
+      background,
+      backgroundVisible,
+      scenes,
+    ],
   );
 
   const storedProject = useMemo<StoredWorkspace>(() => ({
@@ -184,6 +201,8 @@ export default function Home() {
     setProjectDuration(project.projectDuration);
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
+    setBackground(project.background ?? "");
+    setBackgroundVisible(project.backgroundVisible ?? true);
     setScenes(project.scenes);
     setSelectedId(project.scenes[0]?.id ?? "");
     setPlayTime(project.scenes[0]?.start ?? 0);
@@ -212,6 +231,8 @@ export default function Home() {
           : 15,
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
+        background: data.background ?? "",
+        backgroundVisible: data.backgroundVisible ?? true,
         scenes: data.scenes,
       };
       setProjects([migrated]);
@@ -409,6 +430,8 @@ export default function Home() {
       projectDuration: 15,
       imageEnabled: true,
       narrationEnabled: true,
+      background: "",
+      backgroundVisible: true,
       scenes: [blankScene],
     };
     setProjects((items) => [
@@ -453,11 +476,49 @@ export default function Home() {
     setSelectedId(next.id);
   };
 
+  const startPopupResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = scene.popupWidth ?? 90;
+    const startHeight = scene.popupHeight ?? 255;
+
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(
+        96,
+        Math.max(55, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100),
+      );
+      const height = Math.min(
+        440,
+        Math.max(170, startHeight + moveEvent.clientY - startY),
+      );
+      setScenes((items) =>
+        items.map((item) =>
+          item.id === selectedId
+            ? { ...item, popupWidth: Math.round(width), popupHeight: Math.round(height) }
+            : item,
+        ),
+      );
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
       duration: projectDuration,
       resolution: "1080x1920",
+      background,
+      backgroundVisible,
       scenes: scenes.map((item) => ({
         milestone: item.number,
         title: item.title,
@@ -476,9 +537,19 @@ export default function Home() {
         voiceFile: narrationEnabled ? item.voiceFile : "",
         popupIn: item.popupIn,
         popupOut: item.popupOut,
+        popupWidth: item.popupWidth ?? 90,
+        popupHeight: item.popupHeight ?? 255,
       })),
     }),
-    [scenes, imageEnabled, narrationEnabled, projectDuration, projectTitle],
+    [
+      scenes,
+      imageEnabled,
+      narrationEnabled,
+      projectDuration,
+      projectTitle,
+      background,
+      backgroundVisible,
+    ],
   );
 
   const exportJson = () => {
@@ -654,6 +725,14 @@ export default function Home() {
             <span className="time-pill">{formatTime(scene.start)}</span>
           </div>
           <div className={`phone-preview ${playing ? "is-playing" : ""}`}>
+            {backgroundVisible && background.trim() && (
+              <img
+                className="project-background"
+                src={background}
+                alt=""
+                aria-hidden="true"
+              />
+            )}
             <div className="map-label">BÊLEM</div>
             <div className="map-road road-one" />
             <div className="map-road road-two" />
@@ -666,7 +745,13 @@ export default function Home() {
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
-            <article className="preview-card">
+            <article
+              className="preview-card"
+              style={{
+                width: `${scene.popupWidth ?? 90}%`,
+                height: `${scene.popupHeight ?? 255}px`,
+              }}
+            >
               {imageEnabled && (
                 <div className="photo-placeholder">
                   {isRemoteImage ? (
@@ -687,6 +772,12 @@ export default function Home() {
                 <p className="location-line">⌖ {scene.location} · {scene.reference}</p>
                 <p>{scene.popup}</p>
               </div>
+              <button
+                className="popup-resize-handle"
+                aria-label="Kéo để thay đổi kích thước popup"
+                title="Kéo để phóng to hoặc thu nhỏ popup"
+                onPointerDown={startPopupResize}
+              />
             </article>
           </div>
           <div className="preview-footer">
@@ -702,6 +793,33 @@ export default function Home() {
             <span className="scene-pill">Cảnh {scene.number}</span>
           </div>
           <div className="editor-scroll">
+            <label className="field background-field">
+              <span>Background chủ đề</span>
+              <div className="background-input-row">
+                <input
+                  type="url"
+                  placeholder="https://example.com/background.jpg"
+                  value={background}
+                  onChange={(event) => setBackground(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className={`eye-button ${backgroundVisible ? "is-visible" : ""}`}
+                  aria-label={backgroundVisible ? "Ẩn background" : "Hiện background"}
+                  title={backgroundVisible ? "Ẩn background" : "Hiện background"}
+                  onClick={() => setBackgroundVisible((visible) => !visible)}
+                >
+                  {backgroundVisible ? "◉" : "⊘"}
+                </button>
+              </div>
+              {background.trim() && (
+                <div className={`background-url-preview ${backgroundVisible ? "" : "is-hidden"}`}>
+                  <img src={background} alt="Xem trước background chủ đề" />
+                  <span>{backgroundVisible ? "Background đang hiển thị" : "Background đang bị ẩn"}</span>
+                </div>
+              )}
+              <small>Áp dụng xuyên suốt mọi cảnh và nằm phía sau popup.</small>
+            </label>
             <label className="field">
               <span>Tiêu đề</span>
               <input
