@@ -968,7 +968,30 @@ button { color: inherit; }
   color: rgba(255,255,255,.7);
   font: 400 7px var(--font-vietnam);
 }
-.phone-preview:not(.selecting-zoom) { cursor: zoom-in; }
+.phone-preview { cursor: zoom-in; }
+.zoom-center-marker {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: width .15s ease, height .15s ease, box-shadow .15s ease;
+}
+.zoom-center-marker:hover {
+  width: 34px;
+  height: 34px;
+  box-shadow: 0 0 0 7px rgba(35,137,255,.18), 0 7px 20px rgba(8,73,145,.42);
+}
+.zoom-center-marker:active,
+.dragging-zoom-center .zoom-center-marker { cursor: grabbing; }
+.dragging-zoom-center { cursor: grabbing; }
+.zoom-drag-tip {
+  margin-left: auto;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: rgba(255,255,255,.82);
+  background: rgba(255,255,255,.07);
+  font-size: 8px;
+  pointer-events: none;
+}
 
 @media (max-width: 1400px) {
   .phone-preview { width: min(100%, 425px); height: 640px; }

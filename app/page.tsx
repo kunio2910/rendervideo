@@ -159,7 +159,7 @@ export default function Home() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
-  const [selectingZoom, setSelectingZoom] = useState(false);
+  const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const animationFrame = useRef<number | null>(null);
@@ -525,23 +525,42 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const chooseZoomCenter = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!selectingZoom) return;
-    if ((event.target as HTMLElement).closest(".preview-card")) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const centerX = Math.min(
-      100,
-      Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100),
-    );
-    const centerY = Math.min(
-      100,
-      Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100),
-    );
-    updateScene("centerX", Number(centerX.toFixed(1)));
-    updateScene("centerY", Number(centerY.toFixed(1)));
-    setSelectingZoom(false);
-    setToast(`Đã chọn tâm zoom: ${centerX.toFixed(1)}% · ${centerY.toFixed(1)}%`);
-    window.setTimeout(() => setToast(""), 2600);
+  const startZoomCenterDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    setDraggingZoomCenter(true);
+
+    const move = (moveEvent: PointerEvent) => {
+      const centerX = Math.min(
+        100,
+        Math.max(0, ((moveEvent.clientX - bounds.left) / bounds.width) * 100),
+      );
+      const centerY = Math.min(
+        100,
+        Math.max(0, ((moveEvent.clientY - bounds.top) / bounds.height) * 100),
+      );
+      setScenes((items) =>
+        items.map((item) =>
+          item.id === selectedId
+            ? {
+                ...item,
+                centerX: Number(centerX.toFixed(1)),
+                centerY: Number(centerY.toFixed(1)),
+              }
+            : item,
+        ),
+      );
+    };
+    const stop = () => {
+      setDraggingZoomCenter(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
   };
 
   const zoomMapWithWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -789,8 +808,7 @@ export default function Home() {
             <span className="time-pill">{formatTime(scene.start)}</span>
           </div>
           <div
-            className={`phone-preview ${playing ? "is-playing" : ""} ${selectingZoom ? "selecting-zoom" : ""}`}
-            onPointerDown={chooseZoomCenter}
+            className={`phone-preview ${playing ? "is-playing" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
             onWheel={zoomMapWithWheel}
           >
             {backgroundVisible && background.trim() && (
@@ -811,12 +829,10 @@ export default function Home() {
               className="zoom-center-marker"
               style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
               title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}%`}
+              onPointerDown={startZoomCenterDrag}
             >
               <span />
             </div>
-            {selectingZoom && (
-              <div className="zoom-select-hint">Bấm vào cột mốc muốn zoom</div>
-            )}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
@@ -871,13 +887,7 @@ export default function Home() {
             >
               {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
             </button>
-            <button
-              className={selectingZoom ? "active" : ""}
-              title={selectingZoom ? "Hủy chọn tâm zoom" : "Chọn tâm zoom"}
-              onClick={() => setSelectingZoom((value) => !value)}
-            >
-              ⌖ {selectingZoom ? "Hủy chọn" : "Chọn tâm zoom"}
-            </button>
+            <div className="zoom-drag-tip">⌖ Kéo vòng tròn để đặt tâm zoom</div>
           </div>
         </section>
 
