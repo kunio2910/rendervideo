@@ -26,6 +26,7 @@ type Scene = {
   popupOut: string;
   popupWidth?: number;
   popupHeight?: number;
+  popupVisible?: boolean;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -569,6 +570,7 @@ export default function Home() {
         popupOut: item.popupOut,
         popupWidth: item.popupWidth ?? 90,
         popupHeight: item.popupHeight ?? 255,
+        popupVisible: item.popupVisible !== false,
       })),
     }),
     [
@@ -809,13 +811,14 @@ export default function Home() {
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
-            <article
-              className="preview-card"
-              style={{
-                width: `${scene.popupWidth ?? 90}%`,
-                height: `${scene.popupHeight ?? 255}px`,
-              }}
-            >
+            {scene.popupVisible !== false && (
+              <article
+                className="preview-card"
+                style={{
+                  width: `${scene.popupWidth ?? 90}%`,
+                  height: `${scene.popupHeight ?? 255}px`,
+                }}
+              >
               {imageEnabled && (
                 <div className="photo-placeholder">
                   {isRemoteImage ? (
@@ -842,11 +845,19 @@ export default function Home() {
                 title="Kéo để phóng to hoặc thu nhỏ popup"
                 onPointerDown={startPopupResize}
               />
-            </article>
+              </article>
+            )}
           </div>
           <div className="preview-footer">
             <span><i /> Camera keyframe</span>
             <span><i /> Popup live</span>
+            <button
+              className={scene.popupVisible !== false ? "active" : ""}
+              title={scene.popupVisible !== false ? "Ẩn popup" : "Hiện popup"}
+              onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
+            >
+              {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
+            </button>
             <button
               className={selectingZoom ? "active" : ""}
               title={selectingZoom ? "Hủy chọn tâm zoom" : "Chọn tâm zoom"}
@@ -1051,7 +1062,7 @@ export default function Home() {
           <div className="track">
             <strong>Popup</strong>
             <div className="track-content grid">
-              {scenes.map((item) => (
+              {scenes.filter((item) => item.popupVisible !== false).map((item) => (
                 <button
                   key={item.id}
                   onClick={() => selectScene(item)}
@@ -1067,9 +1078,9 @@ export default function Home() {
             </div>
           </div>
           <div className="track">
-            <strong>Âm thanh</strong>
+            <strong>Thuyết minh</strong>
             <div className="track-content grid">
-              {narrationEnabled && scenes.slice(0, 2).map((item) => (
+              {narrationEnabled && scenes.map((item) => (
                 <div
                   key={item.id}
                   className="clip voice-clip"
@@ -1078,9 +1089,14 @@ export default function Home() {
                     width: `${((item.end - item.start) / projectDuration) * 100}%`,
                   }}
                 >
-                  Voice {item.number}
+                  🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="track">
+            <strong>Nhạc nền</strong>
+            <div className="track-content grid">
               <div className="clip music-clip" style={{ left: "58%", width: "42%" }}>
                 ♫ Nhạc nền
               </div>
