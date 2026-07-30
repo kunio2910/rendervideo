@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
 
 type Scene = {
   id: string;
@@ -108,6 +109,16 @@ const statusClass: Record<Scene["status"], string> = {
 const formatTime = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(4, "0")}`;
 
+const LOCAL_STORAGE_KEY = "kito-video-studio-project";
+
+type StoredProject = {
+  version: 1;
+  projectDuration: 15 | 30 | 45;
+  imageEnabled: boolean;
+  narrationEnabled: boolean;
+  scenes: Scene[];
+};
+
 export default function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
@@ -119,6 +130,11 @@ export default function Home() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "loading" | "saved" | "saving" | "offline" | "error"
+  >("loading");
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
@@ -126,6 +142,114 @@ export default function Home() {
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
   const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
+
+  const storedProject = useMemo<StoredProject>(
+    () => ({
+      version: 1,
+      projectDuration,
+      imageEnabled,
+      narrationEnabled,
+      scenes,
+    }),
+    [projectDuration, imageEnabled, narrationEnabled, scenes],
+  );
+
+  const applyStoredProject = (data: Partial<StoredProject> | null) => {
+    if (!data) return false;
+    if (Array.isArray(data.scenes) && data.scenes.length > 0) {
+      setScenes(data.scenes);
+      setSelectedId(data.scenes[0].id);
+      setPlayTime(data.scenes[0].start || 0);
+    }
+    if ([15, 30, 45].includes(Number(data.projectDuration))) {
+      setProjectDuration(data.projectDuration as 15 | 30 | 45);
+    }
+    if (typeof data.imageEnabled === "boolean") {
+      setImageEnabled(data.imageEnabled);
+    }
+    if (typeof data.narrationEnabled === "boolean") {
+      setNarrationEnabled(data.narrationEnabled);
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreProject = async () => {
+      let restoredLocally = false;
+      try {
+        const localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (localValue) {
+          restoredLocally = applyStoredProject(JSON.parse(localValue));
+          if (restoredLocally) setSaveStatus("offline");
+        }
+      } catch {
+        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+      }
+
+      try {
+        const cloudData = await loadDataFromGoogle();
+        if (!cancelled && cloudData) {
+          applyStoredProject(cloudData);
+          setSaveStatus("saved");
+          setLastSavedAt(new Date());
+        } else if (!cancelled && !restoredLocally) {
+          setSaveStatus("saved");
+        }
+      } catch {
+        if (!cancelled) setSaveStatus(restoredLocally ? "offline" : "error");
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    };
+
+    restoreProject();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    window.localStorage.setItem(
+      LOCAL_STORAGE_KEY,
+      JSON.stringify(storedProject),
+    );
+    setSaveStatus("saving");
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await saveDataToGoogle(storedProject);
+        setSaveStatus("saved");
+        setLastSavedAt(new Date());
+      } catch {
+        setSaveStatus("offline");
+      }
+    }, 1400);
+
+    return () => window.clearTimeout(timeout);
+  }, [hydrated, storedProject]);
+
+  const saveProjectNow = async () => {
+    window.localStorage.setItem(
+      LOCAL_STORAGE_KEY,
+      JSON.stringify(storedProject),
+    );
+    setSaveStatus("saving");
+    try {
+      await saveDataToGoogle(storedProject);
+      const now = new Date();
+      setSaveStatus("saved");
+      setLastSavedAt(now);
+      setToast("Đã lưu dự án lên Google Sheet");
+    } catch {
+      setSaveStatus("offline");
+      setToast("Đã lưu trên thiết bị · Google Sheet tạm thời lỗi");
+    }
+    window.setTimeout(() => setToast(""), 2800);
+  };
 
   useEffect(() => {
     if (!playing) {
@@ -291,6 +415,29 @@ export default function Home() {
           </div>
         </div>
         <div className="header-actions">
+          <div className={`save-state ${saveStatus}`}>
+            <i />
+            <span>
+              {saveStatus === "loading" && "Đang tải dữ liệu"}
+              {saveStatus === "saving" && "Đang lưu"}
+              {saveStatus === "saved" &&
+                (lastSavedAt
+                  ? `Đã lưu ${lastSavedAt.toLocaleTimeString("vi-VN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
+                  : "Đã đồng bộ")}
+              {saveStatus === "offline" && "Đã lưu trên thiết bị"}
+              {saveStatus === "error" && "Chưa thể tải dữ liệu"}
+            </span>
+          </div>
+          <button
+            className="button save-button"
+            onClick={saveProjectNow}
+            disabled={saveStatus === "loading" || saveStatus === "saving"}
+          >
+            ☁ Lưu
+          </button>
           <label className="duration-picker">
             <span>Độ dài</span>
             <select

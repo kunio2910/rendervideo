@@ -67,6 +67,34 @@ button { color: inherit; }
 .brand-mark span:nth-child(3) { height: 11px; }
 
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.save-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.save-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #aeb8c3;
+}
+.save-state.saving i, .save-state.loading i {
+  background: #e5a84d;
+  animation: save-pulse .8s infinite alternate;
+}
+.save-state.saved i { background: #4ab978; }
+.save-state.offline i { background: #ea914e; }
+.save-state.error i { background: #db5b52; }
+@keyframes save-pulse { to { opacity: .35; } }
+.save-button {
+  border-color: #b9ddc7;
+  color: #21734a;
+  background: #effaf3;
+}
+.save-button:disabled { cursor: wait; opacity: .6; transform: none; box-shadow: none; }
 .duration-picker {
   height: 36px;
   display: flex;
