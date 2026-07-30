@@ -159,6 +159,7 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [selectingZoom, setSelectingZoom] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
@@ -278,6 +279,15 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
+    if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("kito-video-studio-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -592,7 +602,7 @@ export default function Home() {
   };
 
   return (
-    <main className="studio-shell">
+    <main className="studio-shell" data-theme={theme}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
@@ -620,6 +630,14 @@ export default function Home() {
           </label>
           <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
             ＋ Clip mới
+          </button>
+          <button
+            className="button theme-toggle"
+            onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}
+            aria-label={theme === "light" ? "Chuyển sang giao diện tối" : "Chuyển sang giao diện sáng"}
+            title={theme === "light" ? "Giao diện tối" : "Giao diện sáng"}
+          >
+            {theme === "light" ? "☾" : "☀"}
           </button>
           <div className={`save-state ${saveStatus}`}>
             <i />
@@ -704,11 +722,24 @@ export default function Home() {
                 }}
               >
                 <span className="drag-dots" aria-hidden="true">⠿</span>
-                <strong>{String(item.number).padStart(2, "0")} · {item.title}</strong>
-                <small>
-                  {formatTime(item.start)}–{formatTime(item.end)} ·{" "}
-                  <i className={statusClass[item.status]}>{item.status}</i>
-                </small>
+                <span className="scene-number">{item.number}</span>
+                <span className="scene-thumb">
+                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(background)) ? (
+                    <img
+                      src={/^https?:\/\//i.test(item.image) ? item.image : background}
+                      alt=""
+                    />
+                  ) : (
+                    <b>{String(item.number).padStart(2, "0")}</b>
+                  )}
+                </span>
+                <span className="scene-meta">
+                  <strong>{item.title}</strong>
+                  <small>
+                    {formatTime(item.start)}–{formatTime(item.end)}
+                    <i className={statusClass[item.status]}>{item.status}</i>
+                  </small>
+                </span>
               </button>
             ))}
           </div>
@@ -832,6 +863,7 @@ export default function Home() {
             <span className="scene-pill">Cảnh {scene.number}</span>
           </div>
           <div className="editor-scroll">
+            <div className="editor-group-label"><span>01</span> Hình ảnh & nền</div>
             <label className="field background-field">
               <span>Background chủ đề</span>
               <div className="background-input-row">
@@ -859,6 +891,7 @@ export default function Home() {
               )}
               <small>Áp dụng xuyên suốt mọi cảnh và nằm phía sau popup.</small>
             </label>
+            <div className="editor-group-label"><span>02</span> Nội dung cảnh</div>
             <label className="field">
               <span>Tiêu đề</span>
               <input
@@ -926,6 +959,7 @@ export default function Home() {
                 </select>
               </label>
             </div>
+            <div className="editor-group-label"><span>03</span> Âm thanh</div>
             <label className="field audio-field">
               <span>File âm thanh thuyết minh</span>
               <div className="audio-input-row">
@@ -956,6 +990,7 @@ export default function Home() {
               )}
               <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
             </label>
+            <div className="editor-group-label"><span>04</span> Chuyển động</div>
             <label className="field range-field">
               <span>Thời gian popup: <b>{scene.popupDuration.toFixed(1)} giây</b></span>
               <input
