@@ -119,9 +119,23 @@ type StoredProject = {
   scenes: Scene[];
 };
 
+type ProjectSnapshot = Omit<StoredProject, "version"> & {
+  id: string;
+  title: string;
+};
+
+type StoredWorkspace = {
+  version: 2;
+  activeProjectId: string;
+  projects: ProjectSnapshot[];
+};
+
 export default function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
+  const [projectId, setProjectId] = useState("david-journey");
+  const [projectTitle, setProjectTitle] = useState("Hành trình Vua Đa-vít");
+  const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectDuration, setProjectDuration] = useState<15 | 30 | 45>(15);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -135,6 +149,9 @@ export default function Home() {
     "loading" | "saved" | "saving" | "offline" | "error"
   >("loading");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
@@ -143,32 +160,62 @@ export default function Home() {
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
   const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
 
-  const storedProject = useMemo<StoredProject>(
+  const currentProject = useMemo<ProjectSnapshot>(
     () => ({
-      version: 1,
+      id: projectId,
+      title: projectTitle,
       projectDuration,
       imageEnabled,
       narrationEnabled,
       scenes,
     }),
-    [projectDuration, imageEnabled, narrationEnabled, scenes],
+    [projectId, projectTitle, projectDuration, imageEnabled, narrationEnabled, scenes],
   );
 
-  const applyStoredProject = (data: Partial<StoredProject> | null) => {
+  const storedProject = useMemo<StoredWorkspace>(() => ({
+    version: 2,
+    activeProjectId: projectId,
+    projects: [...projects.filter((item) => item.id !== projectId), currentProject],
+  }), [projects, projectId, currentProject]);
+
+  const openProject = (project: ProjectSnapshot) => {
+    setProjectId(project.id);
+    setProjectTitle(project.title);
+    setProjectDuration(project.projectDuration);
+    setImageEnabled(project.imageEnabled);
+    setNarrationEnabled(project.narrationEnabled);
+    setScenes(project.scenes);
+    setSelectedId(project.scenes[0]?.id ?? "");
+    setPlayTime(project.scenes[0]?.start ?? 0);
+    setPlaying(false);
+  };
+
+  const applyStoredProject = (
+    data: Partial<StoredWorkspace> | Partial<StoredProject> | null,
+  ) => {
     if (!data) return false;
+    if (data.version === 2 && Array.isArray(data.projects) && data.projects.length > 0) {
+      const restoredProjects = data.projects as ProjectSnapshot[];
+      setProjects(restoredProjects);
+      openProject(
+        restoredProjects.find((item) => item.id === data.activeProjectId) ??
+          restoredProjects[0],
+      );
+      return true;
+    }
     if (Array.isArray(data.scenes) && data.scenes.length > 0) {
-      setScenes(data.scenes);
-      setSelectedId(data.scenes[0].id);
-      setPlayTime(data.scenes[0].start || 0);
-    }
-    if ([15, 30, 45].includes(Number(data.projectDuration))) {
-      setProjectDuration(data.projectDuration as 15 | 30 | 45);
-    }
-    if (typeof data.imageEnabled === "boolean") {
-      setImageEnabled(data.imageEnabled);
-    }
-    if (typeof data.narrationEnabled === "boolean") {
-      setNarrationEnabled(data.narrationEnabled);
+      const migrated: ProjectSnapshot = {
+        id: "david-journey",
+        title: "Hành trình Vua Đa-vít",
+        projectDuration: [15, 30, 45].includes(Number(data.projectDuration))
+          ? (data.projectDuration as 15 | 30 | 45)
+          : 15,
+        imageEnabled: data.imageEnabled ?? true,
+        narrationEnabled: data.narrationEnabled ?? true,
+        scenes: data.scenes,
+      };
+      setProjects([migrated]);
+      openProject(migrated);
     }
     return true;
   };
@@ -328,6 +375,54 @@ export default function Home() {
     );
   };
 
+  const switchProject = (nextId: string) => {
+    const nextLibrary = [
+      ...projects.filter((item) => item.id !== projectId),
+      currentProject,
+    ];
+    setProjects(nextLibrary);
+    const target = nextLibrary.find((item) => item.id === nextId);
+    if (target) openProject(target);
+  };
+
+  const createProject = () => {
+    const title = newProjectTitle.trim() || `Chủ đề ${projects.length + 2}`;
+    const id = `project-${Date.now()}`;
+    const blankScene: Scene = {
+      ...initialScenes[0],
+      id: `${id}-scene-01`,
+      number: 1,
+      title: "Cảnh mở đầu",
+      location: "",
+      reference: "",
+      popup: "Nhập nội dung popup cho cảnh đầu tiên.",
+      narration: "Nhập lời thuyết minh cho cảnh đầu tiên.",
+      image: "",
+      start: 0,
+      end: 5,
+      voiceFile: "",
+      status: "Nháp",
+    };
+    const nextProject: ProjectSnapshot = {
+      id,
+      title,
+      projectDuration: 15,
+      imageEnabled: true,
+      narrationEnabled: true,
+      scenes: [blankScene],
+    };
+    setProjects((items) => [
+      ...items.filter((item) => item.id !== projectId),
+      currentProject,
+      nextProject,
+    ]);
+    openProject(nextProject);
+    setNewProjectTitle("");
+    setShowNewProject(false);
+    setToast(`Đã tạo chủ đề “${title}”`);
+    window.setTimeout(() => setToast(""), 2600);
+  };
+
   const addScene = () => {
     const last = scenes.at(-1)!;
     const number = scenes.length + 1;
@@ -360,7 +455,7 @@ export default function Home() {
 
   const exportPayload = useMemo(
     () => ({
-      title: "Hành trình Vua Đa-vít",
+      title: projectTitle,
       duration: projectDuration,
       resolution: "1080x1920",
       scenes: scenes.map((item) => ({
@@ -383,7 +478,7 @@ export default function Home() {
         popupOut: item.popupOut,
       })),
     }),
-    [scenes, imageEnabled, narrationEnabled, projectDuration],
+    [scenes, imageEnabled, narrationEnabled, projectDuration, projectTitle],
   );
 
   const exportJson = () => {
@@ -393,7 +488,12 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "david-journey.json";
+    anchor.download = `${projectTitle
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "video-project"}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     setToast("JSON hợp lệ · Đã tải xuống");
@@ -411,10 +511,25 @@ export default function Home() {
           </div>
           <div>
             <h1>Kito Video Studio</h1>
-            <p>Hành trình Vua Đa-vít · {projectDuration} giây · 9:16</p>
+            <p>{projectTitle} · {projectDuration} giây · 9:16</p>
           </div>
         </div>
         <div className="header-actions">
+          <label className="project-picker">
+            <span>Chủ đề</span>
+            <select
+              aria-label="Chọn chủ đề"
+              value={projectId}
+              onChange={(event) => switchProject(event.target.value)}
+            >
+              {[...projects.filter((item) => item.id !== projectId), currentProject].map(
+                (item) => <option key={item.id} value={item.id}>{item.title}</option>,
+              )}
+            </select>
+          </label>
+          <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
+            ＋ Clip mới
+          </button>
           <div className={`save-state ${saveStatus}`}>
             <i />
             <span>
@@ -654,6 +769,36 @@ export default function Home() {
                 </select>
               </label>
             </div>
+            <label className="field audio-field">
+              <span>File âm thanh thuyết minh</span>
+              <div className="audio-input-row">
+                <input
+                  value={scene.voiceFile}
+                  placeholder="audio/milestone-1.mp3"
+                  onChange={(event) => updateScene("voiceFile", event.target.value)}
+                />
+                <label className="file-picker">
+                  Chọn file
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      updateScene("voiceFile", `audio/${file.name}`);
+                      setAudioPreview((items) => {
+                        if (items[scene.id]) URL.revokeObjectURL(items[scene.id]);
+                        return { ...items, [scene.id]: URL.createObjectURL(file) };
+                      });
+                    }}
+                  />
+                </label>
+              </div>
+              {audioPreview[scene.id] && (
+                <audio className="audio-preview" controls src={audioPreview[scene.id]} />
+              )}
+              <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
+            </label>
             <label className="field range-field">
               <span>Thời gian popup: <b>{scene.popupDuration.toFixed(1)} giây</b></span>
               <input
@@ -755,6 +900,31 @@ export default function Home() {
         </div>
       </section>
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
+      {showNewProject && (
+        <div className="modal-backdrop" onMouseDown={() => setShowNewProject(false)}>
+          <div className="project-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="modal-kicker">CLIP MỚI</span>
+            <h2>Tạo chủ đề mới</h2>
+            <p>Clip hiện tại vẫn được lưu. Chủ đề mới bắt đầu với một cảnh trống.</p>
+            <label className="field">
+              <span>Tên chủ đề</span>
+              <input
+                autoFocus
+                value={newProjectTitle}
+                placeholder="Ví dụ: Hành trình Môsê"
+                onChange={(event) => setNewProjectTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") createProject();
+                }}
+              />
+            </label>
+            <div className="modal-actions">
+              <button className="button ghost" onClick={() => setShowNewProject(false)}>Hủy</button>
+              <button className="button primary" onClick={createProject}>Tạo và biên soạn</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
