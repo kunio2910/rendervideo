@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Scene = {
   id: string;
@@ -111,15 +111,92 @@ const formatTime = (value: number) =>
 export default function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
+  const [projectDuration, setProjectDuration] = useState<15 | 30 | 45>(15);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [playing, setPlaying] = useState(false);
+  const [playTime, setPlayTime] = useState(0);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
+  const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
+
+  useEffect(() => {
+    if (!playing) {
+      if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
+      return;
+    }
+
+    const startedAt = performance.now() - playTime * 1000;
+    const tick = () => {
+      const nextTime = (performance.now() - startedAt) / 1000;
+      if (nextTime >= projectDuration) {
+        setPlayTime(projectDuration);
+        setPlaying(false);
+        return;
+      }
+      setPlayTime(nextTime);
+      const activeScene = scenes.find(
+        (item) => nextTime >= item.start && nextTime < item.end,
+      );
+      if (activeScene) setSelectedId(activeScene.id);
+      animationFrame.current = requestAnimationFrame(tick);
+    };
+    animationFrame.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
+    };
+  }, [playing, projectDuration, scenes]);
+
+  const selectScene = (item: Scene) => {
+    setSelectedId(item.id);
+    setPlayTime(item.start);
+  };
+
+  const togglePlayback = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    if (playTime >= projectDuration) setPlayTime(0);
+    setPlaying(true);
+  };
+
+  const reorderScenes = (targetId: string) => {
+    if (!draggedId || draggedId === targetId) {
+      setDraggedId(null);
+      setDragOverId(null);
+      return;
+    }
+    setScenes((items) => {
+      const fromIndex = items.findIndex((item) => item.id === draggedId);
+      const toIndex = items.findIndex((item) => item.id === targetId);
+      const reordered = [...items];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+      let cursor = 0;
+      return reordered.map((item, index) => {
+        const duration = item.end - item.start;
+        const normalized = {
+          ...item,
+          number: index + 1,
+          start: cursor,
+          end: cursor + duration,
+        };
+        cursor += duration;
+        return normalized;
+      });
+    });
+    setDraggedId(null);
+    setDragOverId(null);
+  };
 
   const updateScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
     setScenes((items) =>
@@ -160,7 +237,7 @@ export default function Home() {
   const exportPayload = useMemo(
     () => ({
       title: "Hành trình Vua Đa-vít",
-      duration: 15,
+      duration: projectDuration,
       resolution: "1080x1920",
       scenes: scenes.map((item) => ({
         milestone: item.number,
@@ -182,7 +259,7 @@ export default function Home() {
         popupOut: item.popupOut,
       })),
     }),
-    [scenes, imageEnabled, narrationEnabled],
+    [scenes, imageEnabled, narrationEnabled, projectDuration],
   );
 
   const exportJson = () => {
@@ -210,11 +287,27 @@ export default function Home() {
           </div>
           <div>
             <h1>Kito Video Studio</h1>
-            <p>Hành trình Vua Đa-vít · 15 giây · 9:16</p>
+            <p>Hành trình Vua Đa-vít · {projectDuration} giây · 9:16</p>
           </div>
         </div>
         <div className="header-actions">
-          <button className="button ghost" onClick={() => setPlaying(!playing)}>
+          <label className="duration-picker">
+            <span>Độ dài</span>
+            <select
+              aria-label="Độ dài clip"
+              value={projectDuration}
+              onChange={(event) => {
+                const duration = Number(event.target.value) as 15 | 30 | 45;
+                setProjectDuration(duration);
+                setPlayTime((time) => Math.min(time, duration));
+              }}
+            >
+              <option value={15}>15s</option>
+              <option value={30}>30s</option>
+              <option value={45}>45s</option>
+            </select>
+          </label>
+          <button className="button ghost" onClick={togglePlayback}>
             <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
             {playing ? "Tạm dừng" : "Xem thử"}
           </button>
@@ -234,8 +327,28 @@ export default function Home() {
             {scenes.map((item) => (
               <button
                 key={item.id}
-                className={`scene-item ${item.id === selectedId ? "active" : ""}`}
-                onClick={() => setSelectedId(item.id)}
+                draggable
+                className={`scene-item ${item.id === selectedId ? "active" : ""} ${item.id === dragOverId ? "drag-over" : ""}`}
+                onClick={() => selectScene(item)}
+                onDragStart={(event) => {
+                  setDraggedId(item.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", item.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverId(item.id);
+                }}
+                onDragLeave={() => setDragOverId(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  reorderScenes(item.id);
+                }}
+                onDragEnd={() => {
+                  setDraggedId(null);
+                  setDragOverId(null);
+                }}
               >
                 <span className="drag-dots" aria-hidden="true">⠿</span>
                 <strong>{String(item.number).padStart(2, "0")} · {item.title}</strong>
@@ -289,15 +402,21 @@ export default function Home() {
             <div className="map-pin pin-three">3</div>
             <div className="map-marker">⌖</div>
             <div className="preview-progress">
-              <span style={{ width: `${(scene.end / Math.max(totalDuration, 15)) * 100}%` }} />
+              <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
             <article className="preview-card">
               {imageEnabled && (
                 <div className="photo-placeholder">
-                  <div className="sun" />
-                  <div className="hill hill-a" />
-                  <div className="hill hill-b" />
-                  <span>Ảnh minh họa 16:9</span>
+                  {isRemoteImage ? (
+                    <img src={scene.image} alt={`Ảnh minh họa ${scene.title}`} />
+                  ) : (
+                    <>
+                      <div className="sun" />
+                      <div className="hill hill-a" />
+                      <div className="hill hill-b" />
+                      <span>Nhập URL ảnh để xem trước</span>
+                    </>
+                  )}
                 </div>
               )}
               <div className="card-content">
@@ -364,9 +483,17 @@ export default function Home() {
               <label className="field">
                 <span>Ảnh popup</span>
                 <input
+                  type="url"
+                  placeholder="https://example.com/image.jpg"
                   value={scene.image}
                   onChange={(event) => updateScene("image", event.target.value)}
                 />
+                {isRemoteImage && (
+                  <div className="image-url-preview">
+                    <img src={scene.image} alt="Xem trước ảnh popup" />
+                    <span>Đang hiển thị ảnh từ URL</span>
+                  </div>
+                )}
               </label>
               <label className="field">
                 <span>Giọng đọc</span>
@@ -409,19 +536,23 @@ export default function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>15 giây · {scenes.length} cảnh · 30 FPS</span>
+            <span>{projectDuration} giây · {scenes.length} cảnh · 30 FPS</span>
           </div>
-          <div className={`duration-status ${totalDuration > 15 ? "has-error" : ""}`}>
-            <span>{totalDuration > 15 ? "!" : "✓"}</span>
-            {totalDuration > 15
-              ? `Vượt giới hạn ${(totalDuration - 15).toFixed(1)} giây`
+          <div className={`duration-status ${totalDuration > projectDuration ? "has-error" : ""}`}>
+            <span>{totalDuration > projectDuration ? "!" : "✓"}</span>
+            {totalDuration > projectDuration
+              ? `Vượt giới hạn ${(totalDuration - projectDuration).toFixed(1)} giây`
               : `Tổng: ${totalDuration.toFixed(1)} giây · Không có lỗi`}
           </div>
         </div>
         <div className="timeline">
           <div className="ruler-labels">
             <span />
-            {Array.from({ length: 16 }, (_, index) => <i key={index}>{index}s</i>)}
+            <div className="ruler-scale">
+              {Array.from({ length: 6 }, (_, index) => (
+                <i key={index}>{(projectDuration / 5) * index}s</i>
+              ))}
+            </div>
           </div>
           <div className="track">
             <strong>Camera</strong>
@@ -439,11 +570,11 @@ export default function Home() {
               {scenes.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => selectScene(item)}
                   className={`clip popup-clip ${item.id === selectedId ? "selected" : ""}`}
                   style={{
-                    left: `${(item.start / 15) * 100}%`,
-                    width: `${Math.min((item.popupDuration / 15) * 100, 100 - (item.start / 15) * 100)}%`,
+                    left: `${(item.start / projectDuration) * 100}%`,
+                    width: `${Math.min((item.popupDuration / projectDuration) * 100, 100 - (item.start / projectDuration) * 100)}%`,
                   }}
                 >
                   Popup {item.number} · {item.popupDuration}s
@@ -459,8 +590,8 @@ export default function Home() {
                   key={item.id}
                   className="clip voice-clip"
                   style={{
-                    left: `${(item.start / 15) * 100}%`,
-                    width: `${((item.end - item.start) / 15) * 100}%`,
+                    left: `${(item.start / projectDuration) * 100}%`,
+                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
                   }}
                 >
                   Voice {item.number}
@@ -471,8 +602,8 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <div className="playhead" style={{ left: `${8.2 + (scene.start / 15) * 91.8}%` }}>
-            <span>{scene.start.toFixed(1)}s</span>
+          <div className="playhead" style={{ left: `${8.2 + (playTime / projectDuration) * 91.8}%` }}>
+            <span>{playTime.toFixed(1)}s</span>
           </div>
         </div>
       </section>
