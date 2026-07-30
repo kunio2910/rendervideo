@@ -158,6 +158,7 @@ export default function Home() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
+  const [selectingZoom, setSelectingZoom] = useState(false);
   const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
@@ -512,6 +513,25 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const chooseZoomCenter = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!selectingZoom) return;
+    if ((event.target as HTMLElement).closest(".preview-card")) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const centerX = Math.min(
+      100,
+      Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100),
+    );
+    const centerY = Math.min(
+      100,
+      Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100),
+    );
+    updateScene("centerX", Number(centerX.toFixed(1)));
+    updateScene("centerY", Number(centerY.toFixed(1)));
+    setSelectingZoom(false);
+    setToast(`Đã chọn tâm zoom: ${centerX.toFixed(1)}% · ${centerY.toFixed(1)}%`);
+    window.setTimeout(() => setToast(""), 2600);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
@@ -724,24 +744,37 @@ export default function Home() {
             <h2>Xem trước cảnh</h2>
             <span className="time-pill">{formatTime(scene.start)}</span>
           </div>
-          <div className={`phone-preview ${playing ? "is-playing" : ""}`}>
+          <div
+            className={`phone-preview ${playing ? "is-playing" : ""} ${selectingZoom ? "selecting-zoom" : ""}`}
+            onPointerDown={chooseZoomCenter}
+          >
             {backgroundVisible && background.trim() && (
               <img
                 className="project-background"
                 src={background}
                 alt=""
                 aria-hidden="true"
+                style={{
+                  transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
+                  transform: playing ? `scale(${scene.zoom})` : "scale(1)",
+                  transitionDuration: `${scene.zoomInDuration}s`,
+                }}
               />
             )}
             <div className="map-label">BÊLEM</div>
-            <div className="map-road road-one" />
-            <div className="map-road road-two" />
-            <div className="map-road road-three" />
-            <div className="route-line" />
             <div className="map-pin pin-one">1</div>
             <div className="map-pin pin-two">2</div>
             <div className="map-pin pin-three">3</div>
-            <div className="map-marker">⌖</div>
+            <div
+              className="zoom-center-marker"
+              style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
+              title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}%`}
+            >
+              <span />
+            </div>
+            {selectingZoom && (
+              <div className="zoom-select-hint">Bấm vào cột mốc muốn zoom</div>
+            )}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
@@ -783,7 +816,13 @@ export default function Home() {
           <div className="preview-footer">
             <span><i /> Camera keyframe</span>
             <span><i /> Popup live</span>
-            <button title="Chọn tâm zoom">⌖ Chọn tâm zoom</button>
+            <button
+              className={selectingZoom ? "active" : ""}
+              title={selectingZoom ? "Hủy chọn tâm zoom" : "Chọn tâm zoom"}
+              onClick={() => setSelectingZoom((value) => !value)}
+            >
+              ⌖ {selectingZoom ? "Hủy chọn" : "Chọn tâm zoom"}
+            </button>
           </div>
         </section>
 
