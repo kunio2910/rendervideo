@@ -443,7 +443,8 @@ export default function Home() {
       setPlaying(false);
       return;
     }
-    if (playTime >= projectDuration) setPlayTime(0);
+    setPlayTime(0);
+    if (scenes[0]) setSelectedId(scenes[0].id);
     setPlaying(true);
   };
 
@@ -920,7 +921,12 @@ export default function Home() {
                 }}
               />
             )}
-            <div className="map-label">BÊLEM</div>
+            <div className="map-label">{scene.location || `CẢNH ${scene.number}`}</div>
+            {playing && (
+              <div className="playback-live">
+                <i /> ĐANG PHÁT · CẢNH {scene.number}
+              </div>
+            )}
             {!playing && (
               <div
                 className="zoom-center-marker"

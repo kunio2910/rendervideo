@@ -1046,6 +1046,73 @@ button { color: inherit; }
   box-shadow: 0 0 0 3px rgba(8,124,255,.16), 0 22px 55px rgba(20,42,68,.2);
 }
 
+/* Readability and balanced editor layout */
+body { font-size: 14px; }
+.workspace {
+  height: 830px;
+  grid-template-columns: 320px minmax(560px, 1fr) 400px;
+}
+.editor-scroll { max-height: 760px; }
+.preview-panel { padding-inline: 18px; }
+.phone-preview {
+  width: min(100%, 480px);
+  height: 670px;
+}
+.preview-footer { width: min(100%, 480px); }
+.panel-heading h2,
+.timeline-heading h2 { font-size: 14px; }
+.panel-heading button,
+.button { font-size: 12px; }
+.scene-meta strong { font-size: 12px; }
+.scene-meta small { font-size: 10px; }
+.scene-number { font-size: 11px; }
+.field > span { font-size: 12px; }
+.field input:not([type="range"]),
+.field textarea,
+.field select {
+  padding: 10px 11px;
+  font-size: 12px;
+}
+.field > small { font-size: 10px; }
+.editor-group-label { font-size: 12px; }
+.card-content h3 { font-size: 15px; }
+.card-content p { font-size: 11px; }
+.track > strong { font-size: 11px; }
+.clip { font-size: 10px; }
+.ruler-scale i { font-size: 10px; }
+.preview-footer button { font-size: 10px; }
+.playback-live {
+  position: absolute;
+  z-index: 9;
+  left: 14px;
+  top: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: rgba(210,42,48,.9);
+  color: white;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  box-shadow: 0 7px 18px rgba(120,10,18,.25);
+}
+.playback-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: white;
+  animation: playback-live-pulse .7s infinite alternate;
+}
+@keyframes playback-live-pulse { to { opacity: .35; } }
+
+@media (max-width: 1400px) {
+  .workspace { grid-template-columns: 290px minmax(520px, 1fr) 380px; }
+  .phone-preview { width: min(100%, 445px); height: 650px; }
+  .preview-footer { width: min(100%, 445px); }
+}
+
 @media (max-width: 1400px) {
   .phone-preview { width: min(100%, 425px); height: 640px; }
   .preview-footer { width: min(100%, 425px); }
