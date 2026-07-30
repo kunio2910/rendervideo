@@ -163,6 +163,7 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const animationFrame = useRef<number | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
@@ -290,6 +291,31 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!backgroundVisible || !background.trim()) return;
+      setMapPreviewZoom((items) => {
+        const currentZoom = items[selectedId] ?? 1;
+        const direction = event.deltaY < 0 ? 0.1 : -0.1;
+        const nextZoom = Number(
+          Math.min(4, Math.max(1, currentZoom + direction)).toFixed(1),
+        );
+        setScenes((sceneItems) =>
+          sceneItems.map((item) =>
+            item.id === selectedId ? { ...item, zoom: nextZoom } : item,
+          ),
+        );
+        return { ...items, [selectedId]: nextZoom };
+      });
+    };
+    preview.addEventListener("wheel", handleWheel, { passive: false });
+    return () => preview.removeEventListener("wheel", handleWheel);
+  }, [selectedId, backgroundVisible, background]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -489,6 +515,36 @@ export default function Home() {
     setSelectedId(next.id);
   };
 
+  const deleteScene = () => {
+    if (scenes.length <= 1) {
+      setToast("Mỗi clip cần có ít nhất một cảnh");
+      window.setTimeout(() => setToast(""), 2400);
+      return;
+    }
+    if (!window.confirm(`Xóa cảnh “${scene.title}”?`)) return;
+    const removedIndex = scenes.findIndex((item) => item.id === selectedId);
+    let cursor = 0;
+    const remaining = scenes
+      .filter((item) => item.id !== selectedId)
+      .map((item, index) => {
+        const duration = item.end - item.start;
+        const normalized = {
+          ...item,
+          number: index + 1,
+          start: cursor,
+          end: cursor + duration,
+        };
+        cursor += duration;
+        return normalized;
+      });
+    const nextScene = remaining[Math.min(removedIndex, remaining.length - 1)];
+    setScenes(remaining);
+    setSelectedId(nextScene.id);
+    setPlayTime(nextScene.start);
+    setToast("Đã xóa cảnh");
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
   const startPopupResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -561,16 +617,6 @@ export default function Home() {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
-  };
-
-  const zoomMapWithWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (!backgroundVisible || !background.trim()) return;
-    const currentZoom = mapPreviewZoom[scene.id] ?? 1;
-    const direction = event.deltaY < 0 ? 0.1 : -0.1;
-    const nextZoom = Number(Math.min(4, Math.max(1, currentZoom + direction)).toFixed(1));
-    setMapPreviewZoom((items) => ({ ...items, [scene.id]: nextZoom }));
-    updateScene("zoom", nextZoom);
   };
 
   const exportPayload = useMemo(
@@ -724,7 +770,10 @@ export default function Home() {
         <aside className="scene-panel">
           <div className="panel-heading">
             <h2>Cảnh</h2>
-            <button onClick={addScene}>＋ Thêm</button>
+            <div className="scene-heading-actions">
+              <button className="delete-scene-button" onClick={deleteScene}>⌫ Xóa</button>
+              <button onClick={addScene}>＋ Thêm</button>
+            </div>
           </div>
           <div className="scene-list">
             {scenes.map((item) => (
@@ -808,8 +857,8 @@ export default function Home() {
             <span className="time-pill">{formatTime(scene.start)}</span>
           </div>
           <div
+            ref={previewRef}
             className={`phone-preview ${playing ? "is-playing" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
-            onWheel={zoomMapWithWheel}
           >
             {backgroundVisible && background.trim() && (
               <img
@@ -887,7 +936,6 @@ export default function Home() {
             >
               {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
             </button>
-            <div className="zoom-drag-tip">⌖ Kéo vòng tròn để đặt tâm zoom</div>
           </div>
         </section>
 

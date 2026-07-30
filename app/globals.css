@@ -993,6 +993,47 @@ button { color: inherit; }
   pointer-events: none;
 }
 
+.workspace {
+  grid-template-columns: 330px minmax(500px, 600px) minmax(440px, 1fr);
+}
+.preview-panel { padding-inline: 20px; }
+.scene-heading-actions { display: flex; align-items: center; gap: 6px; }
+.panel-heading .delete-scene-button {
+  color: #d1514a;
+  padding: 4px 7px;
+  border-radius: 6px;
+}
+.panel-heading .delete-scene-button:hover { background: #fff0ee; color: #b6332c; }
+.preview-footer {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 460px);
+  min-height: 44px;
+  margin: 10px auto 0;
+  padding: 7px 9px;
+  background: var(--panel-strong);
+  color: var(--studio-ink);
+  border: 1px solid var(--studio-line);
+  backdrop-filter: none;
+}
+.preview-footer button {
+  color: var(--studio-ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--studio-line);
+}
+.preview-footer button.active {
+  color: white;
+  background: #087cff;
+  border-color: #087cff;
+}
+.phone-preview { overscroll-behavior: contain; }
+.studio-shell[data-theme="dark"] .panel-heading .delete-scene-button:hover { background: #3a2024; }
+
+@media (max-width: 1400px) {
+  .workspace { grid-template-columns: 300px 520px minmax(380px, 1fr); }
+  .preview-panel { padding-inline: 14px; }
+}
+
 @media (max-width: 1400px) {
   .phone-preview { width: min(100%, 425px); height: 640px; }
   .preview-footer { width: min(100%, 425px); }
