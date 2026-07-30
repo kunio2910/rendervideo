@@ -1034,6 +1034,18 @@ button { color: inherit; }
   .preview-panel { padding-inline: 14px; }
 }
 
+.playback-popup {
+  animation: popup-playback-in .32s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes popup-playback-in {
+  from { opacity: 0; transform: translateY(22px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.phone-preview.is-playing {
+  cursor: default;
+  box-shadow: 0 0 0 3px rgba(8,124,255,.16), 0 22px 55px rgba(20,42,68,.2);
+}
+
 @media (max-width: 1400px) {
   .phone-preview { width: min(100%, 425px); height: 640px; }
   .preview-footer { width: min(100%, 425px); }

@@ -164,12 +164,40 @@ export default function Home() {
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const narrationAudio = useRef<HTMLAudioElement | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
   const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
+  const sceneDuration = Math.max(0.1, scene.end - scene.start);
+  const sceneLocalTime = Math.min(
+    sceneDuration,
+    Math.max(0, playTime - scene.start),
+  );
+  const editingMapScale = mapPreviewZoom[scene.id] ?? 1;
+  const playbackMapScale = (() => {
+    if (!playing) return editingMapScale;
+    if (scene.zoomInDuration > 0 && sceneLocalTime < scene.zoomInDuration) {
+      const progress = sceneLocalTime / scene.zoomInDuration;
+      return 1 + (scene.zoom - 1) * progress;
+    }
+    const zoomOutStart = sceneDuration - scene.zoomOutDuration;
+    if (scene.zoomOutDuration > 0 && sceneLocalTime > zoomOutStart) {
+      const progress = Math.min(
+        1,
+        (sceneLocalTime - zoomOutStart) / scene.zoomOutDuration,
+      );
+      return scene.zoom - (scene.zoom - 1) * progress;
+    }
+    return scene.zoom;
+  })();
+  const popupPlaybackVisible =
+    scene.popupVisible !== false &&
+    (!playing ||
+      (sceneLocalTime >= scene.zoomInDuration &&
+        sceneLocalTime <= scene.zoomInDuration + scene.popupDuration));
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -298,7 +326,7 @@ export default function Home() {
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!backgroundVisible || !background.trim()) return;
+      if (playing || !backgroundVisible || !background.trim()) return;
       setMapPreviewZoom((items) => {
         const currentZoom = items[selectedId] ?? 1;
         const direction = event.deltaY < 0 ? 0.1 : -0.1;
@@ -315,7 +343,7 @@ export default function Home() {
     };
     preview.addEventListener("wheel", handleWheel, { passive: false });
     return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, backgroundVisible, background]);
+  }, [selectedId, backgroundVisible, background, playing]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -385,6 +413,25 @@ export default function Home() {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
   }, [playing, projectDuration, scenes]);
+
+  useEffect(() => {
+    narrationAudio.current?.pause();
+    narrationAudio.current = null;
+    if (!playing || !narrationEnabled) return;
+    const source = audioPreview[scene.id] || scene.voiceFile.trim();
+    if (!source) return;
+    const audio = new Audio(source);
+    narrationAudio.current = audio;
+    audio.volume = 0.95;
+    audio.currentTime = Math.max(0, playTime - scene.start);
+    void audio.play().catch(() => {
+      // A local path that has not been uploaded is previewed silently.
+    });
+    return () => {
+      audio.pause();
+      if (narrationAudio.current === audio) narrationAudio.current = null;
+    };
+  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile]);
 
   const selectScene = (item: Scene) => {
     setSelectedId(item.id);
@@ -868,30 +915,32 @@ export default function Home() {
                 aria-hidden="true"
                 style={{
                   transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                  transform: `scale(${playing ? scene.zoom : (mapPreviewZoom[scene.id] ?? 1)})`,
-                  transitionDuration: `${scene.zoomInDuration}s`,
+                  transform: `scale(${playbackMapScale})`,
+                  transitionDuration: playing ? "80ms" : `${scene.zoomInDuration}s`,
                 }}
               />
             )}
             <div className="map-label">BÊLEM</div>
-            <div
-              className="zoom-center-marker"
-              style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
-              title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}%`}
-              onPointerDown={startZoomCenterDrag}
-            >
-              <span />
-            </div>
+            {!playing && (
+              <div
+                className="zoom-center-marker"
+                style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
+                title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}%`}
+                onPointerDown={startZoomCenterDrag}
+              >
+                <span />
+              </div>
+            )}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
             <div className="map-zoom-badge">
-              {Math.round((playing ? scene.zoom : (mapPreviewZoom[scene.id] ?? 1)) * 100)}%
-              <small>Lăn chuột để zoom</small>
+              {Math.round(playbackMapScale * 100)}%
+              <small>{playing ? `Đang phát · ${sceneLocalTime.toFixed(1)}s` : "Lăn chuột để zoom"}</small>
             </div>
-            {scene.popupVisible !== false && (
+            {popupPlaybackVisible && (
               <article
-                className="preview-card"
+                className={`preview-card ${playing ? "playback-popup" : ""}`}
                 style={{
                   width: `${scene.popupWidth ?? 90}%`,
                   height: `${scene.popupHeight ?? 255}px`,
