@@ -937,3 +937,40 @@ button { color: inherit; }
   .project-picker select { max-width: 110px; }
   .workspace { grid-template-columns: 240px minmax(450px, 1fr) 335px; }
 }
+
+/* Larger interactive map preview */
+.workspace { height: 760px; }
+.phone-preview {
+  width: min(100%, 460px);
+  height: 660px;
+}
+.preview-footer { width: min(100%, 460px); }
+.editor-scroll { max-height: 690px; }
+.map-zoom-badge {
+  position: absolute;
+  z-index: 7;
+  right: 14px;
+  top: 38px;
+  display: grid;
+  gap: 1px;
+  min-width: 92px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 8px;
+  background: rgba(7,18,31,.72);
+  color: white;
+  text-align: right;
+  font: 700 10px var(--font-mono);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.map-zoom-badge small {
+  color: rgba(255,255,255,.7);
+  font: 400 7px var(--font-vietnam);
+}
+.phone-preview:not(.selecting-zoom) { cursor: zoom-in; }
+
+@media (max-width: 1400px) {
+  .phone-preview { width: min(100%, 425px); height: 640px; }
+  .preview-footer { width: min(100%, 425px); }
+}

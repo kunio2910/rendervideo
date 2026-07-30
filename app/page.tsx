@@ -161,6 +161,7 @@ export default function Home() {
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [selectingZoom, setSelectingZoom] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const animationFrame = useRef<number | null>(null);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
@@ -543,6 +544,16 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
+  const zoomMapWithWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!backgroundVisible || !background.trim()) return;
+    const currentZoom = mapPreviewZoom[scene.id] ?? 1;
+    const direction = event.deltaY < 0 ? 0.1 : -0.1;
+    const nextZoom = Number(Math.min(4, Math.max(1, currentZoom + direction)).toFixed(1));
+    setMapPreviewZoom((items) => ({ ...items, [scene.id]: nextZoom }));
+    updateScene("zoom", nextZoom);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
@@ -780,6 +791,7 @@ export default function Home() {
           <div
             className={`phone-preview ${playing ? "is-playing" : ""} ${selectingZoom ? "selecting-zoom" : ""}`}
             onPointerDown={chooseZoomCenter}
+            onWheel={zoomMapWithWheel}
           >
             {backgroundVisible && background.trim() && (
               <img
@@ -789,15 +801,12 @@ export default function Home() {
                 aria-hidden="true"
                 style={{
                   transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                  transform: playing ? `scale(${scene.zoom})` : "scale(1)",
+                  transform: `scale(${playing ? scene.zoom : (mapPreviewZoom[scene.id] ?? 1)})`,
                   transitionDuration: `${scene.zoomInDuration}s`,
                 }}
               />
             )}
             <div className="map-label">BÊLEM</div>
-            <div className="map-pin pin-one">1</div>
-            <div className="map-pin pin-two">2</div>
-            <div className="map-pin pin-three">3</div>
             <div
               className="zoom-center-marker"
               style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
@@ -810,6 +819,10 @@ export default function Home() {
             )}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
+            </div>
+            <div className="map-zoom-badge">
+              {Math.round((playing ? scene.zoom : (mapPreviewZoom[scene.id] ?? 1)) * 100)}%
+              <small>Lăn chuột để zoom</small>
             </div>
             {scene.popupVisible !== false && (
               <article
