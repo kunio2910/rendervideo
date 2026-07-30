@@ -193,11 +193,20 @@ export default function Home() {
     }
     return scene.zoom;
   })();
+  const popupStartTime = scene.zoomInDuration;
+  const popupEndTime = Math.min(sceneDuration, popupStartTime + scene.popupDuration);
+  const popupTransitionDuration = Math.min(0.65, scene.popupDuration / 3);
+  const popupPlaybackPhase = !playing
+    ? "idle"
+    : sceneLocalTime < popupStartTime + popupTransitionDuration
+      ? "opening"
+      : sceneLocalTime > popupEndTime - popupTransitionDuration
+        ? "closing"
+        : "visible";
   const popupPlaybackVisible =
     scene.popupVisible !== false &&
     (!playing ||
-      (sceneLocalTime >= scene.zoomInDuration &&
-        sceneLocalTime <= scene.zoomInDuration + scene.popupDuration));
+      (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -946,10 +955,15 @@ export default function Home() {
             </div>
             {popupPlaybackVisible && (
               <article
-                className={`preview-card ${playing ? "playback-popup" : ""}`}
+                className={`preview-card ${
+                  playing
+                    ? `playback-popup popup-${popupPlaybackPhase} popup-in-${scene.popupIn} popup-out-${scene.popupOut}`
+                    : ""
+                }`}
                 style={{
                   width: `${scene.popupWidth ?? 90}%`,
                   height: `${scene.popupHeight ?? 255}px`,
+                  ["--popup-transition-duration" as string]: `${popupTransitionDuration}s`,
                 }}
               >
               {imageEnabled && (
@@ -1128,25 +1142,100 @@ export default function Home() {
               <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
             </label>
             <div className="editor-group-label"><span>04</span> Chuyển động</div>
+            <div className="motion-settings-card">
+              <div className="motion-settings-title">
+                <strong>Zoom camera</strong>
+                <span>Xem thử dùng đúng các thông số này</span>
+              </div>
+              <div className="field-row motion-field-row">
+                <label className="field">
+                  <span>Mức zoom</span>
+                  <div className="number-with-unit">
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      step="0.05"
+                      value={scene.zoom}
+                      onChange={(event) => updateScene("zoom", Number(event.target.value))}
+                    />
+                    <b>×</b>
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Thời gian zoom tới mức đó</span>
+                  <div className="number-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max={sceneDuration}
+                      step="0.1"
+                      value={scene.zoomInDuration}
+                      onChange={(event) => updateScene("zoomInDuration", Number(event.target.value))}
+                    />
+                    <b>giây</b>
+                  </div>
+                </label>
+              </div>
+              <label className="field">
+                <span>Thời gian thu camera về</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max={sceneDuration}
+                    step="0.1"
+                    value={scene.zoomOutDuration}
+                    onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
+                  />
+                  <b>giây</b>
+                </div>
+              </label>
+            </div>
             <label className="field range-field">
-              <span>Thời gian popup: <b>{scene.popupDuration.toFixed(1)} giây</b></span>
-              <input
-                type="range"
-                min="1"
-                max="6"
-                step="0.5"
-                value={scene.popupDuration}
-                onChange={(event) => updateScene("popupDuration", Number(event.target.value))}
-              />
+              <span>Thời gian popup</span>
+              <div className="popup-duration-control">
+                <input
+                  type="range"
+                  min="1"
+                  max={Math.max(6, sceneDuration)}
+                  step="0.1"
+                  value={scene.popupDuration}
+                  onChange={(event) => updateScene("popupDuration", Number(event.target.value))}
+                />
+                <div className="number-with-unit popup-duration-number">
+                  <input
+                    type="number"
+                    min="1"
+                    max={Math.max(6, sceneDuration)}
+                    step="0.1"
+                    value={scene.popupDuration}
+                    onChange={(event) => updateScene("popupDuration", Number(event.target.value))}
+                  />
+                  <b>giây</b>
+                </div>
+              </div>
             </label>
             <div className="field-row">
               <label className="field">
                 <span>Hiệu ứng mở</span>
-                <select><option>Fade + trượt</option><option>Zoom nhẹ</option></select>
+                <select
+                  value={scene.popupIn}
+                  onChange={(event) => updateScene("popupIn", event.target.value)}
+                >
+                  <option value="fade-slide-up">Fade + trượt lên</option>
+                  <option value="zoom-soft">Zoom nhẹ</option>
+                </select>
               </label>
               <label className="field">
                 <span>Hiệu ứng đóng</span>
-                <select><option>Fade + trượt</option><option>Thu nhỏ</option></select>
+                <select
+                  value={scene.popupOut}
+                  onChange={(event) => updateScene("popupOut", event.target.value)}
+                >
+                  <option value="fade-slide-down">Fade + trượt xuống</option>
+                  <option value="zoom-soft">Thu nhỏ</option>
+                </select>
               </label>
             </div>
           </div>
