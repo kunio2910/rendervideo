@@ -1724,16 +1724,17 @@ body {
 .scene-running-flow {
   position: absolute;
   z-index: 8;
-  left: 39px;
-  right: 18px;
-  bottom: -21px;
-  width: auto;
-  height: 21px;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  left: -18px;
+  width: 18px;
+  height: calc(100% + 18px);
   overflow: visible;
   border-top: 2px solid #20a9ff;
-  border-right: 2px solid #20a9ff;
+  border-left: 2px solid #20a9ff;
   border-bottom: 2px solid rgba(32,169,255,.72);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px 0 0 8px;
   background: transparent;
   pointer-events: none;
 }
@@ -1748,27 +1749,27 @@ body {
 }
 .scene-running-flow i:nth-child(1) {
   top: -3px;
-  left: 0;
-  animation: scene-flow-right 1.15s linear infinite;
+  right: 0;
+  animation: scene-flow-left 1.15s linear infinite;
 }
 .scene-running-flow i:nth-child(2) {
   top: -2px;
-  right: -3px;
+  left: -3px;
   animation: scene-flow-down 1.15s linear infinite;
 }
 .scene-running-flow i:nth-child(3) {
-  right: 0;
+  left: 0;
   bottom: -3px;
-  animation: scene-flow-left 1.15s linear infinite;
+  animation: scene-flow-right 1.15s linear infinite;
 }
 .scene-running-flow b {
   position: absolute;
-  left: -5px;
+  right: -5px;
   bottom: -8px;
   color: #20a9ff;
   font: 900 15px/1 var(--font-mono);
   text-shadow: 0 0 7px rgba(32,169,255,.8);
-  animation: scene-flow-arrow-left .65s ease-in-out infinite alternate;
+  animation: scene-flow-arrow-right .65s ease-in-out infinite alternate;
 }
 .scene-running-flow em {
   position: absolute;
@@ -1779,11 +1780,11 @@ body {
 }
 .scene-running-flow em:nth-of-type(1) {
   top: -8px;
-  right: 8px;
+  left: 3px;
 }
 .scene-running-flow em:nth-of-type(2) {
-  right: -7px;
-  bottom: 1px;
+  left: -7px;
+  top: 50%;
 }
 @keyframes scene-flow-right {
   to { left: calc(100% - 2px); opacity: .18; }
@@ -1794,8 +1795,8 @@ body {
 @keyframes scene-flow-left {
   to { right: calc(100% - 2px); opacity: .18; }
 }
-@keyframes scene-flow-arrow-left {
-  to { transform: translateX(-4px); }
+@keyframes scene-flow-arrow-right {
+  to { transform: translateX(4px); }
 }
 @keyframes scene-playback-pulse {
   to { box-shadow: inset 3px 0 0 #20a9ff, 0 0 0 1px rgba(32,169,255,.28), 0 0 24px rgba(32,169,255,.3); }

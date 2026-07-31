@@ -1202,9 +1202,9 @@ export default function Home() {
                     <i />
                     <i />
                     <i />
-                    <em>›</em>
+                    <em>‹</em>
                     <em>⌄</em>
-                    <b>‹</b>
+                    <b>›</b>
                   </span>
                 )}
               </button>
