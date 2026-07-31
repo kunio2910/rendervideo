@@ -1729,6 +1729,10 @@ body {
 
 /* Focused map interaction and rounded studio frames */
 .studio-shell { padding-bottom: calc(var(--timeline-height, 245px) + 30px); }
+.studio-shell {
+  width: 100%;
+  max-width: none;
+}
 .studio-shell[data-timeline-visible="false"] {
   padding-bottom: 18px;
 }
@@ -1786,6 +1790,17 @@ body {
 .zoom-effect-preview .zoom-center-marker {
   position: relative;
   inset: auto;
+  border-color: rgba(255,239,200,.95);
+  background:
+    radial-gradient(circle, rgba(255,224,153,.95) 0%, rgba(255,193,79,.78) 52%, rgba(221,135,28,.5) 100%);
+}
+.zoom-center-marker {
+  width: var(--marker-size, 28px);
+  height: var(--marker-size, 28px);
+}
+.phone-preview:not(.is-playing) .zoom-center-marker:hover {
+  width: var(--marker-size, 28px);
+  height: var(--marker-size, 28px);
 }
 .marker-effect-glow {
   animation: marker-glow var(--marker-effect-duration, 1s) ease-in-out infinite alternate;
@@ -1822,15 +1837,26 @@ body {
   display: none;
 }
 .phone-preview.is-playing .zoom-center-marker::before {
-  inset: 5px;
+  inset: 0;
   width: auto;
   height: auto;
   border: 2px solid rgba(255,193,79,.9);
   border-radius: 50%;
-  background: rgba(255,193,79,.2);
+  background:
+    radial-gradient(circle, rgba(255,224,153,.95) 0%, rgba(255,193,79,.75) 38%, rgba(221,135,28,.48) 72%, rgba(221,135,28,.2) 100%);
   box-shadow:
     0 0 9px rgba(255,193,79,.8),
     0 0 22px rgba(255,193,79,.45);
+}
+.zoom-marker-size-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 12px;
+}
+.zoom-marker-size-control > input[type="range"] {
+  width: 100%;
+  accent-color: #dda13e;
 }
 @keyframes marker-preview-glow {
   from { filter: drop-shadow(0 0 1px rgba(255,193,79,.35)); transform: scale(1); }

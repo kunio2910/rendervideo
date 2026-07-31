@@ -29,6 +29,7 @@ type Scene = {
   popupVisible?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
   zoomMarkerDuration?: number;
+  zoomMarkerSize?: number;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -871,6 +872,7 @@ export default function Home() {
           popupVisible: item.popupVisible !== false,
           zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
           zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
+          zoomMarkerSize: item.zoomMarkerSize ?? 28,
         };
       }),
     }),
@@ -923,6 +925,7 @@ export default function Home() {
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
         `- Hiệu ứng tâm zoom: "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
+        `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
@@ -1195,6 +1198,7 @@ export default function Home() {
                   left: `${scene.centerX}%`,
                   top: `${scene.centerY}%`,
                   ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
+                  ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
                 }}
                 title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}% · Click để chỉnh hiệu ứng`}
                 onPointerDown={startZoomCenterDrag}
@@ -1792,7 +1796,10 @@ export default function Home() {
             <div className="zoom-effect-preview">
               <div
                 className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
-                style={{ ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s` }}
+                style={{
+                  ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
+                  ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
+                }}
               >
                 <span />
               </div>
@@ -1821,6 +1828,30 @@ export default function Home() {
                   onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
                 />
                 <b>giây</b>
+              </div>
+            </label>
+            <label className="field">
+              <span>Kích thước vòng tròn</span>
+              <div className="zoom-marker-size-control">
+                <input
+                  type="range"
+                  min="16"
+                  max="120"
+                  step="1"
+                  value={scene.zoomMarkerSize ?? 28}
+                  onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
+                />
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="16"
+                    max="120"
+                    step="1"
+                    value={scene.zoomMarkerSize ?? 28}
+                    onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
+                  />
+                  <b>px</b>
+                </div>
               </div>
             </label>
             <div className="modal-actions">
