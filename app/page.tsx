@@ -1718,7 +1718,6 @@ export default function Home() {
             >
               ▶▶
             </button>
-            <output>{formatTime(playTime)}</output>
           </div>
           <div className={`duration-status ${totalDuration > projectDuration ? "has-error" : ""}`}>
             <span>{totalDuration > projectDuration ? "!" : "✓"}</span>
@@ -1742,7 +1741,7 @@ export default function Home() {
               {scenes.map((item, index) => (
                 <button
                   key={item.id}
-                  className={`clip camera-clip ${index % 2 ? "camera-b" : "camera-a"} ${item.id === selectedId ? "selected" : ""}`}
+                  className={`clip camera-clip ${index % 2 ? "camera-b" : "camera-a"} ${!playing && item.id === selectedId ? "selected" : ""}`}
                   onClick={() => openTimelineEditor(item, "editor-camera")}
                   style={{
                     left: `${(item.start / projectDuration) * 100}%`,
@@ -1761,7 +1760,7 @@ export default function Home() {
                 <button
                   key={item.id}
                   onClick={() => openTimelineEditor(item, "editor-popup")}
-                  className={`clip popup-clip ${item.id === selectedId ? "selected" : ""}`}
+                  className={`clip popup-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
                   style={{
                     left: `${(item.start / projectDuration) * 100}%`,
                     width: `${Math.min((item.popupDuration / projectDuration) * 100, 100 - (item.start / projectDuration) * 100)}%`,
@@ -1803,7 +1802,6 @@ export default function Home() {
             </div>
           </div>
           <div className="playhead" style={{ left: `${8.2 + (playTime / projectDuration) * 91.8}%` }}>
-            <span>{playTime.toFixed(1)}s</span>
           </div>
         </div>
       </section>}

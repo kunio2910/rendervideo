@@ -1484,7 +1484,7 @@ body {
 .workspace {
   height: calc(100vh - 60px - var(--timeline-height, 245px));
   min-height: 580px;
-  grid-template-columns: 270px minmax(500px, 1fr) 360px;
+  grid-template-columns: 324px minmax(500px, 1fr) 432px;
   background: #0d141d;
 }
 .scene-panel,
@@ -1638,7 +1638,7 @@ body {
 .music-clip { background: #233143; color: #a7b6ca; border-color: #40536b; }
 
 @media (max-width: 1250px) {
-  .workspace { grid-template-columns: 230px minmax(430px, 1fr) 330px; }
+  .workspace { grid-template-columns: 276px minmax(380px, 1fr) 396px; }
   .header-actions .project-picker { display: none; }
 }
 
