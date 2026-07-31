@@ -1731,12 +1731,23 @@ body {
 .studio-shell { padding-bottom: 0; }
 .workspace {
   width: calc(100% - 24px);
-  height: calc(100vh - 70px - var(--timeline-height, 245px));
+  height: auto;
+  min-height: calc(100vh - 82px);
   margin: 10px 12px 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--studio-line);
   border-radius: 16px;
   box-shadow: 0 12px 35px rgba(0,0,0,.12);
+}
+.editor-scroll {
+  max-height: none;
+  overflow: visible;
+  padding-bottom: 16px;
+  scroll-padding-bottom: 0;
+}
+.preview-panel {
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 .timeline-panel {
   position: relative;
