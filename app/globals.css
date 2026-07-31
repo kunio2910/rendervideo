@@ -1263,23 +1263,78 @@ body { font-size: 14px; }
 }
 
 /* Persistent timeline footer and dedicated map background control */
-.studio-shell { padding-bottom: 330px; }
+.studio-shell { padding-bottom: calc(var(--timeline-height, 245px) + 18px); }
 .timeline-panel {
   position: fixed;
   z-index: 40;
   right: 0;
   bottom: 0;
   left: 0;
+  height: var(--timeline-height, 245px);
   min-height: 0;
-  max-height: 330px;
-  padding: 14px 24px 18px;
-  overflow: auto;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  padding: 17px 24px 12px;
+  overflow: hidden;
   border-top: 1px solid var(--studio-line);
   background: var(--panel-bg);
   box-shadow: 0 -12px 34px rgba(17, 35, 58, .14);
 }
 .timeline-heading { margin-bottom: 8px; }
-.timeline { padding-block: 9px 11px; }
+.timeline {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-block: 5px 7px;
+}
+.timeline .ruler-labels { flex: 0 0 22px; height: 22px; }
+.timeline .track {
+  min-height: 28px;
+  flex: 1 1 0;
+}
+.timeline .track-content {
+  height: calc(100% - 4px);
+  min-height: 24px;
+}
+.timeline .clip {
+  top: 2px;
+  height: calc(100% - 4px);
+  min-height: 21px;
+}
+.timeline-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 110px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  transform: translateX(-50%);
+  touch-action: none;
+}
+.timeline-resize-handle::before {
+  content: "";
+  position: absolute;
+  inset: -5px -30px;
+}
+.timeline-resize-handle span {
+  display: block;
+  width: 52px;
+  height: 4px;
+  margin: 4px auto 0;
+  border-radius: 999px;
+  background: #aab6c5;
+  transition: width .18s ease, background .18s ease;
+}
+.timeline-resize-handle:hover span,
+.timeline-resize-handle:active span {
+  width: 76px;
+  background: #087cff;
+}
 .preview-footer {
   align-items: end;
   gap: 8px;
@@ -1321,7 +1376,9 @@ body { font-size: 14px; }
   .studio-shell { padding-bottom: 0; }
   .timeline-panel {
     position: static;
+    height: auto;
     max-height: none;
     box-shadow: none;
   }
+  .timeline-resize-handle { display: none; }
 }

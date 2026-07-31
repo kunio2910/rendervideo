@@ -112,6 +112,17 @@ const statusClass: Record<Scene["status"], string> = {
 const formatTime = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(4, "0")}`;
 
+const fileNameOnly = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      return decodeURIComponent(new URL(trimmed).pathname.split("/").filter(Boolean).at(-1) ?? "");
+    }
+  } catch {}
+  return trimmed.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? trimmed;
+};
+
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 
 type StoredProject = {
@@ -166,6 +177,7 @@ export default function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
+  const [timelineHeight, setTimelineHeight] = useState(245);
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
@@ -712,13 +724,32 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = timelineHeight;
+    const move = (moveEvent: PointerEvent) => {
+      const nextHeight = Math.min(
+        520,
+        Math.max(220, startHeight + startY - moveEvent.clientY),
+      );
+      setTimelineHeight(Math.round(nextHeight));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
       duration: projectDuration,
       resolution: "1080x1920",
       ...(background.trim()
-        ? { background: background.trim() }
+        ? { background: fileNameOnly(background) }
         : {}),
       ...(previewBackground.trim()
         ? { backgroundUrl: previewBackground.trim(), backgroundVisible }
@@ -727,8 +758,8 @@ export default function Home() {
         ? { backgroundMusic: backgroundMusic.trim() }
         : {}),
       scenes: scenes.map((item) => {
-        const image = imageEnabled ? item.image.trim().replace(/^media\//, "images/") : "";
-        const voiceFile = narrationEnabled ? item.voiceFile.trim() : "";
+        const image = imageEnabled ? fileNameOnly(item.image) : "";
+        const voiceFile = narrationEnabled ? fileNameOnly(item.voiceFile) : "";
         return {
           milestone: item.number,
           title: item.title,
@@ -786,7 +817,11 @@ export default function Home() {
   };
 
   return (
-    <main className="studio-shell" data-theme={theme}>
+    <main
+      className="studio-shell"
+      data-theme={theme}
+      style={{ ["--timeline-height" as string]: `${timelineHeight}px` }}
+    >
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
@@ -1319,6 +1354,15 @@ export default function Home() {
       </section>
 
       <section className="timeline-panel">
+        <button
+          type="button"
+          className="timeline-resize-handle"
+          aria-label="Kéo để thay đổi chiều cao timeline"
+          title={`Kéo để thay đổi chiều cao timeline · ${timelineHeight}px`}
+          onPointerDown={startTimelineResize}
+        >
+          <span />
+        </button>
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
