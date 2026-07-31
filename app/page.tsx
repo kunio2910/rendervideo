@@ -842,7 +842,7 @@ export default function Home() {
             aria-label={theme === "light" ? "Chuyển sang giao diện tối" : "Chuyển sang giao diện sáng"}
             title={theme === "light" ? "Giao diện tối" : "Giao diện sáng"}
           >
-            {theme === "light" ? "☾" : "☀"}
+            {theme === "light" ? "☾ Tối" : "☀ Sáng"}
           </button>
           <div className={`save-state ${saveStatus}`}>
             <i />
