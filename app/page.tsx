@@ -502,7 +502,16 @@ export default function Home() {
       const activeScene = scenes.find(
         (item) => nextTime >= item.start && nextTime < item.end,
       );
-      if (activeScene) setSelectedId(activeScene.id);
+      if (activeScene) {
+        setSelectedId(activeScene.id);
+        setSelectedSceneIds((ids) =>
+          ids.length === 1 && ids[0] === activeScene.id
+            ? ids
+            : [activeScene.id],
+        );
+      } else {
+        setSelectedSceneIds((ids) => (ids.length === 0 ? ids : []));
+      }
       animationFrame.current = requestAnimationFrame(tick);
     };
     animationFrame.current = requestAnimationFrame(tick);
@@ -1127,11 +1136,24 @@ export default function Home() {
             </div>
           </div>
           <div className="scene-list">
-            {scenes.map((item) => (
+            {scenes.map((item, index) => {
+              const playbackActive =
+                playing && playTime >= item.start && playTime < item.end;
+              return (
               <button
                 key={item.id}
                 draggable
-                className={`scene-item ${item.id === selectedId ? "active" : ""} ${selectedSceneIds.includes(item.id) && item.id !== selectedId ? "multi-selected" : ""} ${item.id === dragOverId ? "drag-over" : ""}`}
+                className={`scene-item ${
+                  playbackActive || (!playing && item.id === selectedId)
+                    ? "active"
+                    : ""
+                } ${playbackActive ? "playback-active" : ""} ${
+                  !playing &&
+                  selectedSceneIds.includes(item.id) &&
+                  item.id !== selectedId
+                    ? "multi-selected"
+                    : ""
+                } ${item.id === dragOverId ? "drag-over" : ""}`}
                 onClick={(event) => {
                   setDraggedId(null);
                   setDragOverId(null);
@@ -1175,8 +1197,17 @@ export default function Home() {
                     {formatTime(item.start)}–{formatTime(item.end)}
                   </small>
                 </span>
+                {playbackActive && index < scenes.length - 1 && (
+                  <span className="scene-running-flow" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                    <b>⌄</b>
+                  </span>
+                )}
               </button>
-            ))}
+              );
+            })}
           </div>
           <div className="toggles">
             <label>

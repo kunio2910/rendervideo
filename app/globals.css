@@ -1702,6 +1702,73 @@ body {
   border-color: #d89a34;
   background: #fbf3e6;
 }
+.scene-list {
+  gap: 18px;
+}
+.scene-item.playback-active {
+  border-color: #20a9ff;
+  background:
+    linear-gradient(90deg, rgba(32,169,255,.18), rgba(32,169,255,.05)),
+    var(--panel-bg);
+  box-shadow:
+    inset 3px 0 0 #20a9ff,
+    0 0 0 1px rgba(32,169,255,.15),
+    0 0 18px rgba(32,169,255,.18);
+  animation: scene-playback-pulse 1.15s ease-in-out infinite alternate;
+}
+.scene-item.playback-active .scene-number {
+  border-color: #20a9ff;
+  color: #55c8ff;
+  box-shadow: 0 0 10px rgba(32,169,255,.42);
+}
+.scene-running-flow {
+  position: absolute;
+  z-index: 8;
+  left: 39px;
+  bottom: -20px;
+  width: 3px;
+  height: 21px;
+  overflow: visible;
+  border-radius: 999px;
+  background: linear-gradient(#20a9ff, rgba(32,169,255,.15));
+  pointer-events: none;
+}
+.scene-running-flow i {
+  position: absolute;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #83dcff;
+  box-shadow: 0 0 8px #20a9ff;
+  transform: translate(-50%, -6px);
+  animation: scene-flow-dot 1.15s linear infinite;
+}
+.scene-running-flow i:nth-child(2) { animation-delay: -.38s; }
+.scene-running-flow i:nth-child(3) { animation-delay: -.76s; }
+.scene-running-flow b {
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  color: #20a9ff;
+  font: 900 15px/1 var(--font-mono);
+  text-shadow: 0 0 7px rgba(32,169,255,.8);
+  transform: translateX(-50%);
+  animation: scene-flow-arrow .65s ease-in-out infinite alternate;
+}
+@keyframes scene-flow-dot {
+  to { transform: translate(-50%, 23px); opacity: .12; }
+}
+@keyframes scene-flow-arrow {
+  to { transform: translate(-50%, 3px); }
+}
+@keyframes scene-playback-pulse {
+  to { box-shadow: inset 3px 0 0 #20a9ff, 0 0 0 1px rgba(32,169,255,.28), 0 0 24px rgba(32,169,255,.3); }
+}
+.studio-shell[data-theme="light"] .scene-item.playback-active {
+  border-color: #168fd3;
+  background: linear-gradient(90deg, #e2f5ff, #fffdf8);
+}
 .studio-shell[data-theme="light"] .scene-meta strong { color: #29231c; }
 .studio-shell[data-theme="light"] .scene-number {
   border-color: #b8aa98;
