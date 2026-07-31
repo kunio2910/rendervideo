@@ -1209,9 +1209,13 @@ export default function Home() {
           <div className="panel-heading">
             <h2>Xem trước cảnh</h2>
             <div className="preview-heading-actions">
-              <button className="button ghost preview-play-button" onClick={togglePlayback}>
+              <button
+                className="button ghost preview-play-button"
+                disabled={!hydrated}
+                onClick={togglePlayback}
+              >
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
-                {playing ? "Tạm dừng" : "Xem thử"}
+                {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
               </button>
               <span className="time-pill">{formatTime(scene.start)}</span>
             </div>
@@ -1686,6 +1690,7 @@ export default function Home() {
               type="button"
               title="Chạy lùi 1 giây"
               aria-label="Chạy lùi 1 giây"
+              disabled={!hydrated}
               onClick={() => seekTimeline(-1)}
             >
               ◀◀
@@ -1695,6 +1700,7 @@ export default function Home() {
               className={playing ? "active" : ""}
               title="Phát"
               aria-label="Phát timeline"
+              disabled={!hydrated}
               onClick={() => {
                 if (!playing) togglePlayback();
               }}
@@ -1706,6 +1712,7 @@ export default function Home() {
               className={!playing ? "active" : ""}
               title="Tạm dừng"
               aria-label="Tạm dừng timeline"
+              disabled={!hydrated}
               onClick={() => setPlaying(false)}
             >
               Ⅱ
@@ -1714,6 +1721,7 @@ export default function Home() {
               type="button"
               title="Chạy tới 1 giây"
               aria-label="Chạy tới 1 giây"
+              disabled={!hydrated}
               onClick={() => seekTimeline(1)}
             >
               ▶▶

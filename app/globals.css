@@ -1779,6 +1779,13 @@ body {
   color: #dda13e !important;
   font-size: 9px !important;
 }
+.preview-play-button:disabled,
+.timeline-transport button:disabled {
+  cursor: wait;
+  opacity: .48;
+  border-color: var(--studio-line) !important;
+  color: var(--studio-muted) !important;
+}
 .zoom-setup-backdrop {
   z-index: 90;
 }
