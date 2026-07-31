@@ -172,6 +172,7 @@ export default function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
+  const [mapFocused, setMapFocused] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(245);
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -350,6 +351,7 @@ export default function Home() {
     const preview = previewRef.current;
     if (!preview) return;
     const handleWheel = (event: WheelEvent) => {
+      if (!mapFocused) return;
       event.preventDefault();
       event.stopPropagation();
       if (playing || !backgroundVisible || !previewBackground.trim()) return;
@@ -369,7 +371,17 @@ export default function Home() {
     };
     preview.addEventListener("wheel", handleWheel, { passive: false });
     return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, backgroundVisible, previewBackground, playing]);
+  }, [selectedId, backgroundVisible, previewBackground, playing, mapFocused]);
+
+  useEffect(() => {
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (!previewRef.current?.contains(event.target as Node)) {
+        setMapFocused(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -984,7 +996,9 @@ export default function Home() {
           </div>
           <div
             ref={previewRef}
-            className={`phone-preview ${playing ? "is-playing" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
+            tabIndex={0}
+            onPointerDown={() => setMapFocused(true)}
+            className={`phone-preview ${playing ? "is-playing" : ""} ${mapFocused ? "map-focused" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
           >
             {backgroundVisible && previewBackground.trim() && (
               <img
@@ -1020,7 +1034,13 @@ export default function Home() {
             </div>
             <div className="map-zoom-badge">
               {Math.round(playbackMapScale * 100)}%
-              <small>{playing ? `Đang phát · ${sceneLocalTime.toFixed(1)}s` : "Lăn chuột để zoom"}</small>
+              <small>
+                {playing
+                  ? `Đang phát · ${sceneLocalTime.toFixed(1)}s`
+                  : mapFocused
+                    ? "Đã focus · Lăn chuột để zoom"
+                    : "Click bản đồ để bật zoom"}
+              </small>
             </div>
             {popupPlaybackVisible && (
               <article
