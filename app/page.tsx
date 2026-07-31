@@ -179,6 +179,9 @@ type StoredWorkspace = {
 export default function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
+  const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
+    initialScenes[0].id,
+  ]);
   const [projectId, setProjectId] = useState("david-journey");
   const [projectTitle, setProjectTitle] = useState("Hành trình Vua Đa-vít");
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
@@ -312,6 +315,7 @@ export default function Home() {
     setTimelineVisible(project.timelineVisible ?? true);
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
+    setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
     setPlayTime(restoredScenes[0]?.start ?? 0);
     setPlaying(false);
   };
@@ -527,9 +531,26 @@ export default function Home() {
     };
   }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile]);
 
-  const selectScene = (item: Scene) => {
-    setSelectedId(item.id);
-    setPlayTime(item.start);
+  const selectScene = (item: Scene, additive = false) => {
+    if (!additive) {
+      setSelectedSceneIds([item.id]);
+      setSelectedId(item.id);
+      setPlayTime(item.start);
+      return;
+    }
+
+    const nextIds = selectedSceneIds.includes(item.id)
+      ? selectedSceneIds.length > 1
+        ? selectedSceneIds.filter((id) => id !== item.id)
+        : selectedSceneIds
+      : [...selectedSceneIds, item.id];
+    const primary =
+      nextIds.includes(item.id)
+        ? item
+        : scenes.find((sceneItem) => sceneItem.id === nextIds.at(-1)) ?? item;
+    setSelectedSceneIds(nextIds);
+    setSelectedId(primary.id);
+    setPlayTime(primary.start);
   };
 
   const openTimelineEditor = (
@@ -538,6 +559,7 @@ export default function Home() {
   ) => {
     if (item) {
       setSelectedId(item.id);
+      setSelectedSceneIds([item.id]);
       setPlayTime(item.start);
     }
     setPlaying(false);
@@ -619,9 +641,34 @@ export default function Home() {
   };
 
   const updateScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
-    setScenes((items) =>
-      items.map((item) => (item.id === selectedId ? { ...item, [key]: value } : item)),
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
+    setScenes((items) =>
+      items.map((item) => (targetIds.has(item.id) ? { ...item, [key]: value } : item)),
+    );
+  };
+
+  const updateSelectedSceneDuration = (duration: number) => {
+    const nextDuration = Math.max(0.1, Number(duration) || 0.1);
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) => {
+      let cursor = 0;
+      return items.map((item) => {
+        const itemDuration = targetIds.has(item.id)
+          ? nextDuration
+          : Math.max(0.1, item.end - item.start);
+        const normalized = {
+          ...item,
+          start: Number(cursor.toFixed(2)),
+          end: Number((cursor + itemDuration).toFixed(2)),
+        };
+        cursor += itemDuration;
+        return normalized;
+      });
+    });
   };
 
   const switchProject = (nextId: string) => {
@@ -706,6 +753,7 @@ export default function Home() {
     };
     setScenes((items) => [...items, next]);
     setSelectedId(next.id);
+    setSelectedSceneIds([next.id]);
   };
 
   const deleteScene = () => {
@@ -733,6 +781,7 @@ export default function Home() {
     const nextScene = remaining[Math.min(removedIndex, remaining.length - 1)];
     setScenes(remaining);
     setSelectedId(nextScene.id);
+    setSelectedSceneIds([nextScene.id]);
     setPlayTime(nextScene.start);
     setToast("Đã xóa cảnh");
     window.setTimeout(() => setToast(""), 2400);
@@ -1082,11 +1131,11 @@ export default function Home() {
               <button
                 key={item.id}
                 draggable
-                className={`scene-item ${item.id === selectedId ? "active" : ""} ${item.id === dragOverId ? "drag-over" : ""}`}
-                onClick={() => {
+                className={`scene-item ${item.id === selectedId ? "active" : ""} ${selectedSceneIds.includes(item.id) && item.id !== selectedId ? "multi-selected" : ""} ${item.id === dragOverId ? "drag-over" : ""}`}
+                onClick={(event) => {
                   setDraggedId(null);
                   setDragOverId(null);
-                  selectScene(item);
+                  selectScene(item, event.shiftKey);
                 }}
                 onDragStart={(event) => {
                   setDraggedId(item.id);
@@ -1310,7 +1359,11 @@ export default function Home() {
               >
                 {Object.values(editorSections).every(Boolean) ? "Thu tất cả" : "Mở tất cả"}
               </button>
-              <span className="scene-pill">Cảnh {scene.number}</span>
+              <span className="scene-pill">
+                {selectedSceneIds.length > 1
+                  ? `${selectedSceneIds.length} cảnh`
+                  : `Cảnh ${scene.number}`}
+              </span>
             </div>
           </div>
           <div className="editor-scroll">
@@ -1352,6 +1405,24 @@ export default function Home() {
             >
               <summary className="editor-group-label"><span>02</span> Nội dung cảnh <i /></summary>
               <div className="editor-accordion-content">
+            <label className="field">
+              <span>Thời lượng cảnh</span>
+              <div className="number-with-unit">
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={Number(sceneDuration.toFixed(1))}
+                  onChange={(event) => updateSelectedSceneDuration(Number(event.target.value))}
+                />
+                <b>giây</b>
+              </div>
+              <small>
+                {selectedSceneIds.length > 1
+                  ? `Áp dụng cùng thời lượng cho ${selectedSceneIds.length} cảnh đã chọn.`
+                  : "Các mốc thời gian phía sau sẽ tự động được tính lại."}
+              </small>
+            </label>
             <label className="field">
               <span>Tiêu đề</span>
               <input

@@ -896,6 +896,14 @@ button { color: inherit; }
   background: var(--panel-soft);
   box-shadow: none;
 }
+.scene-item.multi-selected {
+  border: 1px dashed #dda13e;
+  background: rgba(221,161,62,.1);
+}
+.scene-item.multi-selected .scene-number {
+  border-color: #dda13e;
+  color: #ffc14f;
+}
 .ruler-labels,
 .track { grid-template-columns: 100px 1fr; }
 .track { min-height: 54px; border-top: 1px solid var(--studio-line); }
@@ -1689,6 +1697,10 @@ body {
 .studio-shell[data-theme="light"] .scene-item.active {
   border-color: #d89a34;
   background: #f8efe0;
+}
+.studio-shell[data-theme="light"] .scene-item.multi-selected {
+  border-color: #d89a34;
+  background: #fbf3e6;
 }
 .studio-shell[data-theme="light"] .scene-meta strong { color: #29231c; }
 .studio-shell[data-theme="light"] .scene-number {
