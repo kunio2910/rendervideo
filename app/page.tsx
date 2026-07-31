@@ -1251,12 +1251,13 @@ export default function Home() {
             <details
               className="editor-accordion"
               open={editorSections.visual}
-              onToggle={(event) =>
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
                 setEditorSections((items) => ({
                   ...items,
-                  visual: event.currentTarget.open,
-                }))
-              }
+                  visual: open,
+                }));
+              }}
             >
               <summary className="editor-group-label"><span>01</span> Hình ảnh & nền <i /></summary>
               <div className="editor-accordion-content">
@@ -1275,12 +1276,13 @@ export default function Home() {
             <details
               className="editor-accordion"
               open={editorSections.content}
-              onToggle={(event) =>
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
                 setEditorSections((items) => ({
                   ...items,
-                  content: event.currentTarget.open,
-                }))
-              }
+                  content: open,
+                }));
+              }}
             >
               <summary className="editor-group-label"><span>02</span> Nội dung cảnh <i /></summary>
               <div className="editor-accordion-content">
@@ -1340,12 +1342,13 @@ export default function Home() {
             <details
               className="editor-accordion"
               open={editorSections.audio}
-              onToggle={(event) =>
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
                 setEditorSections((items) => ({
                   ...items,
-                  audio: event.currentTarget.open,
-                }))
-              }
+                  audio: open,
+                }));
+              }}
             >
               <summary className="editor-group-label"><span>03</span> Âm thanh <i /></summary>
               <div className="editor-accordion-content">
@@ -1406,12 +1409,13 @@ export default function Home() {
             <details
               className="editor-accordion"
               open={editorSections.motion}
-              onToggle={(event) =>
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
                 setEditorSections((items) => ({
                   ...items,
-                  motion: event.currentTarget.open,
-                }))
-              }
+                  motion: open,
+                }));
+              }}
             >
               <summary className="editor-group-label"><span>04</span> Chuyển động <i /></summary>
               <div className="editor-accordion-content">
