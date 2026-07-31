@@ -350,11 +350,12 @@ export default function Home() {
   useEffect(() => {
     const preview = previewRef.current;
     if (!preview) return;
+
     const handleWheel = (event: WheelEvent) => {
-      if (!mapFocused) return;
+      if (!mapFocused || playing) return;
+
       event.preventDefault();
       event.stopPropagation();
-      if (playing || !backgroundVisible || !previewBackground.trim()) return;
       setMapPreviewZoom((items) => {
         const currentZoom = items[selectedId] ?? 1;
         const direction = event.deltaY < 0 ? 0.1 : -0.1;
@@ -369,9 +370,10 @@ export default function Home() {
         return { ...items, [selectedId]: nextZoom };
       });
     };
+
     preview.addEventListener("wheel", handleWheel, { passive: false });
     return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, backgroundVisible, previewBackground, playing, mapFocused]);
+  }, [selectedId, playing, mapFocused]);
 
   useEffect(() => {
     const handleOutsidePointer = (event: PointerEvent) => {

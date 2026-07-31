@@ -1027,7 +1027,7 @@ button { color: inherit; }
   background: #087cff;
   border-color: #087cff;
 }
-.phone-preview { overscroll-behavior: contain; }
+.phone-preview { overscroll-behavior: auto; }
 .studio-shell[data-theme="dark"] .panel-heading .delete-scene-button:hover { background: #3a2024; }
 
 @media (max-width: 1400px) {
@@ -1755,6 +1755,7 @@ body {
   transition: border-color .2s ease, box-shadow .2s ease;
 }
 .phone-preview.map-focused {
+  overscroll-behavior: contain;
   border-color: #dda13e;
   box-shadow:
     0 0 0 4px rgba(221,161,62,.2),
