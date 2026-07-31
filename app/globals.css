@@ -1728,7 +1728,7 @@ body {
 .studio-shell[data-theme="light"] .track > strong { color: #5c5348; }
 
 /* Focused map interaction and rounded studio frames */
-.studio-shell { padding-bottom: calc(var(--timeline-height, 245px) + 30px); }
+.studio-shell { padding-bottom: 0; }
 .workspace {
   width: calc(100% - 24px);
   height: calc(100vh - 70px - var(--timeline-height, 245px));
@@ -1739,9 +1739,12 @@ body {
   box-shadow: 0 12px 35px rgba(0,0,0,.12);
 }
 .timeline-panel {
-  right: 12px;
-  bottom: 10px;
-  left: 12px;
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: calc(100% - 24px);
+  margin: 10px 12px 12px;
   border: 1px solid var(--studio-line);
   border-radius: 16px;
   box-shadow: 0 -10px 30px rgba(0,0,0,.22);

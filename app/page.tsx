@@ -1015,10 +1015,9 @@ export default function Home() {
                 }}
               />
             )}
-            <div className="map-label">CẢNH {scene.number}</div>
             {playing && (
               <div className="playback-live">
-                <i /> ĐANG PHÁT · CẢNH {scene.number}
+                <i /> ĐANG PHÁT
               </div>
             )}
             {!playing && (
@@ -1072,7 +1071,6 @@ export default function Home() {
                 </div>
               )}
               <div className="card-content">
-                <small>CẢNH {String(scene.number).padStart(2, "0")}</small>
                 <h3>{scene.title}</h3>
                 <p>{scene.popup}</p>
               </div>
