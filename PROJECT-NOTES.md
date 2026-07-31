@@ -47,6 +47,96 @@ Website gửi JSON cùng file media bằng multipart form. Mỗi tác vụ có t
 riêng trong `work/local-render-jobs/`; script render dùng FFmpeg để tạo từng
 cảnh, ghép lời thuyết minh, trộn nhạc nền rồi nối thành video cuối.
 
+Renderer FFmpeg đã hỗ trợ vòng tròn tại tâm zoom:
+
+- Đọc `centerX` và `centerY` để đặt vòng tròn đúng vị trí trên video.
+- Đọc `zoomMarkerSize` để xác định kích thước.
+- Đọc `zoomMarkerDuration` để xác định chu kỳ animation.
+- `zoomMarkerEffect: "glow"`: phát sáng và co giãn nhẹ.
+- `zoomMarkerEffect: "blink"`: nhấp nháy theo chu kỳ.
+- `zoomMarkerEffect: "soft-fade"`: mờ dần rồi hiện lại.
+- `zoomMarkerEffect: "none"`: không tạo lớp vòng tròn.
+
+Lớp vòng tròn được tạo dưới dạng PNG trong suốt, dùng màu vàng cam và không có
+đường outline. File trung gian có tên `zoom-marker-<số-cảnh>.png` trong thư mục
+`render/` của phiên render.
+
+### Vị trí lưu file sau khi render
+
+Mỗi lần render tạo một thư mục riêng có dạng:
+
+```text
+work/local-render-jobs/<timestamp-job-id>/
+```
+
+Cấu trúc của một phiên render:
+
+```text
+<timestamp-job-id>/
+├── project.json          JSON thực tế được dùng để render
+├── source/               Ảnh, MP3 và media người dùng chọn trên website
+├── render/               Popup PNG, clip từng cảnh và file ghép trung gian
+│   ├── popup-1.png
+│   ├── scene-1.mp4
+│   └── concat.txt
+└── output/               Video MP4 hoàn chỉnh
+```
+
+- Nút **Tải video MP4** tải thêm một bản video vào thư mục `Downloads` mặc định
+  của trình duyệt.
+- Bản gốc do dịch vụ render tạo vẫn nằm trong thư mục `output/` của phiên render.
+- Các file trong `source/` là bản sao của media đã gửi từ website; file gốc của
+  người dùng không bị di chuyển hoặc xóa.
+- Nếu tên file trong JSON không có trong danh sách media được chọn và cũng không
+  tồn tại trong thư mục `source/` cấp dự án, renderer sẽ bỏ qua tài nguyên đó
+  hoặc dùng phương án dự phòng. Vì vậy cần kiểm tra các dấu tròn cảnh báo trong
+  cửa sổ **Render cục bộ** trước khi bắt đầu.
+- Thư mục `work/` được Git bỏ qua và không được tải lên GitHub.
+
+### Thiết lập render trên máy tính khác
+
+Máy tính mới cần Windows/PowerShell, Node.js phiên bản `22.13` trở lên và source
+dự án được tải từ GitHub.
+
+Thiết lập lần đầu:
+
+```powershell
+git clone https://github.com/kunio2910/rendervideo.git
+cd rendervideo
+npm install
+npm run render:setup
+npm run render:local
+```
+
+Ý nghĩa các lệnh:
+
+- `npm install`: cài thư viện Node.js của dự án, bao gồm thư viện tạo ảnh popup.
+- `npm run render:setup`: tải FFmpeg vào `.local-renderer/` trên máy hiện tại.
+- `npm run render:local`: khởi động dịch vụ render tại `127.0.0.1:4179`.
+
+Khi terminal hiển thị `Kito Local Renderer: http://127.0.0.1:4179`, cần giữ cửa
+sổ đó mở trong lúc render từ website.
+
+Các tài nguyên không được lưu trên GitHub và phải sao chép/chọn lại trên máy mới:
+
+- Ảnh background và ảnh popup.
+- File giọng đọc MP3.
+- Nhạc nền.
+- Video hoặc các media riêng khác.
+
+Các thư mục `source/`, `work/`, `outputs/` và `.local-renderer/` đều nằm trong
+`.gitignore`. Vì vậy chúng không được commit lên GitHub.
+
+Từ lần sử dụng thứ hai trên cùng máy, thông thường chỉ cần:
+
+```powershell
+cd <duong-dan-den-thu-muc-rendervideo>
+npm run render:local
+```
+
+Không cần chạy lại `npm install` hoặc `npm run render:setup`, trừ khi thư viện
+dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị hỏng.
+
 ## 3. Các khu vực giao diện
 
 ### Danh sách cảnh

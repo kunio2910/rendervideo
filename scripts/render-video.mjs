@@ -165,6 +165,36 @@ const createPopup = async (scene, index) => {
   return filename;
 };
 
+const createZoomMarker = async (scene, index) => {
+  const requestedSize = Math.min(120, Math.max(16, Number(scene.zoomMarkerSize ?? 28)));
+  const coreSize = Math.round(requestedSize * 2.75);
+  const canvasSize = Math.max(96, Math.round(coreSize * 2.6));
+  const center = canvasSize / 2;
+  const radius = coreSize / 2;
+  const glowRadius = radius * 1.75;
+  const svg = Buffer.from(`
+    <svg width="${canvasSize}" height="${canvasSize}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="markerFill" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#fff2b8" stop-opacity=".98"/>
+          <stop offset="32%" stop-color="#ffc45d" stop-opacity=".9"/>
+          <stop offset="70%" stop-color="#e89b28" stop-opacity=".52"/>
+          <stop offset="100%" stop-color="#d88317" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="markerGlow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="${Math.max(5, radius * 0.28)}"/>
+        </filter>
+      </defs>
+      <circle cx="${center}" cy="${center}" r="${glowRadius}" fill="#eaa033" fill-opacity=".42" filter="url(#markerGlow)"/>
+      <circle cx="${center}" cy="${center}" r="${radius}" fill="url(#markerFill)"/>
+      <circle cx="${center}" cy="${center}" r="${Math.max(3, radius * 0.22)}" fill="#fff7d8" fill-opacity=".98"/>
+    </svg>
+  `);
+  const filename = path.join(renderDir, `zoom-marker-${index + 1}.png`);
+  await sharp(svg).png().toFile(filename);
+  return filename;
+};
+
 const background = await resolveImage(project.background, "background");
 const uploadedFallbackBackground = path.join(sourceDir, "map.png");
 const defaultFallbackBackground = path.join(defaultSourceDir, "map.png");
@@ -183,6 +213,10 @@ for (let index = 0; index < scenes.length; index += 1) {
   const end = scenes[index + 1]?.start ?? project.duration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
+  const markerEffect = scene.zoomMarkerEffect ?? "none";
+  const marker = markerEffect !== "none"
+    ? await createZoomMarker(scene, index)
+    : null;
   const voice = await resolveVoice(scene, index);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.round(duration * fps);
@@ -213,18 +247,53 @@ for (let index = 0; index < scenes.length; index += 1) {
   const zoomExpression =
     `if(lte(on,${zoomInFrames}),1+(${targetZoom}-1)*on/${zoomInFrames},` +
     `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom}))`;
-  const filter =
+  const popupOutput = marker ? "composed" : "v";
+  let filter =
     `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
     `zoompan=z='${zoomExpression}':x='iw*${centerX}-iw/zoom/2':y='ih*${centerY}-ih/zoom/2':` +
     `s=1080x1920:fps=${fps}:d=${frames},setsar=1[bg];` +
     `[1:v]format=rgba,fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
     `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
-    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[v]`;
+    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[${popupOutput}]`;
+  if (marker) {
+    const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
+    const markerInput = 2;
+    const markerScale = markerEffect === "glow"
+      ? `1+0.13*sin(2*PI*t/${markerDuration})`
+      : markerEffect === "soft-fade"
+        ? `1+0.06*sin(2*PI*t/${markerDuration})`
+        : "1";
+    const markerEnable = markerEffect === "blink"
+      ? `lt(mod(t,${markerDuration}),${markerDuration * 0.56})`
+      : "1";
+    const markerAlpha = markerEffect === "soft-fade"
+      ? Array.from(
+          { length: Math.ceil(duration / markerDuration) },
+          (_, cycle) => {
+            const start = cycle * markerDuration;
+            const half = markerDuration / 2;
+            return `,fade=t=out:st=${start}:d=${half}:alpha=1` +
+              `,fade=t=in:st=${start + half}:d=${half}:alpha=1`;
+          },
+        ).join("")
+      : "";
+    filter +=
+      `;[${markerInput}:v]format=rgba,` +
+      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker];` +
+      `[composed][marker]overlay=` +
+      `x='main_w*${centerX}-overlay_w/2':` +
+      `y='main_h*${centerY}-overlay_h/2':` +
+      `enable='${markerEnable}'[v]`;
+  }
   const args = [
     "-y",
     "-loop", "1", "-i", backgroundPath,
     "-loop", "1", "-i", popup,
   ];
+  if (marker) {
+    args.push("-loop", "1", "-i", marker);
+  }
+  const audioInputIndex = marker ? 3 : 2;
   if (voice) {
     args.push("-i", voice);
   } else {
@@ -235,9 +304,9 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-map", "[v]",
   );
   if (voice) {
-    args.push("-map", "2:a:0", "-af", `adelay=${Math.round(popupStart * 1000)}:all=1,apad`);
+    args.push("-map", `${audioInputIndex}:a:0`, "-af", `adelay=${Math.round(popupStart * 1000)}:all=1,apad`);
   } else {
-    args.push("-map", "2:a:0");
+    args.push("-map", `${audioInputIndex}:a:0`);
   }
   args.push(
     "-t", String(duration),
