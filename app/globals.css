@@ -1731,36 +1731,46 @@ body {
   width: 18px;
   height: calc(100% + 18px);
   overflow: visible;
-  border-top: 2px solid #20a9ff;
-  border-left: 2px solid #20a9ff;
-  border-bottom: 2px solid rgba(32,169,255,.72);
-  border-radius: 8px 0 0 8px;
+  border: 0;
   background: transparent;
   pointer-events: none;
 }
 .scene-running-flow i {
   position: absolute;
   z-index: 2;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #83dcff;
-  box-shadow: 0 0 8px #20a9ff;
+  display: block;
+  border-radius: 0;
+  box-shadow: 0 0 5px rgba(32,169,255,.55);
 }
 .scene-running-flow i:nth-child(1) {
-  top: -3px;
+  top: -1px;
   right: 0;
-  animation: scene-flow-left 1.15s linear infinite;
+  width: 100%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #20a9ff 0 5px, transparent 5px 9px);
+  transform: scaleX(0);
+  transform-origin: right center;
+  animation: scene-flow-draw-top 2.7s linear infinite;
 }
 .scene-running-flow i:nth-child(2) {
-  top: -2px;
-  left: -3px;
-  animation: scene-flow-down 1.15s linear infinite;
+  top: 0;
+  left: -1px;
+  width: 2px;
+  height: 100%;
+  background: repeating-linear-gradient(180deg, #20a9ff 0 5px, transparent 5px 9px);
+  transform: scaleY(0);
+  transform-origin: center top;
+  animation: scene-flow-draw-down 2.7s linear infinite;
 }
 .scene-running-flow i:nth-child(3) {
   left: 0;
-  bottom: -3px;
-  animation: scene-flow-right 1.15s linear infinite;
+  bottom: -1px;
+  width: 100%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #20a9ff 0 5px, transparent 5px 9px);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: scene-flow-draw-bottom 2.7s linear infinite;
 }
 .scene-running-flow b {
   position: absolute;
@@ -1769,7 +1779,8 @@ body {
   color: #20a9ff;
   font: 900 15px/1 var(--font-mono);
   text-shadow: 0 0 7px rgba(32,169,255,.8);
-  animation: scene-flow-arrow-right .65s ease-in-out infinite alternate;
+  opacity: 0;
+  animation: scene-flow-arrow-right 2.7s linear infinite;
 }
 .scene-running-flow em {
   position: absolute;
@@ -1781,22 +1792,42 @@ body {
 .scene-running-flow em:nth-of-type(1) {
   top: -8px;
   left: 3px;
+  animation: scene-flow-arrow-start 2.7s linear infinite;
 }
 .scene-running-flow em:nth-of-type(2) {
   left: -7px;
   top: 50%;
+  animation: scene-flow-arrow-middle 2.7s linear infinite;
 }
-@keyframes scene-flow-right {
-  to { left: calc(100% - 2px); opacity: .18; }
+@keyframes scene-flow-draw-top {
+  0% { transform: scaleX(0); }
+  28%, 94% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
 }
-@keyframes scene-flow-down {
-  to { top: calc(100% - 2px); opacity: .18; }
+@keyframes scene-flow-draw-down {
+  0%, 30% { transform: scaleY(0); }
+  62%, 94% { transform: scaleY(1); }
+  100% { transform: scaleY(0); }
 }
-@keyframes scene-flow-left {
-  to { right: calc(100% - 2px); opacity: .18; }
+@keyframes scene-flow-draw-bottom {
+  0%, 64% { transform: scaleX(0); }
+  92%, 94% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
 }
 @keyframes scene-flow-arrow-right {
-  to { transform: translateX(4px); }
+  0%, 82% { opacity: 0; transform: translateX(-4px); }
+  92%, 96% { opacity: 1; transform: translateX(3px); }
+  100% { opacity: 0; transform: translateX(3px); }
+}
+@keyframes scene-flow-arrow-start {
+  0%, 12% { opacity: 0; }
+  20%, 34% { opacity: 1; }
+  42%, 100% { opacity: 0; }
+}
+@keyframes scene-flow-arrow-middle {
+  0%, 43% { opacity: 0; }
+  52%, 66% { opacity: 1; }
+  74%, 100% { opacity: 0; }
 }
 @keyframes scene-playback-pulse {
   to { box-shadow: inset 3px 0 0 #20a9ff, 0 0 0 1px rgba(32,169,255,.28), 0 0 24px rgba(32,169,255,.3); }
@@ -1925,6 +1956,7 @@ body {
   height: var(--marker-size, 28px);
 }
 .marker-effect-glow {
+  border-color: transparent;
   animation: marker-glow var(--marker-effect-duration, 1s) ease-in-out infinite alternate;
 }
 .marker-effect-blink {
@@ -1962,7 +1994,7 @@ body {
   inset: 0;
   width: auto;
   height: auto;
-  border: 2px solid rgba(255,193,79,.9);
+  border: 0;
   border-radius: 50%;
   background:
     radial-gradient(circle, rgba(255,224,153,.95) 0%, rgba(255,193,79,.75) 38%, rgba(221,135,28,.48) 72%, rgba(221,135,28,.2) 100%);
@@ -2275,14 +2307,19 @@ body {
     width: 13px;
     height: 2px;
     border: 0;
-    border-top: 2px solid #20a9ff;
+    border: 0;
     border-radius: 0;
     transform: translateY(-50%);
   }
   .scene-running-flow i:nth-child(1) {
-    top: -3px;
+    top: 0;
+    right: auto;
     left: 0;
-    animation: scene-mobile-flow-right .85s linear infinite;
+    width: 100%;
+    height: 2px;
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: scene-mobile-flow-right 1.25s linear infinite;
   }
   .scene-running-flow i:nth-child(2),
   .scene-running-flow i:nth-child(3),
@@ -2400,9 +2437,8 @@ body {
     flex-wrap: wrap;
   }
   @keyframes scene-mobile-flow-right {
-    to {
-      left: calc(100% - 2px);
-      opacity: .18;
-    }
+    0% { transform: scaleX(0); }
+    82% { transform: scaleX(1); }
+    100% { transform: scaleX(0); }
   }
 }
