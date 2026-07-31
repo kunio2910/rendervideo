@@ -1728,7 +1728,7 @@ body {
 .studio-shell[data-theme="light"] .track > strong { color: #5c5348; }
 
 /* Focused map interaction and rounded studio frames */
-.studio-shell { padding-bottom: 0; }
+.studio-shell { padding-bottom: calc(var(--timeline-height, 245px) + 30px); }
 .workspace {
   width: calc(100% - 24px);
   height: auto;
@@ -1750,15 +1750,46 @@ body {
   overscroll-behavior: auto;
 }
 .timeline-panel {
-  position: relative;
-  right: auto;
-  bottom: auto;
-  left: auto;
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  left: 12px;
   width: calc(100% - 24px);
-  margin: 10px 12px 12px;
+  margin: 0;
   border: 1px solid var(--studio-line);
   border-radius: 16px;
   box-shadow: 0 -10px 30px rgba(0,0,0,.22);
+}
+.editor-accordion {
+  border-bottom: 1px solid var(--studio-line);
+}
+.editor-accordion:last-child {
+  border-bottom: 0;
+}
+.editor-accordion > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.editor-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+.editor-accordion > summary i {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform .18s ease;
+}
+.editor-accordion:not([open]) > summary i {
+  transform: rotate(-45deg);
+}
+.editor-accordion-content {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
 }
 .timeline {
   overflow: hidden;

@@ -488,11 +488,14 @@ export default function Home() {
     }
     setPlaying(false);
     window.setTimeout(() => {
-      document.getElementById(targetId)?.scrollIntoView({
+      const target = document.getElementById(targetId);
+      const group = target?.closest("details");
+      if (group instanceof HTMLDetailsElement) group.open = true;
+      target?.scrollIntoView({
         behavior: "smooth",
         block: "center",
       });
-      document.getElementById(targetId)?.classList.add("timeline-focus");
+      target?.classList.add("timeline-focus");
       window.setTimeout(
         () => document.getElementById(targetId)?.classList.remove("timeline-focus"),
         1300,
@@ -1116,7 +1119,9 @@ export default function Home() {
             <span className="scene-pill">Cảnh {scene.number}</span>
           </div>
           <div className="editor-scroll">
-            <div className="editor-group-label"><span>01</span> Hình ảnh & nền</div>
+            <details className="editor-accordion" open>
+              <summary className="editor-group-label"><span>01</span> Hình ảnh & nền <i /></summary>
+              <div className="editor-accordion-content">
             <label className="field background-field">
               <span>Background chủ đề</span>
               <input
@@ -1127,7 +1132,11 @@ export default function Home() {
               />
               <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
             </label>
-            <div className="editor-group-label"><span>02</span> Nội dung cảnh</div>
+              </div>
+            </details>
+            <details className="editor-accordion" open>
+              <summary className="editor-group-label"><span>02</span> Nội dung cảnh <i /></summary>
+              <div className="editor-accordion-content">
             <label className="field">
               <span>Tiêu đề</span>
               <input
@@ -1179,7 +1188,11 @@ export default function Home() {
                 </select>
               </label>
             </div>
-            <div className="editor-group-label"><span>03</span> Âm thanh</div>
+              </div>
+            </details>
+            <details className="editor-accordion" open>
+              <summary className="editor-group-label"><span>03</span> Âm thanh <i /></summary>
+              <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
               <span>Nhạc nền chủ đề</span>
               <div className="audio-input-row">
@@ -1232,7 +1245,11 @@ export default function Home() {
               )}
               <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
             </label>
-            <div className="editor-group-label"><span>04</span> Chuyển động</div>
+              </div>
+            </details>
+            <details className="editor-accordion" open>
+              <summary className="editor-group-label"><span>04</span> Chuyển động <i /></summary>
+              <div className="editor-accordion-content">
             <div className="motion-settings-card" id="editor-camera">
               <div className="motion-settings-title">
                 <strong>Zoom camera</strong>
@@ -1337,6 +1354,8 @@ export default function Home() {
                 </select>
               </label>
             </div>
+              </div>
+            </details>
           </div>
         </aside>
       </section>
