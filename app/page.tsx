@@ -459,28 +459,6 @@ export default function Home() {
     return () => document.removeEventListener("pointerdown", handleOutsidePointer);
   }, []);
 
-  useEffect(() => {
-    if (!hydrated) return;
-
-    window.localStorage.setItem(
-      LOCAL_STORAGE_KEY,
-      JSON.stringify(storedProject),
-    );
-    setSaveStatus("saving");
-
-    const timeout = window.setTimeout(async () => {
-      try {
-        await saveDataToGoogle(storedProject);
-        setSaveStatus("saved");
-        setLastSavedAt(new Date());
-      } catch {
-        setSaveStatus("offline");
-      }
-    }, 1400);
-
-    return () => window.clearTimeout(timeout);
-  }, [hydrated, storedProject]);
-
   const saveProjectNow = async () => {
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
