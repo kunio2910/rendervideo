@@ -211,8 +211,9 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
-    "loading" | "saved" | "saving" | "offline" | "error"
+    "loading" | "saved" | "saving" | "unsaved" | "offline" | "error"
   >("loading");
+  const lastSavedProjectSnapshot = useRef("");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
@@ -459,10 +460,25 @@ export default function Home() {
     return () => document.removeEventListener("pointerdown", handleOutsidePointer);
   }, []);
 
+  useEffect(() => {
+    if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
+
+    const currentSnapshot = JSON.stringify(storedProject);
+    if (!lastSavedProjectSnapshot.current) {
+      lastSavedProjectSnapshot.current = currentSnapshot;
+      return;
+    }
+
+    if (currentSnapshot !== lastSavedProjectSnapshot.current) {
+      setSaveStatus("unsaved");
+    }
+  }, [hydrated, saveStatus, storedProject]);
+
   const saveProjectNow = async () => {
+    const currentSnapshot = JSON.stringify(storedProject);
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
-      JSON.stringify(storedProject),
+      currentSnapshot,
     );
     setSaveStatus("saving");
     try {
@@ -475,6 +491,7 @@ export default function Home() {
       setSaveStatus("offline");
       setToast("Đã lưu trên thiết bị · Google Sheet tạm thời lỗi");
     }
+    lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
   };
 
@@ -1155,6 +1172,7 @@ export default function Home() {
             <span>
               {saveStatus === "loading" && "Đang tải dữ liệu"}
               {saveStatus === "saving" && "Đang lưu"}
+              {saveStatus === "unsaved" && "ChÆ°a lÆ°u"}
               {saveStatus === "saved" &&
                 (lastSavedAt
                   ? `Đã lưu ${lastSavedAt.toLocaleTimeString("vi-VN", {
