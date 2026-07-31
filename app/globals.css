@@ -1791,6 +1791,25 @@ body {
   gap: 10px;
   padding-bottom: 14px;
 }
+.editor-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.accordion-toggle-all {
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 1px solid var(--studio-line) !important;
+  border-radius: 7px;
+  background: var(--panel-soft) !important;
+  color: var(--studio-muted) !important;
+  font-size: 9px !important;
+  font-weight: 700;
+}
+.accordion-toggle-all:hover {
+  border-color: #dda13e !important;
+  color: #dda13e !important;
+}
 .prompt-modal-backdrop {
   z-index: 80;
 }

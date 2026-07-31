@@ -129,7 +129,36 @@ type StoredProject = {
   previewBackground?: string;
   backgroundVisible?: boolean;
   backgroundMusic?: string;
+  editorSections?: EditorSectionState;
   scenes: Scene[];
+};
+
+type EditorSectionState = {
+  visual: boolean;
+  content: boolean;
+  audio: boolean;
+  motion: boolean;
+};
+
+const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
+  visual: true,
+  content: true,
+  audio: true,
+  motion: true,
+};
+
+const ensureUniqueSceneIds = (items: Scene[]) => {
+  const used = new Set<string>();
+  return items.map((item, index) => {
+    let id = item.id || `scene-${index + 1}`;
+    let suffix = 2;
+    while (used.has(id)) {
+      id = `${item.id || `scene-${index + 1}`}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(id);
+    return { ...item, id };
+  });
 };
 
 type ProjectSnapshot = Omit<StoredProject, "version"> & {
@@ -156,6 +185,9 @@ export default function Home() {
   const [previewBackground, setPreviewBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [backgroundMusic, setBackgroundMusic] = useState("");
+  const [editorSections, setEditorSections] = useState<EditorSectionState>(
+    DEFAULT_EDITOR_SECTIONS,
+  );
   const [playing, setPlaying] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -232,6 +264,7 @@ export default function Home() {
       previewBackground,
       backgroundVisible,
       backgroundMusic,
+      editorSections,
       scenes,
     }),
     [
@@ -244,6 +277,7 @@ export default function Home() {
       previewBackground,
       backgroundVisible,
       backgroundMusic,
+      editorSections,
       scenes,
     ],
   );
@@ -264,9 +298,11 @@ export default function Home() {
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
-    setScenes(project.scenes);
-    setSelectedId(project.scenes[0]?.id ?? "");
-    setPlayTime(project.scenes[0]?.start ?? 0);
+    const restoredScenes = ensureUniqueSceneIds(project.scenes);
+    setEditorSections(project.editorSections ?? DEFAULT_EDITOR_SECTIONS);
+    setScenes(restoredScenes);
+    setSelectedId(restoredScenes[0]?.id ?? "");
+    setPlayTime(restoredScenes[0]?.start ?? 0);
     setPlaying(false);
   };
 
@@ -275,7 +311,11 @@ export default function Home() {
   ) => {
     if (!data) return false;
     if (data.version === 2 && Array.isArray(data.projects) && data.projects.length > 0) {
-      const restoredProjects = data.projects as ProjectSnapshot[];
+      const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
+        ...project,
+        editorSections: project.editorSections ?? DEFAULT_EDITOR_SECTIONS,
+        scenes: ensureUniqueSceneIds(project.scenes),
+      }));
       setProjects(restoredProjects);
       openProject(
         restoredProjects.find((item) => item.id === data.activeProjectId) ??
@@ -294,7 +334,8 @@ export default function Home() {
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
         backgroundMusic: data.backgroundMusic ?? "",
-        scenes: data.scenes,
+        editorSections: data.editorSections ?? DEFAULT_EDITOR_SECTIONS,
+        scenes: ensureUniqueSceneIds(data.scenes),
       };
       setProjects([migrated]);
       openProject(migrated);
@@ -587,6 +628,7 @@ export default function Home() {
       previewBackground: "",
       backgroundVisible: true,
       backgroundMusic: "",
+      editorSections: DEFAULT_EDITOR_SECTIONS,
       scenes: [blankScene],
     };
     setProjects((items) => [
@@ -605,7 +647,7 @@ export default function Home() {
     const last = scenes.at(-1)!;
     const number = scenes.length + 1;
     const next: Scene = {
-      id: `scene-${String(number).padStart(2, "0")}`,
+      id: `scene-${Date.now().toString(36)}-${number}`,
       number,
       title: "Cảnh mới",
       location: "Địa danh mới",
@@ -991,7 +1033,11 @@ export default function Home() {
                 key={item.id}
                 draggable
                 className={`scene-item ${item.id === selectedId ? "active" : ""} ${item.id === dragOverId ? "drag-over" : ""}`}
-                onClick={() => selectScene(item)}
+                onClick={() => {
+                  setDraggedId(null);
+                  setDragOverId(null);
+                  selectScene(item);
+                }}
                 onDragStart={(event) => {
                   setDraggedId(item.id);
                   event.dataTransfer.effectAllowed = "move";
@@ -1182,10 +1228,36 @@ export default function Home() {
         <aside className="editor-panel">
           <div className="panel-heading">
             <h2>Biên soạn</h2>
-            <span className="scene-pill">Cảnh {scene.number}</span>
+            <div className="editor-heading-actions">
+              <button
+                type="button"
+                className="accordion-toggle-all"
+                onClick={() => {
+                  const shouldOpen = !Object.values(editorSections).every(Boolean);
+                  setEditorSections({
+                    visual: shouldOpen,
+                    content: shouldOpen,
+                    audio: shouldOpen,
+                    motion: shouldOpen,
+                  });
+                }}
+              >
+                {Object.values(editorSections).every(Boolean) ? "Thu tất cả" : "Mở tất cả"}
+              </button>
+              <span className="scene-pill">Cảnh {scene.number}</span>
+            </div>
           </div>
           <div className="editor-scroll">
-            <details className="editor-accordion" open>
+            <details
+              className="editor-accordion"
+              open={editorSections.visual}
+              onToggle={(event) =>
+                setEditorSections((items) => ({
+                  ...items,
+                  visual: event.currentTarget.open,
+                }))
+              }
+            >
               <summary className="editor-group-label"><span>01</span> Hình ảnh & nền <i /></summary>
               <div className="editor-accordion-content">
             <label className="field background-field">
@@ -1200,7 +1272,16 @@ export default function Home() {
             </label>
               </div>
             </details>
-            <details className="editor-accordion" open>
+            <details
+              className="editor-accordion"
+              open={editorSections.content}
+              onToggle={(event) =>
+                setEditorSections((items) => ({
+                  ...items,
+                  content: event.currentTarget.open,
+                }))
+              }
+            >
               <summary className="editor-group-label"><span>02</span> Nội dung cảnh <i /></summary>
               <div className="editor-accordion-content">
             <label className="field">
@@ -1256,7 +1337,16 @@ export default function Home() {
             </div>
               </div>
             </details>
-            <details className="editor-accordion" open>
+            <details
+              className="editor-accordion"
+              open={editorSections.audio}
+              onToggle={(event) =>
+                setEditorSections((items) => ({
+                  ...items,
+                  audio: event.currentTarget.open,
+                }))
+              }
+            >
               <summary className="editor-group-label"><span>03</span> Âm thanh <i /></summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
@@ -1313,7 +1403,16 @@ export default function Home() {
             </label>
               </div>
             </details>
-            <details className="editor-accordion" open>
+            <details
+              className="editor-accordion"
+              open={editorSections.motion}
+              onToggle={(event) =>
+                setEditorSections((items) => ({
+                  ...items,
+                  motion: event.currentTarget.open,
+                }))
+              }
+            >
               <summary className="editor-group-label"><span>04</span> Chuyển động <i /></summary>
               <div className="editor-accordion-content">
             <div className="motion-settings-card" id="editor-camera">
