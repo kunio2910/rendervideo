@@ -27,6 +27,8 @@ type Scene = {
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
+  zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
+  zoomMarkerDuration?: number;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -201,6 +203,7 @@ export default function Home() {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
+  const [showZoomSetup, setShowZoomSetup] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
@@ -212,6 +215,7 @@ export default function Home() {
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const zoomCenterMoved = useRef(false);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
@@ -775,9 +779,15 @@ export default function Home() {
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    zoomCenterMoved.current = false;
     setDraggingZoomCenter(true);
 
     const move = (moveEvent: PointerEvent) => {
+      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 4) {
+        zoomCenterMoved.current = true;
+      }
       const centerX = Math.min(
         100,
         Math.max(0, ((moveEvent.clientX - bounds.left) / bounds.width) * 100),
@@ -859,6 +869,8 @@ export default function Home() {
           popupWidth: item.popupWidth ?? 90,
           popupHeight: item.popupHeight ?? 255,
           popupVisible: item.popupVisible !== false,
+          zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
+          zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
         };
       }),
     }),
@@ -910,6 +922,7 @@ export default function Home() {
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
+        `- Hiệu ứng tâm zoom: "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
@@ -1036,10 +1049,6 @@ export default function Home() {
             />
             <b>giây</b>
           </label>
-          <button className="button ghost" onClick={togglePlayback}>
-            <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
-            {playing ? "Tạm dừng" : "Xem thử"}
-          </button>
           <button className="button ghost prompt-button" onClick={() => setShowPromptGenerator(true)}>
             ✦ Tạo prompt
           </button>
@@ -1147,7 +1156,13 @@ export default function Home() {
         <section className="preview-panel">
           <div className="panel-heading">
             <h2>Xem trước cảnh</h2>
-            <span className="time-pill">{formatTime(scene.start)}</span>
+            <div className="preview-heading-actions">
+              <button className="button ghost preview-play-button" onClick={togglePlayback}>
+                <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
+                {playing ? "Tạm dừng" : "Xem thử"}
+              </button>
+              <span className="time-pill">{formatTime(scene.start)}</span>
+            </div>
           </div>
           <div
             ref={previewRef}
@@ -1173,12 +1188,21 @@ export default function Home() {
                 <i /> ĐANG PHÁT
               </div>
             )}
-            {!playing && (
+            {(!playing || (scene.zoomMarkerEffect ?? "none") !== "none") && (
               <div
-                className="zoom-center-marker"
-                style={{ left: `${scene.centerX}%`, top: `${scene.centerY}%` }}
-                title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}%`}
+                className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
+                style={{
+                  left: `${scene.centerX}%`,
+                  top: `${scene.centerY}%`,
+                  ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
+                }}
+                title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}% · Click để chỉnh hiệu ứng`}
                 onPointerDown={startZoomCenterDrag}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!zoomCenterMoved.current) setShowZoomSetup(true);
+                  zoomCenterMoved.current = false;
+                }}
               >
                 <span />
               </div>
@@ -1750,6 +1774,57 @@ export default function Home() {
               <button className="button ghost" onClick={() => setShowPromptGenerator(false)}>Đóng</button>
               <button className="button ghost" onClick={downloadPrompt}>↓ Tải TXT</button>
               <button className="button primary" onClick={copyPrompt}>Sao chép prompt</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showZoomSetup && (
+        <div className="modal-backdrop zoom-setup-backdrop" onMouseDown={() => setShowZoomSetup(false)}>
+          <div className="project-modal zoom-setup-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-modal-heading">
+              <div>
+                <span className="modal-kicker">TÂM ZOOM</span>
+                <h2>Thiết lập hiệu ứng</h2>
+                <p>Chọn hiệu ứng cho vòng tròn tâm zoom của cảnh “{scene.title}”.</p>
+              </div>
+              <button className="prompt-close" aria-label="Đóng" onClick={() => setShowZoomSetup(false)}>×</button>
+            </div>
+            <div className="zoom-effect-preview">
+              <div
+                className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
+                style={{ ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s` }}
+              >
+                <span />
+              </div>
+            </div>
+            <label className="field">
+              <span>Hiệu ứng vòng tròn</span>
+              <select
+                value={scene.zoomMarkerEffect ?? "none"}
+                onChange={(event) => updateScene("zoomMarkerEffect", event.target.value)}
+              >
+                <option value="none">Không hiệu ứng</option>
+                <option value="glow">Phát sáng</option>
+                <option value="blink">Nhấp nháy</option>
+                <option value="soft-fade">Làm mờ</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Thời gian một chu kỳ hiệu ứng</span>
+              <div className="number-with-unit">
+                <input
+                  type="number"
+                  min="0.2"
+                  max="10"
+                  step="0.1"
+                  value={scene.zoomMarkerDuration ?? 1}
+                  onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
+                />
+                <b>giây</b>
+              </div>
+            </label>
+            <div className="modal-actions">
+              <button className="button primary" onClick={() => setShowZoomSetup(false)}>Hoàn tất</button>
             </div>
           </div>
         </div>
