@@ -2337,6 +2337,14 @@ body {
   pointer-events: none;
   opacity: .58;
 }
+.phone-preview {
+  width: min(100%, 472px);
+  height: auto;
+  aspect-ratio: 9 / 16;
+}
+.preview-footer {
+  width: min(100%, 472px);
+}
 .studio-shell[data-theme="light"] .workspace {
   box-shadow: 0 12px 32px rgba(90,70,40,.1);
 }

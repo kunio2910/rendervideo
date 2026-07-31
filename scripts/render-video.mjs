@@ -250,7 +250,9 @@ for (let index = 0; index < scenes.length; index += 1) {
   const popupOutput = marker ? "composed" : "v";
   let filter =
     `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
-    `zoompan=z='${zoomExpression}':x='iw*${centerX}-iw/zoom/2':y='ih*${centerY}-ih/zoom/2':` +
+    `zoompan=z='${zoomExpression}':` +
+    `x='iw*${centerX}*(1-1/zoom)':` +
+    `y='ih*${centerY}*(1-1/zoom)':` +
     `s=1080x1920:fps=${fps}:d=${frames},setsar=1[bg];` +
     `[1:v]format=rgba,fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
     `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +

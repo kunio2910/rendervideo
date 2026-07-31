@@ -61,6 +61,29 @@ Lớp vòng tròn được tạo dưới dạng PNG trong suốt, dùng màu và
 đường outline. File trung gian có tên `zoom-marker-<số-cảnh>.png` trong thư mục
 `render/` của phiên render.
 
+### Đồng bộ tọa độ zoom giữa preview và FFmpeg
+
+Khung preview bản đồ được khóa đúng tỷ lệ `9:16` bằng `aspect-ratio`. Chiều rộng
+có thể thay đổi theo màn hình nhưng chiều cao luôn được tính tự động, vì vậy vùng
+crop của `object-fit: cover` tương ứng với video `1080x1920`.
+
+Preview dùng CSS `transform-origin: centerX centerY`. Renderer FFmpeg phải giữ
+điểm này ở cùng vị trí trên màn hình thay vì tự đưa nó về giữa khung. Công thức
+`zoompan` đang dùng:
+
+```text
+x = iw * centerX * (1 - 1 / zoom)
+y = ih * centerY * (1 - 1 / zoom)
+```
+
+Trong đó `centerX` và `centerY` đã được đổi từ phần trăm sang khoảng `0..1`.
+Công thức này bảo đảm:
+
+- Ở mức zoom `1x`, ảnh không tự pan.
+- Khi zoom tăng, cột mốc nằm dưới vòng tròn không bị trượt.
+- Các tâm zoom gần mép vẫn giữ đúng vị trí phần trăm trên video.
+- Preview và video render sử dụng cùng mô hình biến đổi.
+
 ### Vị trí lưu file sau khi render
 
 Mỗi lần render tạo một thư mục riêng có dạng:
