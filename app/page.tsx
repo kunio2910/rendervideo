@@ -557,9 +557,31 @@ export default function Home() {
       setPlaying(false);
       return;
     }
-    setPlayTime(0);
-    if (scenes[0]) setSelectedId(scenes[0].id);
+    const resumeAt = playTime >= projectDuration ? 0 : playTime;
+    setPlayTime(resumeAt);
+    const activeScene =
+      scenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
+      scenes[0];
+    if (activeScene) setSelectedId(activeScene.id);
     setPlaying(true);
+  };
+
+  const seekTimeline = (seconds: number) => {
+    setPlaying(false);
+    setPlayTime((currentTime) => {
+      const nextTime = Math.min(
+        projectDuration,
+        Math.max(0, Number((currentTime + seconds).toFixed(2))),
+      );
+      const activeScene =
+        scenes.find(
+          (item) =>
+            nextTime >= item.start &&
+            (nextTime < item.end || nextTime === projectDuration),
+        ) ?? scenes.at(nextTime === projectDuration ? -1 : 0);
+      if (activeScene) setSelectedId(activeScene.id);
+      return nextTime;
+    });
   };
 
   const reorderScenes = (targetId: string) => {
@@ -1559,6 +1581,45 @@ export default function Home() {
           <div>
             <h2>Timeline</h2>
             <span>{projectDuration} giây · {scenes.length} cảnh · 30 FPS</span>
+          </div>
+          <div className="timeline-transport" aria-label="Điều khiển phát timeline">
+            <button
+              type="button"
+              title="Chạy lùi 1 giây"
+              aria-label="Chạy lùi 1 giây"
+              onClick={() => seekTimeline(-1)}
+            >
+              ◀◀
+            </button>
+            <button
+              type="button"
+              className={playing ? "active" : ""}
+              title="Phát"
+              aria-label="Phát timeline"
+              onClick={() => {
+                if (!playing) togglePlayback();
+              }}
+            >
+              ▶
+            </button>
+            <button
+              type="button"
+              className={!playing ? "active" : ""}
+              title="Tạm dừng"
+              aria-label="Tạm dừng timeline"
+              onClick={() => setPlaying(false)}
+            >
+              Ⅱ
+            </button>
+            <button
+              type="button"
+              title="Chạy tới 1 giây"
+              aria-label="Chạy tới 1 giây"
+              onClick={() => seekTimeline(1)}
+            >
+              ▶▶
+            </button>
+            <output>{formatTime(playTime)}</output>
           </div>
           <div className={`duration-status ${totalDuration > projectDuration ? "has-error" : ""}`}>
             <span>{totalDuration > projectDuration ? "!" : "✓"}</span>

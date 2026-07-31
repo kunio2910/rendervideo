@@ -1736,6 +1736,37 @@ body {
   border-color: #dda13e !important;
   color: #dda13e !important;
 }
+.timeline-transport {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline: auto 14px;
+}
+.timeline-transport button {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--studio-line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--studio-muted);
+  font: 750 10px var(--font-mono);
+  cursor: pointer;
+}
+.timeline-transport button:hover,
+.timeline-transport button.active {
+  border-color: #dda13e;
+  color: #dda13e;
+  background: rgba(221,161,62,.1);
+}
+.timeline-transport output {
+  min-width: 58px;
+  color: #dda13e;
+  font: 700 10px var(--font-mono);
+  text-align: center;
+}
 .workspace {
   width: calc(100% - 24px);
   height: auto;
