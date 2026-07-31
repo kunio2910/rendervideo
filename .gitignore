@@ -40,7 +40,9 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.local-renderer/
 /pages-dist/
 /.runtime/
 /.npm-cache/
 /node-v*-win-x64.zip
+/ffmpeg-release-essentials.zip

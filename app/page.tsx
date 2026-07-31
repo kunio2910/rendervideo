@@ -122,6 +122,15 @@ const fileNameOnly = (value: string) => {
 };
 
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
+const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
+
+type LocalRenderState = {
+  status: "idle" | "checking" | "uploading" | "rendering" | "completed" | "failed";
+  progress: number;
+  message: string;
+  downloadUrl?: string;
+  log?: string;
+};
 
 type StoredProject = {
   version: 1;
@@ -207,9 +216,16 @@ export default function Home() {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
+  const [showLocalRenderer, setShowLocalRenderer] = useState(false);
   const [showZoomSetup, setShowZoomSetup] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
+  const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
+  const [localRenderState, setLocalRenderState] = useState<LocalRenderState>({
+    status: "idle",
+    progress: 0,
+    message: "Chưa kết nối dịch vụ render cục bộ",
+  });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
@@ -964,6 +980,91 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
+  const requiredRenderFiles = useMemo(() => {
+    const values = [
+      "background" in exportPayload ? exportPayload.background : "",
+      "backgroundMusic" in exportPayload ? exportPayload.backgroundMusic : "",
+      ...exportPayload.scenes.flatMap((item) => [item.image ?? "", item.voiceFile ?? ""]),
+    ];
+    return [...new Set(values.filter((value) => value && !/^https?:\/\//i.test(value)).map(fileNameOnly))];
+  }, [exportPayload]);
+
+  const checkLocalRenderer = async () => {
+    setLocalRenderState({
+      status: "checking",
+      progress: 0,
+      message: "Đang kết nối dịch vụ render cục bộ…",
+    });
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/health`);
+      const result = await response.json();
+      if (!response.ok || !result.ready) throw new Error(result.message || "Dịch vụ chưa sẵn sàng");
+      setLocalRenderState({
+        status: "idle",
+        progress: 0,
+        message: result.busy ? "Dịch vụ đang render một video khác" : "Dịch vụ render đã sẵn sàng",
+      });
+    } catch (error) {
+      setLocalRenderState({
+        status: "failed",
+        progress: 0,
+        message: error instanceof Error
+          ? error.message
+          : "Không thể kết nối. Hãy chạy npm run render:local trên máy.",
+      });
+    }
+  };
+
+  const startLocalRender = async () => {
+    setLocalRenderState({
+      status: "uploading",
+      progress: 2,
+      message: "Đang gửi JSON và tài nguyên tới máy render…",
+    });
+    try {
+      const form = new FormData();
+      form.append("project", JSON.stringify(exportPayload));
+      localRenderFiles.forEach((file) => form.append("media", file, file.name));
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/render`, {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể bắt đầu render");
+      const jobId = String(result.jobId);
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}`);
+        const status = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(status.error || "Không đọc được tiến độ render");
+        if (status.status === "completed") {
+          setLocalRenderState({
+            status: "completed",
+            progress: 100,
+            message: "Render hoàn tất. Video đã sẵn sàng để tải xuống.",
+            downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
+          });
+          return;
+        }
+        if (status.status === "failed") {
+          throw Object.assign(new Error(status.message || "Render thất bại"), { log: status.log });
+        }
+        setLocalRenderState({
+          status: "rendering",
+          progress: Number(status.progress) || 5,
+          message: status.message || "Đang render video…",
+        });
+      }
+    } catch (error) {
+      setLocalRenderState({
+        status: "failed",
+        progress: 0,
+        message: error instanceof Error ? error.message : "Không thể render video",
+        log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
+      });
+    }
+  };
+
   const promptText = useMemo(() => {
     const projectBackground = "background" in exportPayload
       ? exportPayload.background
@@ -1112,6 +1213,15 @@ export default function Home() {
           </label>
           <button className="button ghost prompt-button" onClick={() => setShowPromptGenerator(true)}>
             ✦ Tạo prompt
+          </button>
+          <button
+            className="button local-render-button"
+            onClick={() => {
+              setShowLocalRenderer(true);
+              void checkLocalRenderer();
+            }}
+          >
+            ● Render cục bộ
           </button>
           <button
             className={`button ghost timeline-visibility-button ${timelineVisible ? "active" : ""}`}
@@ -1888,6 +1998,93 @@ export default function Home() {
               <button className="button ghost" onClick={() => setShowPromptGenerator(false)}>Đóng</button>
               <button className="button ghost" onClick={downloadPrompt}>↓ Tải TXT</button>
               <button className="button primary" onClick={copyPrompt}>Sao chép prompt</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLocalRenderer && (
+        <div className="modal-backdrop local-render-backdrop" onMouseDown={() => setShowLocalRenderer(false)}>
+          <div className="project-modal local-render-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-modal-heading">
+              <div>
+                <span className="modal-kicker">FFMPEG · LOCAL</span>
+                <h2>Render video trên máy</h2>
+                <p>JSON hiện tại và các file bạn chọn sẽ được gửi tới dịch vụ FFmpeg đang chạy trên máy này.</p>
+              </div>
+              <button className="prompt-close" aria-label="Đóng" onClick={() => setShowLocalRenderer(false)}>×</button>
+            </div>
+
+            <div className={`local-render-status ${localRenderState.status}`}>
+              <div className="local-render-status-heading">
+                <strong>{localRenderState.message}</strong>
+                <span>{Math.round(localRenderState.progress)}%</span>
+              </div>
+              <div className="local-render-progress">
+                <i style={{ width: `${localRenderState.progress}%` }} />
+              </div>
+            </div>
+
+            <div className="local-render-grid">
+              <section>
+                <h3>Tài nguyên JSON đang yêu cầu</h3>
+                {requiredRenderFiles.length ? (
+                  <ul className="required-media-list">
+                    {requiredRenderFiles.map((name) => (
+                      <li key={name} className={localRenderFiles.some((file) => file.name === name) ? "ready" : ""}>
+                        <span>{localRenderFiles.some((file) => file.name === name) ? "✓" : "○"}</span>
+                        {name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="local-render-note">JSON không tham chiếu file media cục bộ.</p>}
+              </section>
+              <section>
+                <h3>Chọn ảnh và âm thanh</h3>
+                <label className="local-media-picker">
+                  <strong>＋ Chọn nhiều file</strong>
+                  <span>Ảnh background, ảnh popup, giọng đọc và nhạc nền</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,audio/*,video/*"
+                    onChange={(event) => setLocalRenderFiles(Array.from(event.target.files ?? []))}
+                  />
+                </label>
+                <p className="local-render-note">
+                  Đã chọn {localRenderFiles.length} file. Tên file phải trùng với tên trong JSON; URL mạng sẽ được tải tự động.
+                </p>
+              </section>
+            </div>
+
+            {localRenderState.log && (
+              <details className="local-render-log">
+                <summary>Chi tiết lỗi</summary>
+                <pre>{localRenderState.log}</pre>
+              </details>
+            )}
+
+            <div className="local-render-help">
+              <strong>Khởi động lần đầu trong thư mục dự án:</strong>
+              <code>npm run render:setup</code>
+              <code>npm run render:local</code>
+              <small>Giữ cửa sổ lệnh mở trong suốt quá trình render.</small>
+            </div>
+
+            <div className="modal-actions">
+              <button className="button ghost" onClick={() => void checkLocalRenderer()}>Kiểm tra kết nối</button>
+              {localRenderState.status === "completed" && localRenderState.downloadUrl ? (
+                <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
+                  ↓ Tải video MP4
+                </a>
+              ) : (
+                <button
+                  className="button primary"
+                  disabled={localRenderState.status === "uploading" || localRenderState.status === "rendering"}
+                  onClick={() => void startLocalRender()}
+                >
+                  {localRenderState.status === "rendering" ? "Đang render…" : "Bắt đầu render"}
+                </button>
+              )}
             </div>
           </div>
         </div>

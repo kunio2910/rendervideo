@@ -25,11 +25,27 @@ Các địa chỉ đang sử dụng:
 - `scripts/export-github-pages.mjs`: tạo bản tĩnh cho GitHub Pages.
 - `scripts/render-video.mjs`: renderer FFmpeg cục bộ được tạo để dựng video từ
   JSON và tài nguyên trong `source/`.
+- `scripts/local-render-server.mjs`: dịch vụ HTTP cục bộ nhận JSON/media từ
+  nút Render cục bộ, gọi renderer, trả tiến độ và file MP4.
+- `scripts/setup-local-renderer.ps1`: tải và cài FFmpeg vào `.local-renderer/`.
 - `source/`: tài nguyên ảnh và âm thanh dùng khi render cục bộ.
 - `outputs/`: video đã render và các gói triển khai.
 - `.openai/hosting.json`: định danh dự án production.
 
 Lưu ý: `source/` có thể chứa tài nguyên riêng và hiện không được đưa lên GitHub.
+
+### Quy trình render cục bộ
+
+1. Chạy `npm run render:setup` một lần để cài FFmpeg.
+2. Chạy `npm run render:local` và giữ cửa sổ lệnh mở.
+3. Trên website bấm **Render cục bộ**.
+4. Chọn ảnh và âm thanh có tên khớp với tên được liệt kê trong JSON.
+5. Bấm **Bắt đầu render**, theo dõi tiến độ và tải MP4 khi hoàn tất.
+
+Dịch vụ chạy tại `127.0.0.1:4179`, chỉ xử lý một tác vụ tại một thời điểm.
+Website gửi JSON cùng file media bằng multipart form. Mỗi tác vụ có thư mục
+riêng trong `work/local-render-jobs/`; script render dùng FFmpeg để tạo từng
+cảnh, ghép lời thuyết minh, trộn nhạc nền rồi nối thành video cuối.
 
 ## 3. Các khu vực giao diện
 
@@ -285,4 +301,3 @@ Sau mỗi thay đổi quan trọng:
 - Commit chức năng gần nhất: `fc95102`.
 - `source/` và `scripts/render-video.mjs` đang là nội dung cục bộ chưa được
   theo dõi trong Git.
-
