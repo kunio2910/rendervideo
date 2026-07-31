@@ -1813,6 +1813,24 @@ body {
 }
 .phone-preview.is-playing .zoom-center-marker {
   pointer-events: none;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.phone-preview.is-playing .zoom-center-marker span,
+.phone-preview.is-playing .zoom-center-marker::after {
+  display: none;
+}
+.phone-preview.is-playing .zoom-center-marker::before {
+  inset: 5px;
+  width: auto;
+  height: auto;
+  border: 2px solid rgba(255,193,79,.9);
+  border-radius: 50%;
+  background: rgba(255,193,79,.2);
+  box-shadow:
+    0 0 9px rgba(255,193,79,.8),
+    0 0 22px rgba(255,193,79,.45);
 }
 @keyframes marker-preview-glow {
   from { filter: drop-shadow(0 0 1px rgba(255,193,79,.35)); transform: scale(1); }
