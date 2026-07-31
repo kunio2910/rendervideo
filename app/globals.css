@@ -1729,6 +1729,13 @@ body {
 
 /* Focused map interaction and rounded studio frames */
 .studio-shell { padding-bottom: calc(var(--timeline-height, 245px) + 30px); }
+.studio-shell[data-timeline-visible="false"] {
+  padding-bottom: 18px;
+}
+.timeline-visibility-button.active {
+  border-color: #dda13e !important;
+  color: #dda13e !important;
+}
 .workspace {
   width: calc(100% - 24px);
   height: auto;
