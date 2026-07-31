@@ -104,11 +104,6 @@ const initialScenes: Scene[] = [
   },
 ];
 
-const statusClass: Record<Scene["status"], string> = {
-  Nháp: "draft",
-  "Đã duyệt": "approved",
-};
-
 const formatTime = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(4, "0")}`;
 
@@ -127,7 +122,7 @@ const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 
 type StoredProject = {
   version: 1;
-  projectDuration: 15 | 30 | 45;
+  projectDuration: number;
   imageEnabled: boolean;
   narrationEnabled: boolean;
   background?: string;
@@ -154,7 +149,7 @@ export default function Home() {
   const [projectId, setProjectId] = useState("david-journey");
   const [projectTitle, setProjectTitle] = useState("Hành trình Vua Đa-vít");
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
-  const [projectDuration, setProjectDuration] = useState<15 | 30 | 45>(15);
+  const [projectDuration, setProjectDuration] = useState(30);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -175,7 +170,7 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const [timelineHeight, setTimelineHeight] = useState(245);
   const animationFrame = useRef<number | null>(null);
@@ -290,9 +285,7 @@ export default function Home() {
       const migrated: ProjectSnapshot = {
         id: "david-journey",
         title: "Hành trình Vua Đa-vít",
-        projectDuration: [15, 30, 45].includes(Number(data.projectDuration))
-          ? (data.projectDuration as 15 | 30 | 45)
-          : 15,
+        projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
         background: data.background ?? "",
@@ -751,9 +744,6 @@ export default function Home() {
       ...(background.trim()
         ? { background: fileNameOnly(background) }
         : {}),
-      ...(previewBackground.trim()
-        ? { backgroundUrl: previewBackground.trim(), backgroundVisible }
-        : {}),
       ...(backgroundMusic.trim()
         ? { backgroundMusic: backgroundMusic.trim() }
         : {}),
@@ -770,8 +760,6 @@ export default function Home() {
           zoom: item.zoom,
           centerX: item.centerX,
           centerY: item.centerY,
-          location: item.location,
-          reference: item.reference.replaceAll("–", "-"),
           body: item.popup,
           ...(image ? { image } : {}),
           narration: narrationEnabled ? item.narration : "",
@@ -791,8 +779,6 @@ export default function Home() {
       projectDuration,
       projectTitle,
       background,
-      previewBackground,
-      backgroundVisible,
       backgroundMusic,
     ],
   );
@@ -883,19 +869,19 @@ export default function Home() {
           </button>
           <label className="duration-picker">
             <span>Độ dài</span>
-            <select
+            <input
+              type="number"
               aria-label="Độ dài clip"
+              min="1"
+              step="1"
               value={projectDuration}
               onChange={(event) => {
-                const duration = Number(event.target.value) as 15 | 30 | 45;
+                const duration = Math.max(1, Number(event.target.value) || 1);
                 setProjectDuration(duration);
                 setPlayTime((time) => Math.min(time, duration));
               }}
-            >
-              <option value={15}>15s</option>
-              <option value={30}>30s</option>
-              <option value={45}>45s</option>
-            </select>
+            />
+            <b>giây</b>
           </label>
           <button className="button ghost" onClick={togglePlayback}>
             <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
@@ -959,7 +945,6 @@ export default function Home() {
                   <strong>{item.title}</strong>
                   <small>
                     {formatTime(item.start)}–{formatTime(item.end)}
-                    <i className={statusClass[item.status]}>{item.status}</i>
                   </small>
                 </span>
               </button>
@@ -1014,7 +999,7 @@ export default function Home() {
                 }}
               />
             )}
-            <div className="map-label">{scene.location || `CẢNH ${scene.number}`}</div>
+            <div className="map-label">CẢNH {scene.number}</div>
             {playing && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT · CẢNH {scene.number}
@@ -1067,7 +1052,6 @@ export default function Home() {
               <div className="card-content">
                 <small>CẢNH {String(scene.number).padStart(2, "0")}</small>
                 <h3>{scene.title}</h3>
-                <p className="location-line">⌖ {scene.location} · {scene.reference}</p>
                 <p>{scene.popup}</p>
               </div>
               <button
@@ -1131,22 +1115,6 @@ export default function Home() {
                 onChange={(event) => updateScene("title", event.target.value)}
               />
             </label>
-            <div className="field-row">
-              <label className="field">
-                <span>Địa danh</span>
-                <input
-                  value={scene.location}
-                  onChange={(event) => updateScene("location", event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Trích dẫn</span>
-                <input
-                  value={scene.reference}
-                  onChange={(event) => updateScene("reference", event.target.value)}
-                />
-              </label>
-            </div>
             <label className="field">
               <span>Nội dung popup</span>
               <textarea
