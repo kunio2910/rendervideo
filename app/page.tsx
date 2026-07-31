@@ -167,6 +167,7 @@ export default function Home() {
   >("loading");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showPromptGenerator, setShowPromptGenerator] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
@@ -819,6 +820,68 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
+  const promptText = useMemo(() => {
+    const projectBackground = "background" in exportPayload
+      ? exportPayload.background
+      : "Không có";
+    const musicFile = "backgroundMusic" in exportPayload
+      ? fileNameOnly(exportPayload.backgroundMusic)
+      : "Không có";
+    const scenePrompts = exportPayload.scenes.map((item, index) => {
+      const nextStart = exportPayload.scenes[index + 1]?.start ?? projectDuration;
+      const sceneDuration = Math.max(0, nextStart - item.start);
+      return [
+        `CẢNH ${item.milestone}: ${item.title}`,
+        `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
+        `- Hình ảnh: ${item.image ?? "Không có"}${item.image ? ` (tên file: ${fileNameOnly(item.image)})` : ""}.`,
+        `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
+        `- Lời thuyết minh: ${item.narration || "Không có"}.`,
+        `- Nội dung popup: ${item.body || "Không có"}.`,
+        `- Camera: zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
+        `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
+      ].join("\n");
+    });
+
+    return [
+      "PROMPT TẠO VIDEO CHI TIẾT",
+      "",
+      `Tạo video dọc 9:16, độ phân giải ${exportPayload.resolution}, tổng thời lượng ${exportPayload.duration} giây.`,
+      `Chủ đề: ${exportPayload.title}.`,
+      `Background chủ đề: ${projectBackground}${projectBackground !== "Không có" ? ` (tên file: ${fileNameOnly(projectBackground)})` : ""}.`,
+      `Nhạc nền: ${musicFile}.`,
+      "Phong cách chuyển động điện ảnh, camera mượt, bố cục dễ đọc và giữ hình ảnh nhất quán giữa các cảnh.",
+      "Không tự tạo thêm chữ trong hình nền. Đồng bộ popup, chuyển động camera và lời thuyết minh theo timeline dưới đây.",
+      "",
+      ...scenePrompts.flatMap((prompt) => [prompt, ""]),
+      "YÊU CẦU KỸ THUẬT",
+      `- Xuất video ${exportPayload.resolution}, tỷ lệ 9:16, thời lượng chính xác ${exportPayload.duration} giây.`,
+      "- Không cắt đột ngột file âm thanh; giảm âm lượng nhạc nền khi có thuyết minh.",
+      "- Chỉ sử dụng đúng tên file hình ảnh và âm thanh được liệt kê trong từng cảnh.",
+      "- Không để hiệu ứng camera hoặc popup vượt quá thời lượng cảnh.",
+    ].join("\n");
+  }, [exportPayload, projectDuration]);
+
+  const copyPrompt = async () => {
+    await navigator.clipboard.writeText(promptText);
+    setToast("Đã sao chép prompt");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const downloadPrompt = () => {
+    const blob = new Blob([promptText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${projectTitle
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "video-project"}-prompt.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main
       className="studio-shell"
@@ -903,6 +966,9 @@ export default function Home() {
           <button className="button ghost" onClick={togglePlayback}>
             <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
             {playing ? "Tạm dừng" : "Xem thử"}
+          </button>
+          <button className="button ghost prompt-button" onClick={() => setShowPromptGenerator(true)}>
+            ✦ Tạo prompt
           </button>
           <button className="button primary" onClick={exportJson}>
             <span>↓</span> Xuất JSON
@@ -1484,6 +1550,26 @@ export default function Home() {
             <div className="modal-actions">
               <button className="button ghost" onClick={() => setShowNewProject(false)}>Hủy</button>
               <button className="button primary" onClick={createProject}>Tạo và biên soạn</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPromptGenerator && (
+        <div className="modal-backdrop prompt-modal-backdrop" onMouseDown={() => setShowPromptGenerator(false)}>
+          <div className="project-modal prompt-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-modal-heading">
+              <div>
+                <span className="modal-kicker">AI VIDEO PROMPT</span>
+                <h2>Trình tạo prompt</h2>
+                <p>Nội dung được tạo trực tiếp từ dữ liệu JSON hiện tại, gồm tên file hình ảnh và âm thanh của từng cảnh.</p>
+              </div>
+              <button className="prompt-close" aria-label="Đóng" onClick={() => setShowPromptGenerator(false)}>×</button>
+            </div>
+            <textarea className="prompt-output" value={promptText} readOnly spellCheck={false} />
+            <div className="modal-actions">
+              <button className="button ghost" onClick={() => setShowPromptGenerator(false)}>Đóng</button>
+              <button className="button ghost" onClick={downloadPrompt}>↓ Tải TXT</button>
+              <button className="button primary" onClick={copyPrompt}>Sao chép prompt</button>
             </div>
           </div>
         </div>

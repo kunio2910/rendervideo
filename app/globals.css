@@ -1791,6 +1791,50 @@ body {
   gap: 10px;
   padding-bottom: 14px;
 }
+.prompt-modal-backdrop {
+  z-index: 80;
+}
+.prompt-modal {
+  width: min(920px, calc(100vw - 32px));
+  max-width: none;
+}
+.prompt-modal-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.prompt-modal-heading p {
+  max-width: 680px;
+}
+.prompt-close {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--studio-line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+.prompt-output {
+  width: 100%;
+  min-height: min(58vh, 560px);
+  margin-top: 16px;
+  padding: 18px;
+  resize: vertical;
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  outline: 0;
+  background: var(--studio-bg);
+  color: var(--studio-ink);
+  font: 500 12px/1.65 var(--font-mono);
+}
+.prompt-output:focus {
+  border-color: #dda13e;
+  box-shadow: 0 0 0 3px rgba(221,161,62,.14);
+}
 .timeline {
   overflow: hidden;
   border-radius: 12px;
