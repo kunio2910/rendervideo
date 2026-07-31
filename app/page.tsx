@@ -120,6 +120,7 @@ type StoredProject = {
   imageEnabled: boolean;
   narrationEnabled: boolean;
   background?: string;
+  previewBackground?: string;
   backgroundVisible?: boolean;
   backgroundMusic?: string;
   scenes: Scene[];
@@ -146,6 +147,7 @@ export default function Home() {
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
+  const [previewBackground, setPreviewBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [backgroundMusic, setBackgroundMusic] = useState("");
   const [playing, setPlaying] = useState(false);
@@ -218,6 +220,7 @@ export default function Home() {
       imageEnabled,
       narrationEnabled,
       background,
+      previewBackground,
       backgroundVisible,
       backgroundMusic,
       scenes,
@@ -229,6 +232,7 @@ export default function Home() {
       imageEnabled,
       narrationEnabled,
       background,
+      previewBackground,
       backgroundVisible,
       backgroundMusic,
       scenes,
@@ -248,6 +252,7 @@ export default function Home() {
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
     setBackground(project.background ?? "");
+    setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
     setScenes(project.scenes);
@@ -279,6 +284,7 @@ export default function Home() {
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
         background: data.background ?? "",
+        previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
         backgroundMusic: data.backgroundMusic ?? "",
         scenes: data.scenes,
@@ -341,7 +347,7 @@ export default function Home() {
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      if (playing || !backgroundVisible || !background.trim()) return;
+      if (playing || !backgroundVisible || !previewBackground.trim()) return;
       setMapPreviewZoom((items) => {
         const currentZoom = items[selectedId] ?? 1;
         const direction = event.deltaY < 0 ? 0.1 : -0.1;
@@ -358,7 +364,7 @@ export default function Home() {
     };
     preview.addEventListener("wheel", handleWheel, { passive: false });
     return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, backgroundVisible, background, playing]);
+  }, [selectedId, backgroundVisible, previewBackground, playing]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -555,6 +561,7 @@ export default function Home() {
       imageEnabled: true,
       narrationEnabled: true,
       background: "",
+      previewBackground: "",
       backgroundVisible: true,
       backgroundMusic: "",
       scenes: [blankScene],
@@ -711,7 +718,10 @@ export default function Home() {
       duration: projectDuration,
       resolution: "1080x1920",
       ...(background.trim()
-        ? { background: background.trim(), backgroundVisible }
+        ? { background: background.trim() }
+        : {}),
+      ...(previewBackground.trim()
+        ? { backgroundUrl: previewBackground.trim(), backgroundVisible }
         : {}),
       ...(backgroundMusic.trim()
         ? { backgroundMusic: backgroundMusic.trim() }
@@ -750,6 +760,7 @@ export default function Home() {
       projectDuration,
       projectTitle,
       background,
+      previewBackground,
       backgroundVisible,
       backgroundMusic,
     ],
@@ -900,9 +911,9 @@ export default function Home() {
                 <span className="drag-dots" aria-hidden="true">⠿</span>
                 <span className="scene-number">{item.number}</span>
                 <span className="scene-thumb">
-                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(background)) ? (
+                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(previewBackground)) ? (
                     <img
-                      src={/^https?:\/\//i.test(item.image) ? item.image : background}
+                      src={/^https?:\/\//i.test(item.image) ? item.image : previewBackground}
                       alt=""
                     />
                   ) : (
@@ -955,10 +966,10 @@ export default function Home() {
             ref={previewRef}
             className={`phone-preview ${playing ? "is-playing" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
           >
-            {backgroundVisible && background.trim() && (
+            {backgroundVisible && previewBackground.trim() && (
               <img
                 className="project-background"
-                src={background}
+                src={previewBackground}
                 alt=""
                 aria-hidden="true"
                 style={{
@@ -1034,14 +1045,28 @@ export default function Home() {
             )}
           </div>
           <div className="preview-footer">
-            <span><i /> Camera keyframe</span>
-            <span><i /> Popup live</span>
+            <label className="preview-background-field">
+              <span>Background</span>
+              <input
+                type="url"
+                value={previewBackground}
+                placeholder="Dán URL ảnh hiển thị trên bản đồ"
+                onChange={(event) => setPreviewBackground(event.target.value)}
+              />
+            </label>
             <button
-              className={scene.popupVisible !== false ? "active" : ""}
+              className={backgroundVisible ? "active" : ""}
+              title={backgroundVisible ? "Ẩn background" : "Hiện background"}
+              onClick={() => setBackgroundVisible((visible) => !visible)}
+            >
+              {backgroundVisible ? "◉" : "⊘"}
+            </button>
+            <button
+              className={scene.popupVisible !== false ? "active popup-visibility-button" : "popup-visibility-button"}
               title={scene.popupVisible !== false ? "Ẩn popup" : "Hiện popup"}
               onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
             >
-              {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
+              {scene.popupVisible !== false ? "◉ Popup" : "⊘ Popup"}
             </button>
           </div>
         </section>
@@ -1055,30 +1080,13 @@ export default function Home() {
             <div className="editor-group-label"><span>01</span> Hình ảnh & nền</div>
             <label className="field background-field">
               <span>Background chủ đề</span>
-              <div className="background-input-row">
-                <input
-                  type="url"
-                  placeholder="https://example.com/background.jpg"
-                  value={background}
-                  onChange={(event) => setBackground(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={`eye-button ${backgroundVisible ? "is-visible" : ""}`}
-                  aria-label={backgroundVisible ? "Ẩn background" : "Hiện background"}
-                  title={backgroundVisible ? "Ẩn background" : "Hiện background"}
-                  onClick={() => setBackgroundVisible((visible) => !visible)}
-                >
-                  {backgroundVisible ? "◉" : "⊘"}
-                </button>
-              </div>
-              {background.trim() && (
-                <div className={`background-url-preview ${backgroundVisible ? "" : "is-hidden"}`}>
-                  <img src={background} alt="Xem trước background chủ đề" />
-                  <span>{backgroundVisible ? "Background đang hiển thị" : "Background đang bị ẩn"}</span>
-                </div>
-              )}
-              <small>Áp dụng xuyên suốt mọi cảnh và nằm phía sau popup.</small>
+              <input
+                type="text"
+                placeholder="Ví dụ: Bản đồ hành trình Vua Đa-vít"
+                value={background}
+                onChange={(event) => setBackground(event.target.value)}
+              />
+              <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
             </label>
             <div className="editor-group-label"><span>02</span> Nội dung cảnh</div>
             <label className="field">
