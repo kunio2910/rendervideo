@@ -385,6 +385,7 @@ export default function Home() {
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
   const [showLocalRenderer, setShowLocalRenderer] = useState(false);
   const [showZoomSetup, setShowZoomSetup] = useState(false);
+  const [jsonPreviewCleared, setJsonPreviewCleared] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
@@ -1862,7 +1863,14 @@ export default function Home() {
   };
 
   const focusJsonPreview = () => {
+    setJsonPreviewCleared(false);
     document.getElementById("export-json-preview")?.focus();
+  };
+
+  const clearJsonPreview = () => {
+    setJsonPreviewCleared(true);
+    setToast("Đã xóa nội dung JSON đang hiển thị");
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const downloadPrompt = () => {
@@ -3096,11 +3104,12 @@ export default function Home() {
                         aria-live="polite"
                         aria-label="JSON dự án hiện tại"
                       >
-                        {exportJsonText}
+                        {jsonPreviewCleared ? "" : exportJsonText}
                       </pre>
                       <div className="export-card-actions export-json-actions">
                         <button type="button" className="button ghost" onClick={() => void copyJson()}>⧉ Sao chép</button>
                         <button type="button" className="button ghost" onClick={focusJsonPreview}>Xem JSON</button>
+                        <button type="button" className="button ghost json-clear-button" onClick={clearJsonPreview}>⌫ Xóa</button>
                         <button type="button" className="button primary" onClick={exportJson}>↓ Xuất JSON</button>
                       </div>
                     </section>
