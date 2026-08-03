@@ -4541,6 +4541,54 @@ body {
   color: #b85c4c;
 }
 
+/* Compose layout: keep the timeline in the page flow so it cannot cover the editor. */
+@media (min-width: 761px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: var(--timeline-height, 245px);
+    min-height: 0;
+    flex: 0 0 var(--timeline-height, 245px);
+    z-index: 20;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    padding-bottom: 16px;
+    scroll-padding-bottom: 16px;
+  }
+}
+
+.studio-shell[data-studio-tab="compose"] .preview-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.studio-shell[data-studio-tab="compose"] .preview-panel-heading {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: auto;
+  min-height: 0;
+  padding-bottom: 10px;
+  text-align: center;
+}
+
+.studio-shell[data-studio-tab="compose"] .preview-heading-actions {
+  justify-content: center;
+}
+
 @media (max-width: 1180px) and (min-width: 761px) {
   .studio-shell { min-width: 0; }
 

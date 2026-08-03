@@ -2290,7 +2290,7 @@ export default function Home() {
         </aside>
 
         <section className="preview-panel">
-          <div className="panel-heading">
+          <div className="panel-heading preview-panel-heading">
             <h2>Xem trước cảnh</h2>
             <div className="preview-heading-actions">
               <button
