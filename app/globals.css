@@ -3993,3 +3993,203 @@ body {
     padding-right: 8px;
   }
 }
+
+/* Transition cue between the scene cards during preview playback */
+.studio-shell[data-studio-tab="compose"] .scene-item.playback-active {
+  z-index: 4;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-running-flow {
+  top: auto;
+  right: auto;
+  bottom: -25px;
+  left: 15px;
+  width: 20px;
+  height: 27px;
+  z-index: 10;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-running-flow::before {
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  left: 50%;
+  border-left: 2px dashed #c67a2e;
+  content: "";
+  opacity: .9;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-running-flow::after {
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  color: #c67a2e;
+  content: "↓";
+  font: 900 17px/1 var(--font-mono);
+  text-shadow: 0 0 7px rgba(198,122,46,.42);
+  transform: translateX(-50%);
+  animation: scene-transition-arrow 1.05s ease-in-out infinite;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-running-flow i,
+.studio-shell[data-studio-tab="compose"] .scene-running-flow em,
+.studio-shell[data-studio-tab="compose"] .scene-running-flow b {
+  display: none;
+}
+
+@keyframes scene-transition-arrow {
+  0%, 100% { opacity: .35; transform: translate(-50%, -3px); }
+  50% { opacity: 1; transform: translate(-50%, 2px); }
+}
+
+/* Fresh timeline palette based on the reference layout */
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-panel {
+  border-color: #e6dac8;
+  background: #fffdf8;
+  box-shadow: 0 -10px 28px rgba(126,94,52,.13);
+  color: #433728;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline {
+  border-color: #eadfce;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-heading {
+  color: #382814;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-heading h2 {
+  color: #2c2013;
+  font-size: 13px;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-heading > div:first-child span,
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .ruler-scale i {
+  color: #ae9777;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-heading > div:first-child {
+  gap: 10px;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track {
+  border-top-color: #eee4d6;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track > strong {
+  position: relative;
+  color: #6f5d47;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track > strong::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 7px 1px 0;
+  border-radius: 2px;
+  background: #c67a2e;
+  content: "";
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track:nth-of-type(3) > strong::before {
+  background: #8760a5;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track:nth-of-type(4) > strong::before {
+  background: #4b9b8e;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track:nth-of-type(5) > strong::before {
+  background: #aa9a7d;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .track-content.grid {
+  border-left-color: #eadfce;
+  background-color: #fffdf8;
+  background-image: linear-gradient(to right, #f0e7da 1px, transparent 1px);
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .clip {
+  border-color: #fffdf8;
+  border-radius: 6px;
+  color: #6a4a2b;
+  font-size: 9px;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .camera-a,
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .camera-b,
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .camera-c {
+  border-color: #e8bf8b;
+  background: #f5dfbf;
+  color: #9b5b23;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .popup-clip {
+  border-color: #d3bee6;
+  background: #e8def3;
+  color: #67468d;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .voice-clip {
+  border-color: #a9d9d0;
+  background: #d9efeb;
+  color: #28796e;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .music-clip {
+  border-color: #d9cfbd;
+  background: #f4efe5;
+  color: #907f63;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .music-clip.is-empty {
+  border-style: dashed;
+  background: #fffdf8;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport {
+  position: static;
+  left: auto;
+  margin-left: 8px;
+  transform: none;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport button {
+  min-width: 31px;
+  height: 32px;
+  border: 1px solid #eadfce;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #9d8566;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport button:hover,
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport button.active {
+  border-color: #c67a2e;
+  background: #c67a2e;
+  color: #ffffff;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .duration-status {
+  color: #4d8a68;
+}
+
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .duration-status span {
+  background: #e5f3e8;
+}
+
+@media (min-width: 761px) {
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-heading {
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .duration-status {
+    margin-left: auto;
+  }
+}

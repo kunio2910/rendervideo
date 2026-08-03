@@ -85,6 +85,7 @@ Mỗi thẻ cảnh gồm:
 - `scene-number`: số thứ tự.
 - `scene-thumb`: ô ảnh thu nhỏ/số cảnh.
 - `scene-meta`: tên cảnh và khoảng thời gian `start–end`.
+- `scene-running-flow`: mũi tên/đường chạy báo hiệu cảnh đang phát sắp chuyển sang cảnh kế tiếp; chỉ hiện khi xem thử đang chạy và cảnh hiện tại chưa phải cảnh cuối.
 - Giữ `Shift` khi bấm để chọn nhiều cảnh.
 - Kéo thả thẻ cảnh để sắp xếp lại thứ tự.
 
