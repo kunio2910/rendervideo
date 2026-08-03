@@ -1721,6 +1721,114 @@ body {
   color: #f1b957;
   box-shadow: 0 0 10px rgba(221,161,62,.42);
 }
+.scene-running-flow {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  left: -18px;
+  width: 18px;
+  height: calc(100% + 18px);
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.scene-running-flow i {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  border-radius: 0;
+  box-shadow: 0 0 5px rgba(221,161,62,.58);
+}
+.scene-running-flow i:nth-child(1) {
+  top: -1px;
+  right: 0;
+  width: 100%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #dda13e 0 5px, transparent 5px 9px);
+  transform: scaleX(0);
+  transform-origin: right center;
+  animation: scene-flow-draw-top 2.7s linear infinite;
+}
+.scene-running-flow i:nth-child(2) {
+  top: 0;
+  left: -1px;
+  width: 2px;
+  height: 100%;
+  background: repeating-linear-gradient(180deg, #dda13e 0 5px, transparent 5px 9px);
+  transform: scaleY(0);
+  transform-origin: center top;
+  animation: scene-flow-draw-down 2.7s linear infinite;
+}
+.scene-running-flow i:nth-child(3) {
+  left: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #dda13e 0 5px, transparent 5px 9px);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: scene-flow-draw-bottom 2.7s linear infinite;
+}
+.scene-running-flow b {
+  position: absolute;
+  right: -5px;
+  bottom: -8px;
+  color: #dda13e;
+  font: 900 15px/1 var(--font-mono);
+  text-shadow: 0 0 7px rgba(221,161,62,.82);
+  opacity: 0;
+  animation: scene-flow-arrow-right 2.7s linear infinite;
+}
+.scene-running-flow em {
+  position: absolute;
+  color: #dda13e;
+  font: 900 13px/1 var(--font-mono);
+  font-style: normal;
+  text-shadow: 0 0 7px rgba(221,161,62,.82);
+}
+.scene-running-flow em:nth-of-type(1) {
+  top: -8px;
+  left: 3px;
+  animation: scene-flow-arrow-start 2.7s linear infinite;
+}
+.scene-running-flow em:nth-of-type(2) {
+  left: -7px;
+  top: 50%;
+  animation: scene-flow-arrow-middle 2.7s linear infinite;
+}
+@keyframes scene-flow-draw-top {
+  0% { transform: scaleX(0); }
+  28%, 94% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
+}
+@keyframes scene-flow-draw-down {
+  0%, 30% { transform: scaleY(0); }
+  62%, 94% { transform: scaleY(1); }
+  100% { transform: scaleY(0); }
+}
+@keyframes scene-flow-draw-bottom {
+  0%, 64% { transform: scaleX(0); }
+  92%, 94% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
+}
+@keyframes scene-flow-arrow-right {
+  0%, 82% { opacity: 0; transform: translateX(-4px); }
+  92%, 96% { opacity: 1; transform: translateX(3px); }
+  100% { opacity: 0; transform: translateX(3px); }
+}
+@keyframes scene-flow-arrow-start {
+  0%, 12% { opacity: 0; }
+  20%, 34% { opacity: 1; }
+  42%, 100% { opacity: 0; }
+}
+@keyframes scene-flow-arrow-middle {
+  0%, 43% { opacity: 0; }
+  52%, 66% { opacity: 1; }
+  74%, 100% { opacity: 0; }
+}
 @keyframes scene-playback-pulse {
   to { box-shadow: inset 3px 0 0 #dda13e, 0 0 0 1px rgba(221,161,62,.28), 0 0 24px rgba(221,161,62,.3); }
 }
@@ -1957,7 +2065,10 @@ body {
   letter-spacing: .03em;
 }
 .zoom-effect-toggle ~ .field input:disabled,
-.zoom-effect-toggle ~ .field select:disabled {
+.zoom-effect-toggle ~ .field select:disabled,
+.motion-settings-card .motion-toggle ~ .field-row input:disabled,
+.motion-settings-card .motion-toggle ~ .field input:disabled,
+.motion-settings-card .motion-toggle ~ .field select:disabled {
   cursor: not-allowed;
   opacity: .5;
 }
@@ -2408,6 +2519,33 @@ body {
     flex: 0 0 min(82vw, 280px);
     scroll-snap-align: start;
   }
+  .scene-running-flow {
+    top: 50%;
+    right: -12px;
+    bottom: auto;
+    left: auto;
+    width: 13px;
+    height: 2px;
+    border: 0;
+    border-radius: 0;
+    transform: translateY(-50%);
+  }
+  .scene-running-flow i:nth-child(1) {
+    top: 0;
+    right: auto;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: scene-mobile-flow-right 1.25s linear infinite;
+  }
+  .scene-running-flow i:nth-child(2),
+  .scene-running-flow i:nth-child(3),
+  .scene-running-flow em,
+  .scene-running-flow b {
+    display: none;
+  }
   .phone-preview {
     width: min(100%, 390px);
     height: auto;
@@ -2526,5 +2664,10 @@ body {
   }
   .local-render-help small {
     grid-column: auto;
+  }
+  @keyframes scene-mobile-flow-right {
+    0% { transform: scaleX(0); }
+    82% { transform: scaleX(1); }
+    100% { transform: scaleX(0); }
   }
 }

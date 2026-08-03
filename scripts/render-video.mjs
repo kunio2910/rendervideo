@@ -223,7 +223,9 @@ for (let index = 0; index < scenes.length; index += 1) {
   const zoomInFrames = Math.max(1, Math.round((scene.zoomInDuration ?? 0) * fps));
   const zoomOutFrames = Math.max(1, Math.round((scene.zoomOutDuration ?? 0) * fps));
   const zoomOutStart = Math.max(zoomInFrames, frames - zoomOutFrames);
-  const targetZoom = Math.max(1, Number(scene.zoom ?? 1));
+  const targetZoom = scene.zoomEnabled === false
+    ? 1
+    : Math.max(1, Number(scene.zoom ?? 1));
   const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
   const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
   const popupStart = Math.min(duration, Number(scene.zoomInDuration ?? 0));

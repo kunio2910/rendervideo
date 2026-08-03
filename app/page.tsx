@@ -27,6 +27,7 @@ type Scene = {
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
+  zoomEnabled?: boolean;
   zoomMarkerEnabled?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
   zoomMarkerDuration?: number;
@@ -250,7 +251,9 @@ export default function Home() {
     Math.max(0, playTime - scene.start),
   );
   const editingMapScale = mapPreviewZoom[scene.id] ?? 1;
+  const zoomEnabled = scene.zoomEnabled !== false;
   const playbackMapScale = (() => {
+    if (!zoomEnabled) return 1;
     if (!playing) return editingMapScale;
     if (scene.zoomInDuration > 0 && sceneLocalTime < scene.zoomInDuration) {
       const progress = sceneLocalTime / scene.zoomInDuration;
@@ -429,7 +432,7 @@ export default function Home() {
     if (!preview) return;
 
     const handleWheel = (event: WheelEvent) => {
-      if (!mapFocused || playing) return;
+      if (!mapFocused || playing || !zoomEnabled) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -450,7 +453,7 @@ export default function Home() {
 
     preview.addEventListener("wheel", handleWheel, { passive: false });
     return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, playing, mapFocused]);
+  }, [selectedId, playing, mapFocused, scene.zoomEnabled]);
 
   useEffect(() => {
     const handleOutsidePointer = (event: PointerEvent) => {
@@ -946,6 +949,7 @@ export default function Home() {
           popupWidth: item.popupWidth ?? 90,
           popupHeight: item.popupHeight ?? 255,
           popupVisible: item.popupVisible !== false,
+          zoomEnabled: item.zoomEnabled !== false,
           zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
           zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
           zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
@@ -1085,7 +1089,7 @@ export default function Home() {
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
-        `- Camera: zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
+        `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
         `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled ? "bật" : "tắt"}; hiệu ứng "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
@@ -1250,7 +1254,7 @@ export default function Home() {
             </div>
           </div>
           <div className="scene-list">
-            {scenes.map((item) => {
+            {scenes.map((item, index) => {
               const playbackActive =
                 playing && playTime >= item.start && playTime < item.end;
               return (
@@ -1305,6 +1309,16 @@ export default function Home() {
                     <b>{String(item.number).padStart(2, "0")}</b>
                   )}
                 </span>
+                {playbackActive && index < scenes.length - 1 && (
+                  <span className="scene-running-flow" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                    <em>‹</em>
+                    <em>⌄</em>
+                    <b>›</b>
+                  </span>
+                )}
                 <span className="scene-meta">
                   <strong>{item.title}</strong>
                   <small>
@@ -1702,6 +1716,15 @@ export default function Home() {
                 <strong>Zoom camera</strong>
                 <span>Xem thử dùng đúng các thông số này</span>
               </div>
+              <label className="zoom-effect-toggle motion-toggle">
+                <input
+                  type="checkbox"
+                  checked={zoomEnabled}
+                  onChange={(event) => updateScene("zoomEnabled", event.target.checked)}
+                />
+                <span aria-hidden="true" />
+                <span>Bật hiệu ứng zoom camera</span>
+              </label>
               <div className="field-row motion-field-row">
                 <label className="field">
                   <span>Mức zoom</span>
@@ -1712,6 +1735,7 @@ export default function Home() {
                       max="5"
                       step="0.05"
                       value={scene.zoom}
+                      disabled={!zoomEnabled}
                       onChange={(event) => updateScene("zoom", Number(event.target.value))}
                     />
                     <b>×</b>
@@ -1726,6 +1750,7 @@ export default function Home() {
                       max={sceneDuration}
                       step="0.1"
                       value={scene.zoomInDuration}
+                      disabled={!zoomEnabled}
                       onChange={(event) => updateScene("zoomInDuration", Number(event.target.value))}
                     />
                     <b>giây</b>
@@ -1741,12 +1766,35 @@ export default function Home() {
                     max={sceneDuration}
                     step="0.1"
                     value={scene.zoomOutDuration}
+                    disabled={!zoomEnabled}
                     onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
                   />
                   <b>giây</b>
                 </div>
               </label>
             </div>
+            <label className="zoom-effect-toggle motion-toggle">
+              <input
+                type="checkbox"
+                checked={zoomMarkerEnabled}
+                onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
+              />
+              <span aria-hidden="true" />
+              <span>Hiển thị vòng tròn cột mốc</span>
+            </label>
+            <label className="field" id="editor-effects">
+              <span>Hiệu ứng</span>
+              <select
+                value={scene.zoomMarkerEffect ?? "none"}
+                disabled={!zoomMarkerEnabled}
+                onChange={(event) => updateScene("zoomMarkerEffect", event.target.value)}
+              >
+                <option value="none">Không hiệu ứng</option>
+                <option value="glow">Phát sáng</option>
+                <option value="blink">Nhấp nháy</option>
+                <option value="soft-fade">Làm mờ</option>
+              </select>
+            </label>
             <label className="field range-field" id="editor-popup">
               <span>Thời gian popup</span>
               <div className="popup-duration-control">
