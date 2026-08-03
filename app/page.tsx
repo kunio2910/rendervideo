@@ -411,6 +411,9 @@ export default function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const timelineProgress = projectDuration > 0
+    ? Math.min(1, Math.max(0, playTime / projectDuration))
+    : 0;
   const editingMapScale = mapPreviewZoom[scene.id] ?? 1;
   const zoomEnabled = scene.zoomEnabled !== false;
   const playbackMapScale = (() => {
@@ -2637,7 +2640,13 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="playhead" style={{ left: `${8.2 + (playTime / projectDuration) * 91.8}%` }}>
+          <div className="timeline-playhead-layer" aria-hidden="true">
+            <div
+              className={`playhead ${playing ? "is-playing" : ""}`}
+              style={{ left: `${timelineProgress * 100}%` }}
+            >
+              <span>{formatTime(playTime)}</span>
+            </div>
           </div>
         </div>
       </section>}

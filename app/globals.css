@@ -2842,6 +2842,53 @@ body {
   }
 }
 
+/* Keep the playback cursor aligned with the timeline content column. */
+.timeline-playhead-layer {
+  position: absolute;
+  z-index: 8;
+  top: 27px;
+  right: 16px;
+  bottom: 7px;
+  left: 100px;
+  pointer-events: none;
+}
+.timeline-playhead-layer .playhead {
+  top: 0;
+  bottom: 0;
+  z-index: 9;
+  width: 2px;
+  background: #2389ff;
+  box-shadow: 0 0 8px rgba(35,137,255,.78);
+  transition: left .08s linear;
+}
+.timeline-playhead-layer .playhead.is-playing {
+  transition: none;
+}
+.timeline-playhead-layer .playhead::before {
+  top: -4px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  background: #2389ff;
+  box-shadow: 0 0 0 3px rgba(35,137,255,.18);
+}
+.timeline-playhead-layer .playhead span {
+  top: -22px;
+  left: -17px;
+  min-width: 36px;
+  padding: 3px 4px;
+  background: #2389ff;
+  color: #fff;
+  font-size: 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .timeline-playhead-layer {
+    left: 70px;
+  }
+}
+
 /* Editor safety, scene actions, and preflight additions */
 .save-state {
   min-width: 92px;
