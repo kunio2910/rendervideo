@@ -135,6 +135,116 @@ type LocalRenderState = {
   log?: string;
 };
 
+type AssetLibraryItem = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  lastModified: number;
+  file: File;
+};
+
+type PreflightCheck = {
+  id: string;
+  label: string;
+  status: "ok" | "warning" | "error";
+  detail: string;
+};
+
+const ASSET_LIBRARY_DB = "kito-video-studio-assets";
+const ASSET_LIBRARY_STORE = "files";
+
+const getAssetId = (file: File) =>
+  `${file.name}::${file.size}::${file.lastModified}`;
+
+const openAssetLibrary = () =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("Trình duyệt không hỗ trợ thư viện tài nguyên"));
+      return;
+    }
+    const request = indexedDB.open(ASSET_LIBRARY_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(ASSET_LIBRARY_STORE, { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Không mở được thư viện tài nguyên"));
+  });
+
+const readAssetLibrary = async () => {
+  const database = await openAssetLibrary();
+  return new Promise<AssetLibraryItem[]>((resolve, reject) => {
+    const request = database
+      .transaction(ASSET_LIBRARY_STORE, "readonly")
+      .objectStore(ASSET_LIBRARY_STORE)
+      .getAll();
+    request.onsuccess = () => {
+      database.close();
+      resolve((request.result as AssetLibraryItem[]).filter((item) => item?.file));
+    };
+    request.onerror = () => {
+      database.close();
+      reject(request.error ?? new Error("Không đọc được thư viện tài nguyên"));
+    };
+  });
+};
+
+const writeAssetLibrary = async (files: File[]) => {
+  if (!files.length) return;
+  const database = await openAssetLibrary();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(ASSET_LIBRARY_STORE, "readwrite");
+    const store = transaction.objectStore(ASSET_LIBRARY_STORE);
+    files.forEach((file) => store.put({
+      id: getAssetId(file),
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified,
+      file,
+    } satisfies AssetLibraryItem));
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Không lưu được tài nguyên"));
+    };
+  });
+};
+
+const removeAssetFromLibrary = async (id: string) => {
+  const database = await openAssetLibrary();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(ASSET_LIBRARY_STORE, "readwrite");
+    transaction.objectStore(ASSET_LIBRARY_STORE).delete(id);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Không xóa được tài nguyên"));
+    };
+  });
+};
+
+const reflowSceneTimeline = (items: Scene[]) => {
+  let cursor = 0;
+  return items.map((item, index) => {
+    const duration = Math.max(0.1, item.end - item.start);
+    const next = {
+      ...item,
+      number: index + 1,
+      start: Number(cursor.toFixed(2)),
+      end: Number((cursor + duration).toFixed(2)),
+    };
+    cursor += duration;
+    return next;
+  });
+};
+
 type StoredProject = {
   version: 1;
   projectDuration: number;
@@ -263,13 +373,20 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
+  const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
+  const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
+  const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
   const [localRenderState, setLocalRenderState] = useState<LocalRenderState>({
     status: "idle",
     progress: 0,
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark";
+    const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
+    return savedTheme === "light" ? "light" : "dark";
+  });
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const [mapFocused, setMapFocused] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(245);
@@ -278,6 +395,11 @@ export default function Home() {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const zoomCenterMoved = useRef(false);
+  const historyPast = useRef<ProjectSnapshot[]>([]);
+  const historyFuture = useRef<ProjectSnapshot[]>([]);
+  const historySnapshot = useRef("");
+  const historyApplying = useRef(false);
+  const [, setHistoryVersion] = useState(0);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
@@ -363,7 +485,7 @@ export default function Home() {
     projects: [...projects.filter((item) => item.id !== projectId), currentProject],
   }), [projects, projectId, currentProject]);
 
-  const openProject = (project: ProjectSnapshot) => {
+  const openProject = (project: ProjectSnapshot, preserveHistory = false) => {
     setProjectId(project.id);
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
@@ -381,6 +503,12 @@ export default function Home() {
     setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
     setPlayTime(restoredScenes[0]?.start ?? 0);
     setPlaying(false);
+    if (!preserveHistory) {
+      historyPast.current = [];
+      historyFuture.current = [];
+      historySnapshot.current = "";
+      setHistoryVersion((version) => version + 1);
+    }
   };
 
   const applyStoredProject = (
@@ -431,7 +559,10 @@ export default function Home() {
         const localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY);
         if (localValue) {
           restoredLocally = applyStoredProject(JSON.parse(localValue));
-          if (restoredLocally) setSaveStatus("offline");
+          if (restoredLocally) {
+            lastSavedProjectSnapshot.current = localValue;
+            setSaveStatus("offline");
+          }
         }
       } catch {
         window.localStorage.removeItem(LOCAL_STORAGE_KEY);
@@ -441,6 +572,7 @@ export default function Home() {
         const cloudData = await loadDataFromGoogle();
         if (!cancelled && cloudData) {
           applyStoredProject(cloudData);
+          lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
           setSaveStatus("saved");
           setLastSavedAt(new Date());
         } else if (!cancelled && !restoredLocally) {
@@ -457,11 +589,6 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
-    if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
   }, []);
 
   useEffect(() => {
@@ -520,6 +647,57 @@ export default function Home() {
     }
   }, [hydrated, saveStatus, storedProject]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    const currentSnapshot = JSON.stringify(currentProject);
+    if (!historySnapshot.current) {
+      historySnapshot.current = currentSnapshot;
+      return;
+    }
+    if (historySnapshot.current === currentSnapshot) return;
+    if (!historyApplying.current) {
+      try {
+        historyPast.current.push(JSON.parse(historySnapshot.current) as ProjectSnapshot);
+        if (historyPast.current.length > 50) historyPast.current.shift();
+        historyFuture.current = [];
+      } catch {
+        historyPast.current = [];
+        historyFuture.current = [];
+      }
+    }
+    historySnapshot.current = currentSnapshot;
+    historyApplying.current = false;
+    setHistoryVersion((version) => version + 1);
+  }, [hydrated, currentProject]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (saveStatus !== "unsaved") return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hydrated, saveStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readAssetLibrary()
+      .then((items) => {
+        if (!cancelled) {
+          setAssetLibrary(items.sort((a, b) => a.name.localeCompare(b.name)));
+          setLocalRenderFiles(items.map((item) => item.file));
+        }
+      })
+      .catch(() => {
+        // IndexedDB may be disabled in private browsing; file selection still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const saveProjectNow = async () => {
     const currentSnapshot = JSON.stringify(storedProject);
     window.localStorage.setItem(
@@ -539,6 +717,50 @@ export default function Home() {
     }
     lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
+  };
+
+  const restoreLastSavedProject = () => {
+    if (!lastSavedProjectSnapshot.current) {
+      setToast("Chưa có bản lưu gần nhất để khôi phục");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+    try {
+      const restored = JSON.parse(lastSavedProjectSnapshot.current) as StoredWorkspace;
+      if (!applyStoredProject(restored)) throw new Error("Bản lưu không hợp lệ");
+      setSaveStatus("saved");
+      setPlaying(false);
+      setToast("Đã khôi phục bản lưu gần nhất");
+    } catch {
+      setToast("Không thể khôi phục bản lưu gần nhất");
+    }
+    window.setTimeout(() => setToast(""), 2600);
+  };
+
+  const undo = () => {
+    const previous = historyPast.current.pop();
+    if (!previous) return;
+    try {
+      historyFuture.current.push(JSON.parse(JSON.stringify(currentProject)) as ProjectSnapshot);
+      historyApplying.current = true;
+      openProject(previous, true);
+      setHistoryVersion((version) => version + 1);
+    } catch {
+      historyApplying.current = false;
+    }
+  };
+
+  const redo = () => {
+    const next = historyFuture.current.pop();
+    if (!next) return;
+    try {
+      historyPast.current.push(JSON.parse(JSON.stringify(currentProject)) as ProjectSnapshot);
+      historyApplying.current = true;
+      openProject(next, true);
+      setHistoryVersion((version) => version + 1);
+    } catch {
+      historyApplying.current = false;
+    }
   };
 
   useEffect(() => {
@@ -682,6 +904,38 @@ export default function Home() {
     });
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.matches("input, textarea, select, [contenteditable='true']");
+      const modifier = event.ctrlKey || event.metaKey;
+      if (modifier && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (modifier && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (isTyping) return;
+      if (event.key === " ") {
+        event.preventDefault();
+        togglePlayback();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        seekTimeline(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        seekTimeline(1);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   const reorderScenes = (targetId: string) => {
     if (!draggedId || draggedId === targetId) {
       setDraggedId(null);
@@ -694,18 +948,7 @@ export default function Home() {
       const reordered = [...items];
       const [moved] = reordered.splice(fromIndex, 1);
       reordered.splice(toIndex, 0, moved);
-      let cursor = 0;
-      return reordered.map((item, index) => {
-        const duration = item.end - item.start;
-        const normalized = {
-          ...item,
-          number: index + 1,
-          start: cursor,
-          end: cursor + duration,
-        };
-        cursor += duration;
-        return normalized;
-      });
+      return reflowSceneTimeline(reordered);
     });
     setDraggedId(null);
     setDragOverId(null);
@@ -856,34 +1099,75 @@ export default function Home() {
     setSelectedSceneIds([next.id]);
   };
 
+  const duplicateScene = (source = scene) => {
+    if (!source) return;
+    const sourceIndex = scenes.findIndex((item) => item.id === source.id);
+    const insertIndex = sourceIndex >= 0
+      ? sourceIndex + 1
+      : Math.max(0, scenes.findIndex((item) => item.id === selectedId) + 1);
+    const copied: Scene = {
+      ...source,
+      id: `scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      zoomMarkerEffects: source.zoomMarkerEffects
+        ? { ...source.zoomMarkerEffects }
+        : undefined,
+    };
+    const nextScenes = [...scenes];
+    nextScenes.splice(insertIndex, 0, copied);
+    const reflowed = reflowSceneTimeline(nextScenes);
+    setScenes(reflowed);
+    setProjectDuration((duration) => Math.max(duration, reflowed.at(-1)?.end ?? duration));
+    setSelectedId(copied.id);
+    setSelectedSceneIds([copied.id]);
+    setPlayTime(copied.start);
+    setToast("Đã nhân bản cảnh");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const copySelectedScene = () => {
+    if (!scene) return;
+    setClipboardScene({
+      ...scene,
+      zoomMarkerEffects: scene.zoomMarkerEffects
+        ? { ...scene.zoomMarkerEffects }
+        : undefined,
+    });
+    setToast("Đã sao chép cảnh");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const pasteScene = () => {
+    if (!clipboardScene) return;
+    duplicateScene(clipboardScene);
+    setToast("Đã dán cảnh");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const deleteScene = () => {
-    if (scenes.length <= 1) {
+    const idsToDelete = selectedSceneIds.length ? selectedSceneIds : [selectedId];
+    if (scenes.length - idsToDelete.length < 1) {
       setToast("Mỗi clip cần có ít nhất một cảnh");
       window.setTimeout(() => setToast(""), 2400);
       return;
     }
-    if (!window.confirm(`Xóa cảnh “${scene.title}”?`)) return;
-    const removedIndex = scenes.findIndex((item) => item.id === selectedId);
-    let cursor = 0;
-    const remaining = scenes
-      .filter((item) => item.id !== selectedId)
-      .map((item, index) => {
-        const duration = item.end - item.start;
-        const normalized = {
-          ...item,
-          number: index + 1,
-          start: cursor,
-          end: cursor + duration,
-        };
-        cursor += duration;
-        return normalized;
-      });
+    const countLabel = idsToDelete.length > 1 ? `${idsToDelete.length} cảnh` : `cảnh “${scene.title}”`;
+    if (!window.confirm(`Xóa ${countLabel}?`)) return;
+    const removedIndex = Math.max(
+      0,
+      Math.min(
+        scenes.length - 1,
+        Math.min(...idsToDelete.map((id) => scenes.findIndex((item) => item.id === id))),
+      ),
+    );
+    const remaining = reflowSceneTimeline(
+      scenes.filter((item) => !idsToDelete.includes(item.id)),
+    );
     const nextScene = remaining[Math.min(removedIndex, remaining.length - 1)];
     setScenes(remaining);
     setSelectedId(nextScene.id);
     setSelectedSceneIds([nextScene.id]);
     setPlayTime(nextScene.start);
-    setToast("Đã xóa cảnh");
+    setToast(idsToDelete.length > 1 ? `Đã xóa ${idsToDelete.length} cảnh` : "Đã xóa cảnh");
     window.setTimeout(() => setToast(""), 2400);
   };
 
@@ -986,6 +1270,59 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTimelineEdgeDrag = (
+    event: React.PointerEvent<HTMLSpanElement>,
+    sceneId: string,
+    edge: "start" | "end",
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const track = event.currentTarget.closest(".track-content");
+    if (!(track instanceof HTMLElement)) return;
+    const bounds = track.getBoundingClientRect();
+    const originalScene = scenes.find((item) => item.id === sceneId);
+    const originalIndex = scenes.findIndex((item) => item.id === sceneId);
+    if (!originalScene || originalIndex < 0) return;
+    if (edge === "start" && originalIndex === 0) return;
+    const originalBoundary = edge === "start" ? originalScene.start : originalScene.end;
+
+    const move = (moveEvent: PointerEvent) => {
+      const delta = ((moveEvent.clientX - event.clientX) / Math.max(1, bounds.width)) * projectDuration;
+      const desiredBoundary = originalBoundary + delta;
+      setScenes((items) => {
+        const index = items.findIndex((item) => item.id === sceneId);
+        if (index < 0) return items;
+        const current = items[index];
+        const previous = items[index - 1];
+        const next = items[index + 1];
+        const minimumDuration = 0.1;
+        const minimum = edge === "start"
+          ? (previous?.end ?? 0) + minimumDuration
+          : current.start + minimumDuration;
+        const maximum = edge === "start"
+          ? current.end - minimumDuration
+          : (next?.end ?? projectDuration) - minimumDuration;
+        const boundary = Number(Math.min(maximum, Math.max(minimum, desiredBoundary)).toFixed(2));
+        return items.map((item, itemIndex) => {
+          if (edge === "start") {
+            if (itemIndex === index - 1) return { ...item, end: boundary };
+            if (itemIndex === index) return { ...item, start: boundary };
+          } else {
+            if (itemIndex === index) return { ...item, end: boundary };
+            if (itemIndex === index + 1) return { ...item, start: boundary };
+          }
+          return item;
+        });
+      });
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
@@ -1067,33 +1404,145 @@ export default function Home() {
     return [...new Set(values.filter((value) => value && !/^https?:\/\//i.test(value)).map(fileNameOnly))];
   }, [exportPayload]);
 
-  const checkLocalRenderer = async () => {
-    setLocalRenderState({
-      status: "checking",
-      progress: 0,
-      message: "Đang kết nối dịch vụ render cục bộ…",
+  const addAssetsToLibrary = async (files: File[]) => {
+    if (!files.length) return;
+    const nextFiles = [...new Map(files.map((file) => [getAssetId(file), file])).values()];
+    setLocalRenderFiles((items) => {
+      const merged = [...items, ...nextFiles];
+      return [...new Map(merged.map((file) => [getAssetId(file), file])).values()];
+    });
+    setAssetLibrary((items) => {
+      const incoming = nextFiles.map((file) => ({
+        id: getAssetId(file),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        file,
+      }));
+      return [...new Map([...items, ...incoming].map((item) => [item.id, item])).values()]
+        .sort((a, b) => a.name.localeCompare(b.name));
     });
     try {
-      const response = await fetch(`${LOCAL_RENDERER_URL}/api/health`);
-      const result = await response.json();
-      if (!response.ok || !result.ready) throw new Error(result.message || "Dịch vụ chưa sẵn sàng");
-      setLocalRenderState({
-        status: "idle",
-        progress: 0,
-        message: result.busy ? "Dịch vụ đang render một video khác" : "Dịch vụ render đã sẵn sàng",
-      });
-    } catch (error) {
-      setLocalRenderState({
-        status: "failed",
-        progress: 0,
-        message: error instanceof Error
-          ? error.message
-          : "Không thể kết nối. Hãy chạy npm run render:local trên máy.",
-      });
+      await writeAssetLibrary(nextFiles);
+    } catch {
+      setToast("Đã chọn tài nguyên cho lần render này; chưa lưu được vào thư viện");
+      window.setTimeout(() => setToast(""), 2800);
     }
   };
 
+  const toggleAssetSelection = (item: AssetLibraryItem) => {
+    setLocalRenderFiles((files) => files.some((file) => getAssetId(file) === item.id)
+      ? files.filter((file) => getAssetId(file) !== item.id)
+      : [...files, item.file]);
+  };
+
+  const removeAsset = async (item: AssetLibraryItem) => {
+    setAssetLibrary((items) => items.filter((candidate) => candidate.id !== item.id));
+    setLocalRenderFiles((files) => files.filter((file) => getAssetId(file) !== item.id));
+    try {
+      await removeAssetFromLibrary(item.id);
+    } catch {
+      // The in-memory selection is still removed if persistent storage is unavailable.
+    }
+  };
+
+  const runRenderPreflight = async () => {
+    const checks: PreflightCheck[] = [];
+    const selectedFileNames = new Set(localRenderFiles.map((file) => file.name));
+    const addSourceCheck = (
+      id: string,
+      label: string,
+      value: string,
+      required: boolean,
+    ) => {
+      const source = value.trim();
+      if (!source) {
+        checks.push({
+          id,
+          label,
+          status: required ? "error" : "warning",
+          detail: required ? "Chưa chọn tài nguyên." : "Đang dùng giá trị mặc định hoặc bỏ qua.",
+        });
+        return;
+      }
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(source)) {
+        try {
+          const parsed = new URL(source);
+          if (!/^https?:$/.test(parsed.protocol) || !parsed.hostname) throw new Error("URL không hợp lệ");
+          checks.push({
+            id,
+            label,
+            status: "ok",
+            detail: "URL hợp lệ; dịch vụ render sẽ tải tài nguyên từ mạng.",
+          });
+        } catch {
+          checks.push({ id, label, status: "error", detail: "URL không hợp lệ." });
+        }
+        return;
+      }
+      const fileName = fileNameOnly(source);
+      if (selectedFileNames.has(fileName)) {
+        checks.push({ id, label, status: "ok", detail: `Đã có ${fileName} trong thư viện.` });
+      } else {
+        checks.push({ id, label, status: "error", detail: `Thiếu file cục bộ “${fileName}”.` });
+      }
+    };
+
+    addSourceCheck("background", "Background", background, false);
+    if (backgroundMusic.trim()) {
+      addSourceCheck("background-music", "Nhạc nền", backgroundMusic, true);
+    } else {
+      checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
+    }
+    scenes.forEach((item) => {
+      addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
+      addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
+    });
+
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 2500);
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/health`, { signal: controller.signal });
+      window.clearTimeout(timeout);
+      const result = await response.json();
+      if (!response.ok || !result.ready) throw new Error(result.message || "FFmpeg chưa sẵn sàng");
+      checks.push({
+        id: "ffmpeg",
+        label: "FFmpeg cục bộ",
+        status: "ok",
+        detail: result.busy ? "Đã kết nối nhưng dịch vụ đang render một video khác." : "Dịch vụ đã sẵn sàng.",
+      });
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "idle",
+        message: result.busy ? "Dịch vụ đang render một video khác" : "Dịch vụ render đã sẵn sàng",
+      }));
+    } catch (error) {
+      checks.push({
+        id: "ffmpeg",
+        label: "FFmpeg cục bộ",
+        status: "error",
+        detail: error instanceof Error && error.name === "AbortError"
+          ? "Không phản hồi. Hãy chạy npm run render:local."
+          : "FFmpeg chưa chạy hoặc chưa sẵn sàng.",
+      });
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "failed",
+        message: "FFmpeg chưa chạy hoặc chưa sẵn sàng",
+      }));
+    }
+    setPreflightChecks(checks);
+    return !checks.some((check) => check.status === "error");
+  };
+
   const startLocalRender = async () => {
+    const canRender = await runRenderPreflight();
+    if (!canRender) {
+      setLocalRenderState((state) => ({ ...state, status: "failed", message: "Cần xử lý các mục kiểm tra trước khi render" }));
+      return;
+    }
     setLocalRenderState({
       status: "uploading",
       progress: 2,
@@ -1254,7 +1703,7 @@ export default function Home() {
           >
             {theme === "light" ? "☾ Tối" : "☀ Sáng"}
           </button>
-          <div className={`save-state ${saveStatus}`}>
+          <div className={`save-state ${saveStatus}`} aria-live="polite">
             <i />
             <span>
               {saveStatus === "loading" && "Đang tải dữ liệu"}
@@ -1277,6 +1726,32 @@ export default function Home() {
             disabled={saveStatus === "loading" || saveStatus === "saving"}
           >
             ☁ Lưu
+          </button>
+          <button
+            className="button history-button"
+            onClick={undo}
+            disabled={!historyPast.current.length}
+            title="Hoàn tác (Ctrl/Cmd + Z)"
+            aria-label="Hoàn tác"
+          >
+            ↶
+          </button>
+          <button
+            className="button history-button"
+            onClick={redo}
+            disabled={!historyFuture.current.length}
+            title="Làm lại (Ctrl/Cmd + Y)"
+            aria-label="Làm lại"
+          >
+            ↷
+          </button>
+          <button
+            className="button restore-button"
+            onClick={restoreLastSavedProject}
+            disabled={!lastSavedProjectSnapshot.current || saveStatus === "loading" || saveStatus === "saving"}
+            title="Khôi phục bản lưu gần nhất"
+          >
+            ↥ Khôi phục
           </button>
           <label className="duration-picker">
             <span>Độ dài</span>
@@ -1301,7 +1776,7 @@ export default function Home() {
             className="button local-render-button"
             onClick={() => {
               setShowLocalRenderer(true);
-              void checkLocalRenderer();
+              void runRenderPreflight();
             }}
           >
             ● Render cục bộ
@@ -1324,9 +1799,16 @@ export default function Home() {
           <div className="panel-heading">
             <h2>Cảnh</h2>
             <div className="scene-heading-actions">
-              <button className="delete-scene-button" onClick={deleteScene}>⌫ Xóa</button>
+              <button className="delete-scene-button" onClick={deleteScene}>
+                ⌫ Xóa{selectedSceneIds.length > 1 ? ` (${selectedSceneIds.length})` : ""}
+              </button>
               <button onClick={addScene}>＋ Thêm</button>
             </div>
+          </div>
+          <div className="scene-edit-actions" aria-label="Thao tác cảnh">
+            <button type="button" onClick={() => duplicateScene()} title="Nhân bản cảnh đang chọn">Nhân bản</button>
+            <button type="button" onClick={copySelectedScene} title="Sao chép cảnh đang chọn">Sao chép</button>
+            <button type="button" onClick={pasteScene} disabled={!clipboardScene} title="Dán cảnh đã sao chép">Dán</button>
           </div>
           <div className="scene-list">
             {scenes.map((item, index) => {
@@ -2086,7 +2568,23 @@ export default function Home() {
                     width: `${((item.end - item.start) / projectDuration) * 100}%`,
                   }}
                 >
-                  Zoom {item.zoom}× · {item.zoomInDuration}s
+                  {index > 0 && (
+                    <span
+                      className="timeline-edge-handle timeline-edge-start"
+                      title="Kéo để đổi điểm bắt đầu cảnh"
+                      aria-label="Điểm bắt đầu cảnh"
+                      onPointerDown={(event) => startTimelineEdgeDrag(event, item.id, "start")}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  )}
+                  <span className="timeline-clip-label">Zoom {item.zoom}× · {item.zoomInDuration}s</span>
+                  <span
+                    className="timeline-edge-handle timeline-edge-end"
+                    title="Kéo để đổi điểm kết thúc cảnh"
+                    aria-label="Điểm kết thúc cảnh"
+                    onPointerDown={(event) => startTimelineEdgeDrag(event, item.id, "end")}
+                    onClick={(event) => event.stopPropagation()}
+                  />
                 </button>
               ))}
             </div>
@@ -2211,6 +2709,30 @@ export default function Home() {
               </div>
             </div>
 
+            <section className="preflight-card" aria-live="polite">
+              <div className="preflight-heading">
+                <div>
+                  <h3>Kiểm tra trước khi render</h3>
+                  <p>Phát hiện thiếu tài nguyên, URL lỗi và trạng thái FFmpeg trước khi gửi job.</p>
+                </div>
+                <button className="button ghost" type="button" onClick={() => void runRenderPreflight()}>
+                  Kiểm tra lại
+                </button>
+              </div>
+              {preflightChecks.length ? (
+                <ul className="preflight-list">
+                  {preflightChecks.map((check) => (
+                    <li key={check.id} className={check.status}>
+                      <span aria-hidden="true">{check.status === "ok" ? "✓" : check.status === "warning" ? "!" : "×"}</span>
+                      <div><strong>{check.label}</strong><small>{check.detail}</small></div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="local-render-note">Chưa chạy kiểm tra. Hãy bấm “Kiểm tra lại” trước khi render.</p>
+              )}
+            </section>
+
             <div className="local-render-grid">
               <section>
                 <h3>Tài nguyên JSON đang yêu cầu</h3>
@@ -2226,7 +2748,7 @@ export default function Home() {
                 ) : <p className="local-render-note">JSON không tham chiếu file media cục bộ.</p>}
               </section>
               <section>
-                <h3>Chọn ảnh và âm thanh</h3>
+                <h3>Thư viện tài nguyên</h3>
                 <label className="local-media-picker">
                   <strong>＋ Chọn nhiều file</strong>
                   <span>Ảnh background, ảnh popup, giọng đọc và nhạc nền</span>
@@ -2234,12 +2756,31 @@ export default function Home() {
                     type="file"
                     multiple
                     accept="image/*,audio/*,video/*"
-                    onChange={(event) => setLocalRenderFiles(Array.from(event.target.files ?? []))}
+                    onChange={(event) => {
+                      void addAssetsToLibrary(Array.from(event.target.files ?? []));
+                      event.currentTarget.value = "";
+                    }}
                   />
                 </label>
                 <p className="local-render-note">
-                  Đã chọn {localRenderFiles.length} file. Tên file phải trùng với tên trong JSON; URL mạng sẽ được tải tự động.
+                  Đã chọn {localRenderFiles.length} file. File được lưu trên trình duyệt để dùng lại cho các lần render sau.
                 </p>
+                {assetLibrary.length > 0 && (
+                  <ul className="asset-library-list">
+                    {assetLibrary.map((item) => {
+                      const selected = localRenderFiles.some((file) => getAssetId(file) === item.id);
+                      return (
+                        <li key={item.id} className={selected ? "selected" : ""}>
+                          <label>
+                            <input type="checkbox" checked={selected} onChange={() => toggleAssetSelection(item)} />
+                            <span title={item.name}>{item.name}</span>
+                          </label>
+                          <button type="button" aria-label={`Xóa ${item.name} khỏi thư viện`} onClick={() => void removeAsset(item)}>×</button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </section>
             </div>
 
@@ -2258,7 +2799,7 @@ export default function Home() {
             </div>
 
             <div className="modal-actions">
-              <button className="button ghost" onClick={() => void checkLocalRenderer()}>Kiểm tra kết nối</button>
+              <button className="button ghost" onClick={() => void runRenderPreflight()}>Kiểm tra kết nối</button>
               {localRenderState.status === "completed" && localRenderState.downloadUrl ? (
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
                   ↓ Tải video MP4

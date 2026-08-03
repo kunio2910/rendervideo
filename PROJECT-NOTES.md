@@ -167,6 +167,7 @@ dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị
 ### Danh sách cảnh
 
 - Thêm và xóa cảnh.
+- Nhân bản cảnh, sao chép/dán cảnh và xóa nhiều cảnh bằng cách giữ Shift để chọn.
 - Chọn cảnh để biên soạn.
 - Kéo thả để thay đổi thứ tự.
 - Sau khi sắp xếp, thời gian bắt đầu/kết thúc được tính lại liên tục.
@@ -182,6 +183,8 @@ dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị
   ảnh preview.
 - Lăn chuột trên bản đồ để zoom; thao tác này không cuộn trang.
 - Kéo vòng tròn tâm zoom để thay đổi `centerX` và `centerY`.
+- Khi zoom camera bật, vòng tròn tâm zoom riêng có thể kéo trực tiếp trên bản đồ;
+  tắt zoom sẽ ẩn vòng tròn này.
 - Có thể kéo góc popup để tăng/giảm chiều rộng và chiều cao.
 - Có nút ẩn/hiện popup.
 
@@ -198,6 +201,8 @@ Các thông tin chính:
 - Mức zoom, thời gian zoom vào và thời gian thu camera về.
 - Thời gian popup.
 - Hiệu ứng mở/đóng popup.
+- Trong mục **Hiệu ứng**, bật/tắt vòng tròn cột mốc và từng hiệu ứng phát sáng,
+  nhấp nháy hoặc làm mờ độc lập.
 
 Các hiệu ứng popup đang có:
 
@@ -216,6 +221,8 @@ Các hiệu ứng popup đang có:
 - Giới hạn kéo: 220–520 px.
 - Các hàng và clip tự co giãn theo chiều cao timeline.
 - Các hàng gồm Camera, Popup, Thuyết minh và Nhạc nền.
+- Kéo mép trái/phải của clip Camera để đổi điểm bắt đầu/kết thúc; biên cảnh kế
+  bên được dịch theo và mỗi cảnh luôn giữ tối thiểu 0,1 giây.
 - Bấm một event sẽ:
   1. Chọn đúng cảnh.
   2. Đưa playhead đến đầu cảnh.
@@ -234,6 +241,13 @@ Khi bấm `Xem thử`:
 5. Popup xuất hiện sau khi zoom vào và tồn tại trong `popupDuration`.
 6. Hiệu ứng mở/đóng lấy từ `popupIn` và `popupOut`.
 7. Nếu có file âm thanh hợp lệ, thuyết minh của cảnh sẽ được phát.
+8. Khi chạy hết toàn bộ clip, preview tự tạm dừng và quay về cảnh đầu tiên.
+
+Phím tắt trong preview/timeline:
+
+- `Space`: phát hoặc tạm dừng.
+- `Arrow Left` / `Arrow Right`: tua lùi hoặc tiến một giây.
+- `Ctrl/Cmd + Z`: Undo; `Ctrl/Cmd + Y` hoặc `Ctrl/Cmd + Shift + Z`: Redo.
 
 URL âm thanh phải truy cập trực tiếp được. File được chọn từ máy có thể xem
 trước trong phiên hiện tại nhưng cần được đặt cùng gói media khi render thật.
@@ -253,14 +267,21 @@ Project ID gửi lên Apps Script:
 
 `render-video-default`
 
-Quy trình:
+Quy trình lưu thủ công:
 
 - Khi mở trang: thử đọc localStorage trước, sau đó tải dữ liệu Google Sheet.
-- Khi chỉnh sửa: lưu localStorage và tự động gửi dữ liệu lên Google Sheet sau
-  một khoảng chờ ngắn.
-- Nút Lưu cho phép lưu ngay lập tức.
-- Nếu Google Sheet lỗi, dữ liệu cục bộ vẫn được giữ và giao diện báo trạng thái
-  offline.
+- Khi chỉnh sửa: chỉ đánh dấu **Chưa lưu** trong state; không tự động ghi
+  localStorage hoặc Google Sheet.
+- Nút **Lưu** là thao tác duy nhất ghi bản lưu vào localStorage và gửi dữ liệu lên
+  Google Sheet.
+- Nếu đóng tab khi còn thay đổi chưa lưu, trình duyệt hiển thị cảnh báo rời trang.
+- Nút **Khôi phục** đưa dự án về snapshot đã lưu gần nhất.
+- Nếu Google Sheet lỗi, bản lưu localStorage vẫn thành công và giao diện báo
+  trạng thái offline.
+
+Thư viện tài nguyên của hộp thoại Render cục bộ dùng IndexedDB trong trình duyệt.
+Các file đã chọn được giữ lại theo tên/kích thước/thời điểm sửa để có thể chọn lại
+ở những lần render sau; file gốc trên máy không bị di chuyển hay xóa.
 
 ## 6. Cấu trúc dữ liệu trong ứng dụng
 
@@ -272,6 +293,7 @@ Mỗi dự án có:
 - `previewBackground`: URL ảnh hiển thị trong bản đồ.
 - `backgroundVisible`.
 - `backgroundMusic`.
+- `editorSections`, `timelineVisible`.
 - `scenes`.
 
 Mỗi cảnh có các nhóm dữ liệu:
@@ -279,6 +301,9 @@ Mỗi cảnh có các nhóm dữ liệu:
 - Nội dung: `title`, `location`, `reference`, `popup`, `narration`.
 - Timeline: `start`, `end`.
 - Camera: `zoom`, `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
+- Camera: `zoomEnabled`.
+- Vòng tròn cột mốc: `zoomMarkerEnabled`, `zoomMarkerEffects`,
+  `zoomMarkerDuration`, `zoomMarkerSize`.
 - Popup: `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
 - Media: `image`, `voiceFile`, `voice`.
@@ -336,6 +361,11 @@ Quy tắc media:
 ## 8. Quy trình render video cục bộ
 
 Renderer hiện dùng FFmpeg và Sharp.
+
+Trước khi bắt đầu render, giao diện chạy preflight: kiểm tra background, ảnh và
+âm thanh từng cảnh, file cục bộ trong thư viện, cú pháp URL và health check của
+dịch vụ FFmpeg tại `127.0.0.1:4179`. Mục lỗi sẽ chặn render cho đến khi được xử
+lý; cảnh báo không nghiêm trọng vẫn được hiển thị rõ.
 
 Quy trình tổng quát:
 
@@ -406,6 +436,8 @@ Sau mỗi thay đổi quan trọng:
   - JSON export.
 - Khi thêm hiệu ứng popup mới, cập nhật cả danh sách select và CSS animation.
 - Khi sửa timeline, kiểm tra cả trạng thái thu nhỏ và mở rộng.
+- Khi sửa thao tác dữ liệu, cập nhật cả history Undo/Redo và cảnh báo `beforeunload`.
+- Khi sửa hộp thoại render, cập nhật cả preflight và thư viện IndexedDB.
 - Renderer nên bỏ qua media thiếu thay vì đoán đường dẫn hoặc chèn file giả.
 - URL từ Cloudinary hoặc máy chủ ảnh phải là URL tải trực tiếp.
 - Tổng thời gian cảnh không nên vượt `projectDuration`.
