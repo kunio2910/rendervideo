@@ -65,12 +65,16 @@ const download = async (url, filename) => {
   return filename;
 };
 
-const resolveImage = async (value, fallbackName) => {
+const resolveImage = async (value, fallbackName, required = false) => {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) {
     try {
       return await download(value, path.join(renderDir, fallbackName));
-    } catch {
+    } catch (error) {
+      if (required) {
+        const detail = error instanceof Error ? error.message : "unknown download error";
+        throw new Error(`Không thể tải ảnh background từ URL: ${detail}`);
+      }
       return null;
     }
   }
@@ -209,7 +213,7 @@ const getActiveMarkerEffects = (scene) => {
   return legacyEffect === "none" ? [] : [legacyEffect];
 };
 
-const background = await resolveImage(project.background, "background");
+const background = await resolveImage(project.background, "background", true);
 const uploadedFallbackBackground = path.join(sourceDir, "map.png");
 const defaultFallbackBackground = path.join(defaultSourceDir, "map.png");
 let fallbackBackground = uploadedFallbackBackground;
@@ -219,7 +223,11 @@ try {
   fallbackBackground = defaultFallbackBackground;
 }
 const backgroundPath = background ?? fallbackBackground;
-await fs.access(backgroundPath);
+try {
+  await fs.access(backgroundPath);
+} catch {
+  throw new Error(`Không tìm thấy ảnh background: ${project.background || "map.png"}`);
+}
 
 const clipPaths = [];
 for (let index = 0; index < scenes.length; index += 1) {

@@ -136,6 +136,13 @@ const fileNameOnly = (value: string) => {
   return trimmed.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? trimmed;
 };
 
+const isRemoteUrl = (value: string) => /^https?:\/\/.+/i.test(value.trim());
+
+const assetReference = (value: string) => {
+  const trimmed = value.trim();
+  return isRemoteUrl(trimmed) ? trimmed : fileNameOnly(trimmed);
+};
+
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
@@ -426,7 +433,8 @@ export default function Home() {
   const totalDuration = Math.max(...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
-  const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
+  const isRemoteImage = isRemoteUrl(scene.image);
+  const backgroundPreviewSource = previewBackground.trim() || (isRemoteUrl(background) ? background.trim() : "");
   const sceneDuration = Math.max(0.1, scene.end - scene.start);
   const sceneLocalTime = Math.min(
     sceneDuration,
@@ -1532,49 +1540,52 @@ export default function Home() {
   };
 
   const exportPayload = useMemo(
-    () => ({
-      title: projectTitle,
-      duration: projectDuration,
-      resolution: renderResolution,
-      ...(background.trim()
-        ? { background: fileNameOnly(background) }
-        : {}),
-      ...(backgroundMusic.trim()
-        ? { backgroundMusic: backgroundMusic.trim() }
-        : {}),
-      scenes: scenes.map((item) => {
-        const image = imageEnabled ? fileNameOnly(item.image) : "";
-        const voiceFile = narrationEnabled ? fileNameOnly(item.voiceFile) : "";
-        return {
-          milestone: item.number,
-          title: item.title,
-          start: item.start,
-          zoomStart: item.zoomStart ?? 0,
-          zoomInDuration: item.zoomInDuration,
-          popupDuration: item.popupDuration,
-          popupStart: item.popupStart ?? item.zoomInDuration,
-          zoomOutDuration: item.zoomOutDuration,
-          zoom: item.zoom,
-          centerX: item.centerX,
-          centerY: item.centerY,
-          body: item.popup,
-          ...(image ? { image } : {}),
-          narration: narrationEnabled ? item.narration : "",
-          ...(voiceFile ? { voiceFile } : {}),
-          popupIn: item.popupIn,
-          popupOut: item.popupOut,
-          popupWidth: item.popupWidth ?? 90,
-          popupHeight: item.popupHeight ?? 255,
-          popupVisible: item.popupVisible !== false,
-          zoomEnabled: item.zoomEnabled !== false,
-          zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
-          zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
-          zoomMarkerEffects: getMarkerEffectSettings(item),
-          zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
-          zoomMarkerSize: item.zoomMarkerSize ?? 28,
-        };
-      }),
-    }),
+    () => {
+      const renderBackground = previewBackground.trim() || background.trim();
+      return {
+        title: projectTitle,
+        duration: projectDuration,
+        resolution: renderResolution,
+        ...(renderBackground
+          ? { background: assetReference(renderBackground) }
+          : {}),
+        ...(backgroundMusic.trim()
+          ? { backgroundMusic: backgroundMusic.trim() }
+          : {}),
+        scenes: scenes.map((item) => {
+          const image = imageEnabled ? assetReference(item.image) : "";
+          const voiceFile = narrationEnabled ? fileNameOnly(item.voiceFile) : "";
+          return {
+            milestone: item.number,
+            title: item.title,
+            start: item.start,
+            zoomStart: item.zoomStart ?? 0,
+            zoomInDuration: item.zoomInDuration,
+            popupDuration: item.popupDuration,
+            popupStart: item.popupStart ?? item.zoomInDuration,
+            zoomOutDuration: item.zoomOutDuration,
+            zoom: item.zoom,
+            centerX: item.centerX,
+            centerY: item.centerY,
+            body: item.popup,
+            ...(image ? { image } : {}),
+            narration: narrationEnabled ? item.narration : "",
+            ...(voiceFile ? { voiceFile } : {}),
+            popupIn: item.popupIn,
+            popupOut: item.popupOut,
+            popupWidth: item.popupWidth ?? 90,
+            popupHeight: item.popupHeight ?? 255,
+            popupVisible: item.popupVisible !== false,
+            zoomEnabled: item.zoomEnabled !== false,
+            zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
+            zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
+            zoomMarkerEffects: getMarkerEffectSettings(item),
+            zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
+            zoomMarkerSize: item.zoomMarkerSize ?? 28,
+          };
+        }),
+      };
+    },
     [
       scenes,
       imageEnabled,
@@ -1583,6 +1594,7 @@ export default function Home() {
       renderResolution,
       projectTitle,
       background,
+      previewBackground,
       backgroundMusic,
     ],
   );
@@ -1612,7 +1624,7 @@ export default function Home() {
       "backgroundMusic" in exportPayload ? exportPayload.backgroundMusic : "",
       ...exportPayload.scenes.flatMap((item) => [item.image ?? "", item.voiceFile ?? ""]),
     ];
-    return [...new Set(values.filter((value) => value && !/^https?:\/\//i.test(value)).map(fileNameOnly))];
+    return [...new Set(values.filter((value) => value && !isRemoteUrl(value)).map(fileNameOnly))];
   }, [exportPayload]);
 
   const addAssetsToLibrary = async (files: File[]) => {
@@ -1700,7 +1712,12 @@ export default function Home() {
       }
     };
 
-    addSourceCheck("background", "Background", background, false);
+    addSourceCheck(
+      "background",
+      "Background",
+      previewBackground.trim() || background,
+      false,
+    );
     if (backgroundMusic.trim()) {
       addSourceCheck("background-music", "Nhạc nền", backgroundMusic, true);
     } else {
@@ -2212,10 +2229,10 @@ export default function Home() {
             onPointerDown={() => setMapFocused(true)}
             className={`phone-preview ${playing ? "is-playing" : ""} ${mapFocused ? "map-focused" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
           >
-            {backgroundVisible && previewBackground.trim() && (
+            {backgroundVisible && backgroundPreviewSource && (
               <img
                 className="project-background"
-                src={previewBackground}
+                src={backgroundPreviewSource}
                 alt=""
                 aria-hidden="true"
                 style={{
@@ -2365,11 +2382,11 @@ export default function Home() {
               <span>Background chủ đề</span>
               <input
                 type="text"
-                placeholder="Ví dụ: Bản đồ hành trình Vua Đa-vít"
+                placeholder="map.png hoặc https://.../background.jpg"
                 value={background}
                 onChange={(event) => setBackground(event.target.value)}
               />
-              <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
+              <small>Nhập tên file cục bộ hoặc URL ảnh. URL sẽ được renderer tự tải về trước khi dựng video.</small>
             </label>
             <label className="field background-image-url-field">
               <span>Đường dẫn URL hình ảnh nền</span>
@@ -2379,7 +2396,7 @@ export default function Home() {
                 placeholder="Dán URL ảnh hiển thị trên bản đồ"
                 onChange={(event) => setPreviewBackground(event.target.value)}
               />
-              <small>Ảnh này được hiển thị phía sau popup trong khung Xem trước cảnh.</small>
+              <small>URL này dùng cho phần xem trước; nếu Background cũng là URL thì renderer sẽ dùng URL đó để tải ảnh.</small>
             </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
