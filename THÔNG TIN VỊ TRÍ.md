@@ -20,7 +20,8 @@ Tên mã nguồn của vùng điều hướng: `.studio-layout` chứa `.studio-
 - Cột Cảnh có vùng cuộn riêng tại `.scene-list`; khi nói “scroll Cảnh” hãy gọi đúng `Cột Cảnh > Danh sách cảnh`.
 - Vùng Biên soạn có vùng cuộn riêng tại `.editor-scroll`; các nhóm cài đặt không làm kéo dài toàn bộ bố cục.
 - Khung `.phone-preview` trong `Xem trước cảnh` được thu gọn tối đa 300px; `.preview-footer` vẫn giữ hai nút `Background` và `Popup`.
-- Trong `Xuất > JSON dự án`, nút `Xem JSON` bật/tắt khung `.export-json-full`; `Xuất JSON` vẫn tải tệp xuống.
+- Trong `Xuất > JSON dự án`, khung `.export-json-preview` luôn hiển thị toàn bộ JSON và có scroll; nút `Xem JSON` đưa focus vào đúng khung này, không tạo khung mới. `Xuất JSON` vẫn tải tệp xuống.
+- Trong `Xuất > Kiểm tra trước khi render`, `.preflight-mini-list` hiển thị toàn bộ mục kiểm tra và có scroll riêng; nội dung lỗi không bị cắt bằng dấu `…`.
 
 Khi yêu cầu chỉnh sửa khu vực xuất, nên gọi theo mẫu: `Xuất > nhóm chức năng > tên nút/đối tượng`, không gọi chung là “các nút phía trên”.
 
@@ -78,6 +79,9 @@ Tên mã nguồn: `.scene-panel`.
 ### 3.2. Danh sách cảnh
 
 Tên mã nguồn: `.scene-list`; mỗi cảnh là `.scene-item`.
+
+- Mỗi card cảnh giữ chiều cao gọn 68px; khoảng cách giữa card được chừa để
+  `.scene-running-flow` hiển thị rõ khi xem thử.
 
 Mỗi thẻ cảnh gồm:
 

@@ -362,7 +362,6 @@ export default function Home() {
   const [projectDuration, setProjectDuration] = useState(30);
   const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
-  const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -1870,6 +1869,10 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const focusJsonPreview = () => {
+    document.getElementById("export-json-preview")?.focus();
+  };
+
   const downloadPrompt = () => {
     const blob = new Blob([promptText], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1891,7 +1894,7 @@ export default function Home() {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "") || "video-project"}.mp4`;
-  const exportJsonPreview = JSON.stringify(exportPayload, null, 2).slice(0, 760);
+  const exportJsonText = JSON.stringify(exportPayload, null, 2);
   const missingRenderFiles = requiredRenderFiles.filter(
     (fileName) => !localRenderFiles.some((file) => file.name === fileName),
   );
@@ -3102,17 +3105,20 @@ export default function Home() {
                         <span className="export-card-icon" aria-hidden="true">{`{}`}</span>
                         <h3>JSON dự án</h3>
                       </div>
-                      <pre className="export-json-preview">{exportJsonPreview}{exportJsonPreview.length < JSON.stringify(exportPayload, null, 2).length ? "\n…" : ""}</pre>
+                      <pre
+                        id="export-json-preview"
+                        className="export-json-preview"
+                        tabIndex={0}
+                        aria-live="polite"
+                        aria-label="JSON dự án hiện tại"
+                      >
+                        {exportJsonText}
+                      </pre>
                       <div className="export-card-actions export-json-actions">
                         <button type="button" className="button ghost" onClick={() => void copyJson()}>⧉ Sao chép</button>
-                        <button type="button" className="button ghost" onClick={() => setShowJsonPreview((visible) => !visible)}>
-                          {showJsonPreview ? "Ẩn JSON" : "Xem JSON"}
-                        </button>
+                        <button type="button" className="button ghost" onClick={focusJsonPreview}>Xem JSON</button>
                         <button type="button" className="button primary" onClick={exportJson}>↓ Xuất JSON</button>
                       </div>
-                      {showJsonPreview && (
-                        <pre className="export-json-full" aria-live="polite">{JSON.stringify(exportPayload, null, 2)}</pre>
-                      )}
                     </section>
 
                     <section className="export-card export-prompt-card">
@@ -3165,7 +3171,7 @@ export default function Home() {
                       </div>
                       {preflightChecks.length ? (
                         <ul className="preflight-mini-list">
-                          {preflightChecks.slice(0, 5).map((check) => (
+                          {preflightChecks.map((check) => (
                             <li key={check.id} className={check.status}>
                               <span>{check.status === "ok" ? "✓" : check.status === "error" ? "!" : "○"}</span>
                               <b>{check.label}</b>

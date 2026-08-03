@@ -4247,3 +4247,85 @@ body {
     height: calc(100% - 6px);
   }
 }
+
+/* Keep scene cards compact so the transition arrow has a clear gap to travel through. */
+.studio-shell[data-studio-tab="compose"] .scene-list {
+  align-content: start;
+  grid-auto-rows: 68px;
+  gap: 10px;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item {
+  height: 68px;
+  min-height: 68px;
+}
+
+/* The sample JSON frame is the only JSON viewer and is always available. */
+.export-json-preview {
+  height: 260px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  scrollbar-color: #7c91aa #111a29;
+  scrollbar-width: thin;
+}
+
+.export-json-preview:focus {
+  outline: 2px solid #d88b38;
+  outline-offset: -2px;
+}
+
+/* Show every preflight detail instead of truncating the error panel to five rows. */
+.export-preflight-card .preflight-mini-list {
+  max-height: 360px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-color: #d8cbac transparent;
+  scrollbar-width: thin;
+}
+
+.export-preflight-card .preflight-mini-list li {
+  grid-template-columns: 16px minmax(105px, 130px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.export-preflight-card .preflight-mini-list b,
+.export-preflight-card .preflight-mini-list small {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.export-preflight-card .preflight-mini-list::-webkit-scrollbar,
+.export-json-preview::-webkit-scrollbar {
+  width: 7px;
+}
+
+.export-preflight-card .preflight-mini-list::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: #d8cbac;
+}
+
+.export-json-preview::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: #7c91aa;
+}
+
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="compose"] .scene-list {
+    grid-auto-rows: 68px;
+  }
+
+  .export-preflight-card .preflight-mini-list li {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .export-preflight-card .preflight-mini-list small {
+    grid-column: 2;
+  }
+}
