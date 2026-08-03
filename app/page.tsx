@@ -279,6 +279,8 @@ type EditorSectionState = {
   effects: boolean;
 };
 
+type StudioTab = "compose" | "export";
+
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
   content: true,
@@ -358,6 +360,8 @@ export default function Home() {
   const [projectTitle, setProjectTitle] = useState("Hành trình Vua Đa-vít");
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectDuration, setProjectDuration] = useState(30);
+  const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
+  const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -1533,7 +1537,7 @@ export default function Home() {
     () => ({
       title: projectTitle,
       duration: projectDuration,
-      resolution: "1080x1920",
+      resolution: renderResolution,
       ...(background.trim()
         ? { background: fileNameOnly(background) }
         : {}),
@@ -1578,6 +1582,7 @@ export default function Home() {
       imageEnabled,
       narrationEnabled,
       projectDuration,
+      renderResolution,
       projectTitle,
       background,
       backgroundMusic,
@@ -1853,6 +1858,12 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const copyJson = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(exportPayload, null, 2));
+    setToast("Đã sao chép JSON dự án");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const downloadPrompt = () => {
     const blob = new Blob([promptText], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1868,26 +1879,84 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const exportFileName = `${projectTitle
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "video-project"}.mp4`;
+  const exportJsonPreview = JSON.stringify(exportPayload, null, 2).slice(0, 760);
+  const missingRenderFiles = requiredRenderFiles.filter(
+    (fileName) => !localRenderFiles.some((file) => file.name === fileName),
+  );
+  const renderStatusLabel = {
+    idle: "Chưa render",
+    checking: "Đang kiểm tra",
+    uploading: "Đang tải tài nguyên",
+    rendering: "Đang render",
+    completed: "Hoàn tất",
+    failed: "Lỗi",
+  }[localRenderState.status];
+  const renderStatusTone = localRenderState.status === "completed"
+    ? "done"
+    : localRenderState.status === "failed"
+      ? "error"
+      : localRenderState.status === "idle"
+        ? "idle"
+        : "progress";
+
   return (
     <main
       className="studio-shell"
       data-timeline-visible={timelineVisible ? "true" : "false"}
+      data-studio-tab={activeStudioTab}
       data-theme={theme}
       style={{ ["--timeline-height" as string]: `${timelineHeight}px` }}
     >
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
+      <div className="studio-layout">
+        <nav className="studio-rail" aria-label="Khu vực chức năng chính">
+          <div className="rail-mark" aria-hidden="true">
             <span />
             <span />
             <span />
           </div>
-          <div>
-            <h1>Kito Video Studio</h1>
-            <p>{projectTitle} · {projectDuration} giây · 9:16</p>
-          </div>
-        </div>
-        <div className="header-actions">
+          <button
+            type="button"
+            className={`rail-item ${activeStudioTab === "compose" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("compose")}
+            aria-current={activeStudioTab === "compose" ? "page" : undefined}
+          >
+            <span className="rail-icon" aria-hidden="true">✎</span>
+            <span>Biên soạn</span>
+          </button>
+          <button
+            type="button"
+            className={`rail-item ${activeStudioTab === "export" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("export")}
+            aria-current={activeStudioTab === "export" ? "page" : undefined}
+            title="Render cục bộ, Xuất JSON, Tạo prompt"
+          >
+            <span className="rail-icon" aria-hidden="true">↓</span>
+            <span>Xuất</span>
+          </button>
+        </nav>
+
+        <div className="studio-main">
+          {activeStudioTab === "compose" ? (
+            <>
+              <header className="topbar compose-topbar">
+                <div className="brand">
+                  <div className="brand-mark" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <div>
+                    <h1>Kito Video Studio</h1>
+                    <p>{projectTitle} · {projectDuration} giây · 9:16</p>
+                  </div>
+                </div>
+                <div className="header-actions">
           <label className="project-picker">
             <span>Chủ đề</span>
             <select
@@ -1977,18 +2046,6 @@ export default function Home() {
             />
             <b>giây</b>
           </label>
-          <button className="button ghost prompt-button" onClick={() => setShowPromptGenerator(true)}>
-            ✦ Tạo prompt
-          </button>
-          <button
-            className="button local-render-button"
-            onClick={() => {
-              setShowLocalRenderer(true);
-              void runRenderPreflight();
-            }}
-          >
-            ● Render cục bộ
-          </button>
           <button
             className={`button ghost timeline-visibility-button ${timelineVisible ? "active" : ""}`}
             onClick={() => setTimelineVisible((visible) => !visible)}
@@ -1996,13 +2053,10 @@ export default function Home() {
           >
             {timelineVisible ? "▾ Ẩn Timeline" : "▴ Hiện Timeline"}
           </button>
-          <button className="button primary" onClick={exportJson}>
-            <span>↓</span> Xuất JSON
-          </button>
-        </div>
-      </header>
+                </div>
+              </header>
 
-      <section className="workspace">
+              <section className="workspace">
         <aside className="scene-panel">
           <div className="panel-heading">
             <h2>Cảnh</h2>
@@ -2937,7 +2991,176 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </section>}
+              </section>}
+            </>
+          ) : (
+            <>
+              <header className="topbar export-topbar">
+                <div className="export-topbar-title">
+                  <button type="button" className="topbar-back-button" onClick={() => setActiveStudioTab("compose")}>
+                    ← Quay lại biên soạn
+                  </button>
+                  <span>· {projectTitle}</span>
+                </div>
+                <button
+                  className="button primary export-render-button"
+                  onClick={() => {
+                    setShowLocalRenderer(true);
+                    void runRenderPreflight();
+                  }}
+                >
+                  ▶ Render video mới
+                </button>
+              </header>
+              <section className="export-workspace" aria-labelledby="export-heading">
+                <div className="export-page-heading">
+                  <div>
+                    <span className="export-kicker">TRUNG TÂM XUẤT</span>
+                    <h2 id="export-heading">Xuất &amp; Render</h2>
+                    <p>Kiểm tra cấu hình, tài nguyên và tạo các tệp đầu ra cho dự án hiện tại.</p>
+                  </div>
+                  <div className="export-summary">
+                    <span>{scenes.length} cảnh</span>
+                    <span>{projectDuration}s</span>
+                    <span>{renderResolution}</span>
+                  </div>
+                </div>
+                <div className="export-grid">
+                  <div className="export-left-column">
+                    <section className="export-card">
+                      <div className="export-card-title">
+                        <span className="export-card-icon" aria-hidden="true">▣</span>
+                        <h3>Cài đặt render</h3>
+                      </div>
+                      <div className="export-field">
+                        <span>Độ phân giải</span>
+                        <div className="export-segmented" role="group" aria-label="Độ phân giải render">
+                          <button
+                            type="button"
+                            className={renderResolution === "1080x1920" ? "active" : ""}
+                            onClick={() => setRenderResolution("1080x1920")}
+                          >
+                            1080×1920
+                          </button>
+                          <button
+                            type="button"
+                            className={renderResolution === "720x1280" ? "active" : ""}
+                            onClick={() => setRenderResolution("720x1280")}
+                          >
+                            720×1280
+                          </button>
+                        </div>
+                      </div>
+                      <div className="export-field-row">
+                        <label className="export-field">
+                          <span>Khung hình</span>
+                          <select defaultValue="30 FPS" aria-label="Khung hình render">
+                            <option>30 FPS</option>
+                            <option>24 FPS</option>
+                            <option>60 FPS</option>
+                          </select>
+                        </label>
+                        <label className="export-field">
+                          <span>Định dạng</span>
+                          <select defaultValue="MP4 (H.264)" aria-label="Định dạng render">
+                            <option>MP4 (H.264)</option>
+                            <option>MOV</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="export-field">
+                        <span>Tên tệp xuất</span>
+                        <div className="export-file-name">{exportFileName}</div>
+                      </div>
+                      <div className="export-stat-row">
+                        <div><span>Thời lượng</span><b>{formatTime(projectDuration)}</b></div>
+                        <div><span>Số cảnh</span><b>{scenes.length}</b></div>
+                        <div><span>Media thiếu</span><b className={missingRenderFiles.length ? "warning" : "ok"}>{missingRenderFiles.length}</b></div>
+                      </div>
+                    </section>
+
+                    <section className="export-card">
+                      <div className="export-card-title">
+                        <span className="export-card-icon" aria-hidden="true">{`{}`}</span>
+                        <h3>JSON dự án</h3>
+                      </div>
+                      <pre className="export-json-preview">{exportJsonPreview}{exportJsonPreview.length < JSON.stringify(exportPayload, null, 2).length ? "\n…" : ""}</pre>
+                      <div className="export-card-actions">
+                        <button type="button" className="button ghost" onClick={() => void copyJson()}>⧉ Sao chép</button>
+                        <button type="button" className="button primary" onClick={exportJson}>↓ Xuất JSON</button>
+                      </div>
+                    </section>
+
+                    <section className="export-card export-prompt-card">
+                      <div className="export-card-title">
+                        <span className="export-card-icon prompt-icon" aria-hidden="true">✦</span>
+                        <h3>Tạo prompt</h3>
+                      </div>
+                      <p>Prompt được tổng hợp từ cảnh, timeline, hình ảnh, âm thanh và hiệu ứng hiện tại.</p>
+                      <button type="button" className="button export-prompt-button" onClick={() => setShowPromptGenerator(true)}>
+                        Mở trình tạo prompt
+                      </button>
+                    </section>
+                  </div>
+
+                  <div className="export-right-column">
+                    <div className="export-section-label">TRẠNG THÁI RENDER</div>
+                    <section className="render-status-card">
+                      <div className="render-status-thumb" aria-hidden="true">
+                        {localRenderState.status === "completed" ? "▶" : localRenderState.status === "failed" ? "!" : "◌"}
+                      </div>
+                      <div className="render-status-info">
+                        <strong>{exportFileName}</strong>
+                        <span>{renderResolution} · 30 FPS · {localRenderState.message}</span>
+                        {localRenderState.status !== "idle" && localRenderState.status !== "failed" && (
+                          <div className="render-progress"><i style={{ width: `${localRenderState.progress}%` }} /></div>
+                        )}
+                      </div>
+                      <span className={`render-status-badge ${renderStatusTone}`}>{renderStatusLabel}</span>
+                      <div className="render-status-actions">
+                        {localRenderState.status === "completed" && localRenderState.downloadUrl ? (
+                          <a className="icon-button" href={localRenderState.downloadUrl} download={exportFileName} aria-label="Tải video đã render">↓</a>
+                        ) : localRenderState.status === "failed" ? (
+                          <button type="button" className="icon-button" onClick={() => void runRenderPreflight()} aria-label="Kiểm tra lại">↻</button>
+                        ) : null}
+                      </div>
+                    </section>
+
+                    <div className="export-section-label">KIỂM TRA TRƯỚC KHI RENDER</div>
+                    <section className="export-preflight-card">
+                      <div className="preflight-summary">
+                        <div>
+                          <strong>{preflightChecks.length ? preflightChecks.filter((check) => check.status === "ok").length : 0}</strong>
+                          <span>mục đạt</span>
+                        </div>
+                        <div>
+                          <strong className={preflightChecks.some((check) => check.status === "error") ? "warning" : ""}>{preflightChecks.filter((check) => check.status === "error").length}</strong>
+                          <span>mục lỗi</span>
+                        </div>
+                        <button type="button" className="button ghost" onClick={() => void runRenderPreflight()}>Kiểm tra lại</button>
+                      </div>
+                      {preflightChecks.length ? (
+                        <ul className="preflight-mini-list">
+                          {preflightChecks.slice(0, 5).map((check) => (
+                            <li key={check.id} className={check.status}>
+                              <span>{check.status === "ok" ? "✓" : check.status === "error" ? "!" : "○"}</span>
+                              <b>{check.label}</b>
+                              <small>{check.detail}</small>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="export-empty-note">Chưa chạy kiểm tra. Hãy kiểm tra trước khi bắt đầu render.</p>
+                      )}
+                    </section>
+                    <p className="export-help">Các file trong thư viện tài nguyên sẽ được dùng lại cho những lần render tiếp theo.</p>
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+      </div>
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
       {showNewProject && (
         <div className="modal-backdrop" onMouseDown={() => setShowNewProject(false)}>

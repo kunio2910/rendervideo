@@ -8,6 +8,17 @@ Ngày cập nhật: 2026-08-03
 
 Sơ đồ trực quan để mở nhanh: [THÔNG TIN VỊ TRÍ.jpg](THÔNG%20TIN%20VỊ%20TRÍ.jpg)
 
+## 1A. Thanh điều hướng bên trái và hai tab chức năng
+
+Tên mã nguồn của vùng điều hướng: `.studio-layout` chứa `.studio-rail` và `.studio-main`.
+
+- Tab `Biên soạn`: nút `.rail-item` đang active khi `activeStudioTab = "compose"`; hiển thị màn hình biên soạn hiện tại gồm `.workspace` và `.timeline-panel`.
+- Tab `Xuất`: nút `.rail-item` đang active khi `activeStudioTab = "export"`; hiển thị `.export-workspace` với các nhóm `Cài đặt render`, `JSON dự án`, `Tạo prompt`, `Trạng thái render` và `Kiểm tra trước khi render`.
+- Thanh trên cùng của tab Biên soạn: `.compose-topbar`; chỉ giữ nhóm thao tác project, lưu, Undo/Redo, khôi phục, thời lượng và Timeline.
+- Thanh trên cùng của tab Xuất: `.export-topbar`; gồm `.topbar-back-button` (`← Quay lại biên soạn`) và `.export-render-button` (`Render video mới`).
+
+Khi yêu cầu chỉnh sửa khu vực xuất, nên gọi theo mẫu: `Xuất > nhóm chức năng > tên nút/đối tượng`, không gọi chung là “các nút phía trên”.
+
 ## 1. Cấu trúc màn hình tổng thể
 
 Trên máy tính, giao diện có ba khu vực chính nằm ngang:
