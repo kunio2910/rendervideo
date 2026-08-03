@@ -3772,6 +3772,7 @@ body {
 .studio-shell[data-studio-tab="compose"] .scene-panel {
   display: flex;
   flex-direction: column;
+  padding: 0;
 }
 
 .studio-shell[data-studio-tab="compose"] .scene-panel .panel-heading {
@@ -3971,6 +3972,7 @@ body {
     min-height: 300px;
     max-height: 430px;
     overflow: hidden;
+    padding: 12px;
   }
 
   .studio-shell[data-studio-tab="compose"] .scene-list {
