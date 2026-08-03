@@ -277,10 +277,10 @@ for (let index = 0; index < scenes.length; index += 1) {
   markerEffects.forEach((markerEffect, markerIndex) => {
     const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
     const markerInput = 2 + markerIndex;
-    const inputVideo = markerIndex === 0 ? "composed" : `composed-marker-${markerIndex - 1}`;
+    const inputVideo = markerIndex === 0 ? "composed" : `composed_marker_${markerIndex - 1}`;
     const outputVideo = markerIndex === markerEffects.length - 1
       ? "v"
-      : `composed-marker-${markerIndex}`;
+      : `composed_marker_${markerIndex}`;
     const markerScale = markerEffect === "glow"
       ? `1+0.13*sin(2*PI*t/${markerDuration})`
       : markerEffect === "soft-fade"
@@ -302,8 +302,8 @@ for (let index = 0; index < scenes.length; index += 1) {
       : "";
     filter +=
       `;[${markerInput}:v]format=rgba,` +
-      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker-${markerIndex}];` +
-      `[${inputVideo}][marker-${markerIndex}]overlay=` +
+      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker_${markerIndex}];` +
+      `[${inputVideo}][marker_${markerIndex}]overlay=` +
       `x='main_w*${centerX}-overlay_w/2':` +
       `y='main_h*${centerY}-overlay_h/2':` +
       `enable='${markerEnable}'[${outputVideo}]`;
