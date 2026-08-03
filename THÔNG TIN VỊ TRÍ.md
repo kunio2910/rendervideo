@@ -15,7 +15,11 @@ Tên mã nguồn của vùng điều hướng: `.studio-layout` chứa `.studio-
 - Tab `Biên soạn`: nút `.rail-item` đang active khi `activeStudioTab = "compose"`; hiển thị màn hình biên soạn hiện tại gồm `.workspace` và `.timeline-panel`.
 - Tab `Xuất`: nút `.rail-item` đang active khi `activeStudioTab = "export"`; hiển thị `.export-workspace` với các nhóm `Cài đặt render`, `JSON dự án`, `Tạo prompt`, `Trạng thái render` và `Kiểm tra trước khi render`.
 - Thanh trên cùng của tab Biên soạn: `.compose-topbar`; chỉ giữ nhóm thao tác project, lưu, Undo/Redo, khôi phục, thời lượng và Timeline.
+- Trong `.compose-topbar`, tên `Kito Video Studio` không còn có biểu tượng `brand-mark` đi kèm.
 - Thanh trên cùng của tab Xuất: `.export-topbar`; gồm `.topbar-back-button` (`← Quay lại biên soạn`) và `.export-render-button` (`Render video mới`).
+- Cột Cảnh có vùng cuộn riêng tại `.scene-list`; khi nói “scroll Cảnh” hãy gọi đúng `Cột Cảnh > Danh sách cảnh`.
+- Khung `.phone-preview` trong `Xem trước cảnh` được thu gọn tối đa 300px; `.preview-footer` vẫn giữ hai nút `Background` và `Popup`.
+- Trong `Xuất > JSON dự án`, nút `Xem JSON` bật/tắt khung `.export-json-full`; `Xuất JSON` vẫn tải tệp xuống.
 
 Khi yêu cầu chỉnh sửa khu vực xuất, nên gọi theo mẫu: `Xuất > nhóm chức năng > tên nút/đối tượng`, không gọi chung là “các nút phía trên”.
 

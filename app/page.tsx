@@ -362,6 +362,7 @@ export default function Home() {
   const [projectDuration, setProjectDuration] = useState(30);
   const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
+  const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -399,9 +400,9 @@ export default function Home() {
   });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (typeof window === "undefined") return "dark";
+    if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
-    return savedTheme === "light" ? "light" : "dark";
+    return savedTheme === "dark" ? "dark" : "light";
   });
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const [mapFocused, setMapFocused] = useState(false);
@@ -1946,11 +1947,6 @@ export default function Home() {
             <>
               <header className="topbar compose-topbar">
                 <div className="brand">
-                  <div className="brand-mark" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
                   <div>
                     <h1>Kito Video Studio</h1>
                     <p>{projectTitle} · {projectDuration} giây · 9:16</p>
@@ -3085,10 +3081,16 @@ export default function Home() {
                         <h3>JSON dự án</h3>
                       </div>
                       <pre className="export-json-preview">{exportJsonPreview}{exportJsonPreview.length < JSON.stringify(exportPayload, null, 2).length ? "\n…" : ""}</pre>
-                      <div className="export-card-actions">
+                      <div className="export-card-actions export-json-actions">
                         <button type="button" className="button ghost" onClick={() => void copyJson()}>⧉ Sao chép</button>
+                        <button type="button" className="button ghost" onClick={() => setShowJsonPreview((visible) => !visible)}>
+                          {showJsonPreview ? "Ẩn JSON" : "Xem JSON"}
+                        </button>
                         <button type="button" className="button primary" onClick={exportJson}>↓ Xuất JSON</button>
                       </div>
+                      {showJsonPreview && (
+                        <pre className="export-json-full" aria-live="polite">{JSON.stringify(exportPayload, null, 2)}</pre>
+                      )}
                     </section>
 
                     <section className="export-card export-prompt-card">
