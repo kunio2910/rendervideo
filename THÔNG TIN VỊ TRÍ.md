@@ -18,6 +18,7 @@ Tên mã nguồn của vùng điều hướng: `.studio-layout` chứa `.studio-
 - Trong `.compose-topbar`, tên `Kito Video Studio` không còn có biểu tượng `brand-mark` đi kèm.
 - Thanh trên cùng của tab Xuất: `.export-topbar`; gồm `.topbar-back-button` (`← Quay lại biên soạn`) và `.export-render-button` (`Render video mới`).
 - Cột Cảnh có vùng cuộn riêng tại `.scene-list`; khi nói “scroll Cảnh” hãy gọi đúng `Cột Cảnh > Danh sách cảnh`.
+- Vùng Biên soạn có vùng cuộn riêng tại `.editor-scroll`; các nhóm cài đặt không làm kéo dài toàn bộ bố cục.
 - Khung `.phone-preview` trong `Xem trước cảnh` được thu gọn tối đa 300px; `.preview-footer` vẫn giữ hai nút `Background` và `Popup`.
 - Trong `Xuất > JSON dự án`, nút `Xem JSON` bật/tắt khung `.export-json-full`; `Xuất JSON` vẫn tải tệp xuống.
 
@@ -68,10 +69,11 @@ Tên mã nguồn: `.scene-panel`.
 
 ### 3.1. Thanh tiêu đề và thao tác
 
-- Tiêu đề: `Cảnh`.
-- `Xóa`: xóa cảnh đang chọn; chọn nhiều cảnh bằng cách giữ `Shift`.
-- `＋ Thêm`: thêm cảnh mới ở cuối danh sách.
-- Hàng `.scene-edit-actions` gồm: `Nhân bản`, `Sao chép`, `Dán`.
+- Tiêu đề: `Cảnh · số lượng cảnh`.
+- Nút icon nhân bản: `.scene-icon-button`, nhân bản cảnh đang chọn.
+- Nút icon thùng rác: `.scene-delete-icon`, xóa cảnh đang chọn; chọn nhiều cảnh bằng cách giữ `Shift`.
+- Nút `＋ Thêm cảnh`: `.add-scene-button`, nằm cố định dưới danh sách và thêm cảnh mới ở cuối.
+- Các nút chữ `Nhân bản`, `Sao chép`, `Dán` không còn hiển thị tại khu vực Cảnh.
 
 ### 3.2. Danh sách cảnh
 
@@ -86,7 +88,9 @@ Mỗi thẻ cảnh gồm:
 - Giữ `Shift` khi bấm để chọn nhiều cảnh.
 - Kéo thả thẻ cảnh để sắp xếp lại thứ tự.
 
-Cuối cột có hai công tắc: `Ảnh trong popup` và `Thuyết minh AI`.
+Danh sách có đường nối chấm dọc đi qua các số cảnh; mỗi thẻ có thể kéo thả để sắp xếp.
+Cuối cột có nút thêm cảnh dạng viền nét đứt. Hai công tắc `Ảnh trong popup` và
+`Thuyết minh AI` vẫn thuộc dữ liệu cũ nhưng đang được ẩn khỏi bố cục Cảnh gọn.
 
 ## 4. Khu vực Xem trước cảnh
 

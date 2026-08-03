@@ -3755,3 +3755,239 @@ body {
   .studio-shell[data-studio-tab="compose"] .preview-panel .preview-footer { width: min(100%, 300px); }
   .export-json-actions { grid-template-columns: 1fr; }
 }
+
+/* Scene browser and editor scroll containers */
+.studio-shell[data-studio-tab="compose"] .workspace {
+  height: clamp(520px, calc(100vh - var(--timeline-height, 245px) - 82px), 760px);
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-panel,
+.studio-shell[data-studio-tab="compose"] .editor-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-panel .panel-heading {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 13px 14px 6px;
+  border-bottom: 0;
+  align-items: center;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-panel .panel-heading h2 {
+  color: #382814;
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-count {
+  color: #b59e7c;
+  font: 600 11px var(--font-mono);
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-icon-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #e7decb;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #79694e;
+  cursor: pointer;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-icon-button:hover {
+  border-color: #c67a2e;
+  background: #fff4df;
+  color: #8a5620;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-delete-icon:hover {
+  border-color: #d8a69b;
+  background: #fff5f2;
+  color: #b85c4c;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-list {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 1px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 14px 8px;
+  scrollbar-gutter: stable;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-list::before {
+  position: absolute;
+  top: 9px;
+  bottom: 8px;
+  left: 25px;
+  border-left: 1px dashed #d8cbac;
+  content: "";
+  pointer-events: none;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item {
+  z-index: 1;
+  min-height: 68px;
+  grid-template-columns: 24px 38px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 8px 8px 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: none;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item:hover {
+  border-color: #e7decb;
+  background: #fff9ef;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item.active {
+  border: 1px solid #c67a2e;
+  background: #f3e1c6;
+  box-shadow: none;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item .drag-dots {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-number {
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #d8cbac;
+  border-radius: 50%;
+  background: #fffdf8;
+  color: #79694e;
+  font-size: 10px;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item.active .scene-number {
+  border-color: #8a5620;
+  background: #fff8eb;
+  color: #8a5620;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-thumb {
+  width: 38px;
+  height: 50px;
+  border-radius: 6px;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-thumb b {
+  font-size: 10px;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-meta strong {
+  color: #2c2013;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-meta small {
+  display: block;
+  margin-top: 3px;
+  color: #a6987c;
+  font: 10px var(--font-mono);
+}
+
+.studio-shell[data-studio-tab="compose"] .add-scene-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  margin: 2px 14px 14px;
+  border: 1px dashed #d8b27b;
+  border-radius: 10px;
+  background: #fffdf8;
+  color: #a46d3e;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.studio-shell[data-studio-tab="compose"] .add-scene-button:hover {
+  border-color: #c67a2e;
+  background: #fff4df;
+  color: #8a5620;
+}
+
+.studio-shell[data-studio-tab="compose"] .editor-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-shell[data-studio-tab="compose"] .editor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px 16px 0;
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel {
+    display: flex;
+    min-height: 300px;
+    max-height: 430px;
+    overflow: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-list {
+    display: grid;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    max-height: 540px;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+}

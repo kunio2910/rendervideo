@@ -2060,18 +2060,32 @@ export default function Home() {
               <section className="workspace">
         <aside className="scene-panel">
           <div className="panel-heading">
-            <h2>Cảnh</h2>
+            <h2>Cảnh <small className="scene-count">· {scenes.length}</small></h2>
             <div className="scene-heading-actions">
-              <button className="delete-scene-button" onClick={deleteScene}>
-                ⌫ Xóa{selectedSceneIds.length > 1 ? ` (${selectedSceneIds.length})` : ""}
+              <button
+                type="button"
+                className="scene-icon-button"
+                onClick={() => duplicateScene()}
+                title="Nhân bản cảnh đang chọn"
+                aria-label="Nhân bản cảnh đang chọn"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="8" y="8" width="11" height="11" rx="2" />
+                  <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+                </svg>
               </button>
-              <button onClick={addScene}>＋ Thêm</button>
+              <button
+                type="button"
+                className="scene-icon-button scene-delete-icon"
+                onClick={deleteScene}
+                title={`Xóa cảnh${selectedSceneIds.length > 1 ? ` (${selectedSceneIds.length})` : ""}`}
+                aria-label={`Xóa cảnh${selectedSceneIds.length > 1 ? ` (${selectedSceneIds.length})` : ""}`}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v5M14 11v5" />
+                </svg>
+              </button>
             </div>
-          </div>
-          <div className="scene-edit-actions" aria-label="Thao tác cảnh">
-            <button type="button" onClick={() => duplicateScene()} title="Nhân bản cảnh đang chọn">Nhân bản</button>
-            <button type="button" onClick={copySelectedScene} title="Sao chép cảnh đang chọn">Sao chép</button>
-            <button type="button" onClick={pasteScene} disabled={!clipboardScene} title="Dán cảnh đã sao chép">Dán</button>
           </div>
           <div className="scene-list">
             {scenes.map((item, index) => {
@@ -2149,6 +2163,9 @@ export default function Home() {
               );
             })}
           </div>
+          <button type="button" className="add-scene-button" onClick={addScene}>
+            ＋ Thêm cảnh
+          </button>
           <div className="toggles">
             <label>
               <input
