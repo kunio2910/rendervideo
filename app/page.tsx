@@ -110,8 +110,12 @@ const initialScenes: Scene[] = [
   },
 ];
 
-const formatTime = (value: number) =>
-  `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(4, "0")}`;
+const formatTime = (value: number) => {
+  const rounded = Math.max(0, Math.round(value * 10) / 10);
+  const minutes = Math.floor(rounded / 60);
+  const seconds = (rounded % 60).toFixed(1);
+  return `${String(minutes).padStart(2, "0")}:${seconds.padStart(4, "0")}`;
+};
 
 const fileNameOnly = (value: string) => {
   const trimmed = value.trim();
