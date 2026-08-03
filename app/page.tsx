@@ -267,7 +267,6 @@ type StoredProject = {
   backgroundVisible?: boolean;
   backgroundMusic?: string;
   editorSections?: EditorSectionState;
-  timelineVisible?: boolean;
   scenes: Scene[];
 };
 
@@ -411,7 +410,6 @@ export default function Home() {
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
   const [mapFocused, setMapFocused] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(245);
-  const [timelineVisible, setTimelineVisible] = useState(true);
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
@@ -500,7 +498,6 @@ export default function Home() {
       backgroundVisible,
       backgroundMusic,
       editorSections,
-      timelineVisible,
       scenes,
     }),
     [
@@ -514,7 +511,6 @@ export default function Home() {
       backgroundVisible,
       backgroundMusic,
       editorSections,
-      timelineVisible,
       scenes,
     ],
   );
@@ -537,7 +533,6 @@ export default function Home() {
     setBackgroundMusic(project.backgroundMusic ?? "");
     const restoredScenes = ensureUniqueSceneIds(project.scenes);
     setEditorSections(normalizeEditorSections(project.editorSections));
-    setTimelineVisible(project.timelineVisible ?? true);
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
     setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
@@ -559,7 +554,6 @@ export default function Home() {
       const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
         ...project,
         editorSections: normalizeEditorSections(project.editorSections),
-        timelineVisible: project.timelineVisible ?? true,
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
       setProjects(restoredProjects);
@@ -581,7 +575,6 @@ export default function Home() {
         backgroundVisible: data.backgroundVisible ?? true,
         backgroundMusic: data.backgroundMusic ?? "",
         editorSections: normalizeEditorSections(data.editorSections),
-        timelineVisible: data.timelineVisible ?? true,
         scenes: ensureUniqueSceneIds(data.scenes),
       };
       setProjects([migrated]);
@@ -1199,7 +1192,6 @@ export default function Home() {
       backgroundVisible: true,
       backgroundMusic: "",
       editorSections: DEFAULT_EDITOR_SECTIONS,
-      timelineVisible: true,
       scenes: [blankScene],
     };
     setProjects((items) => [
@@ -1917,7 +1909,6 @@ export default function Home() {
   return (
     <main
       className="studio-shell"
-      data-timeline-visible={timelineVisible ? "true" : "false"}
       data-studio-tab={activeStudioTab}
       data-theme={theme}
       style={{ ["--timeline-height" as string]: `${timelineHeight}px` }}
@@ -2050,13 +2041,6 @@ export default function Home() {
             />
             <b>giây</b>
           </label>
-          <button
-            className={`button ghost timeline-visibility-button ${timelineVisible ? "active" : ""}`}
-            onClick={() => setTimelineVisible((visible) => !visible)}
-            title={timelineVisible ? "Ẩn thanh timeline" : "Hiện thanh timeline"}
-          >
-            {timelineVisible ? "▾ Ẩn Timeline" : "▴ Hiện Timeline"}
-          </button>
                 </div>
               </header>
 
@@ -2800,7 +2784,7 @@ export default function Home() {
         </aside>
       </section>
 
-      {timelineVisible && <section className="timeline-panel">
+      <section className="timeline-panel">
         <button
           type="button"
           className="timeline-resize-handle"
@@ -3012,7 +2996,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-              </section>}
+              </section>
             </>
           ) : (
             <>

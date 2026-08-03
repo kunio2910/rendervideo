@@ -1930,13 +1930,6 @@ body {
   width: 100%;
   max-width: none;
 }
-.studio-shell[data-timeline-visible="false"] {
-  padding-bottom: 18px;
-}
-.timeline-visibility-button.active {
-  border-color: #dda13e !important;
-  color: #dda13e !important;
-}
 .timeline-transport {
   display: flex;
   align-items: center;
@@ -2597,9 +2590,6 @@ body {
     padding-bottom: calc(min(var(--timeline-height, 245px), 210px) + 18px);
     border-inline: 0;
   }
-  .studio-shell[data-timeline-visible="false"] {
-    padding-bottom: 12px;
-  }
   .topbar {
     position: relative;
     height: auto;
@@ -3131,9 +3121,6 @@ body {
 
 @media (max-width: 760px) {
   .studio-shell {
-    padding-bottom: 0;
-  }
-  .studio-shell[data-timeline-visible="false"] {
     padding-bottom: 0;
   }
   .header-actions .history-button,
@@ -4327,5 +4314,245 @@ body {
 
   .export-preflight-card .preflight-mini-list small {
     grid-column: 2;
+  }
+}
+
+/* Keep the export page aligned with the original two-column reference layout. */
+.studio-shell[data-studio-tab="export"] {
+  min-width: 0;
+  padding-bottom: 0;
+}
+
+.studio-shell[data-studio-tab="export"] .studio-main {
+  min-height: 0;
+}
+
+.studio-shell[data-studio-tab="export"] .export-topbar {
+  flex: 0 0 56px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 20px;
+  background: #ffffff;
+}
+
+.studio-shell[data-studio-tab="export"] .export-workspace {
+  min-height: calc(100vh - 56px);
+  height: auto;
+  padding: 26px 32px 42px;
+  overflow: visible;
+}
+
+.studio-shell[data-studio-tab="export"] .export-page-heading {
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.studio-shell[data-studio-tab="export"] .export-grid {
+  grid-template-columns: minmax(320px, 340px) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.studio-shell[data-studio-tab="export"] .export-left-column,
+.studio-shell[data-studio-tab="export"] .export-right-column,
+.studio-shell[data-studio-tab="export"] .export-card,
+.studio-shell[data-studio-tab="export"] .render-status-card,
+.studio-shell[data-studio-tab="export"] .export-preflight-card {
+  min-width: 0;
+}
+
+.studio-shell[data-studio-tab="export"] .export-card {
+  padding: 18px 20px;
+}
+
+.studio-shell[data-studio-tab="export"] .export-card-title {
+  min-width: 0;
+}
+
+.studio-shell[data-studio-tab="export"] .export-card-title h3,
+.studio-shell[data-studio-tab="export"] .export-page-heading h2,
+.studio-shell[data-studio-tab="export"] .render-status-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.studio-shell[data-studio-tab="export"] .export-json-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.studio-shell[data-studio-tab="export"] .export-json-actions .button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.studio-shell[data-studio-tab="export"] .render-status-card {
+  grid-template-areas: "thumb info badge actions";
+  grid-template-columns: 54px minmax(0, 1fr) max-content max-content;
+}
+
+.studio-shell[data-studio-tab="export"] .render-status-thumb { grid-area: thumb; }
+.studio-shell[data-studio-tab="export"] .render-status-info { grid-area: info; }
+.studio-shell[data-studio-tab="export"] .render-status-badge { grid-area: badge; }
+.studio-shell[data-studio-tab="export"] .render-status-actions { grid-area: actions; }
+
+.studio-shell[data-studio-tab="export"] .render-status-info > span {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.studio-shell[data-studio-tab="export"] .preflight-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: stretch;
+}
+
+.studio-shell[data-studio-tab="export"] .preflight-summary .button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* The timeline is a permanent footer; the old visibility control is gone. */
+.studio-shell {
+  padding-bottom: calc(var(--timeline-height, 245px) + 30px);
+}
+
+.timeline-panel {
+  position: fixed;
+  z-index: 40;
+  right: 12px;
+  bottom: 0;
+  left: 68px;
+  width: auto;
+}
+
+.studio-shell[data-studio-tab="export"] .timeline-panel {
+  display: none;
+}
+
+@media (max-width: 1180px) and (min-width: 761px) {
+  .studio-shell { min-width: 0; }
+
+  .studio-shell[data-studio-tab="export"] .export-workspace {
+    padding-inline: 22px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-grid {
+    grid-template-columns: minmax(290px, 320px) minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .render-status-card {
+    grid-template-areas:
+      "thumb info actions"
+      "thumb badge actions";
+    grid-template-columns: 48px minmax(0, 1fr) max-content;
+    align-items: center;
+  }
+}
+
+@media (max-width: 960px) and (min-width: 761px) {
+  .studio-shell[data-studio-tab="export"] .export-topbar {
+    height: auto;
+    min-height: 56px;
+    padding-block: 10px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-topbar-title {
+    flex: 1 1 360px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-render-button {
+    flex: 0 0 auto;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-left-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-prompt-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="export"] {
+    padding-bottom: 0;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-topbar {
+    height: auto;
+    min-height: 0;
+    padding: 12px 14px;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-topbar-title {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-render-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-workspace {
+    min-height: 0;
+    padding: 20px 14px 28px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-page-heading {
+    display: grid;
+    align-items: start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-card {
+    padding: 16px;
+  }
+
+  .studio-shell[data-studio-tab="export"] .export-json-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-shell[data-studio-tab="export"] .render-status-card {
+    grid-template-areas:
+      "thumb info actions"
+      "thumb badge actions";
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .studio-shell[data-studio-tab="export"] .preflight-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .studio-shell[data-studio-tab="export"] .preflight-summary .button {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin: 0;
+  }
+
+  .timeline-panel {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
   }
 }
