@@ -190,6 +190,13 @@ camera hoặc thời điểm Popup xuất hiện.
 
 Tên mã nguồn: `.timeline-panel`.
 
+- Trên desktop, Timeline là panel ngang gần toàn bộ chiều rộng màn hình; header nằm
+  ở hàng riêng, bên dưới là ruler và bốn track đồng đều.
+- Cột nhãn track rộng khoảng 96px; vùng clip bắt đầu ngay sau cột nhãn, không có
+  lớp padding/khung phụ làm đẩy clip sang phải.
+- Màu chuẩn: Camera cam nhạt, Popup tím nhạt, Thuyết minh xanh ngọc, Nhạc nền
+  be/nét đứt khi chưa có file.
+
 ### 6.1. Header Timeline
 
 - Tiêu đề: `Timeline`.
