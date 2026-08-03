@@ -2493,6 +2493,11 @@ body {
   margin: 0;
   padding: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 5px;
+  scrollbar-gutter: stable;
+  scrollbar-color: #d8cbac transparent;
+  scrollbar-width: thin;
   list-style: none;
 }
 .required-media-list li {
@@ -3072,6 +3077,24 @@ body {
   margin: 12px 0 0;
   padding: 0;
   list-style: none;
+}
+.preflight-list {
+  max-height: 330px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-gutter: stable;
+  scrollbar-color: #d8cbac transparent;
+  scrollbar-width: thin;
+}
+.preflight-list::-webkit-scrollbar,
+.required-media-list::-webkit-scrollbar {
+  width: 7px;
+}
+.preflight-list::-webkit-scrollbar-thumb,
+.required-media-list::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: #d8cbac;
 }
 .preflight-list li {
   display: grid;

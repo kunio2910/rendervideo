@@ -21,7 +21,10 @@ const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpe
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const scenes = project.scenes ?? [];
-const fps = 30;
+const [outputWidth, outputHeight] = String(project.resolution ?? "1080x1920")
+  .split("x")
+  .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
+const fps = Math.max(1, Number(project.fps ?? 30) || 30);
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
@@ -195,7 +198,7 @@ const resolveAudio = async (value, required = false) => {
 };
 
 const createPopup = async (scene, index) => {
-  const width = Math.round(1080 * Math.min(1, Math.max(0.45, (scene.popupWidth ?? 90) / 100)));
+  const width = Math.round(outputWidth * Math.min(1, Math.max(0.45, (scene.popupWidth ?? 90) / 100)));
   const height = Math.max(420, Math.min(760, Math.round((scene.popupHeight ?? 255) * 2)));
   const image = await resolveImage(scene.image, `scene-${index + 1}-image`);
   const imageHeight = image ? 205 : 0;
@@ -340,34 +343,82 @@ for (let index = 0; index < scenes.length; index += 1) {
   );
   const popupEnd = Math.min(duration, popupStart + Number(scene.popupDuration ?? duration));
   const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
+  const popupVisible = scene.popupVisible !== false;
+  const popupIn = scene.popupIn ?? "fade-slide-up";
+  const popupOut = scene.popupOut ?? "fade-slide-down";
+  const popupInProgress = `(t-${popupStart})/${transition}`;
+  const popupOutProgress = `(t-${popupEnd - transition})/${transition}`;
+  const popupScaleStart = (effect) => ({
+    "fade-slide-up": "0.92",
+    "fade-slide-down": "0.92",
+    "zoom-soft": "0.68",
+    bounce: "0.82",
+    flip: "0.86",
+  }[effect] ?? "1");
+  const popupScaleIn = (effect) => ({
+    "fade-slide-up": `0.92+0.08*(${popupInProgress})`,
+    "zoom-soft": `0.68+0.32*(${popupInProgress})`,
+    bounce: `if(lt(${popupInProgress},0.65),0.82+0.22*(${popupInProgress})/0.65,1.04-0.04*((${popupInProgress})-0.65)/0.35)`,
+    flip: `0.86+0.14*(${popupInProgress})`,
+  }[effect] ?? "1");
+  const popupScaleOut = (effect) => ({
+    "fade-slide-down": `1-0.08*(${popupOutProgress})`,
+    "zoom-soft": `1-0.32*(${popupOutProgress})`,
+    bounce: `if(lt(${popupOutProgress},0.35),1+0.03*(${popupOutProgress})/0.35,1.03-0.23*((${popupOutProgress})-0.35)/0.65)`,
+    flip: `1-0.14*(${popupOutProgress})`,
+  }[effect] ?? "1");
+  const popupScale =
+    `if(lt(t,${popupStart}),${popupScaleStart(popupIn)},` +
+    `if(lt(t,${popupStart + transition}),${popupScaleIn(popupIn)},` +
+    `if(gt(t,${popupEnd - transition}),${popupScaleOut(popupOut)},1)))`;
+  const popupAngle =
+    `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
+    `if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
+    `if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
   const popupCenterX = "(main_w-overlay_w)/2";
-  const openingX = scene.popupIn === "slide-left"
+  const openingX = popupIn === "slide-left"
     ? `if(lt(t,${popupStart + transition}),-overlay_w+(${popupCenterX}+overlay_w)*(t-${popupStart})/${transition},${popupCenterX})`
-    : scene.popupIn === "slide-right"
+    : popupIn === "slide-right"
       ? `if(lt(t,${popupStart + transition}),main_w-(main_w-${popupCenterX})*(t-${popupStart})/${transition},${popupCenterX})`
       : popupCenterX;
-  const closingX = scene.popupOut === "slide-left"
+  const closingX = popupOut === "slide-left"
     ? `if(gt(t,${popupEnd - transition}),${popupCenterX}-(${popupCenterX}+overlay_w)*(t-${popupEnd - transition})/${transition},${openingX})`
-    : scene.popupOut === "slide-right"
+    : popupOut === "slide-right"
       ? `if(gt(t,${popupEnd - transition}),${popupCenterX}+(main_w-${popupCenterX})*(t-${popupEnd - transition})/${transition},${openingX})`
       : openingX;
   const centerYExpression = "(main_h-overlay_h)*0.58";
-  const popupY = scene.popupIn === "fade-slide-up" || scene.popupOut === "fade-slide-down"
+  const popupY = popupIn === "bounce"
+    ? `if(lt(t,${popupStart + transition}),${centerYExpression}+if(lt(${popupInProgress},0.65),70-82*(${popupInProgress})/0.65,-12*(1-(${popupInProgress}-0.65)/0.35)),${centerYExpression})`
+    : popupOut === "bounce"
+      ? `if(gt(t,${popupEnd - transition}),${centerYExpression}+if(lt(${popupOutProgress},0.35),-13*(${popupOutProgress})/0.35,-13+88*((${popupOutProgress})-0.35)/0.65),${centerYExpression})`
+      : popupIn === "fade-slide-up" || popupOut === "fade-slide-down"
     ? `if(lt(t,${popupStart + transition}),${centerYExpression}+90*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+90*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
     : centerYExpression;
   const zoomExpression =
     `if(lt(on,${zoomStartFrames}),1,` +
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
+  const backgroundInput = scene.backgroundVisible === false
+    ? `color=c=0xdbe2e9:s=${outputWidth * 2}x${outputHeight * 2}:r=${fps},`
+    : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},`;
   let filter =
-    `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
+    backgroundInput +
     `zoompan=z='${zoomExpression}':` +
     `x='iw*${centerX}*(1-1/zoom)':` +
     `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=1080x1920:fps=${fps}:d=${frames},setsar=1[bg];` +
-    `[1:v]format=rgba,fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
-    `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
-    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[composed]`;
+    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  if (popupVisible) {
+    filter +=
+      `[1:v]format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +
+      (popupIn === "flip" || popupOut === "flip"
+        ? `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`
+        : "") +
+      `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
+      `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
+      `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[composed]`;
+  } else {
+    filter += "[bg]copy[composed]";
+  }
   markerEffects.forEach((markerEffect, markerIndex) => {
     const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
     const markerInput = 2 + markerIndex;
@@ -421,7 +472,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-map", markers.length > 0 ? "[v]" : "[composed]",
   );
   if (voice) {
-    args.push("-map", `${audioInputIndex}:a:0`, "-af", `adelay=${Math.round(popupStart * 1000)}:all=1,apad`);
+    const audioDelay = popupVisible ? popupStart : 0;
+    args.push("-map", `${audioInputIndex}:a:0`, "-af", `adelay=${Math.round(audioDelay * 1000)}:all=1,apad`);
   } else {
     args.push("-map", `${audioInputIndex}:a:0`);
   }

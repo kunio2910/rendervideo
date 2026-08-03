@@ -30,6 +30,7 @@ type Scene = {
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
+  backgroundVisible?: boolean;
   zoomEnabled?: boolean;
   zoomMarkerEnabled?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
@@ -274,6 +275,7 @@ type StoredProject = {
   previewBackground?: string;
   backgroundVisible?: boolean;
   backgroundMusic?: string;
+  renderFps?: 24 | 30 | 60;
   editorSections?: EditorSectionState;
   scenes: Scene[];
 };
@@ -368,6 +370,7 @@ export default function Home() {
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectDuration, setProjectDuration] = useState(30);
   const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
+  const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -375,6 +378,7 @@ export default function Home() {
   const [previewBackground, setPreviewBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [backgroundMusic, setBackgroundMusic] = useState("");
+  const [backgroundMusicPreview, setBackgroundMusicPreview] = useState("");
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
@@ -422,6 +426,7 @@ export default function Home() {
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const zoomCenterMoved = useRef(false);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
@@ -508,6 +513,7 @@ export default function Home() {
       projectDuration,
       imageEnabled,
       narrationEnabled,
+      renderFps,
       background,
       previewBackground,
       backgroundVisible,
@@ -521,6 +527,7 @@ export default function Home() {
       projectDuration,
       imageEnabled,
       narrationEnabled,
+      renderFps,
       background,
       previewBackground,
       backgroundVisible,
@@ -542,11 +549,19 @@ export default function Home() {
     setProjectDuration(project.projectDuration);
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
+    setRenderFps(project.renderFps ?? 30);
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
-    const restoredScenes = ensureUniqueSceneIds(project.scenes);
+    setBackgroundMusicPreview((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+    const restoredScenes = ensureUniqueSceneIds(project.scenes).map((item) => ({
+      ...item,
+      backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
+    }));
     setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
@@ -585,6 +600,7 @@ export default function Home() {
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
+        renderFps: data.renderFps ?? 30,
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -862,15 +878,44 @@ export default function Home() {
     const audio = new Audio(source);
     narrationAudio.current = audio;
     audio.volume = 0.95;
-    audio.currentTime = Math.max(0, playTime - scene.start);
+    const narrationStart = scene.popupVisible !== false ? popupStartTime : 0;
+    const elapsed = Math.max(0, playTime - scene.start);
+    const startAudio = () => {
+      audio.currentTime = Math.max(0, elapsed - narrationStart);
+      void audio.play().catch(() => {
+        // A local path that has not been uploaded is previewed silently.
+      });
+    };
+    const delay = Math.max(0, (narrationStart - elapsed) * 1000);
+    const timer = window.setTimeout(startAudio, delay);
+    return () => {
+      window.clearTimeout(timer);
+      audio.pause();
+      if (narrationAudio.current === audio) narrationAudio.current = null;
+    };
+  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile, scene.popupVisible, popupStartTime]);
+
+  useEffect(() => {
+    backgroundMusicAudio.current?.pause();
+    backgroundMusicAudio.current = null;
+    if (!playing || !backgroundMusic.trim()) return;
+    const source = isRemoteUrl(backgroundMusic)
+      ? backgroundMusic.trim()
+      : backgroundMusicPreview;
+    if (!source) return;
+    const audio = new Audio(source);
+    backgroundMusicAudio.current = audio;
+    audio.loop = true;
+    audio.volume = 0.18;
+    audio.currentTime = Math.max(0, playTime);
     void audio.play().catch(() => {
       // A local path that has not been uploaded is previewed silently.
     });
     return () => {
       audio.pause();
-      if (narrationAudio.current === audio) narrationAudio.current = null;
+      if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile]);
+  }, [playing, backgroundMusic, backgroundMusicPreview]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -1050,6 +1095,12 @@ export default function Home() {
     );
   };
 
+  const updateCurrentScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
+    setScenes((items) =>
+      items.map((item) => (item.id === selectedId ? { ...item, [key]: value } : item)),
+    );
+  };
+
   const updatePopupStart = (value: number) => {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
@@ -1192,6 +1243,7 @@ export default function Home() {
       narration: "Nhập lời thuyết minh cho cảnh đầu tiên.",
       image: "",
       background: "",
+      backgroundVisible: true,
       start: 0,
       end: 5,
       voiceFile: "",
@@ -1203,6 +1255,7 @@ export default function Home() {
       projectDuration: 15,
       imageEnabled: true,
       narrationEnabled: true,
+      renderFps: 30,
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -1236,6 +1289,7 @@ export default function Home() {
       voice: "Nam trầm",
       image: "",
       background: "",
+      backgroundVisible: true,
       start: last.end,
       end: last.end + 3,
       zoomInDuration: 0.5,
@@ -1554,6 +1608,7 @@ export default function Home() {
         title: projectTitle,
         duration: projectDuration,
         resolution: renderResolution,
+        fps: renderFps,
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
@@ -1578,6 +1633,7 @@ export default function Home() {
             centerY: item.centerY,
             body: item.popup,
             ...(sceneBackground ? { background: sceneBackground } : {}),
+            backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
             narration: narrationEnabled ? item.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
@@ -1602,6 +1658,7 @@ export default function Home() {
       narrationEnabled,
       projectDuration,
       renderResolution,
+      renderFps,
       projectTitle,
       background,
       previewBackground,
@@ -2253,7 +2310,7 @@ export default function Home() {
             onPointerDown={() => setMapFocused(true)}
             className={`phone-preview ${playing ? "is-playing" : ""} ${mapFocused ? "map-focused" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
           >
-            {backgroundVisible && backgroundPreviewSource && (
+            {scene.backgroundVisible !== false && backgroundPreviewSource && (
               <img
                 className="project-background"
                 src={backgroundPreviewSource}
@@ -2423,17 +2480,17 @@ export default function Home() {
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
-                className={`button editor-visibility-button ${backgroundVisible ? "active" : ""}`}
-                title={backgroundVisible ? "Ẩn background khỏi xem trước" : "Hiện background trong xem trước"}
-                onClick={() => setBackgroundVisible((visible) => !visible)}
+                className={`button editor-visibility-button ${scene.backgroundVisible !== false ? "active" : ""}`}
+                title={scene.backgroundVisible !== false ? "Ẩn background khỏi xem trước" : "Hiện background trong xem trước"}
+                onClick={() => updateCurrentScene("backgroundVisible", scene.backgroundVisible === false)}
               >
-                {backgroundVisible ? "◉ Ẩn background" : "⊘ Hiện background"}
+                {scene.backgroundVisible !== false ? "◉ Ẩn background" : "⊘ Hiện background"}
               </button>
               <button
                 type="button"
                 className={`button editor-visibility-button ${scene.popupVisible !== false ? "active" : ""}`}
                 title={scene.popupVisible !== false ? "Ẩn popup khỏi xem trước" : "Hiện popup trong xem trước"}
-                onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
+                onClick={() => updateCurrentScene("popupVisible", scene.popupVisible === false)}
               >
                 {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
               </button>
@@ -2545,7 +2602,10 @@ export default function Home() {
                   inputMode="url"
                   value={backgroundMusic}
                   placeholder="audio/background-music.mp3 hoặc URL"
-                  onChange={(event) => setBackgroundMusic(event.target.value)}
+                  onChange={(event) => {
+                    setBackgroundMusic(event.target.value);
+                    setBackgroundMusicPreview("");
+                  }}
                 />
                 <label className="file-picker">
                   Chọn file
@@ -2554,7 +2614,13 @@ export default function Home() {
                     accept="audio/*"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
-                      if (file) setBackgroundMusic(`audio/${file.name}`);
+                      if (file) {
+                        setBackgroundMusic(`audio/${file.name}`);
+                        setBackgroundMusicPreview((current) => {
+                          if (current) URL.revokeObjectURL(current);
+                          return URL.createObjectURL(file);
+                        });
+                      }
                     }}
                   />
                 </label>
@@ -2854,7 +2920,7 @@ export default function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>{projectDuration} giây · {scenes.length} cảnh · 30 FPS</span>
+            <span>{projectDuration} giây · {scenes.length} cảnh · {renderFps} FPS</span>
           </div>
           <div className="timeline-transport" aria-label="Điều khiển phát timeline">
             <button
@@ -3116,10 +3182,14 @@ export default function Home() {
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>
-                          <select defaultValue="30 FPS" aria-label="Khung hình render">
-                            <option>30 FPS</option>
-                            <option>24 FPS</option>
-                            <option>60 FPS</option>
+                          <select
+                            value={`${renderFps} FPS`}
+                            aria-label="Khung hình render"
+                            onChange={(event) => setRenderFps(Number.parseInt(event.target.value, 10) as 24 | 30 | 60)}
+                          >
+                            <option value="30 FPS">30 FPS</option>
+                            <option value="24 FPS">24 FPS</option>
+                            <option value="60 FPS">60 FPS</option>
                           </select>
                         </label>
                         <label className="export-field">
@@ -3183,7 +3253,7 @@ export default function Home() {
                       </div>
                       <div className="render-status-info">
                         <strong>{exportFileName}</strong>
-                        <span>{renderResolution} · 30 FPS · {localRenderState.message}</span>
+                        <span>{renderResolution} · {renderFps} FPS · {localRenderState.message}</span>
                         {localRenderState.status !== "idle" && localRenderState.status !== "failed" && (
                           <div className="render-progress"><i style={{ width: `${localRenderState.progress}%` }} /></div>
                         )}
