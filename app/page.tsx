@@ -911,6 +911,45 @@ export default function Home() {
     });
   };
 
+  const startTimelineScrub = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (playing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const layer = event.currentTarget.closest(".timeline-playhead-layer");
+    if (!(layer instanceof HTMLElement)) return;
+    const bounds = layer.getBoundingClientRect();
+    if (bounds.width <= 0) return;
+    setPlaying(false);
+
+    const updatePosition = (clientX: number) => {
+      const progress = Math.min(
+        1,
+        Math.max(0, (clientX - bounds.left) / bounds.width),
+      );
+      const nextTime = Number((progress * projectDuration).toFixed(2));
+      setPlayTime(nextTime);
+      const activeScene =
+        scenes.find(
+          (item) =>
+            nextTime >= item.start &&
+            (nextTime < item.end || nextTime === projectDuration),
+        ) ?? scenes.at(nextTime === projectDuration ? -1 : 0);
+      if (activeScene) {
+        setSelectedId(activeScene.id);
+        setSelectedSceneIds([activeScene.id]);
+      }
+    };
+
+    updatePosition(event.clientX);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX);
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -2644,12 +2683,26 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="timeline-playhead-layer" aria-hidden="true">
+          <div
+            className="timeline-playhead-layer"
+            aria-label="Thanh tua timeline"
+            aria-hidden={playing}
+          >
             <div
-              className={`playhead ${playing ? "is-playing" : ""}`}
+              className={`playhead-grabber ${!playing ? "is-draggable" : ""}`}
               style={{ left: `${timelineProgress * 100}%` }}
+              role={!playing ? "slider" : undefined}
+              tabIndex={!playing ? 0 : -1}
+              aria-label={!playing ? "Kéo để tua timeline" : undefined}
+              aria-valuemin={!playing ? 0 : undefined}
+              aria-valuemax={!playing ? projectDuration : undefined}
+              aria-valuenow={!playing ? Number(playTime.toFixed(1)) : undefined}
+              aria-valuetext={!playing ? formatTime(playTime) : undefined}
+              onPointerDown={startTimelineScrub}
             >
-              <span>{formatTime(playTime)}</span>
+              <div className={`playhead ${playing ? "is-playing" : ""}`}>
+                <span>{formatTime(playTime)}</span>
+              </div>
             </div>
           </div>
         </div>

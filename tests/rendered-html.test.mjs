@@ -53,10 +53,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /indexedDB/);
   assert.match(page, /timelineProgress/);
   assert.match(page, /timeline-playhead-layer/);
+  assert.match(page, /startTimelineScrub/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
   assert.match(css, /timeline-playhead-layer/);
+  assert.match(css, /playhead-grabber/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);

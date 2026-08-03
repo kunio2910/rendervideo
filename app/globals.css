@@ -2883,9 +2883,37 @@ body {
   text-align: center;
   white-space: nowrap;
 }
+.timeline-playhead-layer .playhead-grabber {
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  z-index: 10;
+  width: 24px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.timeline-playhead-layer .playhead-grabber.is-draggable {
+  pointer-events: auto;
+  cursor: grab;
+}
+.timeline-playhead-layer .playhead-grabber.is-draggable:active {
+  cursor: grabbing;
+}
+.timeline-playhead-layer .playhead-grabber.is-draggable:focus-visible {
+  outline: 2px solid rgba(35,137,255,.8);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.timeline-playhead-layer .playhead-grabber .playhead {
+  left: 50% !important;
+  transform: translateX(-50%);
+}
 @media (max-width: 760px) {
   .timeline-playhead-layer {
     left: 70px;
+  }
+  .timeline-playhead-layer .playhead-grabber {
+    width: 30px;
   }
 }
 
