@@ -3245,7 +3245,8 @@ export default function Home() {
               <button className="prompt-close" aria-label="Đóng" onClick={() => setShowLocalRenderer(false)}>×</button>
             </div>
 
-            <div className={`local-render-status ${localRenderState.status}`}>
+            <div className="local-render-scroll">
+              <div className={`local-render-status ${localRenderState.status}`}>
               <div className="local-render-status-heading">
                 <strong>{localRenderState.message}</strong>
                 <span>{Math.round(localRenderState.progress)}%</span>
@@ -3253,9 +3254,9 @@ export default function Home() {
               <div className="local-render-progress">
                 <i style={{ width: `${localRenderState.progress}%` }} />
               </div>
-            </div>
+              </div>
 
-            <section className="preflight-card" aria-live="polite">
+              <section className="preflight-card" aria-live="polite">
               <div className="preflight-heading">
                 <div>
                   <h3>Kiểm tra trước khi render</h3>
@@ -3277,9 +3278,9 @@ export default function Home() {
               ) : (
                 <p className="local-render-note">Chưa chạy kiểm tra. Hãy bấm “Kiểm tra lại” trước khi render.</p>
               )}
-            </section>
+              </section>
 
-            <div className="local-render-grid">
+              <div className="local-render-grid">
               <section>
                 <h3>Tài nguyên JSON đang yêu cầu</h3>
                 {requiredRenderFiles.length ? (
@@ -3328,23 +3329,24 @@ export default function Home() {
                   </ul>
                 )}
               </section>
-            </div>
+              </div>
 
-            {localRenderState.log && (
-              <details className="local-render-log">
-                <summary>Chi tiết lỗi</summary>
-                <pre>{localRenderState.log}</pre>
-              </details>
-            )}
+              {localRenderState.log && (
+                <details className="local-render-log">
+                  <summary>Chi tiết lỗi</summary>
+                  <pre>{localRenderState.log}</pre>
+                </details>
+              )}
 
-            <div className="local-render-help">
+              <div className="local-render-help">
               <strong>Khởi động lần đầu trong thư mục dự án:</strong>
               <code>npm run render:setup</code>
               <code>npm run render:local</code>
               <small>Giữ cửa sổ lệnh mở trong suốt quá trình render.</small>
+              </div>
             </div>
 
-            <div className="modal-actions">
+            <div className="modal-actions local-render-actions">
               <button className="button ghost" onClick={() => void runRenderPreflight()}>Kiểm tra kết nối</button>
               {localRenderState.status === "completed" && localRenderState.downloadUrl ? (
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>

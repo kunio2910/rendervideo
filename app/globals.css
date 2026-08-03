@@ -2396,6 +2396,41 @@ body {
 .local-render-modal {
   width: min(820px, calc(100vw - 32px));
 }
+
+.local-render-modal {
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.local-render-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+  scrollbar-color: #d8cbac transparent;
+  scrollbar-width: thin;
+}
+
+.local-render-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.local-render-scroll::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: #d8cbac;
+}
+
+.local-render-actions {
+  flex: 0 0 auto;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--studio-line);
+  background: var(--panel-bg);
+}
 .local-render-status {
   margin-top: 18px;
   padding: 14px;
@@ -4682,5 +4717,11 @@ body {
 @media (max-width: 760px) {
   .editor-visibility-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .local-render-modal {
+    overflow: hidden;
   }
 }
