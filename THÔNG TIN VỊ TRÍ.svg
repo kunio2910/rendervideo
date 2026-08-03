@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1650" viewBox="0 0 2400 1650">
+  <defs>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#14213d"/>
+      <stop offset="100%" stop-color="#1e3a67"/>
+    </linearGradient>
+    <linearGradient id="preview" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d7e8ee"/>
+      <stop offset="100%" stop-color="#b7cdd0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#14213d" flood-opacity="0.16"/>
+    </filter>
+    <style>
+      text { font-family: Arial, "Segoe UI", sans-serif; fill: #14213d; }
+      .title { font-size: 36px; font-weight: 700; fill: #ffffff; }
+      .subtitle { font-size: 19px; fill: #d8e6f7; }
+      .section-title { font-size: 23px; font-weight: 700; fill: #14213d; }
+      .section-code { font-size: 15px; fill: #62738b; }
+      .label { font-size: 17px; font-weight: 700; fill: #14213d; }
+      .body { font-size: 15px; fill: #33445d; }
+      .small { font-size: 13px; fill: #62738b; }
+      .tiny { font-size: 11px; fill: #62738b; }
+      .chip { font-size: 13px; font-weight: 700; fill: #243653; }
+      .white-label { font-size: 15px; font-weight: 700; fill: #ffffff; }
+      .card { fill: #ffffff; stroke: #d9e1ec; stroke-width: 2; }
+      .soft-blue { fill: #edf5ff; stroke: #91bbef; stroke-width: 2; }
+      .soft-purple { fill: #f8efff; stroke: #c59aef; stroke-width: 2; }
+      .soft-orange { fill: #fff6e5; stroke: #f1b764; stroke-width: 2; }
+      .soft-green { fill: #eaf8f1; stroke: #8ed5b2; stroke-width: 2; }
+      .line { stroke: #cfd9e6; stroke-width: 2; }
+      .callout { stroke: #6883a6; stroke-width: 2; fill: none; stroke-dasharray: 6 6; }
+    </style>
+  </defs>
+
+  <rect width="2400" height="1650" fill="#f5f7fb"/>
+
+  <!-- Page header -->
+  <rect x="32" y="28" width="2336" height="150" rx="22" fill="url(#header)" filter="url(#shadow)"/>
+  <text x="72" y="86" class="title">KITO VIDEO STUDIO</text>
+  <text x="72" y="124" class="subtitle">THÔNG TIN VỊ TRÍ  •  Sơ đồ quy chuẩn tên gọi và vị trí các khu vực</text>
+  <rect x="1815" y="62" width="490" height="76" rx="14" fill="#2a4c7d" stroke="#5c83b4" stroke-width="2"/>
+  <text x="1842" y="91" class="white-label">Cách gọi nên dùng khi yêu cầu chỉnh sửa</text>
+  <text x="1842" y="117" class="subtitle">Khu vực  ›  Nhóm  ›  Đối tượng  ›  ID mã nguồn</text>
+
+  <!-- Topbar -->
+  <rect x="32" y="204" width="2336" height="136" rx="18" class="card" filter="url(#shadow)"/>
+  <rect x="54" y="226" width="48" height="48" rx="14" fill="#14213d"/>
+  <text x="70" y="258" font-size="21" font-weight="700" fill="#ffffff">01</text>
+  <text x="122" y="250" class="section-title">THANH CÔNG CỤ TRÊN CÙNG</text>
+  <text x="122" y="279" class="section-code">.topbar  /  .header-actions</text>
+  <g transform="translate(560 229)">
+    <rect width="132" height="40" rx="10" fill="#eef2f8"/><text x="18" y="26" class="chip">Chủ đề</text>
+    <rect x="146" width="138" height="40" rx="10" fill="#eef2f8"/><text x="164" y="26" class="chip">＋ Clip mới</text>
+    <rect x="298" width="158" height="40" rx="10" fill="#eef2f8"/><text x="316" y="26" class="chip">☾ Tối / ☀ Sáng</text>
+    <rect x="470" width="108" height="40" rx="10" fill="#e6f6ee"/><text x="492" y="26" class="chip">☁ Lưu</text>
+    <rect x="592" width="160" height="40" rx="10" fill="#eef2f8"/><text x="612" y="26" class="chip">↶ Undo / ↷ Redo</text>
+    <rect x="766" width="140" height="40" rx="10" fill="#fff4dc"/><text x="784" y="26" class="chip">↥ Khôi phục</text>
+    <rect x="920" width="144" height="40" rx="10" fill="#eef2f8"/><text x="942" y="26" class="chip">✦ Tạo prompt</text>
+    <rect x="1078" width="170" height="40" rx="10" fill="#eef2f8"/><text x="1096" y="26" class="chip">◉ Render cục bộ</text>
+    <rect x="1262" width="164" height="40" rx="10" fill="#eef2f8"/><text x="1281" y="26" class="chip">▾ Ẩn Timeline</text>
+    <rect x="1440" width="140" height="40" rx="10" fill="#eef2f8"/><text x="1461" y="26" class="chip">↓ Xuất JSON</text>
+  </g>
+  <rect x="560" y="285" width="630" height="30" rx="8" fill="#fff0f0"/>
+  <text x="578" y="306" class="small">Trạng thái lưu: Đang tải dữ liệu  /  Chưa lưu  /  Đã lưu...</text>
+
+  <!-- Main columns -->
+  <!-- Scene panel -->
+  <rect x="32" y="366" width="470" height="650" rx="18" class="card" filter="url(#shadow)"/>
+  <rect x="54" y="388" width="48" height="48" rx="14" fill="#285a9e"/>
+  <text x="70" y="420" font-size="21" font-weight="700" fill="#ffffff">02</text>
+  <text x="122" y="412" class="section-title">CỘT CẢNH</text>
+  <text x="122" y="438" class="section-code">.scene-panel</text>
+  <line x1="54" y1="458" x2="480" y2="458" class="line"/>
+  <rect x="58" y="478" width="98" height="34" rx="9" fill="#fff0f0"/><text x="79" y="500" class="chip">Xóa</text>
+  <rect x="166" y="478" width="110" height="34" rx="9" fill="#eaf3ff"/><text x="184" y="500" class="chip">＋ Thêm</text>
+  <rect x="286" y="478" width="178" height="34" rx="9" fill="#f0f3f8"/><text x="302" y="500" class="chip">Nhân bản · Sao chép · Dán</text>
+  <text x="58" y="546" class="label">Danh sách cảnh</text>
+  <text x="201" y="546" class="section-code">.scene-list  ›  .scene-item</text>
+  <g transform="translate(58 566)">
+    <rect width="406" height="78" rx="12" fill="#fff8ea" stroke="#f2ae43" stroke-width="3"/>
+    <text x="17" y="44" font-size="18" fill="#62738b">⠿</text><circle cx="49" cy="39" r="20" fill="#ffffff" stroke="#f2ae43" stroke-width="2"/><text x="43" y="45" class="body">1</text>
+    <rect x="82" y="12" width="62" height="54" rx="8" fill="#c5d6c5"/><path d="M84 55 L102 30 L118 45 L132 24 L142 55" fill="#5d8d6c" opacity="0.75"/>
+    <text x="158" y="31" class="label">Đánh bại Gôliát</text><text x="158" y="54" class="small">00.0 – 06.0 giây</text>
+  </g>
+  <g transform="translate(58 656)">
+    <rect width="406" height="78" rx="12" fill="#ffffff" stroke="#d9e1ec" stroke-width="2"/>
+    <text x="17" y="44" font-size="18" fill="#62738b">⠿</text><circle cx="49" cy="39" r="20" fill="#ffffff" stroke="#b6c3d4" stroke-width="2"/><text x="43" y="45" class="body">2</text>
+    <rect x="82" y="12" width="62" height="54" rx="8" fill="#cadbd0"/><path d="M84 55 L102 30 L118 45 L132 24 L142 55" fill="#6f9c7d" opacity="0.75"/>
+    <text x="158" y="31" class="label">Phục vụ vua Saolê</text><text x="158" y="54" class="small">06.0 – 10.5 giây</text>
+  </g>
+  <g transform="translate(58 746)">
+    <rect width="406" height="78" rx="12" fill="#ffffff" stroke="#d9e1ec" stroke-width="2"/>
+    <text x="17" y="44" font-size="18" fill="#62738b">⠿</text><circle cx="49" cy="39" r="20" fill="#ffffff" stroke="#b6c3d4" stroke-width="2"/><text x="43" y="45" class="body">3</text>
+    <rect x="82" y="12" width="62" height="54" rx="8" fill="#d3dbea"/><path d="M84 55 L102 30 L118 45 L132 24 L142 55" fill="#778fb7" opacity="0.75"/>
+    <text x="158" y="31" class="label">Cảnh tiếp theo...</text><text x="158" y="54" class="small">10.5 – 15.0 giây</text>
+  </g>
+  <text x="58" y="866" class="small">Cuối cột: Ảnh trong popup  ·  Thuyết minh AI</text>
+  <path d="M58 888 H464" class="line"/>
+  <text x="58" y="922" class="label">Cách gọi chuẩn</text>
+  <text x="58" y="950" class="body">Cột Cảnh › Danh sách cảnh › Cảnh số 2</text>
+  <text x="58" y="976" class="small">Kéo tay nắm để đổi thứ tự; giữ Shift để chọn nhiều cảnh.</text>
+
+  <!-- Preview panel -->
+  <rect x="522" y="366" width="720" height="650" rx="18" class="card" filter="url(#shadow)"/>
+  <rect x="544" y="388" width="48" height="48" rx="14" fill="#198b78"/>
+  <text x="560" y="420" font-size="21" font-weight="700" fill="#ffffff">03</text>
+  <text x="612" y="412" class="section-title">XEM TRƯỚC CẢNH</text>
+  <text x="612" y="438" class="section-code">.preview-panel</text>
+  <rect x="1058" y="395" width="150" height="38" rx="10" fill="#198b78"/><text x="1089" y="420" class="white-label">▶ Xem thử</text>
+  <line x1="544" y1="458" x2="1220" y2="458" class="line"/>
+  <text x="566" y="492" class="label">Khung bản đồ dọc 9:16</text><text x="566" y="516" class="section-code">.phone-preview  ›  .project-background</text>
+  <rect x="694" y="540" width="270" height="390" rx="18" fill="url(#preview)" stroke="#536f83" stroke-width="4"/>
+  <!-- schematic map -->
+  <path d="M700 604 C760 570 815 650 875 607 S940 584 960 625 M700 710 C770 665 820 750 885 705 S942 680 960 720 M700 828 C770 780 826 870 888 823 S943 800 960 842" stroke="#ffffff" stroke-width="10" opacity="0.72" fill="none"/>
+  <path d="M748 548 C728 630 786 687 752 773 S740 861 790 924 M880 548 C850 628 920 687 887 773 S874 861 918 924" stroke="#9eb5b6" stroke-width="4" opacity="0.8" fill="none"/>
+  <!-- zoom camera target -->
+  <circle cx="832" cy="688" r="54" fill="none" stroke="#2b80d7" stroke-width="5" stroke-dasharray="9 7"/>
+  <circle cx="832" cy="688" r="7" fill="#2b80d7"/>
+  <path d="M780 654 C720 623 660 606 614 596" class="callout"/>
+  <rect x="552" y="564" width="138" height="70" rx="10" class="soft-blue"/>
+  <text x="566" y="586" class="label" font-size="14">Zoom camera</text><text x="566" y="607" class="small">.zoom-camera-target</text><text x="566" y="623" class="tiny">Bật chức năng mới hiện</text>
+  <!-- marker effect -->
+  <circle cx="832" cy="688" r="28" fill="none" stroke="#f28c28" stroke-width="6"/>
+  <circle cx="832" cy="688" r="12" fill="#f28c28" opacity="0.75"/>
+  <path d="M862 708 C936 753 984 774 1031 790" class="callout"/>
+  <rect x="972" y="774" width="236" height="86" rx="10" class="soft-orange"/>
+  <text x="988" y="796" class="label" font-size="14">Vòng tròn cột mốc</text><text x="988" y="817" class="small">.zoom-center-marker</text><text x="988" y="837" class="tiny">marker effect / hiệu ứng riêng</text>
+  <!-- popup -->
+  <rect x="748" y="742" width="168" height="66" rx="10" fill="#ffffff" stroke="#b67be8" stroke-width="3" filter="url(#shadow)"/>
+  <text x="765" y="770" class="label" font-size="14">Popup</text><text x="765" y="792" class="small">.preview-card</text>
+  <rect x="712" y="944" width="234" height="36" rx="9" fill="#eef2f8"/><text x="736" y="967" class="chip">Background    ◉ Popup</text>
+  <rect x="1010" y="540" width="198" height="92" rx="12" class="soft-green"/>
+  <text x="1028" y="568" class="label">Các thành phần</text><text x="1028" y="590" class="body">.time-pill</text><text x="1028" y="610" class="body">.preview-progress</text>
+  <text x="1028" y="650" class="small">Cách gọi: Xem trước cảnh ›</text><text x="1028" y="670" class="small">khung bản đồ › marker</text>
+
+  <!-- Editor panel -->
+  <rect x="1262" y="366" width="1106" height="650" rx="18" class="card" filter="url(#shadow)"/>
+  <rect x="1284" y="388" width="48" height="48" rx="14" fill="#7a50a5"/>
+  <text x="1300" y="420" font-size="21" font-weight="700" fill="#ffffff">04</text>
+  <text x="1352" y="412" class="section-title">BIÊN SOẠN</text>
+  <text x="1352" y="438" class="section-code">.editor-panel  /  .editor-scroll</text>
+  <line x1="1284" y1="458" x2="2346" y2="458" class="line"/>
+  <g>
+    <rect x="1284" y="478" width="1062" height="36" rx="8" fill="#f2f4f8"/><text x="1300" y="502" class="label">01  Hình ảnh &amp; nền</text><text x="2290" y="502" class="small">⌄</text>
+    <rect x="1284" y="522" width="1062" height="36" rx="8" fill="#f2f4f8"/><text x="1300" y="546" class="label">02  Nội dung cảnh</text><text x="2290" y="546" class="small">⌄</text>
+    <rect x="1284" y="566" width="1062" height="36" rx="8" fill="#f2f4f8"/><text x="1300" y="590" class="label">03  Âm thanh</text><text x="2290" y="590" class="small">⌄</text>
+  </g>
+  <!-- Motion split -->
+  <rect x="1284" y="618" width="1062" height="180" rx="12" fill="#f7f9fc" stroke="#cbd6e5" stroke-width="2"/>
+  <text x="1300" y="644" class="label">04  Chuyển động</text><text x="2216" y="644" class="section-code">tách thành 2 panel</text>
+  <rect x="1300" y="658" width="502" height="122" rx="10" class="soft-blue"/>
+  <text x="1318" y="682" class="label">Panel Zoom camera</text><text x="1318" y="703" class="section-code">#editor-camera  /  .motion-settings-card</text>
+  <rect x="1318" y="718" width="18" height="18" rx="5" fill="#2b80d7"/><text x="1345" y="733" class="body">Bật hiệu ứng zoom camera</text>
+  <text x="1318" y="757" class="small">zoomStart  ·  zoomInDuration  ·  zoomOutDuration</text>
+  <rect x="1820" y="658" width="502" height="122" rx="10" class="soft-purple"/>
+  <text x="1838" y="682" class="label">Panel Popup</text><text x="1838" y="703" class="section-code">#editor-popup  /  .popup-motion-settings-card</text>
+  <text x="1838" y="733" class="small">popupStart  ·  popupDuration</text><text x="1838" y="757" class="small">popupIn  ·  popupOut</text>
+  <!-- Effects -->
+  <rect x="1284" y="816" width="1062" height="146" rx="12" class="soft-orange"/>
+  <text x="1300" y="843" class="label">05  Hiệu ứng</text><text x="1900" y="843" class="section-code">#editor-effects  /  .effects-editor-content</text>
+  <rect x="1300" y="858" width="18" height="18" rx="5" fill="#f28c28"/><text x="1328" y="873" class="body">Hiển thị hiệu ứng vòng tròn cột mốc</text>
+  <text x="1300" y="906" class="small">Phát sáng  ·  Nhấp nháy  ·  Làm mờ  ·  zoomMarkerDuration  ·  zoomMarkerSize</text>
+  <text x="1300" y="932" class="tiny">Nhóm này chỉ điều khiển marker effect, không điều khiển thời điểm Zoom camera hoặc Popup.</text>
+
+  <!-- Timeline -->
+  <rect x="32" y="1044" width="2336" height="480" rx="18" class="card" filter="url(#shadow)"/>
+  <rect x="54" y="1066" width="48" height="48" rx="14" fill="#d47b2a"/>
+  <text x="70" y="1098" font-size="21" font-weight="700" fill="#ffffff">05</text>
+  <text x="122" y="1090" class="section-title">TIMELINE</text><text x="122" y="1116" class="section-code">.timeline-panel</text>
+  <text x="1840" y="1090" class="label">Tổng thời lượng: 15.0 giây</text><text x="1840" y="1116" class="small">30 FPS  ·  .duration-status</text>
+  <line x1="54" y1="1136" x2="2346" y2="1136" class="line"/>
+  <rect x="54" y="1152" width="230" height="36" rx="9" fill="#eef2f8"/><text x="75" y="1176" class="chip">↶  Chạy lùi  ▶  Phát  ⏸  Tạm dừng</text>
+  <text x="324" y="1176" class="small">Kéo playhead khi tạm dừng để xem nhanh</text>
+  <!-- timeline ruler -->
+  <text x="262" y="1221" class="small">Track</text>
+  <g stroke="#d7e0ec" stroke-width="1">
+    <line x1="420" y1="1200" x2="420" y2="1465"/><line x1="700" y1="1200" x2="700" y2="1465"/><line x1="980" y1="1200" x2="980" y2="1465"/><line x1="1260" y1="1200" x2="1260" y2="1465"/><line x1="1540" y1="1200" x2="1540" y2="1465"/><line x1="1820" y1="1200" x2="1820" y2="1465"/><line x1="2100" y1="1200" x2="2100" y2="1465"/><line x1="2320" y1="1200" x2="2320" y2="1465"/>
+  </g>
+  <g class="small"><text x="414" y="1221">0</text><text x="690" y="1221">2</text><text x="970" y="1221">4</text><text x="1250" y="1221">6</text><text x="1530" y="1221">8</text><text x="1804" y="1221">10</text><text x="2084" y="1221">12</text><text x="2304" y="1221">15s</text></g>
+  <!-- track labels -->
+  <g class="label"><text x="82" y="1261">Camera</text><text x="82" y="1316">Popup</text><text x="82" y="1371">Thuyết minh</text><text x="82" y="1426">Nhạc nền</text></g>
+  <g class="section-code"><text x="224" y="1261">.camera-clip</text><text x="224" y="1316">.popup-clip</text><text x="224" y="1371">.voice-clip</text><text x="224" y="1426">.music-clip</text></g>
+  <!-- track bars -->
+  <rect x="420" y="1240" width="1100" height="32" rx="8" fill="#d7eaff" stroke="#2b80d7" stroke-width="2"/><text x="438" y="1262" class="chip">Camera  ·  zoomStart / zoomInDuration / zoomOutDuration</text>
+  <rect x="560" y="1295" width="760" height="32" rx="8" fill="#ead8f8" stroke="#a66dd6" stroke-width="2"/><text x="578" y="1317" class="chip">Popup  ·  kéo cả thanh = popupStart</text>
+  <path d="M560 1289 v44 M1320 1289 v44" stroke="#8d48c1" stroke-width="4"/><text x="1332" y="1318" class="tiny">mép = popupDuration</text>
+  <rect x="420" y="1350" width="1320" height="32" rx="8" fill="#d7f0e4" stroke="#4caf7c" stroke-width="2"/><text x="438" y="1372" class="chip">Thuyết minh  ·  mở editor-audio</text>
+  <rect x="420" y="1405" width="1710" height="32" rx="8" fill="#cce8e0" stroke="#198b78" stroke-width="2"/><text x="438" y="1427" class="chip">Nhạc nền  ·  mở editor-music</text>
+  <!-- playhead -->
+  <line x1="1110" y1="1196" x2="1110" y2="1458" stroke="#1677ff" stroke-width="5"/>
+  <path d="M1096 1196 L1124 1196 L1110 1212 Z" fill="#1677ff"/>
+  <rect x="1062" y="1150" width="96" height="32" rx="9" fill="#1677ff"/><text x="1087" y="1172" class="white-label">3.2s</text>
+  <circle cx="1110" cy="1458" r="11" fill="#1677ff" stroke="#ffffff" stroke-width="4"/>
+  <rect x="54" y="1470" width="2292" height="34" rx="9" fill="#eef5ff"/><text x="74" y="1493" class="body">Space: phát / tạm dừng   ·   ← / →: tua 1 giây   ·   Khi tạm dừng: kéo .playhead-grabber để cập nhật playTime và chọn cảnh tương ứng</text>
+
+  <!-- Footer legend -->
+  <text x="55" y="1582" class="label">Chú giải nhanh:</text>
+  <circle cx="210" cy="1576" r="17" fill="none" stroke="#2b80d7" stroke-width="4" stroke-dasharray="7 5"/><text x="240" y="1582" class="body">vòng nét xanh = Zoom camera target</text>
+  <circle cx="636" cy="1576" r="14" fill="none" stroke="#f28c28" stroke-width="5"/><text x="668" y="1582" class="body">vòng cam = vòng tròn cột mốc / marker effect</text>
+  <rect x="1168" y="1562" width="44" height="24" rx="6" fill="#ead8f8" stroke="#a66dd6" stroke-width="2"/><text x="1228" y="1582" class="body">thanh tím = Popup track</text>
+  <text x="1850" y="1582" class="small">Dùng đúng tên khu vực + ID để tránh nhầm chức năng.</text>
+</svg>

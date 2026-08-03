@@ -6,6 +6,8 @@ lẫn giữa **Zoom camera**, **vòng tròn cột mốc**, **Popup** và **Timel
 
 Ngày cập nhật: 2026-08-03
 
+Sơ đồ trực quan để mở nhanh: [THÔNG TIN VỊ TRÍ.jpg](THÔNG%20TIN%20VỊ%20TRÍ.jpg)
+
 ## 1. Cấu trúc màn hình tổng thể
 
 Trên máy tính, giao diện có ba khu vực chính nằm ngang:
