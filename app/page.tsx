@@ -2316,17 +2316,6 @@ export default function Home() {
               </article>
             )}
           </div>
-          <div className="preview-footer">
-            <label className="preview-background-field">
-              <span>Background</span>
-              <input
-                type="url"
-                value={previewBackground}
-                placeholder="Dán URL ảnh hiển thị trên bản đồ"
-                onChange={(event) => setPreviewBackground(event.target.value)}
-              />
-            </label>
-          </div>
         </section>
 
         <aside className="editor-panel">
@@ -2378,6 +2367,16 @@ export default function Home() {
                 onChange={(event) => setBackground(event.target.value)}
               />
               <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
+            </label>
+            <label className="field background-image-url-field">
+              <span>Đường dẫn URL hình ảnh nền</span>
+              <input
+                type="url"
+                value={previewBackground}
+                placeholder="Dán URL ảnh hiển thị trên bản đồ"
+                onChange={(event) => setPreviewBackground(event.target.value)}
+              />
+              <small>Ảnh này được hiển thị phía sau popup trong khung Xem trước cảnh.</small>
             </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
