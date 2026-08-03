@@ -402,6 +402,11 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
+    const themeVersion = window.localStorage.getItem("kito-video-studio-theme-version");
+    if (themeVersion !== "editor-v2") {
+      window.localStorage.setItem("kito-video-studio-theme-version", "editor-v2");
+      return "light";
+    }
     return savedTheme === "dark" ? "dark" : "light";
   });
   const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
