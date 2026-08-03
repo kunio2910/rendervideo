@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
@@ -58,18 +59,92 @@ const run = (command, args) =>
     );
   });
 
-const download = async (url, filename) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Cannot download ${url}: ${response.status}`);
-  await fs.writeFile(filename, Buffer.from(await response.arrayBuffer()));
-  return filename;
+const resourceCache = new Map();
+
+const isRemote = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
+
+const referenceName = (value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return fallbackName;
+  if (isRemote(trimmed)) {
+    try {
+      const name = path.basename(decodeURIComponent(new URL(trimmed).pathname));
+      if (name && name !== ".") return name;
+    } catch {}
+  }
+  return path.basename(trimmed.replaceAll("\\", "/")) || fallbackName;
 };
+
+const resourceKey = (kind, value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  const name = referenceName(trimmed, fallbackName).toLowerCase();
+  // Reuse a resource when scenes refer to the same filename.
+  if (name && name !== fallbackName.toLowerCase()) return `${kind}:name:${name}`;
+  return `${kind}:url:${trimmed}`;
+};
+
+const download = async (url, filename) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Cannot download ${url}: ${response.status}`);
+    await fs.writeFile(filename, Buffer.from(await response.arrayBuffer()));
+    return filename;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const downloadResource = async (kind, value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  const key = resourceKey(kind, trimmed, fallbackName);
+  const cached = resourceCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    const sourceName = referenceName(trimmed, fallbackName);
+    const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
+    const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
+    return download(trimmed, path.join(renderDir, `${kind}-${hash}-${safeName}`));
+  })();
+  resourceCache.set(key, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    resourceCache.delete(key);
+    throw error;
+  }
+};
+
+const findLocalResource = async (kind, value, candidates) => {
+  const trimmed = String(value ?? "").trim();
+  const key = resourceKey(kind, trimmed, path.basename(trimmed) || kind);
+  const cached = resourceCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    for (const candidate of candidates.filter(Boolean)) {
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {}
+    }
+    return null;
+  })();
+  resourceCache.set(key, promise);
+  return promise;
+};
+
+const localCandidates = (value) => [
+  path.resolve(root, value),
+  path.join(sourceDir, path.basename(value)),
+  path.join(defaultSourceDir, path.basename(value)),
+];
 
 const resolveImage = async (value, fallbackName, required = false) => {
   if (!value) return null;
-  if (/^https?:\/\//i.test(value)) {
+  if (isRemote(value)) {
     try {
-      return await download(value, path.join(renderDir, fallbackName));
+      return await downloadResource("image", value, fallbackName);
     } catch (error) {
       if (required) {
         const detail = error instanceof Error ? error.message : "unknown download error";
@@ -78,58 +153,45 @@ const resolveImage = async (value, fallbackName, required = false) => {
       return null;
     }
   }
-  const candidates = [
-    path.resolve(root, value),
-    path.join(sourceDir, path.basename(value)),
-    path.join(defaultSourceDir, path.basename(value)),
-  ];
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
-  }
-  return null;
+  const local = await findLocalResource("image", value, localCandidates(value));
+  if (!local && required) throw new Error(`KhÃ´ng tÃ¬m tháº¥y áº£nh background: ${value}`);
+  return local;
 };
 
 const resolveVoice = async (scene, index) => {
-  const candidates = [
-    scene.voiceFile && path.resolve(root, scene.voiceFile),
-    scene.voiceFile && path.join(sourceDir, path.basename(scene.voiceFile)),
-    scene.voiceFile && path.join(defaultSourceDir, path.basename(scene.voiceFile)),
-    path.join(sourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
-    path.join(defaultSourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
-  ].filter(Boolean);
-  for (const candidate of candidates) {
+  const value = String(scene.voiceFile ?? "").trim();
+  if (value && isRemote(value)) {
     try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
-  }
-  return null;
-};
-
-const resolveAudio = async (value) => {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) {
-    try {
-      return await download(value, path.join(renderDir, `audio-${path.basename(new URL(value).pathname) || "track.mp3"}`));
-    } catch {
-      return null;
+      return await downloadResource("audio", value, `scene-${index + 1}-voice.mp3`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown download error";
+      throw new Error(`KhÃ´ng thá»ƒ táº£i Ã¢m thanh cáº£nh ${index + 1} tá»« URL: ${detail}`);
     }
   }
   const candidates = [
-    path.resolve(root, value),
-    path.join(sourceDir, path.basename(value)),
-    path.join(defaultSourceDir, path.basename(value)),
-  ];
-  for (const candidate of candidates) {
+    value && path.resolve(root, value),
+    value && path.join(sourceDir, path.basename(value)),
+    value && path.join(defaultSourceDir, path.basename(value)),
+    path.join(sourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
+    path.join(defaultSourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
+  ].filter(Boolean);
+  return findLocalResource("audio", value || `fallback-${index + 1}.mp3`, candidates);
+};
+
+const resolveAudio = async (value, required = false) => {
+  if (!value) return null;
+  if (isRemote(value)) {
     try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
+      return await downloadResource("audio", value, "track.mp3");
+    } catch (error) {
+      if (required) {
+        const detail = error instanceof Error ? error.message : "unknown download error";
+        throw new Error(`KhÃ´ng thá»ƒ táº£i nháº¡c ná»n tá»« URL: ${detail}`);
+      }
+      return null;
+    }
   }
-  return null;
+  return findLocalResource("audio", value, localCandidates(value));
 };
 
 const createPopup = async (scene, index) => {
@@ -213,25 +275,40 @@ const getActiveMarkerEffects = (scene) => {
   return legacyEffect === "none" ? [] : [legacyEffect];
 };
 
-const background = await resolveImage(project.background, "background", true);
+const hasSceneBackgrounds = scenes.some((scene) => String(scene.background ?? "").trim());
+const background = await resolveImage(
+  project.background,
+  "background",
+  Boolean(project.background && !hasSceneBackgrounds),
+);
 const uploadedFallbackBackground = path.join(sourceDir, "map.png");
 const defaultFallbackBackground = path.join(defaultSourceDir, "map.png");
-let fallbackBackground = uploadedFallbackBackground;
+let fallbackBackground = null;
 try {
   await fs.access(uploadedFallbackBackground);
+  fallbackBackground = uploadedFallbackBackground;
 } catch {
-  fallbackBackground = defaultFallbackBackground;
+  try {
+    await fs.access(defaultFallbackBackground);
+    fallbackBackground = defaultFallbackBackground;
+  } catch {}
 }
 const backgroundPath = background ?? fallbackBackground;
-try {
-  await fs.access(backgroundPath);
-} catch {
+if (!backgroundPath && scenes.some((scene) => !scene.background && !project.background)) {
   throw new Error(`Không tìm thấy ảnh background: ${project.background || "map.png"}`);
 }
 
 const clipPaths = [];
 for (let index = 0; index < scenes.length; index += 1) {
   const scene = scenes[index];
+  const sceneBackground = await resolveImage(
+    scene.background || project.background,
+    `scene-${index + 1}-background`,
+    Boolean(scene.background || project.background),
+  ) || backgroundPath;
+  if (!sceneBackground) {
+    throw new Error(`Không tìm thấy background cho cảnh ${index + 1}: ${scene.background || "map.png"}`);
+  }
   const end = scenes[index + 1]?.start ?? project.duration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
@@ -327,7 +404,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   });
   const args = [
     "-y",
-    "-loop", "1", "-i", backgroundPath,
+    "-loop", "1", "-i", sceneBackground,
     "-loop", "1", "-i", popup,
   ];
   markers.forEach((marker) => {
@@ -367,7 +444,10 @@ await fs.writeFile(
   concatFile,
   clipPaths.map((item) => `file '${item.replaceAll("'", "'\\''")}'`).join("\n"),
 );
-const narrationVideo = project.backgroundMusic
+const music = project.backgroundMusic
+  ? await resolveAudio(project.backgroundMusic, true)
+  : null;
+const narrationVideo = music
   ? path.join(renderDir, "narration-video.mp4")
   : outputPath;
 await run(ffmpeg, [
@@ -380,7 +460,6 @@ await run(ffmpeg, [
   narrationVideo,
 ]);
 
-const music = await resolveAudio(project.backgroundMusic);
 if (music) {
   await run(ffmpeg, [
     "-y",

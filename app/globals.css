@@ -3978,8 +3978,14 @@ body {
   max-height: none;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0 8px 16px 0;
+  padding: 0 8px 180px 0;
+  scroll-padding-bottom: 180px;
   scrollbar-gutter: stable;
+}
+
+.studio-shell[data-studio-tab="compose"] .editor-accordion-content {
+  min-width: 0;
+  overflow: visible;
 }
 
 @media (max-width: 760px) {
