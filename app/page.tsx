@@ -1751,8 +1751,11 @@ export default function Home() {
   const startLocalRender = async () => {
     const canRender = await runRenderPreflight();
     if (!canRender) {
-      setLocalRenderState((state) => ({ ...state, status: "failed", message: "Cần xử lý các mục kiểm tra trước khi render" }));
-      return;
+      const shouldContinue = window.confirm("Chưa đủ tài nguyên, bạn có muốn tiếp tục ?");
+      if (!shouldContinue) {
+        setLocalRenderState((state) => ({ ...state, status: "failed", message: "Cần xử lý các mục kiểm tra trước khi render" }));
+        return;
+      }
     }
     setLocalRenderState({
       status: "uploading",
