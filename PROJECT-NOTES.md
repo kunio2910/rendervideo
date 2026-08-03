@@ -199,7 +199,9 @@ Các thông tin chính:
 - Giọng đọc và file âm thanh thuyết minh.
 - Nhạc nền cấp dự án.
 - Mức zoom, thời gian zoom vào và thời gian thu camera về.
+- Thời gian bắt đầu hiệu ứng zoom (`zoomStart`).
 - Thời gian popup.
+- Thời gian bắt đầu xuất hiện popup (`popupStart`).
 - Hiệu ứng mở/đóng popup.
 - Trong mục **Hiệu ứng**, bật/tắt vòng tròn cột mốc và từng hiệu ứng phát sáng,
   nhấp nháy hoặc làm mờ độc lập.
@@ -223,6 +225,8 @@ Các hiệu ứng popup đang có:
 - Các hàng gồm Camera, Popup, Thuyết minh và Nhạc nền.
 - Kéo mép trái/phải của clip Camera để đổi điểm bắt đầu/kết thúc; biên cảnh kế
   bên được dịch theo và mỗi cảnh luôn giữ tối thiểu 0,1 giây.
+- Popup nằm trong một panel riêng với Zoom camera. Có thể kéo toàn bộ thanh
+  Popup để đổi thời điểm xuất hiện, hoặc kéo hai mép để đổi thời lượng.
 - Bấm một event sẽ:
   1. Chọn đúng cảnh.
   2. Đưa playhead đến đầu cảnh.
@@ -236,7 +240,7 @@ Khi bấm `Xem thử`:
 
 1. Timeline chạy lại từ giây 0.
 2. Cảnh đang phát được tự động chọn.
-3. Camera zoom từ 1× tới `zoom` trong `zoomInDuration`.
+3. Camera giữ ở 1× đến `zoomStart`, sau đó zoom tới `zoom` trong `zoomInDuration`.
 4. Camera giữ mức zoom rồi thu về trong `zoomOutDuration`.
 5. Popup xuất hiện sau khi zoom vào và tồn tại trong `popupDuration`.
 6. Hiệu ứng mở/đóng lấy từ `popupIn` và `popupOut`.
@@ -301,10 +305,11 @@ Mỗi cảnh có các nhóm dữ liệu:
 - Nội dung: `title`, `location`, `reference`, `popup`, `narration`.
 - Timeline: `start`, `end`.
 - Camera: `zoom`, `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
+- Camera: `zoomStart` — thời gian bắt đầu hiệu ứng zoom trong cảnh.
 - Camera: `zoomEnabled`.
 - Vòng tròn cột mốc: `zoomMarkerEnabled`, `zoomMarkerEffects`,
   `zoomMarkerDuration`, `zoomMarkerSize`.
-- Popup: `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
+- Popup: `popupStart`, `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
 - Media: `image`, `voiceFile`, `voice`.
 
@@ -326,7 +331,9 @@ Ví dụ rút gọn:
       "milestone": 1,
       "title": "Samuel xức dầu",
       "start": 0,
+      "zoomStart": 0,
       "zoomInDuration": 1,
+      "popupStart": 1,
       "popupDuration": 3,
       "zoomOutDuration": 1.5,
       "zoom": 2.25,
@@ -377,6 +384,7 @@ Quy trình tổng quát:
 6. Render riêng từng cảnh:
    - Nền dọc 1080×1920.
    - Zoom theo `zoom`, `centerX`, `centerY` và thời gian.
+   - Bắt đầu zoom theo `zoomStart`; popup theo `popupStart` và `popupDuration`.
    - Popup xuất hiện/biến mất theo timeline.
    - Ghép thuyết minh.
 7. Nối các cảnh thành MP4 cuối cùng.

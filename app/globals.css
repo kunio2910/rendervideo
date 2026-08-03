@@ -2987,9 +2987,29 @@ body {
 .timeline-edge-start { left: -1px; }
 .timeline-edge-end { right: -1px; }
 .camera-clip:hover .timeline-edge-handle,
+.popup-clip:hover .timeline-edge-handle,
 .timeline-edge-handle:active {
   opacity: 1;
   background: #dda13e;
+}
+.popup-motion-settings-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.popup-motion-settings-card .field-row {
+  margin: 0;
+}
+.popup-motion-settings-card .range-field {
+  padding: 0;
+}
+.studio-shell[data-theme="dark"] .popup-motion-settings-card {
+  border-color: #344457;
+  background: #111a24;
 }
 .preflight-card {
   margin-top: 14px;

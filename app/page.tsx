@@ -24,6 +24,8 @@ type Scene = {
   voiceFile: string;
   popupIn: string;
   popupOut: string;
+  zoomStart?: number;
+  popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
@@ -51,7 +53,9 @@ const initialScenes: Scene[] = [
     start: 0,
     end: 5.5,
     zoomInDuration: 1,
+    zoomStart: 0,
     popupDuration: 3,
+    popupStart: 1,
     zoomOutDuration: 1.5,
     zoom: 2.25,
     centerX: 20.6,
@@ -75,7 +79,9 @@ const initialScenes: Scene[] = [
     start: 5.5,
     end: 12,
     zoomInDuration: 1,
+    zoomStart: 0,
     popupDuration: 3,
+    popupStart: 1,
     zoomOutDuration: 1.5,
     zoom: 2.1,
     centerX: 45.2,
@@ -98,7 +104,9 @@ const initialScenes: Scene[] = [
     start: 12,
     end: 15,
     zoomInDuration: 0.5,
+    zoomStart: 0,
     popupDuration: 2.5,
+    popupStart: 0.5,
     zoomOutDuration: 0,
     zoom: 1.8,
     centerX: 72.4,
@@ -404,6 +412,7 @@ export default function Home() {
   const historySnapshot = useRef("");
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
+  const timelinePopupMoved = useRef(false);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
   const totalDuration = Math.max(...scenes.map((item) => item.end));
@@ -420,14 +429,26 @@ export default function Home() {
     : 0;
   const editingMapScale = mapPreviewZoom[scene.id] ?? 1;
   const zoomEnabled = scene.zoomEnabled !== false;
+  const zoomStartTime = Math.min(
+    sceneDuration,
+    Math.max(0, Number(scene.zoomStart ?? 0)),
+  );
+  const zoomInEndTime = Math.min(
+    sceneDuration,
+    zoomStartTime + Math.max(0, scene.zoomInDuration),
+  );
   const playbackMapScale = (() => {
     if (!zoomEnabled) return 1;
     if (!playing) return editingMapScale;
-    if (scene.zoomInDuration > 0 && sceneLocalTime < scene.zoomInDuration) {
-      const progress = sceneLocalTime / scene.zoomInDuration;
+    if (sceneLocalTime < zoomStartTime) return 1;
+    if (scene.zoomInDuration > 0 && sceneLocalTime < zoomInEndTime) {
+      const progress = (sceneLocalTime - zoomStartTime) / scene.zoomInDuration;
       return 1 + (scene.zoom - 1) * progress;
     }
-    const zoomOutStart = sceneDuration - scene.zoomOutDuration;
+    const zoomOutStart = Math.max(
+      zoomInEndTime,
+      sceneDuration - scene.zoomOutDuration,
+    );
     if (scene.zoomOutDuration > 0 && sceneLocalTime > zoomOutStart) {
       const progress = Math.min(
         1,
@@ -437,7 +458,10 @@ export default function Home() {
     }
     return scene.zoom;
   })();
-  const popupStartTime = scene.zoomInDuration;
+  const popupStartTime = Math.min(
+    sceneDuration,
+    Math.max(0, Number(scene.popupStart ?? scene.zoomInDuration)),
+  );
   const popupEndTime = Math.min(sceneDuration, popupStartTime + scene.popupDuration);
   const popupTransitionDuration = Math.min(0.65, scene.popupDuration / 3);
   const popupPlaybackPhase = !playing
@@ -1009,6 +1033,73 @@ export default function Home() {
     );
   };
 
+  const updatePopupStart = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const popupDuration = Math.min(
+          Math.max(0.1, item.popupDuration),
+          duration,
+        );
+        const nextStart = Math.min(
+          Math.max(0, duration - popupDuration),
+          Math.max(0, Number(value) || 0),
+        );
+        return {
+          ...item,
+          popupStart: Number(nextStart.toFixed(2)),
+          popupDuration: Number(popupDuration.toFixed(2)),
+        };
+      }),
+    );
+  };
+
+  const updatePopupDuration = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const popupStart = Math.min(
+          Math.max(0, Number(item.popupStart ?? item.zoomInDuration) || 0),
+          Math.max(0, duration - 0.1),
+        );
+        const nextDuration = Math.min(
+          Math.max(0.1, Number(value) || 0.1),
+          Math.max(0.1, duration - popupStart),
+        );
+        return {
+          ...item,
+          popupStart: Number(popupStart.toFixed(2)),
+          popupDuration: Number(nextDuration.toFixed(2)),
+        };
+      }),
+    );
+  };
+
+  const updateZoomStart = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const maxStart = Math.max(0, duration - Math.max(0, item.zoomInDuration));
+        return {
+          ...item,
+          zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
+        };
+      }),
+    );
+  };
+
   const updateMarkerEffectEnabled = (effect: MarkerEffectKey, enabled: boolean) => {
     const currentSettings = getMarkerEffectSettings(scene);
     updateScene("zoomMarkerEffects", {
@@ -1131,8 +1222,10 @@ export default function Home() {
       end: last.end + 3,
       zoomInDuration: 0.5,
       popupDuration: 2,
+      popupStart: 0.5,
       zoomOutDuration: 0.5,
       zoom: 2,
+      zoomStart: 0,
       centerX: 50,
       centerY: 50,
       voiceFile: "",
@@ -1369,6 +1462,73 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTimelinePopupDrag = (
+    event: React.PointerEvent<HTMLElement>,
+    sceneId: string,
+    mode: "move" | "start" | "end",
+  ) => {
+    if (playing) return;
+    if (mode !== "move") event.preventDefault();
+    event.stopPropagation();
+    const track = event.currentTarget.closest(".track-content");
+    if (!(track instanceof HTMLElement)) return;
+    const bounds = track.getBoundingClientRect();
+    const originalScene = scenes.find((item) => item.id === sceneId);
+    if (!originalScene || bounds.width <= 0) return;
+    const sceneDuration = Math.max(0.1, originalScene.end - originalScene.start);
+    const originalStart = Math.min(
+      Math.max(0, Number(originalScene.popupStart ?? originalScene.zoomInDuration) || 0),
+      sceneDuration,
+    );
+    const originalDuration = Math.min(
+      Math.max(0.1, Number(originalScene.popupDuration) || 0.1),
+      Math.max(0.1, sceneDuration - originalStart),
+    );
+    const originalEnd = originalStart + originalDuration;
+    const startX = event.clientX;
+    timelinePopupMoved.current = false;
+
+    const move = (moveEvent: PointerEvent) => {
+      const delta = ((moveEvent.clientX - startX) / bounds.width) * projectDuration;
+      if (Math.abs(moveEvent.clientX - startX) > 4) timelinePopupMoved.current = true;
+      setScenes((items) =>
+        items.map((item) => {
+          if (item.id !== sceneId) return item;
+          let nextStart = originalStart;
+          let nextEnd = originalEnd;
+          if (mode === "move") {
+            nextStart = Math.min(
+              Math.max(0, originalStart + delta),
+              Math.max(0, sceneDuration - originalDuration),
+            );
+            nextEnd = nextStart + originalDuration;
+          } else if (mode === "start") {
+            nextStart = Math.min(
+              Math.max(0, originalStart + delta),
+              Math.max(0, originalEnd - 0.1),
+            );
+          } else {
+            nextEnd = Math.min(
+              Math.max(originalStart + 0.1, originalEnd + delta),
+              sceneDuration,
+            );
+          }
+          return {
+            ...item,
+            popupStart: Number(nextStart.toFixed(2)),
+            popupDuration: Number(Math.max(0.1, nextEnd - nextStart).toFixed(2)),
+          };
+        }),
+      );
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const exportPayload = useMemo(
     () => ({
       title: projectTitle,
@@ -1387,8 +1547,10 @@ export default function Home() {
           milestone: item.number,
           title: item.title,
           start: item.start,
+          zoomStart: item.zoomStart ?? 0,
           zoomInDuration: item.zoomInDuration,
           popupDuration: item.popupDuration,
+          popupStart: item.popupStart ?? item.zoomInDuration,
           zoomOutDuration: item.zoomOutDuration,
           zoom: item.zoom,
           centerX: item.centerX,
@@ -1659,10 +1821,10 @@ export default function Home() {
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
-        `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
+        `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
         `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
-        `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
+        `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
 
@@ -2377,6 +2539,21 @@ export default function Home() {
                 </label>
               </div>
               <label className="field">
+                <span>Thời gian bắt đầu hiệu ứng zoom</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max={Math.max(0, sceneDuration - scene.zoomInDuration)}
+                    step="0.1"
+                    value={scene.zoomStart ?? 0}
+                    disabled={!zoomEnabled}
+                    onChange={(event) => updateZoomStart(Number(event.target.value))}
+                  />
+                  <b>giây</b>
+                </div>
+              </label>
+              <label className="field">
                 <span>Thời gian thu camera về</span>
                 <div className="number-with-unit">
                   <input
@@ -2392,16 +2569,35 @@ export default function Home() {
                 </div>
               </label>
             </div>
-            <label className="field range-field" id="editor-popup">
-              <span>Thời gian popup</span>
-              <div className="popup-duration-control">
+            <div className="popup-motion-settings-card" id="editor-popup">
+              <div className="motion-settings-title">
+                <strong>Popup</strong>
+                <span>Thời gian và hiệu ứng xuất hiện</span>
+              </div>
+              <label className="field">
+                <span>Thời gian bắt đầu xuất hiện popup</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max={Math.max(0, sceneDuration - 0.1)}
+                    step="0.1"
+                    value={scene.popupStart ?? scene.zoomInDuration}
+                    onChange={(event) => updatePopupStart(Number(event.target.value))}
+                  />
+                  <b>giây</b>
+                </div>
+              </label>
+              <label className="field range-field">
+                <span>Thời gian popup</span>
+                <div className="popup-duration-control">
                 <input
                   type="range"
                   min="1"
                   max={Math.max(6, sceneDuration)}
                   step="0.1"
                   value={scene.popupDuration}
-                  onChange={(event) => updateScene("popupDuration", Number(event.target.value))}
+                  onChange={(event) => updatePopupDuration(Number(event.target.value))}
                 />
                 <div className="number-with-unit popup-duration-number">
                   <input
@@ -2410,13 +2606,13 @@ export default function Home() {
                     max={Math.max(6, sceneDuration)}
                     step="0.1"
                     value={scene.popupDuration}
-                    onChange={(event) => updateScene("popupDuration", Number(event.target.value))}
+                    onChange={(event) => updatePopupDuration(Number(event.target.value))}
                   />
                   <b>giây</b>
                 </div>
-              </div>
-            </label>
-            <div className="field-row">
+                </div>
+              </label>
+              <div className="field-row">
               <label className="field">
                 <span>Hiệu ứng mở</span>
                 <select
@@ -2445,8 +2641,9 @@ export default function Home() {
                   <option value="flip">Lật 3D</option>
                 </select>
               </label>
-            </div>
               </div>
+            </div>
+            </div>
             </details>
             <details
               className="editor-accordion"
@@ -2623,7 +2820,7 @@ export default function Home() {
                       onClick={(event) => event.stopPropagation()}
                     />
                   )}
-                  <span className="timeline-clip-label">Zoom {item.zoom}× · {item.zoomInDuration}s</span>
+                  <span className="timeline-clip-label">Zoom {item.zoom}× · bắt đầu {item.zoomStart ?? 0}s</span>
                   <span
                     className="timeline-edge-handle timeline-edge-end"
                     title="Kéo để đổi điểm kết thúc cảnh"
@@ -2638,19 +2835,53 @@ export default function Home() {
           <div className="track">
             <strong>Popup</strong>
             <div className="track-content grid">
-              {scenes.filter((item) => item.popupVisible !== false).map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => openTimelineEditor(item, "editor-popup")}
-                  className={`clip popup-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
-                  style={{
-                    left: `${(item.start / projectDuration) * 100}%`,
-                    width: `${Math.min((item.popupDuration / projectDuration) * 100, 100 - (item.start / projectDuration) * 100)}%`,
-                  }}
-                >
-                  Popup {item.number} · {item.popupDuration}s
-                </button>
-              ))}
+              {scenes.filter((item) => item.popupVisible !== false).map((item) => {
+                const sceneLength = Math.max(0.1, item.end - item.start);
+                const popupStart = Math.min(
+                  sceneLength,
+                  Math.max(0, Number(item.popupStart ?? item.zoomInDuration) || 0),
+                );
+                const popupDuration = Math.min(
+                  Math.max(0.1, Number(item.popupDuration) || 0.1),
+                  Math.max(0.1, sceneLength - popupStart),
+                );
+                return (
+                  <button
+                    key={item.id}
+                    onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move")}
+                    onClick={(event) => {
+                      if (timelinePopupMoved.current) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        timelinePopupMoved.current = false;
+                        return;
+                      }
+                      openTimelineEditor(item, "editor-popup");
+                    }}
+                    className={`clip popup-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                    style={{
+                      left: `${((item.start + popupStart) / projectDuration) * 100}%`,
+                      width: `${Math.min((popupDuration / projectDuration) * 100, 100 - ((item.start + popupStart) / projectDuration) * 100)}%`,
+                    }}
+                  >
+                    <span
+                      className="timeline-edge-handle timeline-edge-start"
+                      title="Kéo để đổi thời gian bắt đầu popup"
+                      aria-label="Điểm bắt đầu popup"
+                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start")}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                    <span className="timeline-clip-label">Popup {item.number} · {popupDuration}s</span>
+                    <span
+                      className="timeline-edge-handle timeline-edge-end"
+                      title="Kéo để đổi thời lượng popup"
+                      aria-label="Điểm kết thúc popup"
+                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end")}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div className="track">

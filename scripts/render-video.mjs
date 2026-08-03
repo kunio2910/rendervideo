@@ -236,15 +236,23 @@ for (let index = 0; index < scenes.length; index += 1) {
   const voice = await resolveVoice(scene, index);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.round(duration * fps);
+  const zoomStartFrames = Math.min(
+    frames,
+    Math.max(0, Math.round(Number(scene.zoomStart ?? 0) * fps)),
+  );
   const zoomInFrames = Math.max(1, Math.round((scene.zoomInDuration ?? 0) * fps));
   const zoomOutFrames = Math.max(1, Math.round((scene.zoomOutDuration ?? 0) * fps));
-  const zoomOutStart = Math.max(zoomInFrames, frames - zoomOutFrames);
+  const zoomInEnd = Math.min(frames, zoomStartFrames + zoomInFrames);
+  const zoomOutStart = Math.max(zoomInEnd, frames - zoomOutFrames);
   const targetZoom = scene.zoomEnabled === false
     ? 1
     : Math.max(1, Number(scene.zoom ?? 1));
   const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
   const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
-  const popupStart = Math.min(duration, Number(scene.zoomInDuration ?? 0));
+  const popupStart = Math.min(
+    duration,
+    Math.max(0, Number(scene.popupStart ?? scene.zoomInDuration ?? 0)),
+  );
   const popupEnd = Math.min(duration, popupStart + Number(scene.popupDuration ?? duration));
   const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
   const popupCenterX = "(main_w-overlay_w)/2";
@@ -263,8 +271,9 @@ for (let index = 0; index < scenes.length; index += 1) {
     ? `if(lt(t,${popupStart + transition}),${centerYExpression}+90*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+90*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
     : centerYExpression;
   const zoomExpression =
-    `if(lte(on,${zoomInFrames}),1+(${targetZoom}-1)*on/${zoomInFrames},` +
-    `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom}))`;
+    `if(lt(on,${zoomStartFrames}),1,` +
+    `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
+    `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
   let filter =
     `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
     `zoompan=z='${zoomExpression}':` +
