@@ -49,6 +49,8 @@ cảnh, ghép lời thuyết minh, trộn nhạc nền rồi nối thành video 
 
 Renderer FFmpeg đã hỗ trợ vòng tròn tại tâm zoom:
 
+- Đọc `zoomMarkerEnabled` để bật/tắt vòng tròn theo từng cảnh; giá trị mặc định
+  là `true` để tương thích với JSON cũ.
 - Đọc `centerX` và `centerY` để đặt vòng tròn đúng vị trí trên video.
 - Đọc `zoomMarkerSize` để xác định kích thước.
 - Đọc `zoomMarkerDuration` để xác định chu kỳ animation.

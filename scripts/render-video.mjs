@@ -214,7 +214,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
   const markerEffect = scene.zoomMarkerEffect ?? "none";
-  const marker = markerEffect !== "none"
+  const marker = scene.zoomMarkerEnabled !== false && markerEffect !== "none"
     ? await createZoomMarker(scene, index)
     : null;
   const voice = await resolveVoice(scene, index);

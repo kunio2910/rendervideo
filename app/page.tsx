@@ -27,6 +27,7 @@ type Scene = {
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
+  zoomMarkerEnabled?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
   zoomMarkerDuration?: number;
   zoomMarkerSize?: number;
@@ -211,8 +212,9 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
-    "loading" | "saved" | "saving" | "offline" | "error"
+    "loading" | "saved" | "saving" | "unsaved" | "offline" | "error"
   >("loading");
+  const lastSavedProjectSnapshot = useRef("");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
@@ -278,6 +280,7 @@ export default function Home() {
     scene.popupVisible !== false &&
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
+  const zoomMarkerEnabled = scene.zoomMarkerEnabled !== false;
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -460,31 +463,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
 
-    window.localStorage.setItem(
-      LOCAL_STORAGE_KEY,
-      JSON.stringify(storedProject),
-    );
-    setSaveStatus("saving");
+    const currentSnapshot = JSON.stringify(storedProject);
+    if (!lastSavedProjectSnapshot.current) {
+      lastSavedProjectSnapshot.current = currentSnapshot;
+      return;
+    }
 
-    const timeout = window.setTimeout(async () => {
-      try {
-        await saveDataToGoogle(storedProject);
-        setSaveStatus("saved");
-        setLastSavedAt(new Date());
-      } catch {
-        setSaveStatus("offline");
-      }
-    }, 1400);
-
-    return () => window.clearTimeout(timeout);
-  }, [hydrated, storedProject]);
+    if (currentSnapshot !== lastSavedProjectSnapshot.current) {
+      setSaveStatus("unsaved");
+    }
+  }, [hydrated, saveStatus, storedProject]);
 
   const saveProjectNow = async () => {
+    const currentSnapshot = JSON.stringify(storedProject);
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
-      JSON.stringify(storedProject),
+      currentSnapshot,
     );
     setSaveStatus("saving");
     try {
@@ -497,6 +493,7 @@ export default function Home() {
       setSaveStatus("offline");
       setToast("Đã lưu trên thiết bị · Google Sheet tạm thời lỗi");
     }
+    lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
   };
 
@@ -510,8 +507,13 @@ export default function Home() {
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
       if (nextTime >= projectDuration) {
-        setPlayTime(projectDuration);
+        const firstScene = scenes[0];
+        setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
+        if (firstScene) {
+          setSelectedId(firstScene.id);
+          setSelectedSceneIds([firstScene.id]);
+        }
         return;
       }
       setPlayTime(nextTime);
@@ -944,6 +946,7 @@ export default function Home() {
           popupWidth: item.popupWidth ?? 90,
           popupHeight: item.popupHeight ?? 255,
           popupVisible: item.popupVisible !== false,
+          zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
           zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
           zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
           zoomMarkerSize: item.zoomMarkerSize ?? 28,
@@ -1083,7 +1086,7 @@ export default function Home() {
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
-        `- Hiệu ứng tâm zoom: "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
+        `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled ? "bật" : "tắt"}; hiệu ứng "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
@@ -1177,6 +1180,7 @@ export default function Home() {
             <span>
               {saveStatus === "loading" && "Đang tải dữ liệu"}
               {saveStatus === "saving" && "Đang lưu"}
+              {saveStatus === "unsaved" && "ChÆ°a lÆ°u"}
               {saveStatus === "saved" &&
                 (lastSavedAt
                   ? `Đã lưu ${lastSavedAt.toLocaleTimeString("vi-VN", {
@@ -1246,7 +1250,7 @@ export default function Home() {
             </div>
           </div>
           <div className="scene-list">
-            {scenes.map((item, index) => {
+            {scenes.map((item) => {
               const playbackActive =
                 playing && playTime >= item.start && playTime < item.end;
               return (
@@ -1307,16 +1311,6 @@ export default function Home() {
                     {formatTime(item.start)}–{formatTime(item.end)}
                   </small>
                 </span>
-                {playbackActive && index < scenes.length - 1 && (
-                  <span className="scene-running-flow" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                    <em>‹</em>
-                    <em>⌄</em>
-                    <b>›</b>
-                  </span>
-                )}
               </button>
               );
             })}
@@ -1387,7 +1381,7 @@ export default function Home() {
                 <i /> ĐANG PHÁT
               </div>
             )}
-            {(!playing || (scene.zoomMarkerEffect ?? "none") !== "none") && (
+            {(!playing || (zoomMarkerEnabled && (scene.zoomMarkerEffect ?? "none") !== "none")) && (
               <div
                 className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
                 style={{
@@ -2101,20 +2095,34 @@ export default function Home() {
               <button className="prompt-close" aria-label="Đóng" onClick={() => setShowZoomSetup(false)}>×</button>
             </div>
             <div className="zoom-effect-preview">
-              <div
-                className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
-                style={{
-                  ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
-                  ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
-                }}
-              >
-                <span />
-              </div>
+              {zoomMarkerEnabled ? (
+                <div
+                  className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
+                  style={{
+                    ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
+                    ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
+                  }}
+                >
+                  <span />
+                </div>
+              ) : (
+                <span className="zoom-effect-disabled-preview">Vòng tròn đang tắt</span>
+              )}
             </div>
+            <label className="zoom-effect-toggle">
+              <input
+                type="checkbox"
+                checked={zoomMarkerEnabled}
+                onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
+              />
+              <span aria-hidden="true" />
+              <span>Hiển thị vòng tròn hiệu ứng khi xem thử</span>
+            </label>
             <label className="field">
               <span>Hiệu ứng vòng tròn</span>
               <select
                 value={scene.zoomMarkerEffect ?? "none"}
+                disabled={!zoomMarkerEnabled}
                 onChange={(event) => updateScene("zoomMarkerEffect", event.target.value)}
               >
                 <option value="none">Không hiệu ứng</option>
@@ -2132,6 +2140,7 @@ export default function Home() {
                   max="10"
                   step="0.1"
                   value={scene.zoomMarkerDuration ?? 1}
+                  disabled={!zoomMarkerEnabled}
                   onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
                 />
                 <b>giây</b>
@@ -2146,6 +2155,7 @@ export default function Home() {
                   max="120"
                   step="1"
                   value={scene.zoomMarkerSize ?? 28}
+                  disabled={!zoomMarkerEnabled}
                   onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
                 />
                 <div className="number-with-unit">
@@ -2155,6 +2165,7 @@ export default function Home() {
                     max="120"
                     step="1"
                     value={scene.zoomMarkerSize ?? 28}
+                    disabled={!zoomMarkerEnabled}
                     onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
                   />
                   <b>px</b>
