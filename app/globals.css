@@ -4636,3 +4636,51 @@ body {
     z-index: auto;
   }
 }
+
+/* Keep preview visibility controls with the visual editing settings. */
+.editor-visibility-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.editor-visibility-button {
+  min-width: 0;
+  justify-content: center;
+  padding-inline: 8px;
+  border-color: #d8cbac;
+  background: #fffdf8;
+  color: #79694e;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.editor-visibility-button.active {
+  border-color: #c67a2e;
+  background: #f3e1c6;
+  color: #8a5620;
+}
+
+.editor-visibility-button:hover {
+  border-color: #c67a2e;
+  background: #fff4df;
+  color: #8a5620;
+}
+
+.studio-shell[data-theme="dark"] .editor-visibility-button {
+  border-color: #344457;
+  background: #1a2633;
+  color: #c7d4e3;
+}
+
+.studio-shell[data-theme="dark"] .editor-visibility-button.active {
+  border-color: #dda13e;
+  background: #6e4b12;
+  color: #ffc14f;
+}
+
+@media (max-width: 760px) {
+  .editor-visibility-actions {
+    grid-template-columns: 1fr;
+  }
+}

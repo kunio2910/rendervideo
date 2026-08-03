@@ -2326,20 +2326,6 @@ export default function Home() {
                 onChange={(event) => setPreviewBackground(event.target.value)}
               />
             </label>
-            <button
-              className={backgroundVisible ? "active" : ""}
-              title={backgroundVisible ? "Ẩn background" : "Hiện background"}
-              onClick={() => setBackgroundVisible((visible) => !visible)}
-            >
-              {backgroundVisible ? "◉" : "⊘"}
-            </button>
-            <button
-              className={scene.popupVisible !== false ? "active popup-visibility-button" : "popup-visibility-button"}
-              title={scene.popupVisible !== false ? "Ẩn popup" : "Hiện popup"}
-              onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
-            >
-              {scene.popupVisible !== false ? "◉ Popup" : "⊘ Popup"}
-            </button>
           </div>
         </section>
 
@@ -2393,6 +2379,24 @@ export default function Home() {
               />
               <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
             </label>
+            <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
+              <button
+                type="button"
+                className={`button editor-visibility-button ${backgroundVisible ? "active" : ""}`}
+                title={backgroundVisible ? "Ẩn background khỏi xem trước" : "Hiện background trong xem trước"}
+                onClick={() => setBackgroundVisible((visible) => !visible)}
+              >
+                {backgroundVisible ? "◉ Ẩn background" : "⊘ Hiện background"}
+              </button>
+              <button
+                type="button"
+                className={`button editor-visibility-button ${scene.popupVisible !== false ? "active" : ""}`}
+                title={scene.popupVisible !== false ? "Ẩn popup khỏi xem trước" : "Hiện popup trong xem trước"}
+                onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
+              >
+                {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
+              </button>
+            </div>
               </div>
             </details>
             <details
