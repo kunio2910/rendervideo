@@ -1470,6 +1470,19 @@ export default function Home() {
                 <i /> ĐANG PHÁT
               </div>
             )}
+            {!playing && zoomEnabled && (
+              <div
+                className="zoom-camera-target"
+                style={{
+                  left: `${scene.centerX}%`,
+                  top: `${scene.centerY}%`,
+                }}
+                title="Kéo để chọn vị trí zoom camera"
+                onPointerDown={startZoomCenterDrag}
+              >
+                <span />
+              </div>
+            )}
             {activeMarkerEffects.map((effect, markerIndex) => (
               <div
                 key={effect}
@@ -1499,6 +1512,8 @@ export default function Home() {
               <small>
                 {playing
                   ? `Đang phát · ${sceneLocalTime.toFixed(1)}s`
+                  : !zoomEnabled
+                    ? "Zoom camera đang tắt"
                   : mapFocused
                     ? "Đã focus · Lăn chuột để zoom"
                     : "Click bản đồ để bật zoom"}

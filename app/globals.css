@@ -992,6 +992,57 @@ button { color: inherit; }
 .zoom-center-marker:active,
 .dragging-zoom-center .zoom-center-marker { cursor: grabbing; }
 .dragging-zoom-center { cursor: grabbing; }
+.zoom-camera-target {
+  position: absolute;
+  z-index: 6;
+  width: 34px;
+  height: 34px;
+  border: 2px dashed rgba(255,239,200,.98);
+  border-radius: 50%;
+  background: rgba(221,161,62,.2);
+  box-shadow:
+    0 0 0 4px rgba(221,161,62,.16),
+    0 0 16px rgba(221,161,62,.58);
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  touch-action: none;
+}
+.zoom-camera-target::before,
+.zoom-camera-target::after {
+  content: "";
+  position: absolute;
+  background: #fff4d5;
+  box-shadow: 0 0 5px rgba(221,161,62,.8);
+}
+.zoom-camera-target::before {
+  top: 15px;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+}
+.zoom-camera-target::after {
+  top: 4px;
+  bottom: 4px;
+  left: 15px;
+  width: 2px;
+}
+.zoom-camera-target span {
+  position: absolute;
+  inset: 9px;
+  border: 1px solid #fff4d5;
+  border-radius: 50%;
+}
+.zoom-camera-target:hover {
+  width: 40px;
+  height: 40px;
+  box-shadow:
+    0 0 0 6px rgba(221,161,62,.2),
+    0 0 21px rgba(221,161,62,.78);
+}
+.zoom-camera-target:active,
+.dragging-zoom-center .zoom-camera-target {
+  cursor: grabbing;
+}
 .zoom-drag-tip {
   margin-left: auto;
   padding: 6px 9px;
