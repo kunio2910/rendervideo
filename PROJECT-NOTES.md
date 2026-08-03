@@ -28,6 +28,8 @@ Các địa chỉ đang sử dụng:
 - `scripts/local-render-server.mjs`: dịch vụ HTTP cục bộ nhận JSON/media từ
   nút Render cục bộ, gọi renderer, trả tiến độ và file MP4.
 - `scripts/setup-local-renderer.ps1`: tải và cài FFmpeg vào `.local-renderer/`.
+- `THÔNG TIN VỊ TRÍ.md`: danh mục tên gọi, vị trí UI, ID mã nguồn và mẫu mô tả
+  yêu cầu chỉnh sửa để tránh nhầm chức năng.
 - `source/`: tài nguyên ảnh và âm thanh dùng khi render cục bộ.
 - `outputs/`: video đã render và các gói triển khai.
 - `.openai/hosting.json`: định danh dự án production.
