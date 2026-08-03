@@ -165,8 +165,11 @@ const createPopup = async (scene, index) => {
   return filename;
 };
 
-const createZoomMarker = async (scene, index) => {
-  const requestedSize = Math.min(120, Math.max(16, Number(scene.zoomMarkerSize ?? 28)));
+const createZoomMarker = async (scene, index, effect = "marker", layer = 0) => {
+  const requestedSize = Math.min(
+    120,
+    Math.max(16, Number(scene.zoomMarkerSize ?? 28) * (1 + layer * 0.18)),
+  );
   const coreSize = Math.round(requestedSize * 2.75);
   const canvasSize = Math.max(96, Math.round(coreSize * 2.6));
   const center = canvasSize / 2;
@@ -190,9 +193,20 @@ const createZoomMarker = async (scene, index) => {
       <circle cx="${center}" cy="${center}" r="${Math.max(3, radius * 0.22)}" fill="#fff7d8" fill-opacity=".98"/>
     </svg>
   `);
-  const filename = path.join(renderDir, `zoom-marker-${index + 1}.png`);
+  const filename = path.join(renderDir, `zoom-marker-${index + 1}-${effect}.png`);
   await sharp(svg).png().toFile(filename);
   return filename;
+};
+
+const getActiveMarkerEffects = (scene) => {
+  if (scene.zoomMarkerEnabled === false) return [];
+  if (scene.zoomMarkerEffects) {
+    return ["glow", "blink", "soft-fade"].filter(
+      (effect) => scene.zoomMarkerEffects[effect] === true,
+    );
+  }
+  const legacyEffect = scene.zoomMarkerEffect ?? "none";
+  return legacyEffect === "none" ? [] : [legacyEffect];
 };
 
 const background = await resolveImage(project.background, "background");
@@ -213,10 +227,12 @@ for (let index = 0; index < scenes.length; index += 1) {
   const end = scenes[index + 1]?.start ?? project.duration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
-  const markerEffect = scene.zoomMarkerEffect ?? "none";
-  const marker = scene.zoomMarkerEnabled !== false && markerEffect !== "none"
-    ? await createZoomMarker(scene, index)
-    : null;
+  const markerEffects = getActiveMarkerEffects(scene);
+  const markers = await Promise.all(
+    markerEffects.map((effect, markerIndex) =>
+      createZoomMarker(scene, index, effect, markerIndex),
+    ),
+  );
   const voice = await resolveVoice(scene, index);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.round(duration * fps);
@@ -249,7 +265,6 @@ for (let index = 0; index < scenes.length; index += 1) {
   const zoomExpression =
     `if(lte(on,${zoomInFrames}),1+(${targetZoom}-1)*on/${zoomInFrames},` +
     `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom}))`;
-  const popupOutput = marker ? "composed" : "v";
   let filter =
     `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
     `zoompan=z='${zoomExpression}':` +
@@ -258,10 +273,14 @@ for (let index = 0; index < scenes.length; index += 1) {
     `s=1080x1920:fps=${fps}:d=${frames},setsar=1[bg];` +
     `[1:v]format=rgba,fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
     `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
-    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[${popupOutput}]`;
-  if (marker) {
+    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[composed]`;
+  markerEffects.forEach((markerEffect, markerIndex) => {
     const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
-    const markerInput = 2;
+    const markerInput = 2 + markerIndex;
+    const inputVideo = markerIndex === 0 ? "composed" : `composed-marker-${markerIndex - 1}`;
+    const outputVideo = markerIndex === markerEffects.length - 1
+      ? "v"
+      : `composed-marker-${markerIndex}`;
     const markerScale = markerEffect === "glow"
       ? `1+0.13*sin(2*PI*t/${markerDuration})`
       : markerEffect === "soft-fade"
@@ -283,21 +302,21 @@ for (let index = 0; index < scenes.length; index += 1) {
       : "";
     filter +=
       `;[${markerInput}:v]format=rgba,` +
-      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker];` +
-      `[composed][marker]overlay=` +
+      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker-${markerIndex}];` +
+      `[${inputVideo}][marker-${markerIndex}]overlay=` +
       `x='main_w*${centerX}-overlay_w/2':` +
       `y='main_h*${centerY}-overlay_h/2':` +
-      `enable='${markerEnable}'[v]`;
-  }
+      `enable='${markerEnable}'[${outputVideo}]`;
+  });
   const args = [
     "-y",
     "-loop", "1", "-i", backgroundPath,
     "-loop", "1", "-i", popup,
   ];
-  if (marker) {
+  markers.forEach((marker) => {
     args.push("-loop", "1", "-i", marker);
-  }
-  const audioInputIndex = marker ? 3 : 2;
+  });
+  const audioInputIndex = 2 + markers.length;
   if (voice) {
     args.push("-i", voice);
   } else {
@@ -305,7 +324,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   args.push(
     "-filter_complex", filter,
-    "-map", "[v]",
+    "-map", markers.length > 0 ? "[v]" : "[composed]",
   );
   if (voice) {
     args.push("-map", `${audioInputIndex}:a:0`, "-af", `adelay=${Math.round(popupStart * 1000)}:all=1,apad`);

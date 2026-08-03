@@ -30,6 +30,7 @@ type Scene = {
   zoomEnabled?: boolean;
   zoomMarkerEnabled?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
+  zoomMarkerEffects?: Partial<Record<"glow" | "blink" | "soft-fade", boolean>>;
   zoomMarkerDuration?: number;
   zoomMarkerSize?: number;
   status: "Nháp" | "Đã duyệt";
@@ -153,6 +154,7 @@ type EditorSectionState = {
   content: boolean;
   audio: boolean;
   motion: boolean;
+  effects: boolean;
 };
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
@@ -160,7 +162,44 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   content: true,
   audio: true,
   motion: true,
+  effects: true,
 };
+
+const MARKER_EFFECT_OPTIONS = [
+  { key: "glow", label: "Phát sáng", description: "Vòng tròn phát sáng theo nhịp." },
+  { key: "blink", label: "Nhấp nháy", description: "Vòng tròn bật tắt liên tục." },
+  { key: "soft-fade", label: "Làm mờ", description: "Vòng tròn mờ dần rồi hiện lại." },
+] as const;
+
+type MarkerEffectKey = (typeof MARKER_EFFECT_OPTIONS)[number]["key"];
+
+const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
+  const configured = scene.zoomMarkerEffects;
+  return MARKER_EFFECT_OPTIONS.reduce(
+    (settings, option) => ({
+      ...settings,
+      [option.key]: configured
+        ? configured[option.key] === true
+        : scene.zoomMarkerEffect === option.key,
+    }),
+    {} as Record<MarkerEffectKey, boolean>,
+  );
+};
+
+const getActiveMarkerEffects = (scene: Scene) => {
+  if (scene.zoomMarkerEnabled === false) return [] as MarkerEffectKey[];
+  const settings = getMarkerEffectSettings(scene);
+  return MARKER_EFFECT_OPTIONS
+    .filter((option) => settings[option.key])
+    .map((option) => option.key);
+};
+
+const normalizeEditorSections = (
+  sections?: Partial<EditorSectionState>,
+): EditorSectionState => ({
+  ...DEFAULT_EDITOR_SECTIONS,
+  ...sections,
+});
 
 const ensureUniqueSceneIds = (items: Scene[]) => {
   const used = new Set<string>();
@@ -284,6 +323,8 @@ export default function Home() {
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
   const zoomMarkerEnabled = scene.zoomMarkerEnabled !== false;
+  const markerEffectSettings = getMarkerEffectSettings(scene);
+  const activeMarkerEffects = getActiveMarkerEffects(scene);
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -333,7 +374,7 @@ export default function Home() {
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
     const restoredScenes = ensureUniqueSceneIds(project.scenes);
-    setEditorSections(project.editorSections ?? DEFAULT_EDITOR_SECTIONS);
+    setEditorSections(normalizeEditorSections(project.editorSections));
     setTimelineVisible(project.timelineVisible ?? true);
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
@@ -349,7 +390,7 @@ export default function Home() {
     if (data.version === 2 && Array.isArray(data.projects) && data.projects.length > 0) {
       const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
         ...project,
-        editorSections: project.editorSections ?? DEFAULT_EDITOR_SECTIONS,
+        editorSections: normalizeEditorSections(project.editorSections),
         timelineVisible: project.timelineVisible ?? true,
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
@@ -371,7 +412,7 @@ export default function Home() {
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
         backgroundMusic: data.backgroundMusic ?? "",
-        editorSections: data.editorSections ?? DEFAULT_EDITOR_SECTIONS,
+        editorSections: normalizeEditorSections(data.editorSections),
         timelineVisible: data.timelineVisible ?? true,
         scenes: ensureUniqueSceneIds(data.scenes),
       };
@@ -679,6 +720,35 @@ export default function Home() {
     );
   };
 
+  const updateMarkerEffectEnabled = (effect: MarkerEffectKey, enabled: boolean) => {
+    const currentSettings = getMarkerEffectSettings(scene);
+    updateScene("zoomMarkerEffects", {
+      ...currentSettings,
+      [effect]: enabled,
+    });
+  };
+
+  const setMarkerEffectSelection = (effect: "none" | MarkerEffectKey) => {
+    const settings = MARKER_EFFECT_OPTIONS.reduce(
+      (next, option) => ({ ...next, [option.key]: option.key === effect }),
+      {} as Record<MarkerEffectKey, boolean>,
+    );
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) =>
+        targetIds.has(item.id)
+          ? {
+              ...item,
+              zoomMarkerEffects: settings,
+              zoomMarkerEffect: effect,
+            }
+          : item,
+      ),
+    );
+  };
+
   const updateSelectedSceneDuration = (duration: number) => {
     const nextDuration = Math.max(0.1, Number(duration) || 0.1);
     const targetIds = new Set(
@@ -952,6 +1022,7 @@ export default function Home() {
           zoomEnabled: item.zoomEnabled !== false,
           zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
           zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
+          zoomMarkerEffects: getMarkerEffectSettings(item),
           zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
           zoomMarkerSize: item.zoomMarkerSize ?? 28,
         };
@@ -1082,6 +1153,10 @@ export default function Home() {
     const scenePrompts = exportPayload.scenes.map((item, index) => {
       const nextStart = exportPayload.scenes[index + 1]?.start ?? projectDuration;
       const sceneDuration = Math.max(0, nextStart - item.start);
+      const markerEffects = MARKER_EFFECT_OPTIONS
+        .filter((option) => item.zoomMarkerEffects[option.key])
+        .map((option) => option.label)
+        .join(", ");
       return [
         `CẢNH ${item.milestone}: ${item.title}`,
         `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
@@ -1090,7 +1165,7 @@ export default function Home() {
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
-        `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled ? "bật" : "tắt"}; hiệu ứng "${item.zoomMarkerEffect}", chu kỳ ${item.zoomMarkerDuration}s.`,
+        `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
@@ -1184,7 +1259,7 @@ export default function Home() {
             <span>
               {saveStatus === "loading" && "Đang tải dữ liệu"}
               {saveStatus === "saving" && "Đang lưu"}
-              {saveStatus === "unsaved" && "ChÆ°a lÆ°u"}
+              {saveStatus === "unsaved" && "Chưa lưu"}
               {saveStatus === "saved" &&
                 (lastSavedAt
                   ? `Đã lưu ${lastSavedAt.toLocaleTimeString("vi-VN", {
@@ -1395,14 +1470,15 @@ export default function Home() {
                 <i /> ĐANG PHÁT
               </div>
             )}
-            {(!playing || (zoomMarkerEnabled && (scene.zoomMarkerEffect ?? "none") !== "none")) && (
+            {activeMarkerEffects.map((effect, markerIndex) => (
               <div
-                className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
+                key={effect}
+                className={`zoom-center-marker marker-effect-${effect}`}
                 style={{
                   left: `${scene.centerX}%`,
                   top: `${scene.centerY}%`,
                   ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
-                  ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
+                  ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
                 }}
                 title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}% · Click để chỉnh hiệu ứng`}
                 onPointerDown={startZoomCenterDrag}
@@ -1414,7 +1490,7 @@ export default function Home() {
               >
                 <span />
               </div>
-            )}
+            ))}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
             </div>
@@ -1773,28 +1849,6 @@ export default function Home() {
                 </div>
               </label>
             </div>
-            <label className="zoom-effect-toggle motion-toggle">
-              <input
-                type="checkbox"
-                checked={zoomMarkerEnabled}
-                onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
-              />
-              <span aria-hidden="true" />
-              <span>Hiển thị vòng tròn cột mốc</span>
-            </label>
-            <label className="field" id="editor-effects">
-              <span>Hiệu ứng</span>
-              <select
-                value={scene.zoomMarkerEffect ?? "none"}
-                disabled={!zoomMarkerEnabled}
-                onChange={(event) => updateScene("zoomMarkerEffect", event.target.value)}
-              >
-                <option value="none">Không hiệu ứng</option>
-                <option value="glow">Phát sáng</option>
-                <option value="blink">Nhấp nháy</option>
-                <option value="soft-fade">Làm mờ</option>
-              </select>
-            </label>
             <label className="field range-field" id="editor-popup">
               <span>Thời gian popup</span>
               <div className="popup-duration-control">
@@ -1849,6 +1903,82 @@ export default function Home() {
                 </select>
               </label>
             </div>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
+              open={editorSections.effects}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  effects: open,
+                }));
+              }}
+            >
+              <summary className="editor-group-label"><span>05</span> Hiệu ứng <i /></summary>
+              <div className="editor-accordion-content effects-editor-content">
+                <label className="zoom-effect-toggle" id="editor-effects">
+                  <input
+                    type="checkbox"
+                    checked={zoomMarkerEnabled}
+                    onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
+                  />
+                  <span aria-hidden="true" />
+                  <span>Hiển thị hiệu ứng vòng tròn cột mốc</span>
+                </label>
+                <div className="effect-options">
+                  {MARKER_EFFECT_OPTIONS.map((option) => (
+                    <label className="effect-option" key={option.key}>
+                      <span className={`effect-option-preview effect-option-preview-${option.key}`} aria-hidden="true">
+                        <i />
+                      </span>
+                      <span className="effect-option-copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={zoomMarkerEnabled && markerEffectSettings[option.key]}
+                        disabled={!zoomMarkerEnabled}
+                        onChange={(event) => updateMarkerEffectEnabled(option.key, event.target.checked)}
+                      />
+                      <span className="effect-option-switch" aria-hidden="true" />
+                    </label>
+                  ))}
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Thời gian chu kỳ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0.2"
+                        max="10"
+                        step="0.1"
+                        value={scene.zoomMarkerDuration ?? 1}
+                        disabled={!zoomMarkerEnabled}
+                        onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Kích thước vòng tròn</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="16"
+                        max="120"
+                        step="1"
+                        value={scene.zoomMarkerSize ?? 28}
+                        disabled={!zoomMarkerEnabled}
+                        onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                </div>
               </div>
             </details>
           </div>
@@ -2143,16 +2273,19 @@ export default function Home() {
               <button className="prompt-close" aria-label="Đóng" onClick={() => setShowZoomSetup(false)}>×</button>
             </div>
             <div className="zoom-effect-preview">
-              {zoomMarkerEnabled ? (
-                <div
-                  className={`zoom-center-marker marker-effect-${scene.zoomMarkerEffect ?? "none"}`}
-                  style={{
-                    ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
-                    ["--marker-size" as string]: `${scene.zoomMarkerSize ?? 28}px`,
-                  }}
-                >
-                  <span />
-                </div>
+              {activeMarkerEffects.length > 0 ? (
+                activeMarkerEffects.map((effect, markerIndex) => (
+                  <div
+                    key={effect}
+                    className={`zoom-center-marker marker-effect-${effect}`}
+                    style={{
+                      ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
+                      ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
+                    }}
+                  >
+                    <span />
+                  </div>
+                ))
               ) : (
                 <span className="zoom-effect-disabled-preview">Vòng tròn đang tắt</span>
               )}
@@ -2169,9 +2302,9 @@ export default function Home() {
             <label className="field">
               <span>Hiệu ứng vòng tròn</span>
               <select
-                value={scene.zoomMarkerEffect ?? "none"}
+                value={activeMarkerEffects[0] ?? "none"}
                 disabled={!zoomMarkerEnabled}
-                onChange={(event) => updateScene("zoomMarkerEffect", event.target.value)}
+                onChange={(event) => setMarkerEffectSelection(event.target.value as "none" | MarkerEffectKey)}
               >
                 <option value="none">Không hiệu ứng</option>
                 <option value="glow">Phát sáng</option>
