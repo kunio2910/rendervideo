@@ -34,6 +34,7 @@ type Scene = {
   zoomEnabled: boolean;
   popupDuration: number;
   voiceFile: string;
+  voiceVolume: number;
   popupIn: string;
   popupOut: string;
   popupStart?: number;
@@ -68,6 +69,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
+  voiceVolume: 95,
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
   popupVisible: true,
@@ -232,6 +234,7 @@ type StoredProject = {
   previewBackground?: string;
   backgroundVisible?: boolean;
   backgroundMusic?: string;
+  backgroundMusicVolume?: number;
   renderFps?: 24 | 30 | 60;
   editorSections?: EditorSectionState;
   scenes: Scene[];
@@ -264,6 +267,11 @@ const clampPercent = (value: unknown, fallback = 50) => {
 const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(minimum, numeric) : fallback;
+};
+
+const clampVolume = (value: unknown, fallback = 100) => {
+  const numeric = Number(value);
+  return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
 };
 
 const normalizeEditorSections = (
@@ -311,6 +319,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
+      voiceVolume: clampVolume(item.voiceVolume, 95),
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
     };
@@ -388,6 +397,7 @@ function Home() {
   const [previewBackground, setPreviewBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [backgroundMusic, setBackgroundMusic] = useState("");
+  const [backgroundMusicVolume, setBackgroundMusicVolume] = useState(18);
   const [backgroundMusicPreview, setBackgroundMusicPreview] = useState("");
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
@@ -538,6 +548,7 @@ function Home() {
       previewBackground,
       backgroundVisible,
       backgroundMusic,
+      backgroundMusicVolume,
       editorSections,
       scenes,
     }),
@@ -552,6 +563,7 @@ function Home() {
       previewBackground,
       backgroundVisible,
       backgroundMusic,
+      backgroundMusicVolume,
       editorSections,
       scenes,
     ],
@@ -574,6 +586,7 @@ function Home() {
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
+    setBackgroundMusicVolume(clampVolume(project.backgroundMusicVolume, 18));
     setBackgroundMusicPreview((current) => {
       if (current) URL.revokeObjectURL(current);
       return "";
@@ -884,7 +897,7 @@ function Home() {
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
-    audio.volume = 0.95;
+    audio.volume = clampVolume(scene.voiceVolume, 95) / 100;
     const elapsed = Math.max(0, playTime - scene.start);
     const startAudio = () => {
       audio.currentTime = elapsed;
@@ -898,7 +911,7 @@ function Home() {
       audio.pause();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.voiceVolume]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
@@ -909,7 +922,7 @@ function Home() {
     const audio = new Audio(source);
     backgroundMusicAudio.current = audio;
     audio.loop = true;
-    audio.volume = 0.18;
+    audio.volume = clampVolume(backgroundMusicVolume, 18) / 100;
     audio.currentTime = Math.max(0, playTime);
     void audio.play().catch(() => {
       // A local path that has not been uploaded is previewed silently.
@@ -918,7 +931,7 @@ function Home() {
       audio.pause();
       if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, backgroundMusic, musicPreviewSource]);
+  }, [playing, backgroundMusic, musicPreviewSource, backgroundMusicVolume]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -1269,6 +1282,7 @@ function Home() {
       previewBackground: "",
       backgroundVisible: true,
       backgroundMusic: "",
+      backgroundMusicVolume: 18,
       editorSections: DEFAULT_EDITOR_SECTIONS,
       scenes: [blankScene],
     };
@@ -1312,6 +1326,7 @@ function Home() {
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
+      voiceVolume: 95,
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
       status: "Nháp",
@@ -1555,7 +1570,10 @@ function Home() {
           ? { background: assetReference(renderBackground) }
           : {}),
         ...(backgroundMusic.trim()
-          ? { backgroundMusic: backgroundMusic.trim() }
+          ? {
+              backgroundMusic: backgroundMusic.trim(),
+              backgroundMusicVolume: Math.round(clampVolume(backgroundMusicVolume, 18)),
+            }
           : {}),
         scenes: scenes.map((item) => {
           const image = imageEnabled ? assetReference(item.image) : "";
@@ -1583,6 +1601,7 @@ function Home() {
             ...(image ? { image } : {}),
             narration: narrationEnabled ? item.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
+            voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
             popupIn: item.popupIn,
             popupOut: item.popupOut,
             popupWidth: item.popupWidth ?? 90,
@@ -1604,6 +1623,7 @@ function Home() {
       background,
       previewBackground,
       backgroundMusic,
+      backgroundMusicVolume,
     ],
   );
 
@@ -1851,6 +1871,9 @@ function Home() {
     const musicFile = "backgroundMusic" in exportPayload
       ? fileNameOnly(exportPayload.backgroundMusic)
       : "Không có";
+    const musicVolume = "backgroundMusicVolume" in exportPayload
+      ? exportPayload.backgroundMusicVolume
+      : 18;
     const scenePrompts = exportPayload.scenes.map((item, index) => {
       const nextStart = exportPayload.scenes[index + 1]?.start ?? projectDuration;
       const sceneDuration = Math.max(0, nextStart - item.start);
@@ -1859,7 +1882,7 @@ function Home() {
         `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
         `- Hình ảnh: ${item.image ?? "Không có"}${item.image ? ` (tên file: ${fileNameOnly(item.image)})` : ""}.`,
         `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
-        `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
+        `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}, âm lượng ${item.voiceVolume}%.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, đạt ${item.zoom}x trong ${item.zoomInDuration}s, kết thúc ở ${item.zoomEnd}s, zoom về trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
@@ -1873,7 +1896,7 @@ function Home() {
       `Tạo video dọc 9:16, độ phân giải ${exportPayload.resolution}, tổng thời lượng ${exportPayload.duration} giây.`,
       `Chủ đề: ${exportPayload.title}.`,
       `Background chủ đề: ${projectBackground}${projectBackground !== "Không có" ? ` (tên file: ${fileNameOnly(projectBackground)})` : ""}.`,
-      `Nhạc nền: ${musicFile}.`,
+      `Nhạc nền: ${musicFile}, âm lượng ${musicVolume}%.`,
       "Phong cách chuyển động điện ảnh, bố cục dễ đọc và giữ hình ảnh nhất quán giữa các cảnh.",
       "Không tự tạo thêm chữ trong hình nền. Đồng bộ popup và lời thuyết minh theo timeline dưới đây.",
       "",
@@ -2524,6 +2547,21 @@ function Home() {
                   />
                 </label>
               </div>
+              <div className="field audio-volume-field">
+                <span>Âm lượng nhạc nền (%)</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    aria-label="Âm lượng nhạc nền (%)"
+                    value={backgroundMusicVolume}
+                    onChange={(event) => setBackgroundMusicVolume(clampVolume(event.target.value, 18))}
+                  />
+                  <b>%</b>
+                </div>
+              </div>
               <small>Để trống nếu clip không có nhạc nền.</small>
             </label>
             <label className="field audio-field" id="editor-audio">
@@ -2552,6 +2590,21 @@ function Home() {
                     }}
                   />
                 </label>
+              </div>
+              <div className="field audio-volume-field">
+                <span>Âm lượng thuyết minh (%)</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    aria-label="Âm lượng thuyết minh (%)"
+                    value={scene.voiceVolume}
+                    onChange={(event) => updateScene("voiceVolume", clampVolume(event.target.value, 95))}
+                  />
+                  <b>%</b>
+                </div>
               </div>
               {audioPreview[scene.id] && (
                 <audio className="audio-preview" controls src={audioPreview[scene.id]} />

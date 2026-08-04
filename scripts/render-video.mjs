@@ -35,6 +35,10 @@ const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
 const previewScale = outputWidth / PREVIEW_REFERENCE_WIDTH;
 const previewPx = (value) => value * previewScale;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const audioVolume = (value, fallback) => {
+  const numeric = Number(value);
+  return clamp(Number.isFinite(numeric) ? numeric : fallback, 0, 100) / 100;
+};
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
@@ -321,6 +325,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
   const voice = await resolveVoice(scene, index);
+  const voiceVolume = audioVolume(scene.voiceVolume, 95);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));
   const zoomStartFrames = Math.min(
@@ -447,7 +452,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-map", "[composed]",
   );
   const audioFilter = voice
-    ? "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=0.95,apad"
+    ? `aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
     : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
   args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
   args.push(
@@ -491,12 +496,13 @@ await run(ffmpeg, [
 ]);
 
 if (music) {
+  const musicVolume = audioVolume(project.backgroundMusicVolume, 18);
   await run(ffmpeg, [
     "-y",
     "-i", narrationVideo,
     "-stream_loop", "-1",
     "-i", music,
-    "-filter_complex", "[0:a]volume=1[a0];[1:a]volume=0.18[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]",
+    "-filter_complex", `[0:a]volume=1[a0];[1:a]volume=${musicVolume.toFixed(3)}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]`,
     "-map", "0:v:0",
     "-map", "[a]",
     "-c:v", "copy",

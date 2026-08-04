@@ -621,6 +621,16 @@ button { color: inherit; }
 .playhead span { position: absolute; top: -24px; left: -12px; padding: 2px 4px; border-radius: 3px; background: var(--blue); color: white; font: 500 7px var(--font-mono); }
 
 .audio-field { margin-top: 3px; }
+.audio-volume-field {
+  width: min(100%, 190px);
+  margin-top: 10px;
+}
+.audio-volume-field > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--studio-muted);
+  font-size: 10px;
+}
 .audio-input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .file-picker {
   min-width: 78px;
@@ -3429,7 +3439,7 @@ body {
 .studio-shell[data-studio-tab="compose"] .preview-panel .panel-heading,
 .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview,
 .studio-shell[data-studio-tab="compose"] .preview-panel .preview-footer {
-  width: min(100%, 300px);
+  width: min(100%, 420px);
 }
 
 .studio-shell[data-studio-tab="compose"] .phone-preview {
@@ -4311,6 +4321,9 @@ body {
 }
 
 .studio-shell[data-studio-tab="compose"] .preview-heading-actions {
+  order: -1;
+  width: 100%;
+  display: flex;
   justify-content: center;
 }
 

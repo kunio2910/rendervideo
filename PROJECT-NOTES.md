@@ -153,6 +153,8 @@ dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị
 ### Xem trước bản đồ
 
 - Preview theo tỷ lệ dọc 9:16.
+- Nút `Xem thử` và thời gian cảnh nằm phía trên tiêu đề preview, được căn giữa.
+- Bản đồ preview có kích thước lớn hơn trên desktop nhưng vẫn giữ đúng tỷ lệ 9:16.
 - Ô `Background` nằm ngay dưới bản đồ nhận URL ảnh dùng cho preview.
 - Nút con mắt cạnh ô Background cho phép ẩn/hiện ảnh bản đồ.
 - `Background chủ đề` trong Biên soạn chỉ là tên/metadata; nó không thay đổi
@@ -174,6 +176,8 @@ Các thông tin chính:
 - URL ảnh popup.
 - Giọng đọc và file âm thanh thuyết minh.
 - Nhạc nền cấp dự án.
+- Âm lượng nhạc nền theo phần trăm (`backgroundMusicVolume`).
+- Âm lượng thuyết minh theo từng cảnh (`voiceVolume`).
 - Thời gian popup.
 - Thời gian bắt đầu xuất hiện popup (`popupStart`).
 - Hiệu ứng mở/đóng popup.
@@ -265,7 +269,7 @@ Mỗi dự án có:
 - `background`: tên/metadata background chủ đề.
 - `previewBackground`: URL ảnh hiển thị trong bản đồ.
 - `backgroundVisible`.
-- `backgroundMusic`.
+- `backgroundMusic`, `backgroundMusicVolume` (phần trăm âm lượng nhạc nền).
 - `editorSections`, `timelineVisible`.
 - `scenes`.
 
@@ -277,7 +281,7 @@ Mỗi cảnh có các nhóm dữ liệu:
   `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
 - Popup: `popupStart`, `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
-- Media: `image`, `voiceFile`, `voice`.
+- Media: `image`, `voiceFile`, `voice`, `voiceVolume` (phần trăm âm lượng thuyết minh).
 
 ## 7. JSON xuất ra
 
@@ -292,6 +296,7 @@ Ví dụ rút gọn:
   "backgroundUrl": "https://example.com/map.png",
   "backgroundVisible": true,
   "backgroundMusic": "nhac-nen.mp3",
+  "backgroundMusicVolume": 18,
   "scenes": [
     {
       "milestone": 1,
@@ -312,6 +317,7 @@ Ví dụ rút gọn:
       "image": "samuel.jpg",
       "narration": "Lời thuyết minh",
       "voiceFile": "milestone-1.mp3",
+      "voiceVolume": 95,
       "popupIn": "fade-slide-up",
       "popupOut": "fade-slide-down",
       "popupWidth": 90,
