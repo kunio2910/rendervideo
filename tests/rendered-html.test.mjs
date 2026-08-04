@@ -64,7 +64,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startMapPointDrag\(event, "camera"\)/);
   assert.match(page, /startMapPointDrag\(event, "marker"\)/);
   assert.match(css, /phone-preview\.is-playing > \.zoom-camera-target/);
-  assert.match(css, /phone-preview > \.zoom-center-marker[\s\S]*pointer-events: auto/);
+  assert.match(css, /phone-preview > \.zoom-center-marker[\s\S]*z-index: 8[\s\S]*pointer-events: auto/);
   assert.doesNotMatch(css, /--marker-offset-x/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
