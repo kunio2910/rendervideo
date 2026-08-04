@@ -57,6 +57,17 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
   assert.match(page, /zoomStart/);
+  assert.match(page, /renderDuration = Math\.max\(projectDuration, totalDuration\)/);
+  assert.match(page, /DEFAULT_MARKER_EFFECT_SETTINGS/);
+  assert.match(page, /zoomMarkerEnabled: true/);
+  assert.match(page, /getMarkerEffectSettings\(item\)/);
+  assert.match(page, /zoomMarkerCenterX/);
+  assert.match(page, /startMapPointDrag\(event, "camera"\)/);
+  assert.match(page, /startMapPointDrag\(event, "marker"\)/);
+  assert.match(css, /phone-preview\.is-playing > \.zoom-camera-target/);
+  assert.match(css, /phone-preview > \.zoom-center-marker[\s\S]*z-index: 8[\s\S]*pointer-events: auto/);
+  assert.doesNotMatch(css, /phone-preview:not\(\.map-focused\)[^{]*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(css, /--marker-offset-x/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
@@ -65,4 +76,31 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
+});
+
+test("keeps preview and FFmpeg render settings aligned", async () => {
+  const [page, css, renderer, localServer] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/render-video.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/local-render-server.mjs", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /assetPreviewUrls/);
+  assert.match(page, /imageVisible: imageEnabled/);
+  assert.match(page, /fps: renderFps/);
+  assert.match(page, /transitionDuration: playing \? "0ms"/);
+  assert.match(css, /transform-origin: center bottom/);
+  assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
+  assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
+  assert.match(renderer, /scene\.zoomMarkerCenterX/);
+  assert.match(renderer, /main_w\*\$\{markerCenterX\}/);
+  assert.match(renderer, /timelineDuration = Math\.max/);
+  assert.match(renderer, /aresample=async=1:first_pts=0/);
+  assert.match(renderer, /aformat=sample_rates=48000:channel_layouts=stereo,volume=0\.95,apad/);
+  assert.match(renderer, /"-c:v", "copy"/);
+  assert.match(renderer, /"-c:a", "aac"/);
+  assert.doesNotMatch(renderer, /adelay=/);
+  assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
+  assert.match(localServer, /--use-system-ca/);
 });

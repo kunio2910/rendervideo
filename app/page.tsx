@@ -22,6 +22,8 @@ type Scene = {
   zoom: number;
   centerX: number;
   centerY: number;
+  zoomMarkerCenterX?: number;
+  zoomMarkerCenterY?: number;
   voiceFile: string;
   popupIn: string;
   popupOut: string;
@@ -40,85 +42,41 @@ type Scene = {
   status: "Nháp" | "Đã duyệt";
 };
 
-const initialScenes: Scene[] = [
-  {
-    id: "scene-01",
-    number: 1,
-    title: "Samuel xức dầu",
-    location: "Bêlem",
-    reference: "1 Sm 16,1–13",
-    popup: "Thiên Chúa sai ngôn sứ Samuel đến nhà ông Giêsê để xức dầu cho Đavít.",
-    narration:
-      "Tại Bêlem, Đavít được ngôn sứ Samuel xức dầu, trở thành người Thiên Chúa tuyển chọn.",
-    voice: "Nam trầm",
-    image: "media/samuel-anoints-david.jpg",
-    start: 0,
-    end: 5.5,
-    zoomInDuration: 1,
-    zoomStart: 0,
-    popupDuration: 3,
-    popupStart: 1,
-    zoomOutDuration: 1.5,
-    zoom: 2.25,
-    centerX: 20.6,
-    centerY: 10.7,
-    voiceFile: "audio/milestone-1.mp3",
-    popupIn: "fade-slide-up",
-    popupOut: "fade-slide-down",
-    status: "Đã duyệt",
-  },
-  {
-    id: "scene-02",
-    number: 2,
-    title: "Đánh bại Gôliát",
-    location: "Thung lũng Êla",
-    reference: "1 Sm 17,45–50",
-    popup: "Đavít đối diện Gôliát chỉ với chiếc ná và lòng tin mạnh mẽ.",
-    narration:
-      "Không dựa vào gươm giáo, Đavít chiến thắng Gôliát bằng lòng can đảm và niềm tin.",
-    voice: "Nam trầm",
-    image: "media/david-goliath.jpg",
-    start: 5.5,
-    end: 12,
-    zoomInDuration: 1,
-    zoomStart: 0,
-    popupDuration: 3,
-    popupStart: 1,
-    zoomOutDuration: 1.5,
-    zoom: 2.1,
-    centerX: 45.2,
-    centerY: 38.5,
-    voiceFile: "audio/milestone-2.mp3",
-    popupIn: "fade-slide-up",
-    popupOut: "fade-slide-down",
-    status: "Nháp",
-  },
-  {
-    id: "scene-03",
-    number: 3,
-    title: "Màn hình kết",
-    location: "Giêrusalem",
-    reference: "2 Sm 5,4–5",
-    popup: "Từ người chăn chiên, Đavít trở thành vị vua được dân Ítraen yêu mến.",
-    narration: "Hành trình của Đavít là câu chuyện về niềm tin, can đảm và ơn gọi.",
-    voice: "Nữ ấm",
-    image: "media/david-king.jpg",
-    start: 12,
-    end: 15,
-    zoomInDuration: 0.5,
-    zoomStart: 0,
-    popupDuration: 2.5,
-    popupStart: 0.5,
-    zoomOutDuration: 0,
-    zoom: 1.8,
-    centerX: 72.4,
-    centerY: 61.3,
-    voiceFile: "audio/milestone-3.mp3",
-    popupIn: "fade-slide-up",
-    popupOut: "fade-slide-down",
-    status: "Nháp",
-  },
-];
+const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
+  id,
+  number,
+  title: "",
+  location: "",
+  reference: "",
+  popup: "",
+  narration: "",
+  voice: "",
+  image: "",
+  background: "",
+  start,
+  end: start + 5,
+  zoomInDuration: 1,
+  zoomStart: 0,
+  popupDuration: 3,
+  popupStart: 1,
+  zoomOutDuration: 1,
+  zoom: 2,
+  centerX: 50,
+  centerY: 50,
+  zoomMarkerCenterX: 61,
+  zoomMarkerCenterY: 56,
+  voiceFile: "",
+  popupIn: "fade-slide-up",
+  popupOut: "fade-slide-down",
+  popupVisible: true,
+  backgroundVisible: true,
+  zoomEnabled: true,
+  zoomMarkerEnabled: true,
+  zoomMarkerEffects: { glow: true, blink: false, "soft-fade": false },
+  status: "Nháp",
+});
+
+const initialScenes: Scene[] = [createEmptyScene()];
 
 const formatTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 10) / 10);
@@ -306,8 +264,45 @@ const MARKER_EFFECT_OPTIONS = [
 
 type MarkerEffectKey = (typeof MARKER_EFFECT_OPTIONS)[number]["key"];
 
+const DEFAULT_MARKER_EFFECT_SETTINGS: Record<MarkerEffectKey, boolean> = {
+  glow: true,
+  blink: false,
+  "soft-fade": false,
+};
+
+const clampPercent = (value: unknown, fallback = 50) => {
+  const numeric = value === null || value === undefined ? Number.NaN : Number(value);
+  return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const getZoomMarkerPosition = (scene: Scene) => {
+  const cameraX = clampPercent(scene.centerX);
+  const cameraY = clampPercent(scene.centerY);
+  const fallbackX = clampPercent(cameraX + (cameraX > 65 ? -11 : 11));
+  const fallbackY = clampPercent(cameraY + (cameraY > 70 ? -6 : 6));
+  return {
+    x: clampPercent(scene.zoomMarkerCenterX, fallbackX),
+    y: clampPercent(scene.zoomMarkerCenterY, fallbackY),
+  };
+};
+
 const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
   const configured = scene.zoomMarkerEffects;
+  if (!configured) {
+    if (scene.zoomMarkerEffect === "none") {
+      return { glow: false, blink: false, "soft-fade": false };
+    }
+    if (scene.zoomMarkerEffect) {
+      return MARKER_EFFECT_OPTIONS.reduce(
+        (settings, option) => ({
+          ...settings,
+          [option.key]: option.key === scene.zoomMarkerEffect,
+        }),
+        {} as Record<MarkerEffectKey, boolean>,
+      );
+    }
+    return { ...DEFAULT_MARKER_EFFECT_SETTINGS };
+  }
   return MARKER_EFFECT_OPTIONS.reduce(
     (settings, option) => ({
       ...settings,
@@ -334,9 +329,9 @@ const normalizeEditorSections = (
   ...sections,
 });
 
-const ensureUniqueSceneIds = (items: Scene[]) => {
+const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
-  return items.map((item, index) => {
+  return (Array.isArray(items) ? items : []).map((item, index) => {
     let id = item.id || `scene-${index + 1}`;
     let suffix = 2;
     while (used.has(id)) {
@@ -344,7 +339,22 @@ const ensureUniqueSceneIds = (items: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
-    return { ...item, id };
+    const markerPosition = getZoomMarkerPosition(item);
+    return {
+      ...item,
+      id,
+      title: String(item.title ?? `Cảnh ${index + 1}`),
+      narration: String(item.narration ?? ""),
+      popup: String(item.popup ?? ""),
+      centerX: clampPercent(item.centerX),
+      centerY: clampPercent(item.centerY),
+      zoomMarkerCenterX: markerPosition.x,
+      zoomMarkerCenterY: markerPosition.y,
+      popupVisible: item.popupVisible ?? true,
+      backgroundVisible: item.backgroundVisible ?? true,
+      zoomEnabled: item.zoomEnabled ?? true,
+      zoomMarkerEnabled: item.zoomMarkerEnabled ?? true,
+    };
   });
 };
 
@@ -359,14 +369,21 @@ type StoredWorkspace = {
   projects: ProjectSnapshot[];
 };
 
+const isBundledSampleWorkspace = (data: unknown) => {
+  const serialized = JSON.stringify(data) ?? "";
+  return serialized.includes('"id":"david-journey"')
+    || serialized.includes('"image":"media/samuel-anoints-david.jpg"')
+    || serialized.includes('"voiceFile":"audio/milestone-1.mp3"');
+};
+
 export default function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
-  const [projectId, setProjectId] = useState("david-journey");
-  const [projectTitle, setProjectTitle] = useState("Hành trình Vua Đa-vít");
+  const [projectId, setProjectId] = useState("google-sheet-project");
+  const [projectTitle, setProjectTitle] = useState("Dự án mới");
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectDuration, setProjectDuration] = useState(30);
   const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
@@ -401,6 +418,7 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
+  const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
@@ -435,17 +453,27 @@ export default function Home() {
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
 
-  const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
-  const totalDuration = Math.max(...scenes.map((item) => item.end));
+  const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
+  const totalDuration = Math.max(0, ...scenes.map((item) => item.end));
+  const renderDuration = Math.max(projectDuration, totalDuration);
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
-  const isRemoteImage = isRemoteUrl(scene.image);
+  const assetPreviewSource = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return isRemoteUrl(trimmed)
+      ? trimmed
+      : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
+  };
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
-  const backgroundPreviewSource = isRemoteUrl(scene.background ?? "")
-    ? scene.background!.trim()
-    : isRemoteUrl(legacyBackgroundPreview)
-      ? legacyBackgroundPreview
-      : "";
+  const backgroundPreviewSource =
+    assetPreviewSource(scene.background ?? "") ||
+    assetPreviewSource(legacyBackgroundPreview);
+  const narrationPreviewSource =
+    audioPreview[scene.id] || assetPreviewSource(scene.voiceFile);
+  const musicPreviewSource =
+    backgroundMusicPreview || assetPreviewSource(backgroundMusic);
   const sceneDuration = Math.max(0.1, scene.end - scene.start);
   const sceneLocalTime = Math.min(
     sceneDuration,
@@ -503,6 +531,7 @@ export default function Home() {
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
   const zoomMarkerEnabled = scene.zoomMarkerEnabled !== false;
+  const zoomMarkerPosition = getZoomMarkerPosition(scene);
   const markerEffectSettings = getMarkerEffectSettings(scene);
   const activeMarkerEffects = getActiveMarkerEffects(scene);
 
@@ -558,7 +587,8 @@ export default function Home() {
       if (current) URL.revokeObjectURL(current);
       return "";
     });
-    const restoredScenes = ensureUniqueSceneIds(project.scenes).map((item) => ({
+    const normalizedScenes = ensureUniqueSceneIds(project.scenes);
+    const restoredScenes = (normalizedScenes.length ? normalizedScenes : ensureUniqueSceneIds(initialScenes)).map((item) => ({
       ...item,
       backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
     }));
@@ -595,8 +625,8 @@ export default function Home() {
     }
     if (Array.isArray(data.scenes) && data.scenes.length > 0) {
       const migrated: ProjectSnapshot = {
-        id: "david-journey",
-        title: "Hành trình Vua Đa-vít",
+        id: "google-sheet-project",
+        title: "Dự án mới",
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
@@ -619,10 +649,35 @@ export default function Home() {
 
     const restoreProject = async () => {
       let restoredLocally = false;
+      let cloudLoaded = false;
+      let cloudFailed = false;
+
+      try {
+        const cloudData = await loadDataFromGoogle();
+        if (!cancelled && cloudData && applyStoredProject(cloudData)) {
+          cloudLoaded = true;
+          lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
+          setSaveStatus("saved");
+          setLastSavedAt(new Date());
+        }
+      } catch {
+        cloudFailed = true;
+      }
+
+      if (cloudLoaded) {
+        if (!cancelled) setHydrated(true);
+        return;
+      }
+
       try {
         const localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY);
         if (localValue) {
-          restoredLocally = applyStoredProject(JSON.parse(localValue));
+          const localData = JSON.parse(localValue);
+          if (isBundledSampleWorkspace(localData)) {
+            window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+          } else {
+            restoredLocally = applyStoredProject(localData);
+          }
           if (restoredLocally) {
             lastSavedProjectSnapshot.current = localValue;
             setSaveStatus("offline");
@@ -632,21 +687,10 @@ export default function Home() {
         window.localStorage.removeItem(LOCAL_STORAGE_KEY);
       }
 
-      try {
-        const cloudData = await loadDataFromGoogle();
-        if (!cancelled && cloudData) {
-          applyStoredProject(cloudData);
-          lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
-          setSaveStatus("saved");
-          setLastSavedAt(new Date());
-        } else if (!cancelled && !restoredLocally) {
-          setSaveStatus("saved");
-        }
-      } catch {
-        if (!cancelled) setSaveStatus(restoredLocally ? "offline" : "error");
-      } finally {
-        if (!cancelled) setHydrated(true);
+      if (!cancelled && !restoredLocally) {
+        setSaveStatus(cloudFailed ? "error" : "saved");
       }
+      if (!cancelled) setHydrated(true);
     };
 
     restoreProject();
@@ -654,6 +698,16 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const nextUrls = Object.fromEntries(
+      localRenderFiles.map((file) => [file.name, URL.createObjectURL(file)]),
+    );
+    setAssetPreviewUrls(nextUrls);
+    return () => {
+      Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [localRenderFiles]);
 
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
@@ -873,35 +927,31 @@ export default function Home() {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
     if (!playing || !narrationEnabled) return;
-    const source = audioPreview[scene.id] || scene.voiceFile.trim();
+    const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
     audio.volume = 0.95;
-    const narrationStart = scene.popupVisible !== false ? popupStartTime : 0;
     const elapsed = Math.max(0, playTime - scene.start);
     const startAudio = () => {
-      audio.currentTime = Math.max(0, elapsed - narrationStart);
+      audio.currentTime = elapsed;
       void audio.play().catch(() => {
         // A local path that has not been uploaded is previewed silently.
       });
     };
-    const delay = Math.max(0, (narrationStart - elapsed) * 1000);
-    const timer = window.setTimeout(startAudio, delay);
+    const timer = window.setTimeout(startAudio, 0);
     return () => {
       window.clearTimeout(timer);
       audio.pause();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile, scene.popupVisible, popupStartTime]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
     if (!playing || !backgroundMusic.trim()) return;
-    const source = isRemoteUrl(backgroundMusic)
-      ? backgroundMusic.trim()
-      : backgroundMusicPreview;
+    const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     backgroundMusicAudio.current = audio;
@@ -915,7 +965,7 @@ export default function Home() {
       audio.pause();
       if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, backgroundMusic, backgroundMusicPreview]);
+  }, [playing, backgroundMusic, musicPreviewSource]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -1169,11 +1219,22 @@ export default function Home() {
   };
 
   const updateMarkerEffectEnabled = (effect: MarkerEffectKey, enabled: boolean) => {
-    const currentSettings = getMarkerEffectSettings(scene);
-    updateScene("zoomMarkerEffects", {
-      ...currentSettings,
-      [effect]: enabled,
-    });
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        return {
+          ...item,
+          zoomMarkerEffects: {
+            ...getMarkerEffectSettings(item),
+            [effect]: enabled,
+          },
+          zoomMarkerEffect: enabled ? effect : item.zoomMarkerEffect,
+        };
+      }),
+    );
   };
 
   const setMarkerEffectSelection = (effect: "none" | MarkerEffectKey) => {
@@ -1202,21 +1263,21 @@ export default function Home() {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
-    setScenes((items) => {
-      let cursor = 0;
-      return items.map((item) => {
-        const itemDuration = targetIds.has(item.id)
-          ? nextDuration
-          : Math.max(0.1, item.end - item.start);
-        const normalized = {
-          ...item,
-          start: Number(cursor.toFixed(2)),
-          end: Number((cursor + itemDuration).toFixed(2)),
-        };
-        cursor += itemDuration;
-        return normalized;
-      });
+    let cursor = 0;
+    const nextItems = scenes.map((item) => {
+      const itemDuration = targetIds.has(item.id)
+        ? nextDuration
+        : Math.max(0.1, item.end - item.start);
+      const normalized = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + itemDuration).toFixed(2)),
+      };
+      cursor += itemDuration;
+      return normalized;
     });
+    setScenes(nextItems);
+    setProjectDuration((current) => Math.max(current, cursor));
   };
 
   const switchProject = (nextId: string) => {
@@ -1233,21 +1294,9 @@ export default function Home() {
     const title = newProjectTitle.trim() || `Chủ đề ${projects.length + 2}`;
     const id = `project-${Date.now()}`;
     const blankScene: Scene = {
-      ...initialScenes[0],
+      ...createEmptyScene(`${id}-scene-01`),
       id: `${id}-scene-01`,
       number: 1,
-      title: "Cảnh mở đầu",
-      location: "",
-      reference: "",
-      popup: "Nhập nội dung popup cho cảnh đầu tiên.",
-      narration: "Nhập lời thuyết minh cho cảnh đầu tiên.",
-      image: "",
-      background: "",
-      backgroundVisible: true,
-      start: 0,
-      end: 5,
-      voiceFile: "",
-      status: "Nháp",
     };
     const nextProject: ProjectSnapshot = {
       id,
@@ -1276,17 +1325,17 @@ export default function Home() {
   };
 
   const addScene = () => {
-    const last = scenes.at(-1)!;
+    const last = scenes.at(-1) ?? createEmptyScene();
     const number = scenes.length + 1;
     const next: Scene = {
       id: `scene-${Date.now().toString(36)}-${number}`,
       number,
-      title: "Cảnh mới",
-      location: "Địa danh mới",
+      title: "",
+      location: "",
       reference: "",
-      popup: "Nhập nội dung popup cho cảnh mới.",
-      narration: "Nhập lời thuyết minh cho cảnh mới.",
-      voice: "Nam trầm",
+      popup: "",
+      narration: "",
+      voice: "",
       image: "",
       background: "",
       backgroundVisible: true,
@@ -1300,12 +1349,19 @@ export default function Home() {
       zoomStart: 0,
       centerX: 50,
       centerY: 50,
+      zoomMarkerCenterX: 61,
+      zoomMarkerCenterY: 56,
+      zoomEnabled: true,
+      zoomMarkerEnabled: true,
+      zoomMarkerEffect: "glow",
+      zoomMarkerEffects: { ...DEFAULT_MARKER_EFFECT_SETTINGS },
       voiceFile: "",
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
       status: "Nháp",
     };
     setScenes((items) => [...items, next]);
+    setProjectDuration((duration) => Math.max(duration, next.end));
     setSelectedId(next.id);
     setSelectedSceneIds([next.id]);
   };
@@ -1418,7 +1474,10 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startZoomCenterDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const startMapPointDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    target: "camera" | "marker",
+  ) => {
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -1444,11 +1503,17 @@ export default function Home() {
       setScenes((items) =>
         items.map((item) =>
           item.id === selectedId
-            ? {
-                ...item,
-                centerX: Number(centerX.toFixed(1)),
-                centerY: Number(centerY.toFixed(1)),
-              }
+            ? target === "camera"
+              ? {
+                  ...item,
+                  centerX: Number(centerX.toFixed(1)),
+                  centerY: Number(centerY.toFixed(1)),
+                }
+              : {
+                  ...item,
+                  zoomMarkerCenterX: Number(centerX.toFixed(1)),
+                  zoomMarkerCenterY: Number(centerY.toFixed(1)),
+                }
             : item,
         ),
       );
@@ -1606,7 +1671,7 @@ export default function Home() {
       const renderBackground = previewBackground.trim() || background.trim();
       return {
         title: projectTitle,
-        duration: projectDuration,
+        duration: renderDuration,
         resolution: renderResolution,
         fps: renderFps,
         ...(renderBackground
@@ -1619,10 +1684,12 @@ export default function Home() {
           const image = imageEnabled ? assetReference(item.image) : "";
           const sceneBackground = assetReference(item.background ?? "");
           const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
+          const markerPosition = getZoomMarkerPosition(item);
           return {
             milestone: item.number,
             title: item.title,
             start: item.start,
+            end: item.end,
             zoomStart: item.zoomStart ?? 0,
             zoomInDuration: item.zoomInDuration,
             popupDuration: item.popupDuration,
@@ -1631,7 +1698,10 @@ export default function Home() {
             zoom: item.zoom,
             centerX: item.centerX,
             centerY: item.centerY,
+            zoomMarkerCenterX: markerPosition.x,
+            zoomMarkerCenterY: markerPosition.y,
             body: item.popup,
+            imageVisible: imageEnabled,
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
@@ -1657,6 +1727,7 @@ export default function Home() {
       imageEnabled,
       narrationEnabled,
       projectDuration,
+      renderDuration,
       renderResolution,
       renderFps,
       projectTitle,
@@ -1926,7 +1997,7 @@ export default function Home() {
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
-        `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
+        `- Vòng tròn cột mốc: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; vị trí X=${item.zoomMarkerCenterX}%, Y=${item.zoomMarkerCenterY}%; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
@@ -2187,6 +2258,10 @@ export default function Home() {
             {scenes.map((item, index) => {
               const playbackActive =
                 playing && playTime >= item.start && playTime < item.end;
+              const thumbSource =
+                assetPreviewSource(item.image) ||
+                assetPreviewSource(item.background ?? "") ||
+                assetPreviewSource(legacyBackgroundPreview);
               return (
               <button
                 key={item.id}
@@ -2230,11 +2305,8 @@ export default function Home() {
                 <span className="drag-dots" aria-hidden="true">⠿</span>
                 <span className="scene-number">{item.number}</span>
                 <span className="scene-thumb">
-                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(item.background ?? "")) ? (
-                    <img
-                      src={/^https?:\/\//i.test(item.image) ? item.image : item.background ?? ""}
-                      alt=""
-                    />
+                  {thumbSource ? (
+                    <img src={thumbSource} alt="" />
                   ) : (
                     <b>{String(item.number).padStart(2, "0")}</b>
                   )}
@@ -2319,7 +2391,7 @@ export default function Home() {
                 style={{
                   transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
                   transform: `scale(${playbackMapScale})`,
-                  transitionDuration: playing ? "80ms" : `${scene.zoomInDuration}s`,
+                  transitionDuration: playing ? "0ms" : `${scene.zoomInDuration}s`,
                 }}
               />
             )}
@@ -2336,7 +2408,7 @@ export default function Home() {
                   top: `${scene.centerY}%`,
                 }}
                 title="Kéo để chọn vị trí zoom camera"
-                onPointerDown={startZoomCenterDrag}
+                onPointerDown={(event) => startMapPointDrag(event, "camera")}
               >
                 <span />
               </div>
@@ -2346,13 +2418,13 @@ export default function Home() {
                 key={effect}
                 className={`zoom-center-marker marker-effect-${effect}`}
                 style={{
-                  left: `${scene.centerX}%`,
-                  top: `${scene.centerY}%`,
+                  left: `${zoomMarkerPosition.x}%`,
+                  top: `${zoomMarkerPosition.y}%`,
                   ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
                   ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
                 }}
-                title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}% · Click để chỉnh hiệu ứng`}
-                onPointerDown={startZoomCenterDrag}
+                title={`Vòng tròn cột mốc ${zoomMarkerPosition.x}%, ${zoomMarkerPosition.y}% · Click để chỉnh hiệu ứng`}
+                onPointerDown={(event) => startMapPointDrag(event, "marker")}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!zoomCenterMoved.current) setShowZoomSetup(true);
@@ -2392,8 +2464,8 @@ export default function Home() {
               >
               {imageEnabled && (
                 <div className="photo-placeholder">
-                  {isRemoteImage ? (
-                    <img src={scene.image} alt={`Ảnh minh họa ${scene.title}`} />
+                  {imagePreviewSource ? (
+                    <img src={imagePreviewSource} alt={`Ảnh minh họa ${scene.title}`} />
                   ) : (
                     <>
                       <div className="sun" />
@@ -2560,10 +2632,10 @@ export default function Home() {
                   value={scene.image}
                   onChange={(event) => updateScene("image", event.target.value)}
                 />
-                {isRemoteImage && (
+                {imagePreviewSource && (
                   <div className="image-url-preview">
-                    <img src={scene.image} alt="Xem trước ảnh popup" />
-                    <span>Đang hiển thị ảnh từ URL</span>
+                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
+                    <span>Đang hiển thị đúng tài nguyên sẽ dùng khi render</span>
                   </div>
                 )}
               </label>
@@ -2601,7 +2673,7 @@ export default function Home() {
                   type="text"
                   inputMode="url"
                   value={backgroundMusic}
-                  placeholder="audio/background-music.mp3 hoặc URL"
+                  placeholder="background-music.mp3 hoặc URL"
                   onChange={(event) => {
                     setBackgroundMusic(event.target.value);
                     setBackgroundMusicPreview("");
@@ -2634,7 +2706,7 @@ export default function Home() {
                   type="text"
                   inputMode="url"
                   value={scene.voiceFile}
-                  placeholder="audio/milestone-1.mp3 hoặc https://example.com/voice.mp3"
+                placeholder="voice.mp3 hoặc https://example.com/voice.mp3"
                   onChange={(event) => updateScene("voiceFile", event.target.value)}
                 />
                 <label className="file-picker">

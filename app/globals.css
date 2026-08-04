@@ -1094,7 +1094,10 @@ button { color: inherit; }
   .preview-panel { padding-inline: 14px; }
 }
 
-.playback-popup { will-change: opacity, transform, filter; }
+.playback-popup {
+  transform-origin: center bottom;
+  will-change: opacity, transform, filter;
+}
 .playback-popup.popup-opening.popup-in-fade-slide-up {
   animation: popup-fade-slide-in var(--popup-transition-duration, .55s) cubic-bezier(.16,.84,.32,1) both;
 }
@@ -1613,6 +1616,8 @@ body {
   background: rgba(38,33,24,.94);
   color: #fff6e5;
 }
+.preview-card .card-content h3 { color: #fff3d6; }
+.preview-card .card-content p { color: #e9ddc7; }
 .studio-shell[data-theme="dark"] .preview-card {
   background: rgba(38,33,24,.94);
 }
@@ -1999,6 +2004,21 @@ body {
   width: var(--marker-size, 28px);
   height: var(--marker-size, 28px);
 }
+.phone-preview.is-playing > .zoom-camera-target {
+  display: none;
+}
+.phone-preview > .zoom-center-marker {
+  z-index: 8;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.phone-preview > .zoom-center-marker:active {
+  cursor: grabbing;
+}
+.zoom-effect-preview .zoom-center-marker {
+  transform: translate(0, 0);
+}
 .marker-effect-glow {
   border-color: transparent;
   animation: marker-glow var(--marker-effect-duration, 1s) ease-in-out infinite alternate;
@@ -2026,6 +2046,7 @@ body {
 }
 .phone-preview.is-playing .zoom-center-marker {
   pointer-events: none;
+  opacity: 1;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -2597,13 +2618,19 @@ body {
     0 22px 55px rgba(0,0,0,.36);
 }
 .phone-preview:not(.map-focused) .zoom-center-marker {
-  pointer-events: none;
   opacity: .58;
 }
 .phone-preview {
   width: min(100%, 472px);
   height: auto;
   aspect-ratio: 9 / 16;
+}
+.phone-preview.is-playing::before,
+.phone-preview.is-playing .playback-live,
+.phone-preview.is-playing .preview-progress,
+.phone-preview.is-playing .map-zoom-badge,
+.phone-preview.is-playing .popup-resize-handle {
+  display: none;
 }
 .preview-footer {
   width: min(100%, 472px);
@@ -4800,5 +4827,74 @@ body {
 @media (max-width: 760px) {
   .local-render-modal {
     overflow: hidden;
+  }
+}
+
+/* Fluid shell: keep the desktop canvas usable when a browser reports a tablet-sized viewport. */
+.studio-shell {
+  width: 100%;
+  min-width: 0;
+  container: studio-shell / inline-size;
+}
+
+.studio-shell[data-studio-tab="compose"] .workspace {
+  min-width: 0;
+}
+
+@media (min-width: 761px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    grid-template-columns: minmax(180px, 24%) minmax(280px, 1fr) minmax(240px, 30%);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel,
+  .studio-shell[data-studio-tab="compose"] .preview-panel,
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 980px) and (min-width: 761px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    grid-template-columns: minmax(170px, 23%) minmax(260px, 1fr) minmax(220px, 29%);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-panel {
+    padding-inline: 10px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-panel .panel-heading,
+  .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview {
+    width: min(100%, 270px);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    padding-inline: 10px 6px;
+  }
+
+  .compose-topbar {
+    padding-inline: 14px;
+  }
+}
+
+/* Prefer the actual app width when the studio is embedded in a webview or iframe. */
+@container studio-shell (min-width: 721px) and (max-width: 980px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    grid-template-columns: minmax(170px, 23%) minmax(260px, 1fr) minmax(220px, 29%);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-panel .panel-heading,
+  .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview {
+    width: min(100%, 270px);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    padding-inline: 10px 6px;
+  }
+}
+
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    width: 100%;
+    margin-inline: 0;
   }
 }
