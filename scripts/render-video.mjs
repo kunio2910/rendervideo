@@ -323,7 +323,7 @@ const getActiveMarkerEffects = (scene) => {
       (effect) => scene.zoomMarkerEffects[effect] === true,
     );
   }
-  const legacyEffect = scene.zoomMarkerEffect ?? "none";
+  const legacyEffect = scene.zoomMarkerEffect ?? "glow";
   return legacyEffect === "none" ? [] : [legacyEffect];
 };
 
@@ -381,6 +381,14 @@ for (let index = 0; index < scenes.length; index += 1) {
     : Math.max(1, Number(scene.zoom ?? 1));
   const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
   const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
+  const markerCenterX = Math.min(
+    100,
+    Math.max(0, Number(scene.zoomMarkerCenterX ?? scene.centerX ?? 50)),
+  ) / 100;
+  const markerCenterY = Math.min(
+    100,
+    Math.max(0, Number(scene.zoomMarkerCenterY ?? scene.centerY ?? 50)),
+  ) / 100;
   const popupStart = Math.min(
     duration,
     Math.max(0, Number(scene.popupStart ?? scene.zoomInDuration ?? 0)),
@@ -494,8 +502,8 @@ for (let index = 0; index < scenes.length; index += 1) {
       `;[${markerInput}:v]format=rgba,` +
       `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker_${markerIndex}];` +
       `[${inputVideo}][marker_${markerIndex}]overlay=` +
-      `x='main_w*${centerX}-overlay_w/2':` +
-      `y='main_h*${centerY}-overlay_h/2':` +
+      `x='main_w*${markerCenterX}-overlay_w/2':` +
+      `y='main_h*${markerCenterY}-overlay_h/2':` +
       `enable='${markerEnable}'[${outputVideo}]`;
   });
   const args = [

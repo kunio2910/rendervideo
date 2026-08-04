@@ -60,9 +60,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /DEFAULT_MARKER_EFFECT_SETTINGS/);
   assert.match(page, /zoomMarkerEnabled: true/);
   assert.match(page, /getMarkerEffectSettings\(item\)/);
-  assert.match(page, /--marker-offset-x/);
+  assert.match(page, /zoomMarkerCenterX/);
+  assert.match(page, /startMapPointDrag\(event, "camera"\)/);
+  assert.match(page, /startMapPointDrag\(event, "marker"\)/);
   assert.match(css, /phone-preview\.is-playing > \.zoom-camera-target/);
-  assert.match(css, /calc\(-50% \+ var\(--marker-offset-x/);
+  assert.doesNotMatch(css, /--marker-offset-x/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
@@ -88,6 +90,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /transform-origin: center bottom/);
   assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
+  assert.match(renderer, /scene\.zoomMarkerCenterX/);
+  assert.match(renderer, /main_w\*\$\{markerCenterX\}/);
   assert.match(renderer, /volume=0\.95,apad/);
   assert.doesNotMatch(renderer, /adelay=/);
   assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
