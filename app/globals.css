@@ -2007,6 +2007,14 @@ body {
 .phone-preview.is-playing > .zoom-camera-target {
   display: none;
 }
+.phone-preview > .zoom-center-marker {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.phone-preview > .zoom-center-marker:active {
+  cursor: grabbing;
+}
 .zoom-effect-preview .zoom-center-marker {
   transform: translate(0, 0);
 }
