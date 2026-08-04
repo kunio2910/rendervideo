@@ -25,6 +25,42 @@ body {
   font-size: 13px;
 }
 
+.studio-error-shell {
+  min-width: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #fbf7ee;
+}
+
+.studio-error-card {
+  width: min(100%, 520px);
+  padding: 28px;
+  border: 1px solid #e7decb;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #2c2013;
+  box-shadow: 0 18px 45px rgba(90, 70, 40, .12);
+}
+
+.studio-error-kicker {
+  color: #c67a2e;
+  font: 700 10px var(--font-mono);
+  letter-spacing: .12em;
+}
+
+.studio-error-card h1 {
+  margin: 10px 0 8px;
+  font: 700 clamp(20px, 4vw, 28px)/1.15 "Fraunces", Georgia, serif;
+}
+
+.studio-error-card p {
+  margin: 0 0 18px;
+  color: #79694e;
+  line-height: 1.6;
+}
+
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 

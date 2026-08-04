@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
 
 type Scene = {
@@ -270,6 +278,20 @@ const DEFAULT_MARKER_EFFECT_SETTINGS: Record<MarkerEffectKey, boolean> = {
   "soft-fade": false,
 };
 
+type MarkerEffectSettingsInput = Partial<Record<MarkerEffectKey, unknown>>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const normalizeMarkerEffectSettings = (value: unknown): Record<MarkerEffectKey, boolean> => {
+  const configured = isRecord(value) ? value as MarkerEffectSettingsInput : {};
+  return {
+    glow: configured.glow === true,
+    blink: configured.blink === true,
+    "soft-fade": configured["soft-fade"] === true,
+  };
+};
+
 const clampPercent = (value: unknown, fallback = 50) => {
   const numeric = value === null || value === undefined ? Number.NaN : Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
@@ -288,7 +310,7 @@ const getZoomMarkerPosition = (scene: Scene) => {
 
 const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
   const configured = scene.zoomMarkerEffects;
-  if (!configured) {
+  if (!isRecord(configured)) {
     if (scene.zoomMarkerEffect === "none") {
       return { glow: false, blink: false, "soft-fade": false };
     }
@@ -303,15 +325,7 @@ const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean>
     }
     return { ...DEFAULT_MARKER_EFFECT_SETTINGS };
   }
-  return MARKER_EFFECT_OPTIONS.reduce(
-    (settings, option) => ({
-      ...settings,
-      [option.key]: configured
-        ? configured[option.key] === true
-        : scene.zoomMarkerEffect === option.key,
-    }),
-    {} as Record<MarkerEffectKey, boolean>,
-  );
+  return normalizeMarkerEffectSettings(configured);
 };
 
 const getActiveMarkerEffects = (scene: Scene) => {
@@ -331,7 +345,8 @@ const normalizeEditorSections = (
 
 const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
-  return (Array.isArray(items) ? items : []).map((item, index) => {
+  const validItems = (Array.isArray(items) ? items : []).filter(isRecord) as Scene[];
+  return validItems.map((item, index) => {
     let id = item.id || `scene-${index + 1}`;
     let suffix = 2;
     while (used.has(id)) {
@@ -352,11 +367,46 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       zoomMarkerCenterY: markerPosition.y,
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
-      zoomEnabled: item.zoomEnabled ?? true,
-      zoomMarkerEnabled: item.zoomMarkerEnabled ?? true,
+      zoomEnabled: item.zoomEnabled === false ? false : true,
+      zoomMarkerEnabled: item.zoomMarkerEnabled === false ? false : true,
+      zoomMarkerEffects: normalizeMarkerEffectSettings(item.zoomMarkerEffects),
     };
   });
 };
+
+type StudioErrorBoundaryProps = { children: ReactNode };
+type StudioErrorBoundaryState = { error: Error | null };
+
+class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErrorBoundaryState> {
+  state: StudioErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): StudioErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Kito Video Studio render error", error, errorInfo);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <main className="studio-shell studio-error-shell">
+        <section className="studio-error-card" role="alert">
+          <span className="studio-error-kicker">KITO VIDEO STUDIO</span>
+          <h1>Không thể hiển thị khu vực biên soạn</h1>
+          <p>
+            Dữ liệu hiệu ứng của cảnh hiện tại không hợp lệ hoặc chưa tải xong.
+            Hãy tải lại để lấy lại dữ liệu từ Google Sheet.
+          </p>
+          <button type="button" className="button primary" onClick={() => window.location.reload()}>
+            Tải lại dữ liệu
+          </button>
+        </section>
+      </main>
+    );
+  }
+}
 
 type ProjectSnapshot = Omit<StoredProject, "version"> & {
   id: string;
@@ -376,7 +426,7 @@ const isBundledSampleWorkspace = (data: unknown) => {
     || serialized.includes('"voiceFile":"audio/milestone-1.mp3"');
 };
 
-export default function Home() {
+function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
@@ -3652,5 +3702,13 @@ export default function Home() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <StudioErrorBoundary>
+      <Home />
+    </StudioErrorBoundary>
   );
 }
