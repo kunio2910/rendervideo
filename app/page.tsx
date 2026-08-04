@@ -13,6 +13,7 @@ type Scene = {
   narration: string;
   voice: string;
   image: string;
+  background?: string;
   start: number;
   end: number;
   zoomInDuration: number;
@@ -29,6 +30,7 @@ type Scene = {
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
+  backgroundVisible?: boolean;
   zoomEnabled?: boolean;
   zoomMarkerEnabled?: boolean;
   zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
@@ -134,6 +136,13 @@ const fileNameOnly = (value: string) => {
     }
   } catch {}
   return trimmed.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? trimmed;
+};
+
+const isRemoteUrl = (value: string) => /^https?:\/\/.+/i.test(value.trim());
+
+const assetReference = (value: string) => {
+  const trimmed = value.trim();
+  return isRemoteUrl(trimmed) ? trimmed : fileNameOnly(trimmed);
 };
 
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
@@ -266,6 +275,7 @@ type StoredProject = {
   previewBackground?: string;
   backgroundVisible?: boolean;
   backgroundMusic?: string;
+  renderFps?: 24 | 30 | 60;
   editorSections?: EditorSectionState;
   scenes: Scene[];
 };
@@ -360,6 +370,7 @@ export default function Home() {
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectDuration, setProjectDuration] = useState(30);
   const [renderResolution, setRenderResolution] = useState<"1080x1920" | "720x1280">("1080x1920");
+  const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -367,6 +378,7 @@ export default function Home() {
   const [previewBackground, setPreviewBackground] = useState("");
   const [backgroundVisible, setBackgroundVisible] = useState(true);
   const [backgroundMusic, setBackgroundMusic] = useState("");
+  const [backgroundMusicPreview, setBackgroundMusicPreview] = useState("");
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
@@ -389,6 +401,7 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
+  const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
@@ -414,6 +427,7 @@ export default function Home() {
   const animationFrame = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const zoomCenterMoved = useRef(false);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
@@ -426,7 +440,22 @@ export default function Home() {
   const totalDuration = Math.max(...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
-  const isRemoteImage = /^https?:\/\/.+/i.test(scene.image.trim());
+  const assetPreviewSource = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return isRemoteUrl(trimmed)
+      ? trimmed
+      : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
+  };
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
+  const legacyBackgroundPreview = previewBackground.trim() || background.trim();
+  const backgroundPreviewSource =
+    assetPreviewSource(scene.background ?? "") ||
+    assetPreviewSource(legacyBackgroundPreview);
+  const narrationPreviewSource =
+    audioPreview[scene.id] || assetPreviewSource(scene.voiceFile);
+  const musicPreviewSource =
+    backgroundMusicPreview || assetPreviewSource(backgroundMusic);
   const sceneDuration = Math.max(0.1, scene.end - scene.start);
   const sceneLocalTime = Math.min(
     sceneDuration,
@@ -494,6 +523,7 @@ export default function Home() {
       projectDuration,
       imageEnabled,
       narrationEnabled,
+      renderFps,
       background,
       previewBackground,
       backgroundVisible,
@@ -507,6 +537,7 @@ export default function Home() {
       projectDuration,
       imageEnabled,
       narrationEnabled,
+      renderFps,
       background,
       previewBackground,
       backgroundVisible,
@@ -528,11 +559,19 @@ export default function Home() {
     setProjectDuration(project.projectDuration);
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
+    setRenderFps(project.renderFps ?? 30);
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
-    const restoredScenes = ensureUniqueSceneIds(project.scenes);
+    setBackgroundMusicPreview((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+    const restoredScenes = ensureUniqueSceneIds(project.scenes).map((item) => ({
+      ...item,
+      backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
+    }));
     setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
@@ -571,6 +610,7 @@ export default function Home() {
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
+        renderFps: data.renderFps ?? 30,
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -624,6 +664,16 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const nextUrls = Object.fromEntries(
+      localRenderFiles.map((file) => [file.name, URL.createObjectURL(file)]),
+    );
+    setAssetPreviewUrls(nextUrls);
+    return () => {
+      Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [localRenderFiles]);
 
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
@@ -843,20 +893,45 @@ export default function Home() {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
     if (!playing || !narrationEnabled) return;
-    const source = audioPreview[scene.id] || scene.voiceFile.trim();
+    const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
     audio.volume = 0.95;
-    audio.currentTime = Math.max(0, playTime - scene.start);
+    const elapsed = Math.max(0, playTime - scene.start);
+    const startAudio = () => {
+      audio.currentTime = elapsed;
+      void audio.play().catch(() => {
+        // A local path that has not been uploaded is previewed silently.
+      });
+    };
+    const timer = window.setTimeout(startAudio, 0);
+    return () => {
+      window.clearTimeout(timer);
+      audio.pause();
+      if (narrationAudio.current === audio) narrationAudio.current = null;
+    };
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start]);
+
+  useEffect(() => {
+    backgroundMusicAudio.current?.pause();
+    backgroundMusicAudio.current = null;
+    if (!playing || !backgroundMusic.trim()) return;
+    const source = musicPreviewSource;
+    if (!source) return;
+    const audio = new Audio(source);
+    backgroundMusicAudio.current = audio;
+    audio.loop = true;
+    audio.volume = 0.18;
+    audio.currentTime = Math.max(0, playTime);
     void audio.play().catch(() => {
       // A local path that has not been uploaded is previewed silently.
     });
     return () => {
       audio.pause();
-      if (narrationAudio.current === audio) narrationAudio.current = null;
+      if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile]);
+  }, [playing, backgroundMusic, musicPreviewSource]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -1036,6 +1111,12 @@ export default function Home() {
     );
   };
 
+  const updateCurrentScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
+    setScenes((items) =>
+      items.map((item) => (item.id === selectedId ? { ...item, [key]: value } : item)),
+    );
+  };
+
   const updatePopupStart = (value: number) => {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
@@ -1177,6 +1258,8 @@ export default function Home() {
       popup: "Nhập nội dung popup cho cảnh đầu tiên.",
       narration: "Nhập lời thuyết minh cho cảnh đầu tiên.",
       image: "",
+      background: "",
+      backgroundVisible: true,
       start: 0,
       end: 5,
       voiceFile: "",
@@ -1188,6 +1271,7 @@ export default function Home() {
       projectDuration: 15,
       imageEnabled: true,
       narrationEnabled: true,
+      renderFps: 30,
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -1220,6 +1304,8 @@ export default function Home() {
       narration: "Nhập lời thuyết minh cho cảnh mới.",
       voice: "Nam trầm",
       image: "",
+      background: "",
+      backgroundVisible: true,
       start: last.end,
       end: last.end + 3,
       zoomInDuration: 0.5,
@@ -1532,57 +1618,68 @@ export default function Home() {
   };
 
   const exportPayload = useMemo(
-    () => ({
-      title: projectTitle,
-      duration: projectDuration,
-      resolution: renderResolution,
-      ...(background.trim()
-        ? { background: fileNameOnly(background) }
-        : {}),
-      ...(backgroundMusic.trim()
-        ? { backgroundMusic: backgroundMusic.trim() }
-        : {}),
-      scenes: scenes.map((item) => {
-        const image = imageEnabled ? fileNameOnly(item.image) : "";
-        const voiceFile = narrationEnabled ? fileNameOnly(item.voiceFile) : "";
-        return {
-          milestone: item.number,
-          title: item.title,
-          start: item.start,
-          zoomStart: item.zoomStart ?? 0,
-          zoomInDuration: item.zoomInDuration,
-          popupDuration: item.popupDuration,
-          popupStart: item.popupStart ?? item.zoomInDuration,
-          zoomOutDuration: item.zoomOutDuration,
-          zoom: item.zoom,
-          centerX: item.centerX,
-          centerY: item.centerY,
-          body: item.popup,
-          ...(image ? { image } : {}),
-          narration: narrationEnabled ? item.narration : "",
-          ...(voiceFile ? { voiceFile } : {}),
-          popupIn: item.popupIn,
-          popupOut: item.popupOut,
-          popupWidth: item.popupWidth ?? 90,
-          popupHeight: item.popupHeight ?? 255,
-          popupVisible: item.popupVisible !== false,
-          zoomEnabled: item.zoomEnabled !== false,
-          zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
-          zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
-          zoomMarkerEffects: getMarkerEffectSettings(item),
-          zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
-          zoomMarkerSize: item.zoomMarkerSize ?? 28,
-        };
-      }),
-    }),
+    () => {
+      const renderBackground = previewBackground.trim() || background.trim();
+      return {
+        title: projectTitle,
+        duration: projectDuration,
+        resolution: renderResolution,
+        fps: renderFps,
+        ...(renderBackground
+          ? { background: assetReference(renderBackground) }
+          : {}),
+        ...(backgroundMusic.trim()
+          ? { backgroundMusic: backgroundMusic.trim() }
+          : {}),
+        scenes: scenes.map((item) => {
+          const image = imageEnabled ? assetReference(item.image) : "";
+          const sceneBackground = assetReference(item.background ?? "");
+          const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
+          return {
+            milestone: item.number,
+            title: item.title,
+            start: item.start,
+            end: item.end,
+            zoomStart: item.zoomStart ?? 0,
+            zoomInDuration: item.zoomInDuration,
+            popupDuration: item.popupDuration,
+            popupStart: item.popupStart ?? item.zoomInDuration,
+            zoomOutDuration: item.zoomOutDuration,
+            zoom: item.zoom,
+            centerX: item.centerX,
+            centerY: item.centerY,
+            body: item.popup,
+            imageVisible: imageEnabled,
+            ...(sceneBackground ? { background: sceneBackground } : {}),
+            backgroundVisible: item.backgroundVisible !== false,
+            ...(image ? { image } : {}),
+            narration: narrationEnabled ? item.narration : "",
+            ...(voiceFile ? { voiceFile } : {}),
+            popupIn: item.popupIn,
+            popupOut: item.popupOut,
+            popupWidth: item.popupWidth ?? 90,
+            popupHeight: item.popupHeight ?? 255,
+            popupVisible: item.popupVisible !== false,
+            zoomEnabled: item.zoomEnabled !== false,
+            zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
+            zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
+            zoomMarkerEffects: getMarkerEffectSettings(item),
+            zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
+            zoomMarkerSize: item.zoomMarkerSize ?? 28,
+          };
+        }),
+      };
+    },
     [
       scenes,
       imageEnabled,
       narrationEnabled,
       projectDuration,
       renderResolution,
+      renderFps,
       projectTitle,
       background,
+      previewBackground,
       backgroundMusic,
     ],
   );
@@ -1610,9 +1707,13 @@ export default function Home() {
     const values = [
       "background" in exportPayload ? exportPayload.background : "",
       "backgroundMusic" in exportPayload ? exportPayload.backgroundMusic : "",
-      ...exportPayload.scenes.flatMap((item) => [item.image ?? "", item.voiceFile ?? ""]),
+      ...exportPayload.scenes.flatMap((item) => [
+        item.background ?? "",
+        item.image ?? "",
+        item.voiceFile ?? "",
+      ]),
     ];
-    return [...new Set(values.filter((value) => value && !/^https?:\/\//i.test(value)).map(fileNameOnly))];
+    return [...new Set(values.filter((value) => value && !isRemoteUrl(value)).map(fileNameOnly))];
   }, [exportPayload]);
 
   const addAssetsToLibrary = async (files: File[]) => {
@@ -1700,13 +1801,27 @@ export default function Home() {
       }
     };
 
-    addSourceCheck("background", "Background", background, false);
+    const legacyBackground = previewBackground.trim() || background.trim();
+    if (legacyBackground) {
+      addSourceCheck(
+        "legacy-background",
+        "Background mặc định",
+        legacyBackground,
+        false,
+      );
+    }
     if (backgroundMusic.trim()) {
       addSourceCheck("background-music", "Nhạc nền", backgroundMusic, true);
     } else {
       checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
     }
     scenes.forEach((item) => {
+      addSourceCheck(
+        `scene-${item.id}-background`,
+        `Background cảnh ${item.number}`,
+        item.background ?? "",
+        false,
+      );
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
       addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
     });
@@ -1809,7 +1924,7 @@ export default function Home() {
   const promptText = useMemo(() => {
     const projectBackground = "background" in exportPayload
       ? exportPayload.background
-      : "Không có";
+      : "Dùng background theo từng cảnh hoặc map.png mặc định";
     const musicFile = "backgroundMusic" in exportPayload
       ? fileNameOnly(exportPayload.backgroundMusic)
       : "Không có";
@@ -1824,6 +1939,7 @@ export default function Home() {
         `CẢNH ${item.milestone}: ${item.title}`,
         `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
         `- Hình ảnh: ${item.image ?? "Không có"}${item.image ? ` (tên file: ${fileNameOnly(item.image)})` : ""}.`,
+        `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
@@ -2089,6 +2205,10 @@ export default function Home() {
             {scenes.map((item, index) => {
               const playbackActive =
                 playing && playTime >= item.start && playTime < item.end;
+              const thumbSource =
+                assetPreviewSource(item.image) ||
+                assetPreviewSource(item.background ?? "") ||
+                assetPreviewSource(legacyBackgroundPreview);
               return (
               <button
                 key={item.id}
@@ -2132,11 +2252,8 @@ export default function Home() {
                 <span className="drag-dots" aria-hidden="true">⠿</span>
                 <span className="scene-number">{item.number}</span>
                 <span className="scene-thumb">
-                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(previewBackground)) ? (
-                    <img
-                      src={/^https?:\/\//i.test(item.image) ? item.image : previewBackground}
-                      alt=""
-                    />
+                  {thumbSource ? (
+                    <img src={thumbSource} alt="" />
                   ) : (
                     <b>{String(item.number).padStart(2, "0")}</b>
                   )}
@@ -2192,7 +2309,7 @@ export default function Home() {
         </aside>
 
         <section className="preview-panel">
-          <div className="panel-heading">
+          <div className="panel-heading preview-panel-heading">
             <h2>Xem trước cảnh</h2>
             <div className="preview-heading-actions">
               <button
@@ -2212,16 +2329,16 @@ export default function Home() {
             onPointerDown={() => setMapFocused(true)}
             className={`phone-preview ${playing ? "is-playing" : ""} ${mapFocused ? "map-focused" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
           >
-            {backgroundVisible && previewBackground.trim() && (
+            {scene.backgroundVisible !== false && backgroundPreviewSource && (
               <img
                 className="project-background"
-                src={previewBackground}
+                src={backgroundPreviewSource}
                 alt=""
                 aria-hidden="true"
                 style={{
                   transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
                   transform: `scale(${playbackMapScale})`,
-                  transitionDuration: playing ? "80ms" : `${scene.zoomInDuration}s`,
+                  transitionDuration: playing ? "0ms" : `${scene.zoomInDuration}s`,
                 }}
               />
             )}
@@ -2294,8 +2411,8 @@ export default function Home() {
               >
               {imageEnabled && (
                 <div className="photo-placeholder">
-                  {isRemoteImage ? (
-                    <img src={scene.image} alt={`Ảnh minh họa ${scene.title}`} />
+                  {imagePreviewSource ? (
+                    <img src={imagePreviewSource} alt={`Ảnh minh họa ${scene.title}`} />
                   ) : (
                     <>
                       <div className="sun" />
@@ -2335,6 +2452,7 @@ export default function Home() {
                     content: shouldOpen,
                     audio: shouldOpen,
                     motion: shouldOpen,
+                    effects: shouldOpen,
                   });
                 }}
               >
@@ -2362,39 +2480,36 @@ export default function Home() {
               <summary className="editor-group-label"><span>01</span> Hình ảnh & nền <i /></summary>
               <div className="editor-accordion-content">
             <label className="field background-field">
-              <span>Background chủ đề</span>
+              <span>Background chủ đề cảnh {scene.number}</span>
               <input
                 type="text"
-                placeholder="Ví dụ: Bản đồ hành trình Vua Đa-vít"
-                value={background}
-                onChange={(event) => setBackground(event.target.value)}
+                inputMode="url"
+                placeholder="https://example.com/background.jpg"
+                value={scene.background ?? ""}
+                onChange={(event) => updateScene("background", event.target.value)}
               />
-              <small>Chỉ lưu tên/thông tin background vào JSON, không dùng làm ảnh bản đồ.</small>
-            </label>
-            <label className="field background-image-url-field">
-              <span>Đường dẫn URL hình ảnh nền</span>
-              <input
-                type="url"
-                value={previewBackground}
-                placeholder="Dán URL ảnh hiển thị trên bản đồ"
-                onChange={(event) => setPreviewBackground(event.target.value)}
-              />
-              <small>Ảnh này được hiển thị phía sau popup trong khung Xem trước cảnh.</small>
+              {isRemoteUrl(scene.background ?? "") && (
+                <div className="image-url-preview">
+                  <img src={scene.background} alt={`Xem trước background cảnh ${scene.number}`} />
+                  <span>Background này chỉ áp dụng cho cảnh đang chọn.</span>
+                </div>
+              )}
+              <small>Nhập URL hoặc tên file riêng cho cảnh. URL sẽ được renderer tự tải về và dùng lại nếu các cảnh trùng tài nguyên.</small>
             </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
-                className={`button editor-visibility-button ${backgroundVisible ? "active" : ""}`}
-                title={backgroundVisible ? "Ẩn background khỏi xem trước" : "Hiện background trong xem trước"}
-                onClick={() => setBackgroundVisible((visible) => !visible)}
+                className={`button editor-visibility-button ${scene.backgroundVisible !== false ? "active" : ""}`}
+                title={scene.backgroundVisible !== false ? "Ẩn background khỏi xem trước" : "Hiện background trong xem trước"}
+                onClick={() => updateCurrentScene("backgroundVisible", scene.backgroundVisible === false)}
               >
-                {backgroundVisible ? "◉ Ẩn background" : "⊘ Hiện background"}
+                {scene.backgroundVisible !== false ? "◉ Ẩn background" : "⊘ Hiện background"}
               </button>
               <button
                 type="button"
                 className={`button editor-visibility-button ${scene.popupVisible !== false ? "active" : ""}`}
                 title={scene.popupVisible !== false ? "Ẩn popup khỏi xem trước" : "Hiện popup trong xem trước"}
-                onClick={() => updateScene("popupVisible", scene.popupVisible === false)}
+                onClick={() => updateCurrentScene("popupVisible", scene.popupVisible === false)}
               >
                 {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
               </button>
@@ -2464,10 +2579,10 @@ export default function Home() {
                   value={scene.image}
                   onChange={(event) => updateScene("image", event.target.value)}
                 />
-                {isRemoteImage && (
+                {imagePreviewSource && (
                   <div className="image-url-preview">
-                    <img src={scene.image} alt="Xem trước ảnh popup" />
-                    <span>Đang hiển thị ảnh từ URL</span>
+                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
+                    <span>Đang hiển thị đúng tài nguyên sẽ dùng khi render</span>
                   </div>
                 )}
               </label>
@@ -2502,9 +2617,14 @@ export default function Home() {
               <span>Nhạc nền chủ đề</span>
               <div className="audio-input-row">
                 <input
+                  type="text"
+                  inputMode="url"
                   value={backgroundMusic}
                   placeholder="audio/background-music.mp3 hoặc URL"
-                  onChange={(event) => setBackgroundMusic(event.target.value)}
+                  onChange={(event) => {
+                    setBackgroundMusic(event.target.value);
+                    setBackgroundMusicPreview("");
+                  }}
                 />
                 <label className="file-picker">
                   Chọn file
@@ -2513,7 +2633,13 @@ export default function Home() {
                     accept="audio/*"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
-                      if (file) setBackgroundMusic(`audio/${file.name}`);
+                      if (file) {
+                        setBackgroundMusic(`audio/${file.name}`);
+                        setBackgroundMusicPreview((current) => {
+                          if (current) URL.revokeObjectURL(current);
+                          return URL.createObjectURL(file);
+                        });
+                      }
                     }}
                   />
                 </label>
@@ -2524,8 +2650,10 @@ export default function Home() {
               <span>File âm thanh thuyết minh</span>
               <div className="audio-input-row">
                 <input
+                  type="text"
+                  inputMode="url"
                   value={scene.voiceFile}
-                  placeholder="audio/milestone-1.mp3"
+                  placeholder="audio/milestone-1.mp3 hoặc https://example.com/voice.mp3"
                   onChange={(event) => updateScene("voiceFile", event.target.value)}
                 />
                 <label className="file-picker">
@@ -2548,7 +2676,7 @@ export default function Home() {
               {audioPreview[scene.id] && (
                 <audio className="audio-preview" controls src={audioPreview[scene.id]} />
               )}
-              <small>Đường dẫn này được ghi vào voiceFile khi xuất JSON.</small>
+              <small>Nhập tên file hoặc URL. URL âm thanh sẽ được tự tải khi render và dùng lại nếu nhiều cảnh trùng URL/tên file.</small>
             </label>
               </div>
             </details>
@@ -2811,7 +2939,7 @@ export default function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>{projectDuration} giây · {scenes.length} cảnh · 30 FPS</span>
+            <span>{projectDuration} giây · {scenes.length} cảnh · {renderFps} FPS</span>
           </div>
           <div className="timeline-transport" aria-label="Điều khiển phát timeline">
             <button
@@ -3073,10 +3201,14 @@ export default function Home() {
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>
-                          <select defaultValue="30 FPS" aria-label="Khung hình render">
-                            <option>30 FPS</option>
-                            <option>24 FPS</option>
-                            <option>60 FPS</option>
+                          <select
+                            value={`${renderFps} FPS`}
+                            aria-label="Khung hình render"
+                            onChange={(event) => setRenderFps(Number.parseInt(event.target.value, 10) as 24 | 30 | 60)}
+                          >
+                            <option value="30 FPS">30 FPS</option>
+                            <option value="24 FPS">24 FPS</option>
+                            <option value="60 FPS">60 FPS</option>
                           </select>
                         </label>
                         <label className="export-field">
@@ -3140,7 +3272,7 @@ export default function Home() {
                       </div>
                       <div className="render-status-info">
                         <strong>{exportFileName}</strong>
-                        <span>{renderResolution} · 30 FPS · {localRenderState.message}</span>
+                        <span>{renderResolution} · {renderFps} FPS · {localRenderState.message}</span>
                         {localRenderState.status !== "idle" && localRenderState.status !== "failed" && (
                           <div className="render-progress"><i style={{ width: `${localRenderState.progress}%` }} /></div>
                         )}

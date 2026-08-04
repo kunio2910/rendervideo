@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
@@ -20,7 +21,15 @@ const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpe
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const scenes = project.scenes ?? [];
-const fps = 30;
+const [outputWidth, outputHeight] = String(project.resolution ?? "1080x1920")
+  .split("x")
+  .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
+const fps = Math.max(1, Number(project.fps ?? 30) || 30);
+const PREVIEW_REFERENCE_WIDTH = 472;
+const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
+const previewScale = outputWidth / PREVIEW_REFERENCE_WIDTH;
+const previewPx = (value) => value * previewScale;
+const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
@@ -58,110 +67,219 @@ const run = (command, args) =>
     );
   });
 
-const download = async (url, filename) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Cannot download ${url}: ${response.status}`);
-  await fs.writeFile(filename, Buffer.from(await response.arrayBuffer()));
-  return filename;
+const errorDetail = (error) => {
+  if (!(error instanceof Error)) return "unknown error";
+  const cause = error.cause instanceof Error ? error.cause.message : "";
+  return cause ? `${error.message}: ${cause}` : error.message;
 };
 
-const resolveImage = async (value, fallbackName) => {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) {
+const resourceCache = new Map();
+
+const isRemote = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
+
+const referenceName = (value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return fallbackName;
+  if (isRemote(trimmed)) {
     try {
-      return await download(value, path.join(renderDir, fallbackName));
-    } catch {
+      const name = path.basename(decodeURIComponent(new URL(trimmed).pathname));
+      if (name && name !== ".") return name;
+    } catch {}
+  }
+  return path.basename(trimmed.replaceAll("\\", "/")) || fallbackName;
+};
+
+const resourceKey = (kind, value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  const name = referenceName(trimmed, fallbackName).toLowerCase();
+  // Reuse a resource when scenes refer to the same filename.
+  if (name && name !== fallbackName.toLowerCase()) return `${kind}:name:${name}`;
+  return `${kind}:url:${trimmed}`;
+};
+
+const download = async (url, filename) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Cannot download ${url}: ${response.status}`);
+    await fs.writeFile(filename, Buffer.from(await response.arrayBuffer()));
+    return filename;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const downloadResource = async (kind, value, fallbackName) => {
+  const trimmed = String(value ?? "").trim();
+  const key = resourceKey(kind, trimmed, fallbackName);
+  const cached = resourceCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    const sourceName = referenceName(trimmed, fallbackName);
+    const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
+    const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
+    return download(trimmed, path.join(renderDir, `${kind}-${hash}-${safeName}`));
+  })();
+  resourceCache.set(key, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    resourceCache.delete(key);
+    throw error;
+  }
+};
+
+const findLocalResource = async (kind, value, candidates) => {
+  const trimmed = String(value ?? "").trim();
+  const key = resourceKey(kind, trimmed, path.basename(trimmed) || kind);
+  const cached = resourceCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    for (const candidate of candidates.filter(Boolean)) {
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {}
+    }
+    return null;
+  })();
+  resourceCache.set(key, promise);
+  return promise;
+};
+
+const localCandidates = (value) => [
+  path.resolve(root, value),
+  path.join(sourceDir, path.basename(value)),
+  path.join(defaultSourceDir, path.basename(value)),
+];
+
+const resolveImage = async (value, fallbackName, required = false) => {
+  if (!value) return null;
+  if (isRemote(value)) {
+    try {
+      return await downloadResource("image", value, fallbackName);
+    } catch (error) {
+      if (required) {
+        throw new Error(`Không thể tải ảnh background từ URL: ${errorDetail(error)}`);
+      }
       return null;
     }
   }
-  const candidates = [
-    path.resolve(root, value),
-    path.join(sourceDir, path.basename(value)),
-    path.join(defaultSourceDir, path.basename(value)),
-  ];
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
-  }
-  return null;
+  const local = await findLocalResource("image", value, localCandidates(value));
+  if (!local && required) throw new Error(`Không tìm thấy ảnh background: ${value}`);
+  return local;
 };
 
 const resolveVoice = async (scene, index) => {
-  const candidates = [
-    scene.voiceFile && path.resolve(root, scene.voiceFile),
-    scene.voiceFile && path.join(sourceDir, path.basename(scene.voiceFile)),
-    scene.voiceFile && path.join(defaultSourceDir, path.basename(scene.voiceFile)),
-    path.join(sourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
-    path.join(defaultSourceDir, `vuadavit_canh${String(index + 1).padStart(2, "0")}.mp3`),
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
-  }
-  return null;
-};
-
-const resolveAudio = async (value) => {
+  const value = String(scene.voiceFile ?? "").trim();
   if (!value) return null;
-  if (/^https?:\/\//i.test(value)) {
+  if (value && isRemote(value)) {
     try {
-      return await download(value, path.join(renderDir, `audio-${path.basename(new URL(value).pathname) || "track.mp3"}`));
-    } catch {
-      return null;
+      return await downloadResource("audio", value, `scene-${index + 1}-voice.mp3`);
+    } catch (error) {
+      throw new Error(`Không thể tải âm thanh cảnh ${index + 1} từ URL: ${errorDetail(error)}`);
     }
   }
   const candidates = [
     path.resolve(root, value),
     path.join(sourceDir, path.basename(value)),
     path.join(defaultSourceDir, path.basename(value)),
-  ];
-  for (const candidate of candidates) {
+  ].filter(Boolean);
+  return findLocalResource("audio", value, candidates);
+};
+
+const resolveAudio = async (value, required = false) => {
+  if (!value) return null;
+  if (isRemote(value)) {
     try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {}
+      return await downloadResource("audio", value, "track.mp3");
+    } catch (error) {
+      if (required) {
+        throw new Error(`Không thể tải nhạc nền từ URL: ${errorDetail(error)}`);
+      }
+      return null;
+    }
   }
-  return null;
+  return findLocalResource("audio", value, localCandidates(value));
 };
 
 const createPopup = async (scene, index) => {
-  const width = Math.round(1080 * Math.min(1, Math.max(0.45, (scene.popupWidth ?? 90) / 100)));
-  const height = Math.max(420, Math.min(760, Math.round((scene.popupHeight ?? 255) * 2)));
-  const image = await resolveImage(scene.image, `scene-${index + 1}-image`);
-  const imageHeight = image ? 205 : 0;
-  const bodyLines = wrap(scene.body ?? "", 48).slice(0, 5);
-  const titleY = 70 + imageHeight;
-  const bodyY = titleY + 105;
-  const referenceY = height - 38;
+  const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
+  const height = Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440)));
+  const radius = Math.max(10, Math.round(previewPx(14)));
+  const borderWidth = Math.max(1, Math.round(previewPx(1)));
+  const paddingX = Math.round(previewPx(15));
+  const titleFontSize = Math.round(previewPx(15));
+  const bodyFontSize = Math.round(previewPx(11));
+  const bodyLineHeight = Math.round(previewPx(18.15));
+  const imageVisible = scene.imageVisible !== false;
+  const image = imageVisible
+    ? await resolveImage(scene.image, `scene-${index + 1}-image`)
+    : null;
+  const imageHeight = imageVisible ? Math.round(previewPx(115)) : 0;
+  const titleY = imageHeight + Math.round(previewPx(33));
+  const bodyY = titleY + Math.round(previewPx(24));
+  const maxCharacters = Math.max(
+    24,
+    Math.floor((width - paddingX * 2) / Math.max(1, bodyFontSize * 0.54)),
+  );
+  const maxBodyLines = Math.max(
+    1,
+    Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1,
+  );
+  const bodyLines = wrap(scene.body ?? "", maxCharacters).slice(0, maxBodyLines);
   const bodyText = bodyLines
     .map((line, lineIndex) =>
-      `<text x="54" y="${bodyY + lineIndex * 42}" font-size="29" fill="#394454">${escapeXml(line)}</text>`,
+      `<text x="${paddingX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="#e9ddc7">${escapeXml(line)}</text>`,
     )
     .join("");
+  const imageClipPath = `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${imageHeight} H 0 V ${radius} Q 0 0 ${radius} 0 Z`;
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" rx="30" fill="#ffffff" fill-opacity=".97"/>
-      ${image ? `<rect x="0" y="0" width="${width}" height="${imageHeight}" rx="30" fill="#dce5ef"/>` : ""}
-      <text x="54" y="${titleY}" font-family="Arial" font-weight="700" font-size="44" fill="#101827">${escapeXml(scene.title ?? "")}</text>
-      <text x="54" y="${titleY + 50}" font-family="Arial" font-size="25" fill="#53708f">${escapeXml(scene.location ?? "")}</text>
+      <defs>
+        <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#c9e4f5"/>
+          <stop offset="100%" stop-color="#f6d8af"/>
+        </linearGradient>
+        <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
+      </defs>
+      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="#262118" fill-opacity=".94"/>
+      ${imageVisible && !image ? `
+        <g clip-path="url(#imageClip)">
+          <rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>
+          <circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/>
+          <ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/>
+          <ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/>
+        </g>
+      ` : ""}
+      <text x="${paddingX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="#fff3d6">${escapeXml(String(scene.title ?? "").toUpperCase())}</text>
       <g font-family="Arial">${bodyText}</g>
-      <text x="54" y="${referenceY}" font-family="Arial" font-size="24" fill="#748091">${escapeXml(scene.reference ?? "")}</text>
     </svg>
   `);
   const base = sharp(svg);
+  const composites = [];
   if (image) {
+    const mask = Buffer.from(`
+      <svg width="${width}" height="${imageHeight}" xmlns="http://www.w3.org/2000/svg">
+        <path d="${imageClipPath}" fill="#fff"/>
+      </svg>
+    `);
     const resized = await sharp(image)
       .resize(width, imageHeight, { fit: "cover" })
+      .composite([{ input: mask, blend: "dest-in" }])
       .png()
       .toBuffer();
-    base.composite([{ input: resized, top: 0, left: 0 }]);
+    composites.push({ input: resized, top: 0, left: 0 });
   }
+  const border = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="none" stroke="#aa772c" stroke-width="${borderWidth}"/>
+    </svg>
+  `);
+  composites.push({ input: border, top: 0, left: 0 });
   const filename = path.join(renderDir, `popup-${index + 1}.png`);
-  await base.png().toFile(filename);
+  await base.composite(composites).png().toFile(filename);
   return filename;
 };
 
@@ -170,7 +288,7 @@ const createZoomMarker = async (scene, index, effect = "marker", layer = 0) => {
     120,
     Math.max(16, Number(scene.zoomMarkerSize ?? 28) * (1 + layer * 0.18)),
   );
-  const coreSize = Math.round(requestedSize * 2.75);
+  const coreSize = Math.round(requestedSize * previewScale);
   const canvasSize = Math.max(96, Math.round(coreSize * 2.6));
   const center = canvasSize / 2;
   const radius = coreSize / 2;
@@ -209,21 +327,35 @@ const getActiveMarkerEffects = (scene) => {
   return legacyEffect === "none" ? [] : [legacyEffect];
 };
 
-const background = await resolveImage(project.background, "background");
-const uploadedFallbackBackground = path.join(sourceDir, "map.png");
-const defaultFallbackBackground = path.join(defaultSourceDir, "map.png");
-let fallbackBackground = uploadedFallbackBackground;
-try {
-  await fs.access(uploadedFallbackBackground);
-} catch {
-  fallbackBackground = defaultFallbackBackground;
-}
-const backgroundPath = background ?? fallbackBackground;
-await fs.access(backgroundPath);
+const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
+await sharp({
+  create: {
+    width: 2,
+    height: 2,
+    channels: 3,
+    background: "#e8deca",
+  },
+}).png().toFile(hiddenBackgroundPath);
+
+const needsDefaultBackground = scenes.some(
+  (scene) => scene.backgroundVisible !== false && !String(scene.background ?? "").trim(),
+);
+const background = needsDefaultBackground && project.background
+  ? await resolveImage(project.background, "background", true)
+  : null;
+const backgroundPath = background ?? hiddenBackgroundPath;
 
 const clipPaths = [];
 for (let index = 0; index < scenes.length; index += 1) {
   const scene = scenes[index];
+  const sceneBackground = scene.backgroundVisible === false
+    ? hiddenBackgroundPath
+    : String(scene.background ?? "").trim()
+      ? await resolveImage(scene.background, `scene-${index + 1}-background`, true)
+      : backgroundPath;
+  if (!sceneBackground) {
+    throw new Error(`Không tìm thấy background cho cảnh ${index + 1}: ${scene.background || "map.png"}`);
+  }
   const end = scenes[index + 1]?.start ?? project.duration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
@@ -255,34 +387,85 @@ for (let index = 0; index < scenes.length; index += 1) {
   );
   const popupEnd = Math.min(duration, popupStart + Number(scene.popupDuration ?? duration));
   const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
+  const popupVisible = scene.popupVisible !== false;
+  const popupIn = scene.popupIn ?? "fade-slide-up";
+  const popupOut = scene.popupOut ?? "fade-slide-down";
+  const popupInProgress = `(t-${popupStart})/${transition}`;
+  const popupOutProgress = `(t-${popupEnd - transition})/${transition}`;
+  const popupScaleStart = (effect) => ({
+    "fade-slide-up": "0.92",
+    "fade-slide-down": "0.92",
+    "zoom-soft": "0.68",
+    bounce: "0.82",
+    flip: "0.86",
+  }[effect] ?? "1");
+  const popupScaleIn = (effect) => ({
+    "fade-slide-up": `0.92+0.08*(${popupInProgress})`,
+    "zoom-soft": `0.68+0.32*(${popupInProgress})`,
+    bounce: `if(lt(${popupInProgress},0.65),0.82+0.22*(${popupInProgress})/0.65,1.04-0.04*((${popupInProgress})-0.65)/0.35)`,
+    flip: `0.86+0.14*(${popupInProgress})`,
+  }[effect] ?? "1");
+  const popupScaleOut = (effect) => ({
+    "fade-slide-down": `1-0.08*(${popupOutProgress})`,
+    "zoom-soft": `1-0.32*(${popupOutProgress})`,
+    bounce: `if(lt(${popupOutProgress},0.35),1+0.03*(${popupOutProgress})/0.35,1.03-0.23*((${popupOutProgress})-0.35)/0.65)`,
+    flip: `1-0.14*(${popupOutProgress})`,
+  }[effect] ?? "1");
+  const popupScale =
+    `if(lt(t,${popupStart}),${popupScaleStart(popupIn)},` +
+    `if(lt(t,${popupStart + transition}),${popupScaleIn(popupIn)},` +
+    `if(gt(t,${popupEnd - transition}),${popupScaleOut(popupOut)},1)))`;
+  const popupAngle =
+    `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
+    `if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
+    `if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
   const popupCenterX = "(main_w-overlay_w)/2";
-  const openingX = scene.popupIn === "slide-left"
+  const openingX = popupIn === "slide-left"
     ? `if(lt(t,${popupStart + transition}),-overlay_w+(${popupCenterX}+overlay_w)*(t-${popupStart})/${transition},${popupCenterX})`
-    : scene.popupIn === "slide-right"
+    : popupIn === "slide-right"
       ? `if(lt(t,${popupStart + transition}),main_w-(main_w-${popupCenterX})*(t-${popupStart})/${transition},${popupCenterX})`
       : popupCenterX;
-  const closingX = scene.popupOut === "slide-left"
+  const closingX = popupOut === "slide-left"
     ? `if(gt(t,${popupEnd - transition}),${popupCenterX}-(${popupCenterX}+overlay_w)*(t-${popupEnd - transition})/${transition},${openingX})`
-    : scene.popupOut === "slide-right"
+    : popupOut === "slide-right"
       ? `if(gt(t,${popupEnd - transition}),${popupCenterX}+(main_w-${popupCenterX})*(t-${popupEnd - transition})/${transition},${openingX})`
       : openingX;
-  const centerYExpression = "(main_h-overlay_h)*0.58";
-  const popupY = scene.popupIn === "fade-slide-up" || scene.popupOut === "fade-slide-down"
-    ? `if(lt(t,${popupStart + transition}),${centerYExpression}+90*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+90*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
+  const popupBottom = Math.round(outputHeight * (55 / PREVIEW_REFERENCE_HEIGHT));
+  const popupSlideDistance = Math.round(previewPx(52));
+  const bounceInDistance = Math.round(previewPx(70));
+  const bouncePeak = Math.round(previewPx(12));
+  const bounceOutPeak = Math.round(previewPx(13));
+  const bounceOutDistance = Math.round(previewPx(75));
+  const centerYExpression = `main_h-overlay_h-${popupBottom}`;
+  const popupY = popupIn === "bounce"
+    ? `if(lt(t,${popupStart + transition}),${centerYExpression}+if(lt(${popupInProgress},0.65),${bounceInDistance}-${bounceInDistance + bouncePeak}*(${popupInProgress})/0.65,-${bouncePeak}*(1-(${popupInProgress}-0.65)/0.35)),${centerYExpression})`
+    : popupOut === "bounce"
+      ? `if(gt(t,${popupEnd - transition}),${centerYExpression}+if(lt(${popupOutProgress},0.35),-${bounceOutPeak}*(${popupOutProgress})/0.35,-${bounceOutPeak}+${bounceOutPeak + bounceOutDistance}*((${popupOutProgress})-0.35)/0.65),${centerYExpression})`
+      : popupIn === "fade-slide-up" || popupOut === "fade-slide-down"
+    ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
     : centerYExpression;
   const zoomExpression =
     `if(lt(on,${zoomStartFrames}),1,` +
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
   let filter =
-    `[0:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,` +
+    `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
     `zoompan=z='${zoomExpression}':` +
     `x='iw*${centerX}*(1-1/zoom)':` +
     `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=1080x1920:fps=${fps}:d=${frames},setsar=1[bg];` +
-    `[1:v]format=rgba,fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
-    `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
-    `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[composed]`;
+    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  if (popupVisible) {
+    filter +=
+      `[1:v]format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +
+      (popupIn === "flip" || popupOut === "flip"
+        ? `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`
+        : "") +
+      `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,` +
+      `fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[pop];` +
+      `[bg][pop]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'[composed]`;
+  } else {
+    filter += "[bg]copy[composed]";
+  }
   markerEffects.forEach((markerEffect, markerIndex) => {
     const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
     const markerInput = 2 + markerIndex;
@@ -291,10 +474,8 @@ for (let index = 0; index < scenes.length; index += 1) {
       ? "v"
       : `composed_marker_${markerIndex}`;
     const markerScale = markerEffect === "glow"
-      ? `1+0.13*sin(2*PI*t/${markerDuration})`
-      : markerEffect === "soft-fade"
-        ? `1+0.06*sin(2*PI*t/${markerDuration})`
-        : "1";
+      ? `1+0.09*(1-cos(PI*t/${markerDuration}))`
+      : "1";
     const markerEnable = markerEffect === "blink"
       ? `lt(mod(t,${markerDuration}),${markerDuration * 0.56})`
       : "1";
@@ -319,7 +500,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   });
   const args = [
     "-y",
-    "-loop", "1", "-i", backgroundPath,
+    "-loop", "1", "-i", sceneBackground,
     "-loop", "1", "-i", popup,
   ];
   markers.forEach((marker) => {
@@ -336,7 +517,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-map", markers.length > 0 ? "[v]" : "[composed]",
   );
   if (voice) {
-    args.push("-map", `${audioInputIndex}:a:0`, "-af", `adelay=${Math.round(popupStart * 1000)}:all=1,apad`);
+    args.push("-map", `${audioInputIndex}:a:0`, "-af", "volume=0.95,apad");
   } else {
     args.push("-map", `${audioInputIndex}:a:0`);
   }
@@ -359,7 +540,10 @@ await fs.writeFile(
   concatFile,
   clipPaths.map((item) => `file '${item.replaceAll("'", "'\\''")}'`).join("\n"),
 );
-const narrationVideo = project.backgroundMusic
+const music = project.backgroundMusic
+  ? await resolveAudio(project.backgroundMusic, true)
+  : null;
+const narrationVideo = music
   ? path.join(renderDir, "narration-video.mp4")
   : outputPath;
 await run(ffmpeg, [
@@ -372,7 +556,6 @@ await run(ffmpeg, [
   narrationVideo,
 ]);
 
-const music = await resolveAudio(project.backgroundMusic);
 if (music) {
   await run(ffmpeg, [
     "-y",

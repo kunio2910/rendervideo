@@ -54,14 +54,21 @@ const runJob = async (job, project, files) => {
     job.status = "rendering";
     job.message = `Đang dựng 0/${project.scenes?.length || 0} cảnh`;
 
+    const rendererArgs = [
+      ...(process.allowedNodeEnvironmentFlags.has("--use-system-ca") ? ["--use-system-ca"] : []),
+      path.join(root, "scripts", "render-video.mjs"),
+      job.projectPath,
+      job.outputPath,
+    ];
     const child = spawn(
       process.execPath,
-      [path.join(root, "scripts", "render-video.mjs"), job.projectPath, job.outputPath],
+      rendererArgs,
       {
         cwd: root,
         windowsHide: true,
         env: {
           ...process.env,
+          NODE_USE_SYSTEM_CA: process.env.NODE_USE_SYSTEM_CA || "1",
           FFMPEG_PATH: ffmpegPath,
           RENDER_SOURCE_DIR: job.sourceDir,
           RENDER_WORK_DIR: job.renderDir,

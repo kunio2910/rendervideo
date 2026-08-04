@@ -66,3 +66,24 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });
+
+test("keeps preview and FFmpeg render settings aligned", async () => {
+  const [page, css, renderer, localServer] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/render-video.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/local-render-server.mjs", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /assetPreviewUrls/);
+  assert.match(page, /imageVisible: imageEnabled/);
+  assert.match(page, /fps: renderFps/);
+  assert.match(page, /transitionDuration: playing \? "0ms"/);
+  assert.match(css, /transform-origin: center bottom/);
+  assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
+  assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
+  assert.match(renderer, /volume=0\.95,apad/);
+  assert.doesNotMatch(renderer, /adelay=/);
+  assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
+  assert.match(localServer, /--use-system-ca/);
+});
