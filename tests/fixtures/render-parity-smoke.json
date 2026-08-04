@@ -3,19 +3,13 @@
   "duration": 2,
   "resolution": "720x1280",
   "fps": 24,
-  "background": "map.png",
+  "background": "render-map.png",
   "scenes": [
     {
       "milestone": 1,
       "title": "Kiểm tra đồng bộ",
       "start": 0,
       "end": 2,
-      "zoomStart": 0.2,
-      "zoomInDuration": 0.4,
-      "zoomOutDuration": 0.4,
-      "zoom": 1.25,
-      "centerX": 42,
-      "centerY": 38,
       "body": "Popup, background và chuyển động phải nằm đúng vị trí như trong khung xem thử.",
       "imageVisible": true,
       "backgroundVisible": true,
@@ -25,16 +19,7 @@
       "popupOut": "fade-slide-down",
       "popupWidth": 90,
       "popupHeight": 255,
-      "popupVisible": true,
-      "zoomEnabled": true,
-      "zoomMarkerEnabled": true,
-      "zoomMarkerEffects": {
-        "glow": true,
-        "blink": false,
-        "soft-fade": false
-      },
-      "zoomMarkerDuration": 1,
-      "zoomMarkerSize": 40
+      "popupVisible": true
     }
   ]
 }

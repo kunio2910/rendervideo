@@ -288,50 +288,6 @@ const createPopup = async (scene, index) => {
   return filename;
 };
 
-const createZoomMarker = async (scene, index, effect = "marker", layer = 0) => {
-  const requestedSize = Math.min(
-    120,
-    Math.max(16, Number(scene.zoomMarkerSize ?? 28) * (1 + layer * 0.18)),
-  );
-  const coreSize = Math.round(requestedSize * previewScale);
-  const canvasSize = Math.max(96, Math.round(coreSize * 2.6));
-  const center = canvasSize / 2;
-  const radius = coreSize / 2;
-  const glowRadius = radius * 1.75;
-  const svg = Buffer.from(`
-    <svg width="${canvasSize}" height="${canvasSize}" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <radialGradient id="markerFill" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#fff2b8" stop-opacity=".98"/>
-          <stop offset="32%" stop-color="#ffc45d" stop-opacity=".9"/>
-          <stop offset="70%" stop-color="#e89b28" stop-opacity=".52"/>
-          <stop offset="100%" stop-color="#d88317" stop-opacity="0"/>
-        </radialGradient>
-        <filter id="markerGlow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur stdDeviation="${Math.max(5, radius * 0.28)}"/>
-        </filter>
-      </defs>
-      <circle cx="${center}" cy="${center}" r="${glowRadius}" fill="#eaa033" fill-opacity=".42" filter="url(#markerGlow)"/>
-      <circle cx="${center}" cy="${center}" r="${radius}" fill="url(#markerFill)"/>
-      <circle cx="${center}" cy="${center}" r="${Math.max(3, radius * 0.22)}" fill="#fff7d8" fill-opacity=".98"/>
-    </svg>
-  `);
-  const filename = path.join(renderDir, `zoom-marker-${index + 1}-${effect}.png`);
-  await sharp(svg).png().toFile(filename);
-  return filename;
-};
-
-const getActiveMarkerEffects = (scene) => {
-  if (scene.zoomMarkerEnabled === false) return [];
-  if (scene.zoomMarkerEffects) {
-    return ["glow", "blink", "soft-fade"].filter(
-      (effect) => scene.zoomMarkerEffects[effect] === true,
-    );
-  }
-  const legacyEffect = scene.zoomMarkerEffect ?? "glow";
-  return legacyEffect === "none" ? [] : [legacyEffect];
-};
-
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
 await sharp({
   create: {
@@ -364,39 +320,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   const end = scenes[index + 1]?.start ?? timelineDuration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
-  const markerEffects = getActiveMarkerEffects(scene);
-  const markers = await Promise.all(
-    markerEffects.map((effect, markerIndex) =>
-      createZoomMarker(scene, index, effect, markerIndex),
-    ),
-  );
   const voice = await resolveVoice(scene, index);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
-  const frames = Math.round(duration * fps);
-  const zoomStartFrames = Math.min(
-    frames,
-    Math.max(0, Math.round(Number(scene.zoomStart ?? 0) * fps)),
-  );
-  const zoomInFrames = Math.max(1, Math.round((scene.zoomInDuration ?? 0) * fps));
-  const zoomOutFrames = Math.max(1, Math.round((scene.zoomOutDuration ?? 0) * fps));
-  const zoomInEnd = Math.min(frames, zoomStartFrames + zoomInFrames);
-  const zoomOutStart = Math.max(zoomInEnd, frames - zoomOutFrames);
-  const targetZoom = scene.zoomEnabled === false
-    ? 1
-    : Math.max(1, Number(scene.zoom ?? 1));
-  const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
-  const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
-  const markerCenterX = Math.min(
-    100,
-    Math.max(0, Number(scene.zoomMarkerCenterX ?? scene.centerX ?? 50)),
-  ) / 100;
-  const markerCenterY = Math.min(
-    100,
-    Math.max(0, Number(scene.zoomMarkerCenterY ?? scene.centerY ?? 50)),
-  ) / 100;
   const popupStart = Math.min(
     duration,
-    Math.max(0, Number(scene.popupStart ?? scene.zoomInDuration ?? 0)),
+    Math.max(0, Number(scene.popupStart ?? 0)),
   );
   const popupEnd = Math.min(duration, popupStart + Number(scene.popupDuration ?? duration));
   const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
@@ -457,16 +385,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       : popupIn === "fade-slide-up" || popupOut === "fade-slide-down"
     ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
     : centerYExpression;
-  const zoomExpression =
-    `if(lt(on,${zoomStartFrames}),1,` +
-    `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
-    `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
   let filter =
     `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-    `zoompan=z='${zoomExpression}':` +
-    `x='iw*${centerX}*(1-1/zoom)':` +
-    `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+    `scale=${outputWidth}:${outputHeight},setsar=1[bg];`;
   if (popupVisible) {
     filter +=
       `[1:v]format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +
@@ -479,47 +400,12 @@ for (let index = 0; index < scenes.length; index += 1) {
   } else {
     filter += "[bg]copy[composed]";
   }
-  markerEffects.forEach((markerEffect, markerIndex) => {
-    const markerDuration = Math.max(0.2, Number(scene.zoomMarkerDuration ?? 1));
-    const markerInput = 2 + markerIndex;
-    const inputVideo = markerIndex === 0 ? "composed" : `composed_marker_${markerIndex - 1}`;
-    const outputVideo = markerIndex === markerEffects.length - 1
-      ? "v"
-      : `composed_marker_${markerIndex}`;
-    const markerScale = markerEffect === "glow"
-      ? `1+0.09*(1-cos(PI*t/${markerDuration}))`
-      : "1";
-    const markerEnable = markerEffect === "blink"
-      ? `lt(mod(t,${markerDuration}),${markerDuration * 0.56})`
-      : "1";
-    const markerAlpha = markerEffect === "soft-fade"
-      ? Array.from(
-          { length: Math.ceil(duration / markerDuration) },
-          (_, cycle) => {
-            const start = cycle * markerDuration;
-            const half = markerDuration / 2;
-            return `,fade=t=out:st=${start}:d=${half}:alpha=1` +
-              `,fade=t=in:st=${start + half}:d=${half}:alpha=1`;
-          },
-        ).join("")
-      : "";
-    filter +=
-      `;[${markerInput}:v]format=rgba,` +
-      `scale=w='iw*(${markerScale})':h='ih*(${markerScale})':eval=frame${markerAlpha}[marker_${markerIndex}];` +
-      `[${inputVideo}][marker_${markerIndex}]overlay=` +
-      `x='main_w*${markerCenterX}-overlay_w/2':` +
-      `y='main_h*${markerCenterY}-overlay_h/2':` +
-      `enable='${markerEnable}'[${outputVideo}]`;
-  });
   const args = [
     "-y",
     "-loop", "1", "-i", sceneBackground,
     "-loop", "1", "-i", popup,
   ];
-  markers.forEach((marker) => {
-    args.push("-loop", "1", "-i", marker);
-  });
-  const audioInputIndex = 2 + markers.length;
+  const audioInputIndex = 2;
   if (voice) {
     args.push("-i", voice);
   } else {
@@ -527,7 +413,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   args.push(
     "-filter_complex", filter,
-    "-map", markers.length > 0 ? "[v]" : "[composed]",
+    "-map", "[composed]",
   );
   const audioFilter = voice
     ? "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=0.95,apad"

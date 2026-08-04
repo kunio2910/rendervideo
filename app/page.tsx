@@ -24,29 +24,15 @@ type Scene = {
   background?: string;
   start: number;
   end: number;
-  zoomInDuration: number;
   popupDuration: number;
-  zoomOutDuration: number;
-  zoom: number;
-  centerX: number;
-  centerY: number;
-  zoomMarkerCenterX?: number;
-  zoomMarkerCenterY?: number;
   voiceFile: string;
   popupIn: string;
   popupOut: string;
-  zoomStart?: number;
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
   popupVisible?: boolean;
   backgroundVisible?: boolean;
-  zoomEnabled?: boolean;
-  zoomMarkerEnabled?: boolean;
-  zoomMarkerEffect?: "none" | "glow" | "blink" | "soft-fade";
-  zoomMarkerEffects?: Partial<Record<"glow" | "blink" | "soft-fade", boolean>>;
-  zoomMarkerDuration?: number;
-  zoomMarkerSize?: number;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -63,24 +49,13 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   background: "",
   start,
   end: start + 5,
-  zoomInDuration: 1,
-  zoomStart: 0,
   popupDuration: 3,
-  popupStart: 1,
-  zoomOutDuration: 1,
-  zoom: 2,
-  centerX: 50,
-  centerY: 50,
-  zoomMarkerCenterX: 61,
-  zoomMarkerCenterY: 56,
+  popupStart: 0.5,
   voiceFile: "",
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
   popupVisible: true,
   backgroundVisible: true,
-  zoomEnabled: true,
-  zoomMarkerEnabled: true,
-  zoomMarkerEffects: { glow: true, blink: false, "soft-fade": false },
   status: "Nháp",
 });
 
@@ -250,8 +225,6 @@ type EditorSectionState = {
   visual: boolean;
   content: boolean;
   audio: boolean;
-  motion: boolean;
-  effects: boolean;
 };
 
 type StudioTab = "compose" | "export";
@@ -260,87 +233,17 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
   content: true,
   audio: true,
-  motion: true,
-  effects: true,
 };
-
-const MARKER_EFFECT_OPTIONS = [
-  { key: "glow", label: "Phát sáng", description: "Vòng tròn phát sáng theo nhịp." },
-  { key: "blink", label: "Nhấp nháy", description: "Vòng tròn bật tắt liên tục." },
-  { key: "soft-fade", label: "Làm mờ", description: "Vòng tròn mờ dần rồi hiện lại." },
-] as const;
-
-type MarkerEffectKey = (typeof MARKER_EFFECT_OPTIONS)[number]["key"];
-
-const DEFAULT_MARKER_EFFECT_SETTINGS: Record<MarkerEffectKey, boolean> = {
-  glow: true,
-  blink: false,
-  "soft-fade": false,
-};
-
-type MarkerEffectSettingsInput = Partial<Record<MarkerEffectKey, unknown>>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const normalizeMarkerEffectSettings = (value: unknown): Record<MarkerEffectKey, boolean> => {
-  const configured = isRecord(value) ? value as MarkerEffectSettingsInput : {};
-  return {
-    glow: configured.glow === true,
-    blink: configured.blink === true,
-    "soft-fade": configured["soft-fade"] === true,
-  };
-};
-
-const clampPercent = (value: unknown, fallback = 50) => {
-  const numeric = value === null || value === undefined ? Number.NaN : Number(value);
-  return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
-};
-
-const getZoomMarkerPosition = (scene: Scene) => {
-  const cameraX = clampPercent(scene.centerX);
-  const cameraY = clampPercent(scene.centerY);
-  const fallbackX = clampPercent(cameraX + (cameraX > 65 ? -11 : 11));
-  const fallbackY = clampPercent(cameraY + (cameraY > 70 ? -6 : 6));
-  return {
-    x: clampPercent(scene.zoomMarkerCenterX, fallbackX),
-    y: clampPercent(scene.zoomMarkerCenterY, fallbackY),
-  };
-};
-
-const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
-  const configured = scene.zoomMarkerEffects;
-  if (!isRecord(configured)) {
-    if (scene.zoomMarkerEffect === "none") {
-      return { glow: false, blink: false, "soft-fade": false };
-    }
-    if (scene.zoomMarkerEffect) {
-      return MARKER_EFFECT_OPTIONS.reduce(
-        (settings, option) => ({
-          ...settings,
-          [option.key]: option.key === scene.zoomMarkerEffect,
-        }),
-        {} as Record<MarkerEffectKey, boolean>,
-      );
-    }
-    return { ...DEFAULT_MARKER_EFFECT_SETTINGS };
-  }
-  return normalizeMarkerEffectSettings(configured);
-};
-
-const getActiveMarkerEffects = (scene: Scene) => {
-  if (scene.zoomMarkerEnabled === false) return [] as MarkerEffectKey[];
-  const settings = getMarkerEffectSettings(scene);
-  return MARKER_EFFECT_OPTIONS
-    .filter((option) => settings[option.key])
-    .map((option) => option.key);
-};
-
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
 ): EditorSectionState => ({
-  ...DEFAULT_EDITOR_SECTIONS,
-  ...sections,
+  visual: sections?.visual ?? DEFAULT_EDITOR_SECTIONS.visual,
+  content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
+  audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
 });
 
 const ensureUniqueSceneIds = (items?: Scene[]) => {
@@ -354,22 +257,20 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
-    const markerPosition = getZoomMarkerPosition(item);
+    const cleanItem = Object.fromEntries(
+      Object.entries(item).filter(([key]) => {
+        const normalizedKey = key.toLowerCase();
+        return !normalizedKey.startsWith("zoom") && normalizedKey !== "centerx" && normalizedKey !== "centery";
+      }),
+    ) as Scene;
     return {
-      ...item,
+      ...cleanItem,
       id,
       title: String(item.title ?? `Cảnh ${index + 1}`),
       narration: String(item.narration ?? ""),
       popup: String(item.popup ?? ""),
-      centerX: clampPercent(item.centerX),
-      centerY: clampPercent(item.centerY),
-      zoomMarkerCenterX: markerPosition.x,
-      zoomMarkerCenterY: markerPosition.y,
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
-      zoomEnabled: item.zoomEnabled === false ? false : true,
-      zoomMarkerEnabled: item.zoomMarkerEnabled === false ? false : true,
-      zoomMarkerEffects: normalizeMarkerEffectSettings(item.zoomMarkerEffects),
     };
   });
 };
@@ -396,7 +297,7 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
           <span className="studio-error-kicker">KITO VIDEO STUDIO</span>
           <h1>Không thể hiển thị khu vực biên soạn</h1>
           <p>
-            Dữ liệu hiệu ứng của cảnh hiện tại không hợp lệ hoặc chưa tải xong.
+            Dữ liệu cảnh hiện tại không hợp lệ hoặc chưa tải xong.
             Hãy tải lại để lấy lại dữ liệu từ Google Sheet.
           </p>
           <button type="button" className="button primary" onClick={() => window.location.reload()}>
@@ -463,7 +364,6 @@ function Home() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
   const [showLocalRenderer, setShowLocalRenderer] = useState(false);
-  const [showZoomSetup, setShowZoomSetup] = useState(false);
   const [jsonPreviewCleared, setJsonPreviewCleared] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
@@ -477,7 +377,6 @@ function Home() {
     progress: 0,
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
-  const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -488,14 +387,10 @@ function Home() {
     }
     return savedTheme === "dark" ? "dark" : "light";
   });
-  const [mapPreviewZoom, setMapPreviewZoom] = useState<Record<string, number>>({});
-  const [mapFocused, setMapFocused] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(245);
   const animationFrame = useRef<number | null>(null);
-  const previewRef = useRef<HTMLDivElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
-  const zoomCenterMoved = useRef(false);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
   const historySnapshot = useRef("");
@@ -532,40 +427,9 @@ function Home() {
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
-  const editingMapScale = mapPreviewZoom[scene.id] ?? 1;
-  const zoomEnabled = scene.zoomEnabled !== false;
-  const zoomStartTime = Math.min(
-    sceneDuration,
-    Math.max(0, Number(scene.zoomStart ?? 0)),
-  );
-  const zoomInEndTime = Math.min(
-    sceneDuration,
-    zoomStartTime + Math.max(0, scene.zoomInDuration),
-  );
-  const playbackMapScale = (() => {
-    if (!zoomEnabled) return 1;
-    if (!playing) return editingMapScale;
-    if (sceneLocalTime < zoomStartTime) return 1;
-    if (scene.zoomInDuration > 0 && sceneLocalTime < zoomInEndTime) {
-      const progress = (sceneLocalTime - zoomStartTime) / scene.zoomInDuration;
-      return 1 + (scene.zoom - 1) * progress;
-    }
-    const zoomOutStart = Math.max(
-      zoomInEndTime,
-      sceneDuration - scene.zoomOutDuration,
-    );
-    if (scene.zoomOutDuration > 0 && sceneLocalTime > zoomOutStart) {
-      const progress = Math.min(
-        1,
-        (sceneLocalTime - zoomOutStart) / scene.zoomOutDuration,
-      );
-      return scene.zoom - (scene.zoom - 1) * progress;
-    }
-    return scene.zoom;
-  })();
   const popupStartTime = Math.min(
     sceneDuration,
-    Math.max(0, Number(scene.popupStart ?? scene.zoomInDuration)),
+    Math.max(0, Number(scene.popupStart ?? 0)),
   );
   const popupEndTime = Math.min(sceneDuration, popupStartTime + scene.popupDuration);
   const popupTransitionDuration = Math.min(0.65, scene.popupDuration / 3);
@@ -580,10 +444,6 @@ function Home() {
     scene.popupVisible !== false &&
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
-  const zoomMarkerEnabled = scene.zoomMarkerEnabled !== false;
-  const zoomMarkerPosition = getZoomMarkerPosition(scene);
-  const markerEffectSettings = getMarkerEffectSettings(scene);
-  const activeMarkerEffects = getActiveMarkerEffects(scene);
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -762,44 +622,6 @@ function Home() {
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
   }, [theme]);
-
-  useEffect(() => {
-    const preview = previewRef.current;
-    if (!preview) return;
-
-    const handleWheel = (event: WheelEvent) => {
-      if (!mapFocused || playing || !zoomEnabled) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      setMapPreviewZoom((items) => {
-        const currentZoom = items[selectedId] ?? 1;
-        const direction = event.deltaY < 0 ? 0.1 : -0.1;
-        const nextZoom = Number(
-          Math.min(4, Math.max(1, currentZoom + direction)).toFixed(1),
-        );
-        setScenes((sceneItems) =>
-          sceneItems.map((item) =>
-            item.id === selectedId ? { ...item, zoom: nextZoom } : item,
-          ),
-        );
-        return { ...items, [selectedId]: nextZoom };
-      });
-    };
-
-    preview.addEventListener("wheel", handleWheel, { passive: false });
-    return () => preview.removeEventListener("wheel", handleWheel);
-  }, [selectedId, playing, mapFocused, scene.zoomEnabled]);
-
-  useEffect(() => {
-    const handleOutsidePointer = (event: PointerEvent) => {
-      if (!previewRef.current?.contains(event.target as Node)) {
-        setMapFocused(false);
-      }
-    };
-    document.addEventListener("pointerdown", handleOutsidePointer);
-    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
-  }, []);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -1041,7 +863,7 @@ function Home() {
 
   const openTimelineEditor = (
     item: Scene | null,
-    targetId: "editor-camera" | "editor-popup" | "editor-audio" | "editor-music",
+    targetId: "editor-popup" | "editor-audio" | "editor-music",
   ) => {
     if (item) {
       setSelectedId(item.id);
@@ -1237,7 +1059,7 @@ function Home() {
         if (!targetIds.has(item.id)) return item;
         const duration = Math.max(0.1, item.end - item.start);
         const popupStart = Math.min(
-          Math.max(0, Number(item.popupStart ?? item.zoomInDuration) || 0),
+          Math.max(0, Number(item.popupStart ?? 0) || 0),
           Math.max(0, duration - 0.1),
         );
         const nextDuration = Math.min(
@@ -1250,63 +1072,6 @@ function Home() {
           popupDuration: Number(nextDuration.toFixed(2)),
         };
       }),
-    );
-  };
-
-  const updateZoomStart = (value: number) => {
-    const targetIds = new Set(
-      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
-    );
-    setScenes((items) =>
-      items.map((item) => {
-        if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const maxStart = Math.max(0, duration - Math.max(0, item.zoomInDuration));
-        return {
-          ...item,
-          zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
-        };
-      }),
-    );
-  };
-
-  const updateMarkerEffectEnabled = (effect: MarkerEffectKey, enabled: boolean) => {
-    const targetIds = new Set(
-      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
-    );
-    setScenes((items) =>
-      items.map((item) => {
-        if (!targetIds.has(item.id)) return item;
-        return {
-          ...item,
-          zoomMarkerEffects: {
-            ...getMarkerEffectSettings(item),
-            [effect]: enabled,
-          },
-          zoomMarkerEffect: enabled ? effect : item.zoomMarkerEffect,
-        };
-      }),
-    );
-  };
-
-  const setMarkerEffectSelection = (effect: "none" | MarkerEffectKey) => {
-    const settings = MARKER_EFFECT_OPTIONS.reduce(
-      (next, option) => ({ ...next, [option.key]: option.key === effect }),
-      {} as Record<MarkerEffectKey, boolean>,
-    );
-    const targetIds = new Set(
-      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
-    );
-    setScenes((items) =>
-      items.map((item) =>
-        targetIds.has(item.id)
-          ? {
-              ...item,
-              zoomMarkerEffects: settings,
-              zoomMarkerEffect: effect,
-            }
-          : item,
-      ),
     );
   };
 
@@ -1393,20 +1158,8 @@ function Home() {
       backgroundVisible: true,
       start: last.end,
       end: last.end + 3,
-      zoomInDuration: 0.5,
       popupDuration: 2,
       popupStart: 0.5,
-      zoomOutDuration: 0.5,
-      zoom: 2,
-      zoomStart: 0,
-      centerX: 50,
-      centerY: 50,
-      zoomMarkerCenterX: 61,
-      zoomMarkerCenterY: 56,
-      zoomEnabled: true,
-      zoomMarkerEnabled: true,
-      zoomMarkerEffect: "glow",
-      zoomMarkerEffects: { ...DEFAULT_MARKER_EFFECT_SETTINGS },
       voiceFile: "",
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
@@ -1427,9 +1180,6 @@ function Home() {
     const copied: Scene = {
       ...source,
       id: `scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      zoomMarkerEffects: source.zoomMarkerEffects
-        ? { ...source.zoomMarkerEffects }
-        : undefined,
     };
     const nextScenes = [...scenes];
     nextScenes.splice(insertIndex, 0, copied);
@@ -1447,9 +1197,6 @@ function Home() {
     if (!scene) return;
     setClipboardScene({
       ...scene,
-      zoomMarkerEffects: scene.zoomMarkerEffects
-        ? { ...scene.zoomMarkerEffects }
-        : undefined,
     });
     setToast("Đã sao chép cảnh");
     window.setTimeout(() => setToast(""), 2200);
@@ -1526,59 +1273,6 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startMapPointDrag = (
-    event: React.PointerEvent<HTMLDivElement>,
-    target: "camera" | "marker",
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const preview = event.currentTarget.closest(".phone-preview");
-    if (!(preview instanceof HTMLElement)) return;
-    const bounds = preview.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    zoomCenterMoved.current = false;
-    setDraggingZoomCenter(true);
-
-    const move = (moveEvent: PointerEvent) => {
-      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 4) {
-        zoomCenterMoved.current = true;
-      }
-      const centerX = Math.min(
-        100,
-        Math.max(0, ((moveEvent.clientX - bounds.left) / bounds.width) * 100),
-      );
-      const centerY = Math.min(
-        100,
-        Math.max(0, ((moveEvent.clientY - bounds.top) / bounds.height) * 100),
-      );
-      setScenes((items) =>
-        items.map((item) =>
-          item.id === selectedId
-            ? target === "camera"
-              ? {
-                  ...item,
-                  centerX: Number(centerX.toFixed(1)),
-                  centerY: Number(centerY.toFixed(1)),
-                }
-              : {
-                  ...item,
-                  zoomMarkerCenterX: Number(centerX.toFixed(1)),
-                  zoomMarkerCenterY: Number(centerY.toFixed(1)),
-                }
-            : item,
-        ),
-      );
-    };
-    const stop = () => {
-      setDraggingZoomCenter(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -1589,59 +1283,6 @@ function Home() {
         Math.max(220, startHeight + startY - moveEvent.clientY),
       );
       setTimelineHeight(Math.round(nextHeight));
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-
-  const startTimelineEdgeDrag = (
-    event: React.PointerEvent<HTMLSpanElement>,
-    sceneId: string,
-    edge: "start" | "end",
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const track = event.currentTarget.closest(".track-content");
-    if (!(track instanceof HTMLElement)) return;
-    const bounds = track.getBoundingClientRect();
-    const originalScene = scenes.find((item) => item.id === sceneId);
-    const originalIndex = scenes.findIndex((item) => item.id === sceneId);
-    if (!originalScene || originalIndex < 0) return;
-    if (edge === "start" && originalIndex === 0) return;
-    const originalBoundary = edge === "start" ? originalScene.start : originalScene.end;
-
-    const move = (moveEvent: PointerEvent) => {
-      const delta = ((moveEvent.clientX - event.clientX) / Math.max(1, bounds.width)) * projectDuration;
-      const desiredBoundary = originalBoundary + delta;
-      setScenes((items) => {
-        const index = items.findIndex((item) => item.id === sceneId);
-        if (index < 0) return items;
-        const current = items[index];
-        const previous = items[index - 1];
-        const next = items[index + 1];
-        const minimumDuration = 0.1;
-        const minimum = edge === "start"
-          ? (previous?.end ?? 0) + minimumDuration
-          : current.start + minimumDuration;
-        const maximum = edge === "start"
-          ? current.end - minimumDuration
-          : (next?.end ?? projectDuration) - minimumDuration;
-        const boundary = Number(Math.min(maximum, Math.max(minimum, desiredBoundary)).toFixed(2));
-        return items.map((item, itemIndex) => {
-          if (edge === "start") {
-            if (itemIndex === index - 1) return { ...item, end: boundary };
-            if (itemIndex === index) return { ...item, start: boundary };
-          } else {
-            if (itemIndex === index) return { ...item, end: boundary };
-            if (itemIndex === index + 1) return { ...item, start: boundary };
-          }
-          return item;
-        });
-      });
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -1666,7 +1307,7 @@ function Home() {
     if (!originalScene || bounds.width <= 0) return;
     const sceneDuration = Math.max(0.1, originalScene.end - originalScene.start);
     const originalStart = Math.min(
-      Math.max(0, Number(originalScene.popupStart ?? originalScene.zoomInDuration) || 0),
+      Math.max(0, Number(originalScene.popupStart ?? 0) || 0),
       sceneDuration,
     );
     const originalDuration = Math.min(
@@ -1736,22 +1377,13 @@ function Home() {
           const image = imageEnabled ? assetReference(item.image) : "";
           const sceneBackground = assetReference(item.background ?? "");
           const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
-          const markerPosition = getZoomMarkerPosition(item);
           return {
             milestone: item.number,
             title: item.title,
             start: item.start,
             end: item.end,
-            zoomStart: item.zoomStart ?? 0,
-            zoomInDuration: item.zoomInDuration,
             popupDuration: item.popupDuration,
-            popupStart: item.popupStart ?? item.zoomInDuration,
-            zoomOutDuration: item.zoomOutDuration,
-            zoom: item.zoom,
-            centerX: item.centerX,
-            centerY: item.centerY,
-            zoomMarkerCenterX: markerPosition.x,
-            zoomMarkerCenterY: markerPosition.y,
+            popupStart: item.popupStart ?? 0,
             body: item.popup,
             imageVisible: imageEnabled,
             ...(sceneBackground ? { background: sceneBackground } : {}),
@@ -1764,12 +1396,6 @@ function Home() {
             popupWidth: item.popupWidth ?? 90,
             popupHeight: item.popupHeight ?? 255,
             popupVisible: item.popupVisible !== false,
-            zoomEnabled: item.zoomEnabled !== false,
-            zoomMarkerEnabled: item.zoomMarkerEnabled !== false,
-            zoomMarkerEffect: item.zoomMarkerEffect ?? "none",
-            zoomMarkerEffects: getMarkerEffectSettings(item),
-            zoomMarkerDuration: item.zoomMarkerDuration ?? 1,
-            zoomMarkerSize: item.zoomMarkerSize ?? 28,
           };
         }),
       };
@@ -2036,10 +1662,6 @@ function Home() {
     const scenePrompts = exportPayload.scenes.map((item, index) => {
       const nextStart = exportPayload.scenes[index + 1]?.start ?? projectDuration;
       const sceneDuration = Math.max(0, nextStart - item.start);
-      const markerEffects = MARKER_EFFECT_OPTIONS
-        .filter((option) => item.zoomMarkerEffects[option.key])
-        .map((option) => option.label)
-        .join(", ");
       return [
         `CẢNH ${item.milestone}: ${item.title}`,
         `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
@@ -2048,9 +1670,6 @@ function Home() {
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
-        `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
-        `- Vòng tròn cột mốc: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; vị trí X=${item.zoomMarkerCenterX}%, Y=${item.zoomMarkerCenterY}%; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
-        `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
@@ -2062,15 +1681,15 @@ function Home() {
       `Chủ đề: ${exportPayload.title}.`,
       `Background chủ đề: ${projectBackground}${projectBackground !== "Không có" ? ` (tên file: ${fileNameOnly(projectBackground)})` : ""}.`,
       `Nhạc nền: ${musicFile}.`,
-      "Phong cách chuyển động điện ảnh, camera mượt, bố cục dễ đọc và giữ hình ảnh nhất quán giữa các cảnh.",
-      "Không tự tạo thêm chữ trong hình nền. Đồng bộ popup, chuyển động camera và lời thuyết minh theo timeline dưới đây.",
+      "Phong cách chuyển động điện ảnh, bố cục dễ đọc và giữ hình ảnh nhất quán giữa các cảnh.",
+      "Không tự tạo thêm chữ trong hình nền. Đồng bộ popup và lời thuyết minh theo timeline dưới đây.",
       "",
       ...scenePrompts.flatMap((prompt) => [prompt, ""]),
       "YÊU CẦU KỸ THUẬT",
       `- Xuất video ${exportPayload.resolution}, tỷ lệ 9:16, thời lượng chính xác ${exportPayload.duration} giây.`,
       "- Không cắt đột ngột file âm thanh; giảm âm lượng nhạc nền khi có thuyết minh.",
       "- Chỉ sử dụng đúng tên file hình ảnh và âm thanh được liệt kê trong từng cảnh.",
-      "- Không để hiệu ứng camera hoặc popup vượt quá thời lượng cảnh.",
+      "- Không để hiệu ứng popup vượt quá thời lượng cảnh.",
     ].join("\n");
   }, [exportPayload, projectDuration]);
 
@@ -2428,23 +2047,13 @@ function Home() {
               <span className="time-pill">{formatTime(scene.start)}</span>
             </div>
           </div>
-          <div
-            ref={previewRef}
-            tabIndex={0}
-            onPointerDown={() => setMapFocused(true)}
-            className={`phone-preview ${playing ? "is-playing" : ""} ${mapFocused ? "map-focused" : ""} ${draggingZoomCenter ? "dragging-zoom-center" : ""}`}
-          >
+          <div className={`phone-preview ${playing ? "is-playing" : ""}`}>
             {scene.backgroundVisible !== false && backgroundPreviewSource && (
               <img
                 className="project-background"
                 src={backgroundPreviewSource}
                 alt=""
                 aria-hidden="true"
-                style={{
-                  transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                  transform: `scale(${playbackMapScale})`,
-                  transitionDuration: playing ? "0ms" : `${scene.zoomInDuration}s`,
-                }}
               />
             )}
             {playing && (
@@ -2452,54 +2061,8 @@ function Home() {
                 <i /> ĐANG PHÁT
               </div>
             )}
-            {!playing && zoomEnabled && (
-              <div
-                className="zoom-camera-target"
-                style={{
-                  left: `${scene.centerX}%`,
-                  top: `${scene.centerY}%`,
-                }}
-                title="Kéo để chọn vị trí zoom camera"
-                onPointerDown={(event) => startMapPointDrag(event, "camera")}
-              >
-                <span />
-              </div>
-            )}
-            {activeMarkerEffects.map((effect, markerIndex) => (
-              <div
-                key={effect}
-                className={`zoom-center-marker marker-effect-${effect}`}
-                style={{
-                  left: `${zoomMarkerPosition.x}%`,
-                  top: `${zoomMarkerPosition.y}%`,
-                  ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
-                  ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
-                }}
-                title={`Vòng tròn cột mốc ${zoomMarkerPosition.x}%, ${zoomMarkerPosition.y}% · Click để chỉnh hiệu ứng`}
-                onPointerDown={(event) => startMapPointDrag(event, "marker")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!zoomCenterMoved.current) setShowZoomSetup(true);
-                  zoomCenterMoved.current = false;
-                }}
-              >
-                <span />
-              </div>
-            ))}
             <div className="preview-progress">
               <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
-            </div>
-            <div className="map-zoom-badge">
-              {Math.round(playbackMapScale * 100)}%
-              <small>
-                {playing
-                  ? `Đang phát · ${sceneLocalTime.toFixed(1)}s`
-                  : !zoomEnabled
-                    ? "Zoom camera đang tắt"
-                  : mapFocused
-                    ? "Đã focus · Lăn chuột để zoom"
-                    : "Click bản đồ để bật zoom"}
-              </small>
             </div>
             {popupPlaybackVisible && (
               <article
@@ -2556,8 +2119,6 @@ function Home() {
                     visual: shouldOpen,
                     content: shouldOpen,
                     audio: shouldOpen,
-                    motion: shouldOpen,
-                    effects: shouldOpen,
                   });
                 }}
               >
@@ -2787,95 +2348,10 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
-              open={editorSections.motion}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  motion: open,
-                }));
-              }}
+              open={editorSections.content}
             >
-              <summary className="editor-group-label"><span>04</span> Chuyển động <i /></summary>
+              <summary className="editor-group-label"><span>04</span> Popup <i /></summary>
               <div className="editor-accordion-content">
-            <div className="motion-settings-card" id="editor-camera">
-              <div className="motion-settings-title">
-                <strong>Zoom camera</strong>
-                <span>Xem thử dùng đúng các thông số này</span>
-              </div>
-              <label className="zoom-effect-toggle motion-toggle">
-                <input
-                  type="checkbox"
-                  checked={zoomEnabled}
-                  disabled={!hydrated}
-                  onChange={(event) => updateScene("zoomEnabled", event.target.checked)}
-                />
-                <span aria-hidden="true" />
-                <span>Bật hiệu ứng zoom camera</span>
-              </label>
-              <div className="field-row motion-field-row">
-                <label className="field">
-                  <span>Mức zoom</span>
-                  <div className="number-with-unit">
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      step="0.05"
-                      value={scene.zoom}
-                      disabled={!zoomEnabled}
-                      onChange={(event) => updateScene("zoom", Number(event.target.value))}
-                    />
-                    <b>×</b>
-                  </div>
-                </label>
-                <label className="field">
-                  <span>Thời gian zoom tới mức đó</span>
-                  <div className="number-with-unit">
-                    <input
-                      type="number"
-                      min="0"
-                      max={sceneDuration}
-                      step="0.1"
-                      value={scene.zoomInDuration}
-                      disabled={!zoomEnabled}
-                      onChange={(event) => updateScene("zoomInDuration", Number(event.target.value))}
-                    />
-                    <b>giây</b>
-                  </div>
-                </label>
-              </div>
-              <label className="field">
-                <span>Thời gian bắt đầu hiệu ứng zoom</span>
-                <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max={Math.max(0, sceneDuration - scene.zoomInDuration)}
-                    step="0.1"
-                    value={scene.zoomStart ?? 0}
-                    disabled={!zoomEnabled}
-                    onChange={(event) => updateZoomStart(Number(event.target.value))}
-                  />
-                  <b>giây</b>
-                </div>
-              </label>
-              <label className="field">
-                <span>Thời gian thu camera về</span>
-                <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max={sceneDuration}
-                    step="0.1"
-                    value={scene.zoomOutDuration}
-                    disabled={!zoomEnabled}
-                    onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
-                  />
-                  <b>giây</b>
-                </div>
-              </label>
-            </div>
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
                 <strong>Popup</strong>
@@ -2889,7 +2365,7 @@ function Home() {
                     min="0"
                     max={Math.max(0, sceneDuration - 0.1)}
                     step="0.1"
-                    value={scene.popupStart ?? scene.zoomInDuration}
+                    value={scene.popupStart ?? 0}
                     onChange={(event) => updatePopupStart(Number(event.target.value))}
                   />
                   <b>giây</b>
@@ -2951,83 +2427,6 @@ function Home() {
               </div>
             </div>
             </div>
-            </details>
-            <details
-              className="editor-accordion"
-              open={editorSections.effects}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  effects: open,
-                }));
-              }}
-            >
-              <summary className="editor-group-label"><span>05</span> Hiệu ứng <i /></summary>
-              <div className="editor-accordion-content effects-editor-content">
-                <label className="zoom-effect-toggle" id="editor-effects">
-                  <input
-                    type="checkbox"
-                    checked={zoomMarkerEnabled}
-                    disabled={!hydrated}
-                    onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
-                  />
-                  <span aria-hidden="true" />
-                  <span>Hiển thị hiệu ứng vòng tròn cột mốc</span>
-                </label>
-                <div className="effect-options">
-                  {MARKER_EFFECT_OPTIONS.map((option) => (
-                    <label className="effect-option" key={option.key}>
-                      <span className={`effect-option-preview effect-option-preview-${option.key}`} aria-hidden="true">
-                        <i />
-                      </span>
-                      <span className="effect-option-copy">
-                        <strong>{option.label}</strong>
-                        <small>{option.description}</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={zoomMarkerEnabled && markerEffectSettings[option.key]}
-                        disabled={!zoomMarkerEnabled}
-                        onChange={(event) => updateMarkerEffectEnabled(option.key, event.target.checked)}
-                      />
-                      <span className="effect-option-switch" aria-hidden="true" />
-                    </label>
-                  ))}
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>Thời gian chu kỳ</span>
-                    <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="0.2"
-                        max="10"
-                        step="0.1"
-                        value={scene.zoomMarkerDuration ?? 1}
-                        disabled={!zoomMarkerEnabled}
-                        onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
-                      />
-                      <b>giây</b>
-                    </div>
-                  </label>
-                  <label className="field">
-                    <span>Kích thước vòng tròn</span>
-                    <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="16"
-                        max="120"
-                        step="1"
-                        value={scene.zoomMarkerSize ?? 28}
-                        disabled={!zoomMarkerEnabled}
-                        onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
-                      />
-                      <b>px</b>
-                    </div>
-                  </label>
-                </div>
-              </div>
             </details>
           </div>
         </aside>
@@ -3107,47 +2506,13 @@ function Home() {
             </div>
           </div>
           <div className="track">
-            <strong>Camera</strong>
-            <div className="track-content grid">
-              {scenes.map((item, index) => (
-                <button
-                  key={item.id}
-                  className={`clip camera-clip ${index % 2 ? "camera-b" : "camera-a"} ${!playing && item.id === selectedId ? "selected" : ""}`}
-                  onClick={() => openTimelineEditor(item, "editor-camera")}
-                  style={{
-                    left: `${(item.start / projectDuration) * 100}%`,
-                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
-                  }}
-                >
-                  {index > 0 && (
-                    <span
-                      className="timeline-edge-handle timeline-edge-start"
-                      title="Kéo để đổi điểm bắt đầu cảnh"
-                      aria-label="Điểm bắt đầu cảnh"
-                      onPointerDown={(event) => startTimelineEdgeDrag(event, item.id, "start")}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  )}
-                  <span className="timeline-clip-label">Zoom {item.zoom}× · bắt đầu {item.zoomStart ?? 0}s</span>
-                  <span
-                    className="timeline-edge-handle timeline-edge-end"
-                    title="Kéo để đổi điểm kết thúc cảnh"
-                    aria-label="Điểm kết thúc cảnh"
-                    onPointerDown={(event) => startTimelineEdgeDrag(event, item.id, "end")}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="track">
             <strong>Popup</strong>
             <div className="track-content grid">
               {scenes.filter((item) => item.popupVisible !== false).map((item) => {
                 const sceneLength = Math.max(0.1, item.end - item.start);
                 const popupStart = Math.min(
                   sceneLength,
-                  Math.max(0, Number(item.popupStart ?? item.zoomInDuration) || 0),
+                  Math.max(0, Number(item.popupStart ?? 0) || 0),
                 );
                 const popupDuration = Math.min(
                   Math.max(0.1, Number(item.popupDuration) || 0.1),
@@ -3603,104 +2968,6 @@ function Home() {
                   {localRenderState.status === "rendering" ? "Đang render…" : "Bắt đầu render"}
                 </button>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-      {showZoomSetup && (
-        <div className="modal-backdrop zoom-setup-backdrop" onMouseDown={() => setShowZoomSetup(false)}>
-          <div className="project-modal zoom-setup-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="prompt-modal-heading">
-              <div>
-                <span className="modal-kicker">TÂM ZOOM</span>
-                <h2>Thiết lập hiệu ứng</h2>
-                <p>Chọn hiệu ứng cho vòng tròn tâm zoom của cảnh “{scene.title}”.</p>
-              </div>
-              <button className="prompt-close" aria-label="Đóng" onClick={() => setShowZoomSetup(false)}>×</button>
-            </div>
-            <div className="zoom-effect-preview">
-              {activeMarkerEffects.length > 0 ? (
-                activeMarkerEffects.map((effect, markerIndex) => (
-                  <div
-                    key={effect}
-                    className={`zoom-center-marker marker-effect-${effect}`}
-                    style={{
-                      ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
-                      ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
-                    }}
-                  >
-                    <span />
-                  </div>
-                ))
-              ) : (
-                <span className="zoom-effect-disabled-preview">Vòng tròn đang tắt</span>
-              )}
-            </div>
-            <label className="zoom-effect-toggle">
-              <input
-                type="checkbox"
-                checked={zoomMarkerEnabled}
-                onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
-              />
-              <span aria-hidden="true" />
-              <span>Hiển thị vòng tròn hiệu ứng khi xem thử</span>
-            </label>
-            <label className="field">
-              <span>Hiệu ứng vòng tròn</span>
-              <select
-                value={activeMarkerEffects[0] ?? "none"}
-                disabled={!zoomMarkerEnabled}
-                onChange={(event) => setMarkerEffectSelection(event.target.value as "none" | MarkerEffectKey)}
-              >
-                <option value="none">Không hiệu ứng</option>
-                <option value="glow">Phát sáng</option>
-                <option value="blink">Nhấp nháy</option>
-                <option value="soft-fade">Làm mờ</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Thời gian một chu kỳ hiệu ứng</span>
-              <div className="number-with-unit">
-                <input
-                  type="number"
-                  min="0.2"
-                  max="10"
-                  step="0.1"
-                  value={scene.zoomMarkerDuration ?? 1}
-                  disabled={!zoomMarkerEnabled}
-                  onChange={(event) => updateScene("zoomMarkerDuration", Number(event.target.value))}
-                />
-                <b>giây</b>
-              </div>
-            </label>
-            <label className="field">
-              <span>Kích thước vòng tròn</span>
-              <div className="zoom-marker-size-control">
-                <input
-                  type="range"
-                  min="16"
-                  max="120"
-                  step="1"
-                  value={scene.zoomMarkerSize ?? 28}
-                  disabled={!zoomMarkerEnabled}
-                  onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
-                />
-                <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="16"
-                    max="120"
-                    step="1"
-                    value={scene.zoomMarkerSize ?? 28}
-                    disabled={!zoomMarkerEnabled}
-                    onChange={(event) => updateScene("zoomMarkerSize", Number(event.target.value))}
-                  />
-                  <b>px</b>
-                </div>
-              </div>
-            </label>
-            <div className="modal-actions">
-              <button className="button primary" onClick={() => setShowZoomSetup(false)}>Hoàn tất</button>
             </div>
           </div>
         </div>
