@@ -2008,6 +2008,7 @@ body {
   display: none;
 }
 .phone-preview > .zoom-center-marker {
+  z-index: 8;
   pointer-events: auto;
   cursor: grab;
   touch-action: none;
