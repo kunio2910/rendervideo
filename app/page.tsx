@@ -1187,6 +1187,7 @@ function Home() {
   };
 
   const updateScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
+    if (!hydrated) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
@@ -1196,6 +1197,7 @@ function Home() {
   };
 
   const updateCurrentScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
+    if (!hydrated) return;
     setScenes((items) =>
       items.map((item) => (item.id === selectedId ? { ...item, [key]: value } : item)),
     );
@@ -2541,7 +2543,7 @@ function Home() {
           </div>
         </section>
 
-        <aside className="editor-panel">
+        <aside className={`editor-panel ${!hydrated ? "is-loading" : ""}`}>
           <div className="panel-heading">
             <h2>Biên soạn</h2>
             <div className="editor-heading-actions">
@@ -2805,6 +2807,7 @@ function Home() {
                 <input
                   type="checkbox"
                   checked={zoomEnabled}
+                  disabled={!hydrated}
                   onChange={(event) => updateScene("zoomEnabled", event.target.checked)}
                 />
                 <span aria-hidden="true" />
@@ -2966,6 +2969,7 @@ function Home() {
                   <input
                     type="checkbox"
                     checked={zoomMarkerEnabled}
+                    disabled={!hydrated}
                     onChange={(event) => updateScene("zoomMarkerEnabled", event.target.checked)}
                   />
                   <span aria-hidden="true" />

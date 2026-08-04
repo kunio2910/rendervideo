@@ -61,6 +61,11 @@ body {
   line-height: 1.6;
 }
 
+.editor-panel.is-loading {
+  pointer-events: none;
+  opacity: .68;
+}
+
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 
