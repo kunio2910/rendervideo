@@ -22,6 +22,8 @@ type Scene = {
   zoom: number;
   centerX: number;
   centerY: number;
+  zoomMarkerCenterX?: number;
+  zoomMarkerCenterY?: number;
   voiceFile: string;
   popupIn: string;
   popupOut: string;
@@ -62,6 +64,8 @@ const initialScenes: Scene[] = [
     zoom: 2.25,
     centerX: 20.6,
     centerY: 10.7,
+    zoomMarkerCenterX: 31.6,
+    zoomMarkerCenterY: 16.7,
     voiceFile: "audio/milestone-1.mp3",
     popupIn: "fade-slide-up",
     popupOut: "fade-slide-down",
@@ -88,6 +92,8 @@ const initialScenes: Scene[] = [
     zoom: 2.1,
     centerX: 45.2,
     centerY: 38.5,
+    zoomMarkerCenterX: 56.2,
+    zoomMarkerCenterY: 44.5,
     voiceFile: "audio/milestone-2.mp3",
     popupIn: "fade-slide-up",
     popupOut: "fade-slide-down",
@@ -113,6 +119,8 @@ const initialScenes: Scene[] = [
     zoom: 1.8,
     centerX: 72.4,
     centerY: 61.3,
+    zoomMarkerCenterX: 61.4,
+    zoomMarkerCenterY: 67.3,
     voiceFile: "audio/milestone-3.mp3",
     popupIn: "fade-slide-up",
     popupOut: "fade-slide-down",
@@ -312,6 +320,22 @@ const DEFAULT_MARKER_EFFECT_SETTINGS: Record<MarkerEffectKey, boolean> = {
   "soft-fade": false,
 };
 
+const clampPercent = (value: unknown, fallback = 50) => {
+  const numeric = value === null || value === undefined ? Number.NaN : Number(value);
+  return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const getZoomMarkerPosition = (scene: Scene) => {
+  const cameraX = clampPercent(scene.centerX);
+  const cameraY = clampPercent(scene.centerY);
+  const fallbackX = clampPercent(cameraX + (cameraX > 65 ? -11 : 11));
+  const fallbackY = clampPercent(cameraY + (cameraY > 70 ? -6 : 6));
+  return {
+    x: clampPercent(scene.zoomMarkerCenterX, fallbackX),
+    y: clampPercent(scene.zoomMarkerCenterY, fallbackY),
+  };
+};
+
 const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
   const configured = scene.zoomMarkerEffects;
   if (!configured) {
@@ -355,9 +379,9 @@ const normalizeEditorSections = (
   ...sections,
 });
 
-const ensureUniqueSceneIds = (items: Scene[]) => {
+const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
-  return items.map((item, index) => {
+  return (Array.isArray(items) ? items : []).map((item, index) => {
     let id = item.id || `scene-${index + 1}`;
     let suffix = 2;
     while (used.has(id)) {
@@ -365,9 +389,17 @@ const ensureUniqueSceneIds = (items: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
+    const markerPosition = getZoomMarkerPosition(item);
     return {
       ...item,
       id,
+      title: String(item.title ?? `Cảnh ${index + 1}`),
+      narration: String(item.narration ?? ""),
+      popup: String(item.popup ?? ""),
+      centerX: clampPercent(item.centerX),
+      centerY: clampPercent(item.centerY),
+      zoomMarkerCenterX: markerPosition.x,
+      zoomMarkerCenterY: markerPosition.y,
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
       zoomEnabled: item.zoomEnabled ?? true,
@@ -464,8 +496,8 @@ export default function Home() {
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
 
-  const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0];
-  const totalDuration = Math.max(...scenes.map((item) => item.end));
+  const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
+  const totalDuration = Math.max(0, ...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
@@ -541,6 +573,7 @@ export default function Home() {
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
   const zoomMarkerEnabled = scene.zoomMarkerEnabled !== false;
+  const zoomMarkerPosition = getZoomMarkerPosition(scene);
   const markerEffectSettings = getMarkerEffectSettings(scene);
   const activeMarkerEffects = getActiveMarkerEffects(scene);
 
@@ -596,7 +629,8 @@ export default function Home() {
       if (current) URL.revokeObjectURL(current);
       return "";
     });
-    const restoredScenes = ensureUniqueSceneIds(project.scenes).map((item) => ({
+    const normalizedScenes = ensureUniqueSceneIds(project.scenes);
+    const restoredScenes = (normalizedScenes.length ? normalizedScenes : ensureUniqueSceneIds(initialScenes)).map((item) => ({
       ...item,
       backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
     }));
@@ -1331,7 +1365,7 @@ export default function Home() {
   };
 
   const addScene = () => {
-    const last = scenes.at(-1)!;
+    const last = scenes.at(-1) ?? initialScenes[0];
     const number = scenes.length + 1;
     const next: Scene = {
       id: `scene-${Date.now().toString(36)}-${number}`,
@@ -1355,6 +1389,8 @@ export default function Home() {
       zoomStart: 0,
       centerX: 50,
       centerY: 50,
+      zoomMarkerCenterX: 61,
+      zoomMarkerCenterY: 56,
       zoomEnabled: true,
       zoomMarkerEnabled: true,
       zoomMarkerEffect: "glow",
@@ -1477,7 +1513,10 @@ export default function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startZoomCenterDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const startMapPointDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    target: "camera" | "marker",
+  ) => {
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -1503,11 +1542,17 @@ export default function Home() {
       setScenes((items) =>
         items.map((item) =>
           item.id === selectedId
-            ? {
-                ...item,
-                centerX: Number(centerX.toFixed(1)),
-                centerY: Number(centerY.toFixed(1)),
-              }
+            ? target === "camera"
+              ? {
+                  ...item,
+                  centerX: Number(centerX.toFixed(1)),
+                  centerY: Number(centerY.toFixed(1)),
+                }
+              : {
+                  ...item,
+                  zoomMarkerCenterX: Number(centerX.toFixed(1)),
+                  zoomMarkerCenterY: Number(centerY.toFixed(1)),
+                }
             : item,
         ),
       );
@@ -1678,6 +1723,7 @@ export default function Home() {
           const image = imageEnabled ? assetReference(item.image) : "";
           const sceneBackground = assetReference(item.background ?? "");
           const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
+          const markerPosition = getZoomMarkerPosition(item);
           return {
             milestone: item.number,
             title: item.title,
@@ -1691,6 +1737,8 @@ export default function Home() {
             zoom: item.zoom,
             centerX: item.centerX,
             centerY: item.centerY,
+            zoomMarkerCenterX: markerPosition.x,
+            zoomMarkerCenterY: markerPosition.y,
             body: item.popup,
             imageVisible: imageEnabled,
             ...(sceneBackground ? { background: sceneBackground } : {}),
@@ -1987,7 +2035,7 @@ export default function Home() {
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Camera: hiệu ứng zoom ${item.zoomEnabled ? "bật" : "tắt"}; ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, zoom từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, ` : "giữ ở 1x, "}tâm zoom X=${item.centerX}%, Y=${item.centerY}%, sau đó thu về trong ${item.zoomOutDuration}s.`,
-        `- Vòng tròn tâm zoom: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
+        `- Vòng tròn cột mốc: ${item.zoomMarkerEnabled && markerEffects ? "bật" : "tắt"}; vị trí X=${item.zoomMarkerCenterX}%, Y=${item.zoomMarkerCenterY}%; hiệu ứng "${markerEffects || "không có"}", chu kỳ ${item.zoomMarkerDuration}s.`,
         `- Kích thước vòng tròn tâm zoom: ${item.zoomMarkerSize}px.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
@@ -2398,7 +2446,7 @@ export default function Home() {
                   top: `${scene.centerY}%`,
                 }}
                 title="Kéo để chọn vị trí zoom camera"
-                onPointerDown={startZoomCenterDrag}
+                onPointerDown={(event) => startMapPointDrag(event, "camera")}
               >
                 <span />
               </div>
@@ -2408,15 +2456,13 @@ export default function Home() {
                 key={effect}
                 className={`zoom-center-marker marker-effect-${effect}`}
                 style={{
-                  left: `${scene.centerX}%`,
-                  top: `${scene.centerY}%`,
-                  ["--marker-offset-x" as string]: scene.centerX > 62 ? "-34px" : "34px",
-                  ["--marker-offset-y" as string]: scene.centerY > 65 ? "-34px" : "34px",
+                  left: `${zoomMarkerPosition.x}%`,
+                  top: `${zoomMarkerPosition.y}%`,
                   ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
                   ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
                 }}
-                title={`Tâm zoom ${scene.centerX}%, ${scene.centerY}% · Click để chỉnh hiệu ứng`}
-                onPointerDown={startZoomCenterDrag}
+                title={`Vòng tròn cột mốc ${zoomMarkerPosition.x}%, ${zoomMarkerPosition.y}% · Click để chỉnh hiệu ứng`}
+                onPointerDown={(event) => startMapPointDrag(event, "marker")}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!zoomCenterMoved.current) setShowZoomSetup(true);
