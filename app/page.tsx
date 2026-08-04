@@ -2410,6 +2410,8 @@ export default function Home() {
                 style={{
                   left: `${scene.centerX}%`,
                   top: `${scene.centerY}%`,
+                  ["--marker-offset-x" as string]: scene.centerX > 62 ? "-34px" : "34px",
+                  ["--marker-offset-y" as string]: scene.centerY > 65 ? "-34px" : "34px",
                   ["--marker-effect-duration" as string]: `${scene.zoomMarkerDuration ?? 1}s`,
                   ["--marker-size" as string]: `${(scene.zoomMarkerSize ?? 28) * (1 + markerIndex * 0.18)}px`,
                 }}
