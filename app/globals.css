@@ -336,7 +336,10 @@ button { color: inherit; }
   border-radius: 50%;
   background: rgba(35,137,255,.9);
   box-shadow: 0 5px 16px rgba(8,73,145,.35);
-  transform: translate(-50%, -50%);
+  transform: translate(
+    calc(-50% + var(--marker-offset-x, 0px)),
+    calc(-50% + var(--marker-offset-y, 0px))
+  );
   pointer-events: none;
 }
 .zoom-center-marker::before,
@@ -2004,6 +2007,22 @@ body {
   width: var(--marker-size, 28px);
   height: var(--marker-size, 28px);
 }
+.phone-preview > .zoom-center-marker {
+  --marker-offset-x: 34px;
+  --marker-offset-y: 34px;
+}
+.phone-preview.is-playing > .zoom-camera-target {
+  display: none;
+}
+.phone-preview.is-playing > .zoom-center-marker {
+  --marker-offset-x: 0px;
+  --marker-offset-y: 0px;
+}
+.zoom-effect-preview .zoom-center-marker {
+  --marker-offset-x: 0px;
+  --marker-offset-y: 0px;
+  transform: translate(0, 0);
+}
 .marker-effect-glow {
   border-color: transparent;
   animation: marker-glow var(--marker-effect-duration, 1s) ease-in-out infinite alternate;
@@ -2015,8 +2034,20 @@ body {
   animation: marker-soft-fade var(--marker-effect-duration, 1s) ease-in-out infinite alternate;
 }
 @keyframes marker-glow {
-  from { filter: drop-shadow(0 0 1px rgba(255,193,79,.35)); transform: translate(-50%, -50%) scale(1); }
-  to { filter: drop-shadow(0 0 14px rgba(255,193,79,1)); transform: translate(-50%, -50%) scale(1.18); }
+  from {
+    filter: drop-shadow(0 0 1px rgba(255,193,79,.35));
+    transform: translate(
+      calc(-50% + var(--marker-offset-x, 0px)),
+      calc(-50% + var(--marker-offset-y, 0px))
+    ) scale(1);
+  }
+  to {
+    filter: drop-shadow(0 0 14px rgba(255,193,79,1));
+    transform: translate(
+      calc(-50% + var(--marker-offset-x, 0px)),
+      calc(-50% + var(--marker-offset-y, 0px))
+    ) scale(1.18);
+  }
 }
 @keyframes marker-blink {
   0%, 45% { opacity: 1; }

@@ -60,6 +60,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /DEFAULT_MARKER_EFFECT_SETTINGS/);
   assert.match(page, /zoomMarkerEnabled: true/);
   assert.match(page, /getMarkerEffectSettings\(item\)/);
+  assert.match(page, /--marker-offset-x/);
+  assert.match(css, /phone-preview\.is-playing > \.zoom-camera-target/);
+  assert.match(css, /calc\(-50% \+ var\(--marker-offset-x/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
