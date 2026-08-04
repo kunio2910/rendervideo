@@ -2618,7 +2618,6 @@ body {
     0 22px 55px rgba(0,0,0,.36);
 }
 .phone-preview:not(.map-focused) .zoom-center-marker {
-  pointer-events: none;
   opacity: .58;
 }
 .phone-preview {
