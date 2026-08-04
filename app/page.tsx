@@ -25,6 +25,7 @@ type Scene = {
   start: number;
   end: number;
   zoomStart: number;
+  zoomEnd: number;
   zoomInDuration: number;
   zoomOutDuration: number;
   zoom: number;
@@ -57,6 +58,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   start,
   end: start + 5,
   zoomStart: 0,
+  zoomEnd: 5,
   zoomInDuration: 0.8,
   zoomOutDuration: 0.8,
   zoom: 1.25,
@@ -284,14 +286,26 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
+    const rawDuration = Number(item.end ?? 0) - Number(item.start ?? 0);
+    const sceneDuration = Number.isFinite(rawDuration) && rawDuration > 0
+      ? rawDuration
+      : 5;
+    const zoomStart = Math.min(sceneDuration, positiveNumber(item.zoomStart, 0));
+    const zoomInDuration = positiveNumber(item.zoomInDuration, 0.8, 0.1);
+    const zoomInEnd = Math.min(sceneDuration, zoomStart + zoomInDuration);
+    const zoomEnd = Math.min(
+      sceneDuration,
+      Math.max(zoomInEnd, positiveNumber(item.zoomEnd, sceneDuration)),
+    );
     return {
       ...item,
       id,
       title: String(item.title ?? `Cảnh ${index + 1}`),
       narration: String(item.narration ?? ""),
       popup: String(item.popup ?? ""),
-      zoomStart: positiveNumber(item.zoomStart, 0),
-      zoomInDuration: positiveNumber(item.zoomInDuration, 0.8, 0.1),
+      zoomStart,
+      zoomEnd,
+      zoomInDuration,
       zoomOutDuration: positiveNumber(item.zoomOutDuration, 0.8),
       zoom: Math.min(5, Math.max(1, positiveNumber(item.zoom, 1.25, 1))),
       centerX: clampPercent(item.centerX),
@@ -478,29 +492,38 @@ function Home() {
     sceneDuration,
     Math.max(0, Number(scene.zoomStart ?? 0)),
   );
+  const zoomInDuration = Math.max(0.1, Number(scene.zoomInDuration ?? 0.8) || 0.8);
   const zoomInEndTime = Math.min(
     sceneDuration,
-    zoomStartTime + Math.max(0, Number(scene.zoomInDuration ?? 0)),
+    zoomStartTime + zoomInDuration,
   );
+  const zoomEndTime = Math.min(
+    sceneDuration,
+    Math.max(
+      zoomInEndTime,
+      Number.isFinite(Number(scene.zoomEnd)) ? Number(scene.zoomEnd) : sceneDuration,
+    ),
+  );
+  const zoomOutDuration = Math.max(0, Number(scene.zoomOutDuration ?? 0.8) || 0);
   const playbackMapScale = (() => {
     if (!zoomEnabled) return 1;
     if (sceneLocalTime < zoomStartTime) return 1;
-    if (scene.zoomInDuration > 0 && sceneLocalTime < zoomInEndTime) {
-      const progress = (sceneLocalTime - zoomStartTime) / scene.zoomInDuration;
+    if (sceneLocalTime < zoomInEndTime) {
+      const progress = (sceneLocalTime - zoomStartTime) / zoomInDuration;
       return 1 + (scene.zoom - 1) * progress;
     }
     const zoomOutStart = Math.max(
       zoomInEndTime,
-      sceneDuration - scene.zoomOutDuration,
+      zoomEndTime - zoomOutDuration,
     );
-    if (scene.zoomOutDuration > 0 && sceneLocalTime > zoomOutStart) {
+    if (zoomOutDuration > 0 && sceneLocalTime < zoomEndTime && sceneLocalTime >= zoomOutStart) {
       const progress = Math.min(
         1,
-        (sceneLocalTime - zoomOutStart) / scene.zoomOutDuration,
+        (sceneLocalTime - zoomOutStart) / Math.max(0.1, zoomEndTime - zoomOutStart),
       );
       return scene.zoom - (scene.zoom - 1) * progress;
     }
-    return scene.zoom;
+    return sceneLocalTime < zoomEndTime ? scene.zoom : 1;
   })();
 
   const currentProject = useMemo<ProjectSnapshot>(
@@ -1141,10 +1164,55 @@ function Home() {
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
         const duration = Math.max(0.1, item.end - item.start);
-        const maxStart = Math.max(0, duration - Math.max(0.1, item.zoomInDuration));
+        const zoomEnd = Math.min(duration, Math.max(0, Number(item.zoomEnd ?? duration) || duration));
+        const maxStart = Math.max(0, zoomEnd - Math.max(0.1, item.zoomInDuration));
         return {
           ...item,
           zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
+        };
+      }),
+    );
+  };
+
+  const updateZoomEnd = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
+        const zoomInDuration = Math.max(0.1, Number(item.zoomInDuration) || 0.1);
+        const minimumEnd = Math.min(duration, zoomStart + zoomInDuration);
+        const numericValue = Number(value);
+        const requestedEnd = Number.isFinite(numericValue) ? numericValue : duration;
+        return {
+          ...item,
+          zoomEnd: Number(Math.min(duration, Math.max(minimumEnd, requestedEnd)).toFixed(2)),
+        };
+      }),
+    );
+  };
+
+  const updateZoomInDuration = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const zoomInDuration = Math.max(0.1, Number(value) || 0.1);
+        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
+        const zoomEnd = Math.min(
+          duration,
+          Math.max(zoomStart + zoomInDuration, Number(item.zoomEnd ?? duration) || duration),
+        );
+        return {
+          ...item,
+          zoomInDuration: Number(zoomInDuration.toFixed(2)),
+          zoomEnd: Number(zoomEnd.toFixed(2)),
         };
       }),
     );
@@ -1234,6 +1302,7 @@ function Home() {
       start: last.end,
       end: last.end + 3,
       zoomStart: 0,
+      zoomEnd: 3,
       zoomInDuration: 0.8,
       zoomOutDuration: 0.8,
       zoom: 1.25,
@@ -1498,6 +1567,7 @@ function Home() {
             start: item.start,
             end: item.end,
             zoomStart: item.zoomStart,
+            zoomEnd: item.zoomEnd,
             zoomInDuration: item.zoomInDuration,
             zoomOutDuration: item.zoomOutDuration,
             zoom: item.zoom,
@@ -1792,7 +1862,7 @@ function Home() {
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
-        `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, zoom ra trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
+        `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, đạt ${item.zoom}x trong ${item.zoomInDuration}s, kết thúc ở ${item.zoomEnd}s, zoom về trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
@@ -2550,6 +2620,21 @@ function Home() {
                       </div>
                     </label>
                     <label className="field">
+                      <span>Thời gian kết thúc zoom</span>
+                      <div className="number-with-unit">
+                        <input
+                          type="number"
+                          min={Math.min(sceneDuration, scene.zoomStart + scene.zoomInDuration)}
+                          max={sceneDuration}
+                          step="0.1"
+                          value={scene.zoomEnd}
+                          disabled={!zoomEnabled}
+                          onChange={(event) => updateZoomEnd(Number(event.target.value))}
+                        />
+                        <b>giây</b>
+                      </div>
+                    </label>
+                    <label className="field">
                       <span>Thời gian tới tỉ lệ đó</span>
                       <div className="number-with-unit">
                         <input
@@ -2559,7 +2644,7 @@ function Home() {
                           step="0.1"
                           value={scene.zoomInDuration}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateScene("zoomInDuration", Number(event.target.value))}
+                          onChange={(event) => updateZoomInDuration(Number(event.target.value))}
                         />
                         <b>giây</b>
                       </div>

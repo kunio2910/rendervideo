@@ -330,7 +330,16 @@ for (let index = 0; index < scenes.length; index += 1) {
   const zoomInFrames = Math.max(1, Math.round((scene.zoomInDuration ?? 0) * fps));
   const zoomOutFrames = Math.max(1, Math.round((scene.zoomOutDuration ?? 0) * fps));
   const zoomInEnd = Math.min(frames, zoomStartFrames + zoomInFrames);
-  const zoomOutStart = Math.max(zoomInEnd, frames - zoomOutFrames);
+  const zoomEndSeconds = Number(scene.zoomEnd);
+  const zoomEndFrames = Math.min(
+    frames,
+    Math.max(
+      zoomInEnd,
+      Math.round((Number.isFinite(zoomEndSeconds) ? zoomEndSeconds : duration) * fps),
+    ),
+  );
+  const zoomOutStart = Math.max(zoomInEnd, zoomEndFrames - zoomOutFrames);
+  const zoomOutSpan = Math.max(1, zoomEndFrames - zoomOutStart);
   const targetZoom = scene.zoomEnabled === false
     ? 1
     : Math.min(5, Math.max(1, Number(scene.zoom ?? 1)));
@@ -402,7 +411,8 @@ for (let index = 0; index < scenes.length; index += 1) {
   const zoomExpression =
     `if(lt(on,${zoomStartFrames}),1,` +
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
-    `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
+    `if(lt(on,${zoomOutStart}),${targetZoom},` +
+    `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
   let filter =
     `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
     `zoompan=z='${zoomExpression}':` +

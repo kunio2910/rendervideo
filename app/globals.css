@@ -4237,6 +4237,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overflow: clip;
 }
 
 .studio-shell[data-studio-tab="compose"] .compose-topbar {

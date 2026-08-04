@@ -59,7 +59,7 @@ có thể thay đổi theo màn hình nhưng chiều cao luôn được tính t�
 crop của `object-fit: cover` tương ứng với video `1080x1920`.
 
 Preview và renderer dùng cùng cách crop background `object-fit: cover` và cùng
-công thức zoom theo `centerX`, `centerY`, `zoom`, `zoomStart`,
+công thức zoom theo `centerX`, `centerY`, `zoom`, `zoomStart`, `zoomEnd`,
 `zoomInDuration`, `zoomOutDuration`.
 
 ### Vị trí lưu file sau khi render
@@ -273,8 +273,8 @@ Mỗi cảnh có các nhóm dữ liệu:
 
 - Nội dung: `title`, `location`, `reference`, `popup`, `narration`.
 - Timeline: `start`, `end`.
-- Zoom bản đồ: `zoomEnabled`, `zoomStart`, `zoom`, `zoomInDuration`,
-  `zoomOutDuration`, `centerX`, `centerY`.
+- Zoom bản đồ: `zoomEnabled`, `zoomStart`, `zoomEnd`, `zoom`,
+  `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
 - Popup: `popupStart`, `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
 - Media: `image`, `voiceFile`, `voice`.
@@ -298,6 +298,7 @@ Ví dụ rút gọn:
       "title": "Samuel xức dầu",
       "start": 0,
       "zoomStart": 0,
+      "zoomEnd": 5,
       "zoomInDuration": 1,
       "popupStart": 1,
       "popupDuration": 3,

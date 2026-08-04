@@ -56,9 +56,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
   assert.match(page, /Bật hiệu ứng zoom bản đồ/);
+  assert.match(page, /Thời gian kết thúc zoom/);
   assert.match(page, /zoom-focus-target/);
   assert.match(page, /startMapPointDrag/);
   assert.match(page, /zoomStart/);
+  assert.match(page, /zoomEnd/);
   assert.match(page, /zoomInDuration/);
   assert.match(page, /zoomOutDuration/);
   assert.match(page, /centerX/);
@@ -71,6 +73,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
   assert.match(css, /timeline-playhead-layer/);
+  assert.match(css, /overflow: clip/);
   assert.match(css, /playhead-grabber/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
@@ -96,6 +99,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /zoompan/);
   assert.match(renderer, /scene\.zoom/);
+  assert.match(renderer, /scene\.zoomEnd/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);
   assert.match(renderer, /timelineDuration = Math\.max/);
   assert.match(renderer, /aresample=async=1:first_pts=0/);

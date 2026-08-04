@@ -11,6 +11,7 @@
       "start": 0,
       "end": 2,
       "zoomStart": 0.2,
+      "zoomEnd": 1.8,
       "zoomInDuration": 0.4,
       "zoomOutDuration": 0.4,
       "zoom": 1.25,
