@@ -57,6 +57,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
   assert.match(page, /zoomStart/);
+  assert.match(page, /DEFAULT_MARKER_EFFECT_SETTINGS/);
+  assert.match(page, /zoomMarkerEnabled: true/);
+  assert.match(page, /getMarkerEffectSettings\(item\)/);
   assert.match(page, /event\.key === " "/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
