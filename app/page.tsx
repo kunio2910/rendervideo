@@ -306,8 +306,29 @@ const MARKER_EFFECT_OPTIONS = [
 
 type MarkerEffectKey = (typeof MARKER_EFFECT_OPTIONS)[number]["key"];
 
+const DEFAULT_MARKER_EFFECT_SETTINGS: Record<MarkerEffectKey, boolean> = {
+  glow: true,
+  blink: false,
+  "soft-fade": false,
+};
+
 const getMarkerEffectSettings = (scene: Scene): Record<MarkerEffectKey, boolean> => {
   const configured = scene.zoomMarkerEffects;
+  if (!configured) {
+    if (scene.zoomMarkerEffect === "none") {
+      return { glow: false, blink: false, "soft-fade": false };
+    }
+    if (scene.zoomMarkerEffect) {
+      return MARKER_EFFECT_OPTIONS.reduce(
+        (settings, option) => ({
+          ...settings,
+          [option.key]: option.key === scene.zoomMarkerEffect,
+        }),
+        {} as Record<MarkerEffectKey, boolean>,
+      );
+    }
+    return { ...DEFAULT_MARKER_EFFECT_SETTINGS };
+  }
   return MARKER_EFFECT_OPTIONS.reduce(
     (settings, option) => ({
       ...settings,
@@ -344,7 +365,14 @@ const ensureUniqueSceneIds = (items: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
-    return { ...item, id };
+    return {
+      ...item,
+      id,
+      popupVisible: item.popupVisible ?? true,
+      backgroundVisible: item.backgroundVisible ?? true,
+      zoomEnabled: item.zoomEnabled ?? true,
+      zoomMarkerEnabled: item.zoomMarkerEnabled ?? true,
+    };
   });
 };
 
@@ -1185,11 +1213,22 @@ export default function Home() {
   };
 
   const updateMarkerEffectEnabled = (effect: MarkerEffectKey, enabled: boolean) => {
-    const currentSettings = getMarkerEffectSettings(scene);
-    updateScene("zoomMarkerEffects", {
-      ...currentSettings,
-      [effect]: enabled,
-    });
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        return {
+          ...item,
+          zoomMarkerEffects: {
+            ...getMarkerEffectSettings(item),
+            [effect]: enabled,
+          },
+          zoomMarkerEffect: enabled ? effect : item.zoomMarkerEffect,
+        };
+      }),
+    );
   };
 
   const setMarkerEffectSelection = (effect: "none" | MarkerEffectKey) => {
@@ -1316,6 +1355,10 @@ export default function Home() {
       zoomStart: 0,
       centerX: 50,
       centerY: 50,
+      zoomEnabled: true,
+      zoomMarkerEnabled: true,
+      zoomMarkerEffect: "glow",
+      zoomMarkerEffects: { ...DEFAULT_MARKER_EFFECT_SETTINGS },
       voiceFile: "",
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
