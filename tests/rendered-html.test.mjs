@@ -57,6 +57,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
   assert.match(page, /zoomStart/);
+  assert.match(page, /renderDuration = Math\.max\(projectDuration, totalDuration\)/);
   assert.match(page, /DEFAULT_MARKER_EFFECT_SETTINGS/);
   assert.match(page, /zoomMarkerEnabled: true/);
   assert.match(page, /getMarkerEffectSettings\(item\)/);
@@ -94,7 +95,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /scene\.zoomMarkerCenterX/);
   assert.match(renderer, /main_w\*\$\{markerCenterX\}/);
-  assert.match(renderer, /volume=0\.95,apad/);
+  assert.match(renderer, /timelineDuration = Math\.max/);
+  assert.match(renderer, /aresample=async=1:first_pts=0/);
+  assert.match(renderer, /aformat=sample_rates=48000:channel_layouts=stereo,volume=0\.95,apad/);
+  assert.match(renderer, /"-c:v", "copy"/);
+  assert.match(renderer, /"-c:a", "aac"/);
   assert.doesNotMatch(renderer, /adelay=/);
   assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
   assert.match(localServer, /--use-system-ca/);

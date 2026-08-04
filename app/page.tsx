@@ -498,6 +498,7 @@ export default function Home() {
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
   const totalDuration = Math.max(0, ...scenes.map((item) => item.end));
+  const renderDuration = Math.max(projectDuration, totalDuration);
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
@@ -1291,21 +1292,21 @@ export default function Home() {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
-    setScenes((items) => {
-      let cursor = 0;
-      return items.map((item) => {
-        const itemDuration = targetIds.has(item.id)
-          ? nextDuration
-          : Math.max(0.1, item.end - item.start);
-        const normalized = {
-          ...item,
-          start: Number(cursor.toFixed(2)),
-          end: Number((cursor + itemDuration).toFixed(2)),
-        };
-        cursor += itemDuration;
-        return normalized;
-      });
+    let cursor = 0;
+    const nextItems = scenes.map((item) => {
+      const itemDuration = targetIds.has(item.id)
+        ? nextDuration
+        : Math.max(0.1, item.end - item.start);
+      const normalized = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + itemDuration).toFixed(2)),
+      };
+      cursor += itemDuration;
+      return normalized;
     });
+    setScenes(nextItems);
+    setProjectDuration((current) => Math.max(current, cursor));
   };
 
   const switchProject = (nextId: string) => {
@@ -1401,6 +1402,7 @@ export default function Home() {
       status: "Nháp",
     };
     setScenes((items) => [...items, next]);
+    setProjectDuration((duration) => Math.max(duration, next.end));
     setSelectedId(next.id);
     setSelectedSceneIds([next.id]);
   };
@@ -1710,7 +1712,7 @@ export default function Home() {
       const renderBackground = previewBackground.trim() || background.trim();
       return {
         title: projectTitle,
-        duration: projectDuration,
+        duration: renderDuration,
         resolution: renderResolution,
         fps: renderFps,
         ...(renderBackground
@@ -1766,6 +1768,7 @@ export default function Home() {
       imageEnabled,
       narrationEnabled,
       projectDuration,
+      renderDuration,
       renderResolution,
       renderFps,
       projectTitle,

@@ -21,6 +21,11 @@ const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpe
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const scenes = project.scenes ?? [];
+const timelineDuration = Math.max(
+  0.1,
+  Number(project.duration ?? 0) || 0,
+  ...scenes.map((scene) => Number(scene.end ?? 0) || 0),
+);
 const [outputWidth, outputHeight] = String(project.resolution ?? "1080x1920")
   .split("x")
   .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
@@ -356,7 +361,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   if (!sceneBackground) {
     throw new Error(`Không tìm thấy background cho cảnh ${index + 1}: ${scene.background || "map.png"}`);
   }
-  const end = scenes[index + 1]?.start ?? project.duration;
+  const end = scenes[index + 1]?.start ?? timelineDuration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
   const markerEffects = getActiveMarkerEffects(scene);
@@ -524,17 +529,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-filter_complex", filter,
     "-map", markers.length > 0 ? "[v]" : "[composed]",
   );
-  if (voice) {
-    args.push("-map", `${audioInputIndex}:a:0`, "-af", "volume=0.95,apad");
-  } else {
-    args.push("-map", `${audioInputIndex}:a:0`);
-  }
+  const audioFilter = voice
+    ? "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=0.95,apad"
+    : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
+  args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
   args.push(
     "-t", String(duration),
     "-r", String(fps),
     "-c:v", "libx264", "-preset", "medium", "-crf", "20",
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart",
     clip,
   );
@@ -559,7 +563,12 @@ await run(ffmpeg, [
   "-f", "concat",
   "-safe", "0",
   "-i", concatFile,
-  "-c", "copy",
+  "-c:v", "copy",
+  "-c:a", "aac",
+  "-b:a", "192k",
+  "-ar", "48000",
+  "-ac", "2",
+  "-af", "aresample=async=1:first_pts=0",
   "-movflags", "+faststart",
   narrationVideo,
 ]);
@@ -576,7 +585,7 @@ if (music) {
     "-c:v", "copy",
     "-c:a", "aac",
     "-b:a", "192k",
-    "-t", String(project.duration),
+    "-t", String(timelineDuration),
     "-movflags", "+faststart",
     outputPath,
   ]);
