@@ -49,8 +49,8 @@ Website gửi JSON cùng file media bằng multipart form. Mỗi tác vụ có t
 riêng trong `work/local-render-jobs/`; script render dùng FFmpeg để tạo từng
 cảnh, ghép lời thuyết minh, trộn nhạc nền rồi nối thành video cuối.
 
-Renderer FFmpeg dựng background tĩnh theo tỷ lệ dọc 9:16; popup, thuyết minh và
-nhạc nền là các lớp còn lại trong video.
+Renderer FFmpeg dựng background theo tỷ lệ dọc 9:16 và áp dụng zoom bản đồ theo
+từng cảnh; popup, thuyết minh và nhạc nền là các lớp còn lại trong video.
 
 ### Đồng bộ preview và FFmpeg
 
@@ -58,8 +58,9 @@ Khung preview bản đồ được khóa đúng tỷ lệ `9:16` bằng `aspect-
 có thể thay đổi theo màn hình nhưng chiều cao luôn được tính tự động, vì vậy vùng
 crop của `object-fit: cover` tương ứng với video `1080x1920`.
 
-Preview và renderer dùng cùng cách crop background `object-fit: cover`, không có
-biến đổi camera hoặc lớp marker ẩn.
+Preview và renderer dùng cùng cách crop background `object-fit: cover` và cùng
+công thức zoom theo `centerX`, `centerY`, `zoom`, `zoomStart`,
+`zoomInDuration`, `zoomOutDuration`.
 
 ### Vị trí lưu file sau khi render
 
@@ -156,6 +157,10 @@ dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị
 - Nút con mắt cạnh ô Background cho phép ẩn/hiện ảnh bản đồ.
 - `Background chủ đề` trong Biên soạn chỉ là tên/metadata; nó không thay đổi
   ảnh preview.
+- Mục **Hiệu ứng** có zoom bản đồ theo từng cảnh: thời gian bắt đầu, tỉ lệ zoom,
+  thời gian tới tỉ lệ đó và khoảng thời gian zoom về.
+- Vòng tròn trên bản đồ là tay nắm chọn tâm zoom; kéo thả để cập nhật `centerX`
+  và `centerY`. Tay nắm chỉ hiện trong preview, không xuất hiện trong video.
 - Có thể kéo góc popup để tăng/giảm chiều rộng và chiều cao.
 - Có nút ẩn/hiện popup.
 
@@ -189,7 +194,8 @@ Các hiệu ứng popup đang có:
 - Chiều cao mặc định: 245 px.
 - Giới hạn kéo: 220–520 px.
 - Các hàng và clip tự co giãn theo chiều cao timeline.
-- Các hàng gồm Popup, Thuyết minh và Nhạc nền.
+- Các hàng gồm Popup, Thuyết minh và Nhạc nền; zoom bản đồ được áp dụng theo
+  thông số của từng cảnh, không tạo thêm một lớp timeline riêng.
 - Popup nằm trong một panel riêng. Có thể kéo toàn bộ thanh
   Popup để đổi thời điểm xuất hiện, hoặc kéo hai mép để đổi thời lượng.
 - Bấm một event sẽ:
@@ -267,6 +273,8 @@ Mỗi cảnh có các nhóm dữ liệu:
 
 - Nội dung: `title`, `location`, `reference`, `popup`, `narration`.
 - Timeline: `start`, `end`.
+- Zoom bản đồ: `zoomEnabled`, `zoomStart`, `zoom`, `zoomInDuration`,
+  `zoomOutDuration`, `centerX`, `centerY`.
 - Popup: `popupStart`, `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
 - Media: `image`, `voiceFile`, `voice`.

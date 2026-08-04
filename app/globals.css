@@ -314,6 +314,52 @@ button { color: inherit; }
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform .18s ease-out;
+  will-change: transform;
+}
+.zoom-focus-target {
+  position: absolute;
+  z-index: 6;
+  width: 38px;
+  height: 38px;
+  border: 2px dashed rgba(255,239,200,.98);
+  border-radius: 50%;
+  background: rgba(221,161,62,.16);
+  box-shadow: 0 0 0 3px rgba(221,161,62,.12);
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  touch-action: none;
+}
+.zoom-focus-target::before,
+.zoom-focus-target::after {
+  content: "";
+  position: absolute;
+  background: #fff4d5;
+}
+.zoom-focus-target::before {
+  top: 17px;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+}
+.zoom-focus-target::after {
+  top: 4px;
+  bottom: 4px;
+  left: 17px;
+  width: 2px;
+}
+.zoom-focus-target span {
+  position: absolute;
+  inset: 10px;
+  border: 1px solid #fff4d5;
+  border-radius: 50%;
+}
+.zoom-focus-target:hover,
+.zoom-focus-target.is-dragging {
+  width: 44px;
+  height: 44px;
+  cursor: grabbing;
+  background: rgba(221,161,62,.24);
 }
 .map-label {
   position: absolute;
@@ -2551,6 +2597,12 @@ body {
   }
 }
 
+@media (max-width: 760px) {
+  .zoom-settings-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Editor safety, scene actions, and preflight additions */
 .save-state {
   min-width: 92px;
@@ -2640,7 +2692,76 @@ body {
 .popup-motion-settings-card .range-field {
   padding: 0;
 }
+.zoom-settings-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.zoom-settings-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+.zoom-settings-help {
+  color: var(--studio-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.zoom-effect-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 4px;
+  padding: 10px 11px;
+  border: 1px solid var(--studio-line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: var(--studio-ink);
+  font-size: 10px;
+  cursor: pointer;
+}
+.zoom-effect-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.zoom-effect-toggle > span:first-of-type {
+  flex: 0 0 auto;
+  width: 33px;
+  height: 19px;
+  padding: 2px;
+  border-radius: 20px;
+  background: #657386;
+  transition: background .2s ease;
+}
+.zoom-effect-toggle > span:first-of-type::after {
+  content: "";
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.28);
+  transition: transform .2s ease;
+}
+.zoom-effect-toggle input:checked + span:first-of-type {
+  background: #dda13e;
+}
+.zoom-effect-toggle input:checked + span:first-of-type::after {
+  transform: translateX(14px);
+}
+.zoom-effect-toggle:has(input:focus-visible) {
+  outline: 2px solid rgba(221,161,62,.65);
+  outline-offset: 2px;
+}
 .studio-shell[data-theme="dark"] .popup-motion-settings-card {
+  border-color: #344457;
+  background: #111a24;
+}
+.studio-shell[data-theme="dark"] .zoom-settings-card {
   border-color: #344457;
   background: #111a24;
 }

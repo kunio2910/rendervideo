@@ -322,6 +322,20 @@ for (let index = 0; index < scenes.length; index += 1) {
   const popup = await createPopup(scene, index);
   const voice = await resolveVoice(scene, index);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
+  const frames = Math.max(1, Math.round(duration * fps));
+  const zoomStartFrames = Math.min(
+    frames,
+    Math.max(0, Math.round(Number(scene.zoomStart ?? 0) * fps)),
+  );
+  const zoomInFrames = Math.max(1, Math.round((scene.zoomInDuration ?? 0) * fps));
+  const zoomOutFrames = Math.max(1, Math.round((scene.zoomOutDuration ?? 0) * fps));
+  const zoomInEnd = Math.min(frames, zoomStartFrames + zoomInFrames);
+  const zoomOutStart = Math.max(zoomInEnd, frames - zoomOutFrames);
+  const targetZoom = scene.zoomEnabled === false
+    ? 1
+    : Math.min(5, Math.max(1, Number(scene.zoom ?? 1)));
+  const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
+  const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
   const popupStart = Math.min(
     duration,
     Math.max(0, Number(scene.popupStart ?? 0)),
@@ -385,9 +399,16 @@ for (let index = 0; index < scenes.length; index += 1) {
       : popupIn === "fade-slide-up" || popupOut === "fade-slide-down"
     ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
     : centerYExpression;
+  const zoomExpression =
+    `if(lt(on,${zoomStartFrames}),1,` +
+    `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
+    `if(gte(on,${zoomOutStart}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutFrames},${targetZoom})))`;
   let filter =
     `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-    `scale=${outputWidth}:${outputHeight},setsar=1[bg];`;
+    `zoompan=z='${zoomExpression}':` +
+    `x='iw*${centerX}*(1-1/zoom)':` +
+    `y='ih*${centerY}*(1-1/zoom)':` +
+    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
   if (popupVisible) {
     filter +=
       `[1:v]format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +

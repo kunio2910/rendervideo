@@ -24,6 +24,13 @@ type Scene = {
   background?: string;
   start: number;
   end: number;
+  zoomStart: number;
+  zoomInDuration: number;
+  zoomOutDuration: number;
+  zoom: number;
+  centerX: number;
+  centerY: number;
+  zoomEnabled: boolean;
   popupDuration: number;
   voiceFile: string;
   popupIn: string;
@@ -49,6 +56,13 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   background: "",
   start,
   end: start + 5,
+  zoomStart: 0,
+  zoomInDuration: 0.8,
+  zoomOutDuration: 0.8,
+  zoom: 1.25,
+  centerX: 50,
+  centerY: 50,
+  zoomEnabled: true,
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -225,6 +239,7 @@ type EditorSectionState = {
   visual: boolean;
   content: boolean;
   audio: boolean;
+  effects: boolean;
 };
 
 type StudioTab = "compose" | "export";
@@ -233,10 +248,21 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
   content: true,
   audio: true,
+  effects: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const clampPercent = (value: unknown, fallback = 50) => {
+  const numeric = value === null || value === undefined ? Number.NaN : Number(value);
+  return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(minimum, numeric) : fallback;
+};
 
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
@@ -244,6 +270,7 @@ const normalizeEditorSections = (
   visual: sections?.visual ?? DEFAULT_EDITOR_SECTIONS.visual,
   content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
   audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
+  effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
 });
 
 const ensureUniqueSceneIds = (items?: Scene[]) => {
@@ -257,18 +284,19 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       suffix += 1;
     }
     used.add(id);
-    const cleanItem = Object.fromEntries(
-      Object.entries(item).filter(([key]) => {
-        const normalizedKey = key.toLowerCase();
-        return !normalizedKey.startsWith("zoom") && normalizedKey !== "centerx" && normalizedKey !== "centery";
-      }),
-    ) as Scene;
     return {
-      ...cleanItem,
+      ...item,
       id,
       title: String(item.title ?? `Cảnh ${index + 1}`),
       narration: String(item.narration ?? ""),
       popup: String(item.popup ?? ""),
+      zoomStart: positiveNumber(item.zoomStart, 0),
+      zoomInDuration: positiveNumber(item.zoomInDuration, 0.8, 0.1),
+      zoomOutDuration: positiveNumber(item.zoomOutDuration, 0.8),
+      zoom: Math.min(5, Math.max(1, positiveNumber(item.zoom, 1.25, 1))),
+      centerX: clampPercent(item.centerX),
+      centerY: clampPercent(item.centerY),
+      zoomEnabled: item.zoomEnabled !== false,
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
     };
@@ -377,6 +405,7 @@ function Home() {
     progress: 0,
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
+  const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -444,6 +473,35 @@ function Home() {
     scene.popupVisible !== false &&
     (!playing ||
       (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
+  const zoomEnabled = scene.zoomEnabled !== false;
+  const zoomStartTime = Math.min(
+    sceneDuration,
+    Math.max(0, Number(scene.zoomStart ?? 0)),
+  );
+  const zoomInEndTime = Math.min(
+    sceneDuration,
+    zoomStartTime + Math.max(0, Number(scene.zoomInDuration ?? 0)),
+  );
+  const playbackMapScale = (() => {
+    if (!zoomEnabled) return 1;
+    if (sceneLocalTime < zoomStartTime) return 1;
+    if (scene.zoomInDuration > 0 && sceneLocalTime < zoomInEndTime) {
+      const progress = (sceneLocalTime - zoomStartTime) / scene.zoomInDuration;
+      return 1 + (scene.zoom - 1) * progress;
+    }
+    const zoomOutStart = Math.max(
+      zoomInEndTime,
+      sceneDuration - scene.zoomOutDuration,
+    );
+    if (scene.zoomOutDuration > 0 && sceneLocalTime > zoomOutStart) {
+      const progress = Math.min(
+        1,
+        (sceneLocalTime - zoomOutStart) / scene.zoomOutDuration,
+      );
+      return scene.zoom - (scene.zoom - 1) * progress;
+    }
+    return scene.zoom;
+  })();
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -1075,6 +1133,23 @@ function Home() {
     );
   };
 
+  const updateZoomStart = (value: number) => {
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) =>
+      items.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const maxStart = Math.max(0, duration - Math.max(0.1, item.zoomInDuration));
+        return {
+          ...item,
+          zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
+        };
+      }),
+    );
+  };
+
   const updateSelectedSceneDuration = (duration: number) => {
     const nextDuration = Math.max(0.1, Number(duration) || 0.1);
     const targetIds = new Set(
@@ -1158,6 +1233,13 @@ function Home() {
       backgroundVisible: true,
       start: last.end,
       end: last.end + 3,
+      zoomStart: 0,
+      zoomInDuration: 0.8,
+      zoomOutDuration: 0.8,
+      zoom: 1.25,
+      centerX: 50,
+      centerY: 50,
+      zoomEnabled: true,
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -1273,6 +1355,39 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startMapPointDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    setDraggingZoomCenter(true);
+
+    const updatePosition = (clientX: number, clientY: number) => {
+      const centerX = Math.min(100, Math.max(0, ((clientX - bounds.left) / bounds.width) * 100));
+      const centerY = Math.min(100, Math.max(0, ((clientY - bounds.top) / bounds.height) * 100));
+      setScenes((items) =>
+        items.map((item) => item.id === selectedId
+          ? {
+              ...item,
+              centerX: Number(centerX.toFixed(1)),
+              centerY: Number(centerY.toFixed(1)),
+            }
+          : item),
+      );
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingZoomCenter(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -1382,6 +1497,13 @@ function Home() {
             title: item.title,
             start: item.start,
             end: item.end,
+            zoomStart: item.zoomStart,
+            zoomInDuration: item.zoomInDuration,
+            zoomOutDuration: item.zoomOutDuration,
+            zoom: item.zoom,
+            centerX: item.centerX,
+            centerY: item.centerY,
+            zoomEnabled: item.zoomEnabled,
             popupDuration: item.popupDuration,
             popupStart: item.popupStart ?? 0,
             body: item.popup,
@@ -1670,6 +1792,7 @@ function Home() {
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
+        `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, từ 1x đến ${item.zoom}x trong ${item.zoomInDuration}s, zoom ra trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
       ].join("\n");
     });
@@ -2054,11 +2177,31 @@ function Home() {
                 src={backgroundPreviewSource}
                 alt=""
                 aria-hidden="true"
+                style={{
+                  transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
+                  transform: `scale(${playing ? playbackMapScale : 1})`,
+                  transitionDuration: playing ? "0ms" : "180ms",
+                }}
               />
             )}
             {playing && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
+              </div>
+            )}
+            {!playing && zoomEnabled && (
+              <div
+                className={`zoom-focus-target ${draggingZoomCenter ? "is-dragging" : ""}`}
+                style={{
+                  left: `${scene.centerX}%`,
+                  top: `${scene.centerY}%`,
+                }}
+                role="slider"
+                aria-label="Kéo để chọn vị trí zoom bản đồ"
+                aria-valuetext={`X ${scene.centerX}%, Y ${scene.centerY}%`}
+                onPointerDown={startMapPointDrag}
+              >
+                <span />
               </div>
             )}
             <div className="preview-progress">
@@ -2119,6 +2262,7 @@ function Home() {
                     visual: shouldOpen,
                     content: shouldOpen,
                     audio: shouldOpen,
+                    effects: shouldOpen,
                   });
                 }}
               >
@@ -2348,9 +2492,103 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
+              open={editorSections.effects}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  effects: open,
+                }));
+              }}
+            >
+              <summary className="editor-group-label"><span>04</span> Hiệu ứng <i /></summary>
+              <div className="editor-accordion-content">
+                <div className="zoom-settings-card">
+                  <div className="motion-settings-title">
+                    <strong>Zoom bản đồ</strong>
+                    <span>Kéo vòng tròn trên bản đồ để chọn tâm zoom</span>
+                  </div>
+                  <label className="zoom-effect-toggle">
+                    <input
+                      type="checkbox"
+                      checked={zoomEnabled}
+                      disabled={!hydrated}
+                      onChange={(event) => updateScene("zoomEnabled", event.target.checked)}
+                    />
+                    <span aria-hidden="true" />
+                    <span>Bật hiệu ứng zoom bản đồ</span>
+                  </label>
+                  <div className="field-row zoom-settings-fields">
+                    <label className="field">
+                      <span>Thời gian bắt đầu zoom</span>
+                      <div className="number-with-unit">
+                        <input
+                          type="number"
+                          min="0"
+                          max={Math.max(0, sceneDuration - 0.1)}
+                          step="0.1"
+                          value={scene.zoomStart}
+                          disabled={!zoomEnabled}
+                          onChange={(event) => updateZoomStart(Number(event.target.value))}
+                        />
+                        <b>giây</b>
+                      </div>
+                    </label>
+                    <label className="field">
+                      <span>Tỉ lệ zoom</span>
+                      <div className="number-with-unit">
+                        <input
+                          type="number"
+                          min="1"
+                          max="5"
+                          step="0.05"
+                          value={scene.zoom}
+                          disabled={!zoomEnabled}
+                          onChange={(event) => updateScene("zoom", Number(event.target.value))}
+                        />
+                        <b>×</b>
+                      </div>
+                    </label>
+                    <label className="field">
+                      <span>Thời gian tới tỉ lệ đó</span>
+                      <div className="number-with-unit">
+                        <input
+                          type="number"
+                          min="0.1"
+                          max={sceneDuration}
+                          step="0.1"
+                          value={scene.zoomInDuration}
+                          disabled={!zoomEnabled}
+                          onChange={(event) => updateScene("zoomInDuration", Number(event.target.value))}
+                        />
+                        <b>giây</b>
+                      </div>
+                    </label>
+                    <label className="field">
+                      <span>Khoảng thời gian zoom về</span>
+                      <div className="number-with-unit">
+                        <input
+                          type="number"
+                          min="0"
+                          max={sceneDuration}
+                          step="0.1"
+                          value={scene.zoomOutDuration}
+                          disabled={!zoomEnabled}
+                          onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
+                        />
+                        <b>giây</b>
+                      </div>
+                    </label>
+                  </div>
+                  <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
               open={editorSections.content}
             >
-              <summary className="editor-group-label"><span>04</span> Popup <i /></summary>
+              <summary className="editor-group-label"><span>05</span> Popup <i /></summary>
               <div className="editor-accordion-content">
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
