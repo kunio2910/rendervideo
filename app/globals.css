@@ -1094,7 +1094,10 @@ button { color: inherit; }
   .preview-panel { padding-inline: 14px; }
 }
 
-.playback-popup { will-change: opacity, transform, filter; }
+.playback-popup {
+  transform-origin: center bottom;
+  will-change: opacity, transform, filter;
+}
 .playback-popup.popup-opening.popup-in-fade-slide-up {
   animation: popup-fade-slide-in var(--popup-transition-duration, .55s) cubic-bezier(.16,.84,.32,1) both;
 }
@@ -1613,6 +1616,8 @@ body {
   background: rgba(38,33,24,.94);
   color: #fff6e5;
 }
+.preview-card .card-content h3 { color: #fff3d6; }
+.preview-card .card-content p { color: #e9ddc7; }
 .studio-shell[data-theme="dark"] .preview-card {
   background: rgba(38,33,24,.94);
 }
@@ -2026,6 +2031,7 @@ body {
 }
 .phone-preview.is-playing .zoom-center-marker {
   pointer-events: none;
+  opacity: 1;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -2604,6 +2610,13 @@ body {
   width: min(100%, 472px);
   height: auto;
   aspect-ratio: 9 / 16;
+}
+.phone-preview.is-playing::before,
+.phone-preview.is-playing .playback-live,
+.phone-preview.is-playing .preview-progress,
+.phone-preview.is-playing .map-zoom-badge,
+.phone-preview.is-playing .popup-resize-handle {
+  display: none;
 }
 .preview-footer {
   width: min(100%, 472px);

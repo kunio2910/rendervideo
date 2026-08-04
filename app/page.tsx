@@ -401,6 +401,7 @@ export default function Home() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
+  const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
@@ -439,13 +440,22 @@ export default function Home() {
   const totalDuration = Math.max(...scenes.map((item) => item.end));
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
-  const isRemoteImage = isRemoteUrl(scene.image);
+  const assetPreviewSource = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return isRemoteUrl(trimmed)
+      ? trimmed
+      : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
+  };
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
-  const backgroundPreviewSource = isRemoteUrl(scene.background ?? "")
-    ? scene.background!.trim()
-    : isRemoteUrl(legacyBackgroundPreview)
-      ? legacyBackgroundPreview
-      : "";
+  const backgroundPreviewSource =
+    assetPreviewSource(scene.background ?? "") ||
+    assetPreviewSource(legacyBackgroundPreview);
+  const narrationPreviewSource =
+    audioPreview[scene.id] || assetPreviewSource(scene.voiceFile);
+  const musicPreviewSource =
+    backgroundMusicPreview || assetPreviewSource(backgroundMusic);
   const sceneDuration = Math.max(0.1, scene.end - scene.start);
   const sceneLocalTime = Math.min(
     sceneDuration,
@@ -654,6 +664,16 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const nextUrls = Object.fromEntries(
+      localRenderFiles.map((file) => [file.name, URL.createObjectURL(file)]),
+    );
+    setAssetPreviewUrls(nextUrls);
+    return () => {
+      Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [localRenderFiles]);
 
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
@@ -873,35 +893,31 @@ export default function Home() {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
     if (!playing || !narrationEnabled) return;
-    const source = audioPreview[scene.id] || scene.voiceFile.trim();
+    const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
     audio.volume = 0.95;
-    const narrationStart = scene.popupVisible !== false ? popupStartTime : 0;
     const elapsed = Math.max(0, playTime - scene.start);
     const startAudio = () => {
-      audio.currentTime = Math.max(0, elapsed - narrationStart);
+      audio.currentTime = elapsed;
       void audio.play().catch(() => {
         // A local path that has not been uploaded is previewed silently.
       });
     };
-    const delay = Math.max(0, (narrationStart - elapsed) * 1000);
-    const timer = window.setTimeout(startAudio, delay);
+    const timer = window.setTimeout(startAudio, 0);
     return () => {
       window.clearTimeout(timer);
       audio.pause();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, audioPreview, scene.voiceFile, scene.popupVisible, popupStartTime]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
     if (!playing || !backgroundMusic.trim()) return;
-    const source = isRemoteUrl(backgroundMusic)
-      ? backgroundMusic.trim()
-      : backgroundMusicPreview;
+    const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     backgroundMusicAudio.current = audio;
@@ -915,7 +931,7 @@ export default function Home() {
       audio.pause();
       if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, backgroundMusic, backgroundMusicPreview]);
+  }, [playing, backgroundMusic, musicPreviewSource]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -1623,6 +1639,7 @@ export default function Home() {
             milestone: item.number,
             title: item.title,
             start: item.start,
+            end: item.end,
             zoomStart: item.zoomStart ?? 0,
             zoomInDuration: item.zoomInDuration,
             popupDuration: item.popupDuration,
@@ -1632,6 +1649,7 @@ export default function Home() {
             centerX: item.centerX,
             centerY: item.centerY,
             body: item.popup,
+            imageVisible: imageEnabled,
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
@@ -2187,6 +2205,10 @@ export default function Home() {
             {scenes.map((item, index) => {
               const playbackActive =
                 playing && playTime >= item.start && playTime < item.end;
+              const thumbSource =
+                assetPreviewSource(item.image) ||
+                assetPreviewSource(item.background ?? "") ||
+                assetPreviewSource(legacyBackgroundPreview);
               return (
               <button
                 key={item.id}
@@ -2230,11 +2252,8 @@ export default function Home() {
                 <span className="drag-dots" aria-hidden="true">⠿</span>
                 <span className="scene-number">{item.number}</span>
                 <span className="scene-thumb">
-                  {(/^https?:\/\//i.test(item.image) || /^https?:\/\//i.test(item.background ?? "")) ? (
-                    <img
-                      src={/^https?:\/\//i.test(item.image) ? item.image : item.background ?? ""}
-                      alt=""
-                    />
+                  {thumbSource ? (
+                    <img src={thumbSource} alt="" />
                   ) : (
                     <b>{String(item.number).padStart(2, "0")}</b>
                   )}
@@ -2319,7 +2338,7 @@ export default function Home() {
                 style={{
                   transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
                   transform: `scale(${playbackMapScale})`,
-                  transitionDuration: playing ? "80ms" : `${scene.zoomInDuration}s`,
+                  transitionDuration: playing ? "0ms" : `${scene.zoomInDuration}s`,
                 }}
               />
             )}
@@ -2392,8 +2411,8 @@ export default function Home() {
               >
               {imageEnabled && (
                 <div className="photo-placeholder">
-                  {isRemoteImage ? (
-                    <img src={scene.image} alt={`Ảnh minh họa ${scene.title}`} />
+                  {imagePreviewSource ? (
+                    <img src={imagePreviewSource} alt={`Ảnh minh họa ${scene.title}`} />
                   ) : (
                     <>
                       <div className="sun" />
@@ -2560,10 +2579,10 @@ export default function Home() {
                   value={scene.image}
                   onChange={(event) => updateScene("image", event.target.value)}
                 />
-                {isRemoteImage && (
+                {imagePreviewSource && (
                   <div className="image-url-preview">
-                    <img src={scene.image} alt="Xem trước ảnh popup" />
-                    <span>Đang hiển thị ảnh từ URL</span>
+                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
+                    <span>Đang hiển thị đúng tài nguyên sẽ dùng khi render</span>
                   </div>
                 )}
               </label>
