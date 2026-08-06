@@ -13,8 +13,8 @@ xuất JSON để renderer tạo video cuối cùng.
 Các địa chỉ đang sử dụng:
 
 - GitHub: <https://github.com/kunio2910/rendervideo>
-- GitHub Pages: <https://kunio2910.github.io/rendervideo/>
-- Production: <https://kito-video-studio.w9tty64sgh.chatgpt.site>
+- GitHub Pages chính: <https://kunio2910.github.io/rendervideo/>
+- Sites production phụ: <https://kito-video-studio.ductran8351.chatgpt.site>
 
 ## 2. Công nghệ và file quan trọng
 
@@ -397,11 +397,11 @@ npm run build:pages
 Sau mỗi thay đổi quan trọng:
 
 1. Build production.
-2. Build GitHub Pages.
+2. Build GitHub Pages bằng `npm run build:pages`.
 3. Kiểm tra `git diff --check`.
-4. Commit mã nguồn và tài nguyên build cần thiết.
-5. Push nhánh `main` lên GitHub.
-6. Lưu một phiên bản Sites mới và triển khai production.
+4. Commit mã nguồn và bundle GitHub Pages.
+5. Push nhánh `main` lên GitHub; GitHub Pages sẽ tự cập nhật URL chính.
+6. Chỉ triển khai Sites khi cần kiểm tra bản phụ.
 7. Nếu trình duyệt còn cache cũ, dùng `Ctrl + F5`.
 
 ## 10. Những điểm cần chú ý khi phát triển tiếp
