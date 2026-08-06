@@ -61,6 +61,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Âm lượng thuyết minh/);
   assert.match(page, /zoom-focus-target/);
   assert.match(page, /startMapPointDrag/);
+  assert.match(page, /sceneVisible/);
+  assert.match(page, /scene-visibility-button/);
+  assert.match(page, /toggleSceneVisibility/);
+  assert.match(page, /visibleScenes\.filter/);
+  assert.match(page, /visibleScenes\.map/);
   assert.match(page, /zoomStart/);
   assert.match(page, /zoomEnd/);
   assert.match(page, /zoomInDuration/);
@@ -108,6 +113,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /scene\.voiceVolume/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);
   assert.match(renderer, /timelineDuration = Math\.max/);
+  assert.match(renderer, /filter\(\(scene\) => scene\?\.sceneVisible !== false\)/);
+  assert.match(renderer, /Không có cảnh đang hiện để render/);
   assert.match(renderer, /aresample=async=1:first_pts=0/);
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /volume=\$\{voiceVolume\.toFixed\(3\)\}/);

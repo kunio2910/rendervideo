@@ -20,10 +20,26 @@ const renderDir = process.env.RENDER_WORK_DIR
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
-const scenes = project.scenes ?? [];
+const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
+let renderCursor = 0;
+const scenes = sourceScenes
+  .filter((scene) => scene?.sceneVisible !== false)
+  .map((scene) => {
+    const sourceDuration = Number(scene.end ?? 0) - Number(scene.start ?? 0);
+    const duration = Math.max(0.1, Number.isFinite(sourceDuration) ? sourceDuration : 0.1);
+    const renderedScene = {
+      ...scene,
+      start: Number(renderCursor.toFixed(2)),
+      end: Number((renderCursor + duration).toFixed(2)),
+    };
+    renderCursor += duration;
+    return renderedScene;
+  });
+if (!scenes.length) {
+  throw new Error("Không có cảnh đang hiện để render.");
+}
 const timelineDuration = Math.max(
   0.1,
-  Number(project.duration ?? 0) || 0,
   ...scenes.map((scene) => Number(scene.end ?? 0) || 0),
 );
 const [outputWidth, outputHeight] = String(project.resolution ?? "1080x1920")

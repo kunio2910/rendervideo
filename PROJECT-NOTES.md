@@ -429,3 +429,4 @@ Sau mỗi thay đổi quan trọng:
 - Commit chức năng gần nhất: `fc95102`.
 - `source/` và `scripts/render-video.mjs` đang là nội dung cục bộ chưa được
   theo dõi trong Git.
+- Scene visibility: `sceneVisible=false` keeps the scene in JSON for re-enabling, while preview, timeline, preflight assets, and FFmpeg skip it. The renderer compacts visible scenes so hidden scenes do not leave empty output time.

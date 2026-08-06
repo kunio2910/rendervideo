@@ -3706,6 +3706,63 @@ body {
   font: 10px var(--font-mono);
 }
 
+.studio-shell[data-studio-tab="compose"] .scene-visibility-button {
+  position: absolute;
+  z-index: 3;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #d8cbac;
+  border-radius: 50%;
+  background: #fffdf8;
+  color: #9a886b;
+  cursor: pointer;
+  opacity: .72;
+  transition: .18s ease;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-visibility-button:hover,
+.studio-shell[data-studio-tab="compose"] .scene-visibility-button:focus-visible {
+  border-color: #c67a2e;
+  color: #a46d3e;
+  opacity: 1;
+  outline: none;
+  transform: scale(1.05);
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-visibility-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item.is-hidden {
+  opacity: .45;
+  filter: saturate(.6);
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item.is-hidden:hover,
+.studio-shell[data-studio-tab="compose"] .scene-item.is-hidden.active {
+  opacity: .72;
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-item.is-hidden .scene-thumb {
+  filter: grayscale(.85);
+}
+
+.studio-shell[data-studio-tab="compose"] .scene-visibility-button.is-hidden {
+  background: #f1eadd;
+  color: #a46d3e;
+  opacity: 1;
+}
+
 .studio-shell[data-studio-tab="compose"] .add-scene-button {
   flex: 0 0 auto;
   min-height: 34px;

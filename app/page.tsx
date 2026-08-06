@@ -42,6 +42,7 @@ type Scene = {
   popupHeight?: number;
   popupVisible?: boolean;
   backgroundVisible?: boolean;
+  sceneVisible: boolean;
   status: "Nháp" | "Đã duyệt";
 };
 
@@ -74,6 +75,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   popupOut: "fade-slide-down",
   popupVisible: true,
   backgroundVisible: true,
+  sceneVisible: true,
   status: "Nháp",
 });
 
@@ -322,6 +324,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       voiceVolume: clampVolume(item.voiceVolume, 95),
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
+      sceneVisible: item.sceneVisible !== false,
     };
   });
 };
@@ -452,7 +455,11 @@ function Home() {
   const timelinePopupMoved = useRef(false);
 
   const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
-  const totalDuration = Math.max(0, ...scenes.map((item) => item.end));
+  const visibleScenes = useMemo(
+    () => scenes.filter((item) => item.sceneVisible !== false),
+    [scenes],
+  );
+  const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
@@ -486,6 +493,9 @@ function Home() {
   );
   const popupEndTime = Math.min(sceneDuration, popupStartTime + scene.popupDuration);
   const popupTransitionDuration = Math.min(0.65, scene.popupDuration / 3);
+  const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
+    item.id === scene.id && playTime >= item.start && playTime < item.end,
+  );
   const popupPlaybackPhase = !playing
     ? "idle"
     : sceneLocalTime < popupStartTime + popupTransitionDuration
@@ -495,8 +505,9 @@ function Home() {
         : "visible";
   const popupPlaybackVisible =
     scene.popupVisible !== false &&
-    (!playing ||
-      (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime));
+    (sceneIsVisibleInPlayback &&
+      (!playing ||
+        (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime)));
   const zoomEnabled = scene.zoomEnabled !== false;
   const zoomStartTime = Math.min(
     sceneDuration,
@@ -857,7 +868,7 @@ function Home() {
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
       if (nextTime >= projectDuration) {
-        const firstScene = scenes[0];
+        const firstScene = visibleScenes[0];
         setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
         if (firstScene) {
@@ -867,7 +878,7 @@ function Home() {
         return;
       }
       setPlayTime(nextTime);
-      const activeScene = scenes.find(
+      const activeScene = visibleScenes.find(
         (item) => nextTime >= item.start && nextTime < item.end,
       );
       if (activeScene) {
@@ -887,12 +898,12 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, projectDuration, scenes]);
+  }, [playing, projectDuration, scenes, visibleScenes]);
 
   useEffect(() => {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
-    if (!playing || !narrationEnabled) return;
+    if (!playing || !narrationEnabled || !sceneIsVisibleInPlayback) return;
     const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -911,7 +922,7 @@ function Home() {
       audio.pause();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.voiceVolume]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.voiceVolume, sceneIsVisibleInPlayback]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
@@ -986,11 +997,20 @@ function Home() {
       setPlaying(false);
       return;
     }
+    if (!visibleScenes.length) {
+      setToast("Chưa có cảnh đang hiện để xem thử");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
     const resumeAt = playTime >= projectDuration ? 0 : playTime;
-    setPlayTime(resumeAt);
     const activeScene =
-      scenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
-      scenes[0];
+      visibleScenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
+      visibleScenes.find((item) => item.start >= resumeAt) ??
+      visibleScenes[0];
+    const startAt = activeScene?.start ?? resumeAt;
+    setPlayTime(activeScene && !(resumeAt >= activeScene.start && resumeAt < activeScene.end)
+      ? startAt
+      : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
     setPlaying(true);
   };
@@ -1003,11 +1023,11 @@ function Home() {
         Math.max(0, Number((currentTime + seconds).toFixed(2))),
       );
       const activeScene =
-        scenes.find(
+        visibleScenes.find(
           (item) =>
             nextTime >= item.start &&
             (nextTime < item.end || nextTime === projectDuration),
-        ) ?? scenes.at(nextTime === projectDuration ? -1 : 0);
+        ) ?? visibleScenes.at(nextTime === projectDuration ? -1 : 0);
       if (activeScene) setSelectedId(activeScene.id);
       return nextTime;
     });
@@ -1031,11 +1051,11 @@ function Home() {
       const nextTime = Number((progress * projectDuration).toFixed(2));
       setPlayTime(nextTime);
       const activeScene =
-        scenes.find(
+        visibleScenes.find(
           (item) =>
             nextTime >= item.start &&
             (nextTime < item.end || nextTime === projectDuration),
-        ) ?? scenes.at(nextTime === projectDuration ? -1 : 0);
+        ) ?? visibleScenes.at(nextTime === projectDuration ? -1 : 0);
       if (activeScene) {
         setSelectedId(activeScene.id);
         setSelectedSceneIds([activeScene.id]);
@@ -1117,6 +1137,31 @@ function Home() {
     setScenes((items) =>
       items.map((item) => (item.id === selectedId ? { ...item, [key]: value } : item)),
     );
+  };
+
+  const toggleSceneVisibility = (sceneId: string) => {
+    if (!hydrated) return;
+    const target = scenes.find((item) => item.id === sceneId);
+    if (!target) return;
+    const willShow = target.sceneVisible === false;
+    setScenes((items) =>
+      items.map((item) =>
+        item.id === sceneId ? { ...item, sceneVisible: willShow } : item,
+      ),
+    );
+    if (!willShow && sceneId === selectedId) {
+      const fallback = scenes.find(
+        (item) => item.id !== sceneId && item.sceneVisible !== false,
+      );
+      setPlaying(false);
+      if (fallback) {
+        setSelectedId(fallback.id);
+        setSelectedSceneIds([fallback.id]);
+        setPlayTime(fallback.start);
+      } else {
+        setSelectedSceneIds([sceneId]);
+      }
+    }
   };
 
   const updatePopupStart = (value: number) => {
@@ -1327,6 +1372,7 @@ function Home() {
       popupStart: 0.5,
       voiceFile: "",
       voiceVolume: 95,
+      sceneVisible: true,
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
       status: "Nháp",
@@ -1592,6 +1638,7 @@ function Home() {
             centerX: item.centerX,
             centerY: item.centerY,
             zoomEnabled: item.zoomEnabled,
+            sceneVisible: item.sceneVisible !== false,
             popupDuration: item.popupDuration,
             popupStart: item.popupStart ?? 0,
             body: item.popup,
@@ -1651,9 +1698,11 @@ function Home() {
       "background" in exportPayload ? exportPayload.background : "",
       "backgroundMusic" in exportPayload ? exportPayload.backgroundMusic : "",
       ...exportPayload.scenes.flatMap((item) => [
+        ...(item.sceneVisible === false ? [] : [
         item.background ?? "",
         item.image ?? "",
         item.voiceFile ?? "",
+        ]),
       ]),
     ];
     return [...new Set(values.filter((value) => value && !isRemoteUrl(value)).map(fileNameOnly))];
@@ -1705,6 +1754,14 @@ function Home() {
   const runRenderPreflight = async () => {
     const checks: PreflightCheck[] = [];
     const selectedFileNames = new Set(localRenderFiles.map((file) => file.name));
+    if (!visibleScenes.length) {
+      checks.push({
+        id: "visible-scenes",
+        label: "Cảnh đang hiện",
+        status: "error",
+        detail: "Táº¥t cáº£ cáº£nh Ä‘ang bá»‹ áº©n; hÃ£y hiá»‡n Ã­t nháº¥t má»™t cáº£nh Ä‘á»ƒ render.",
+      });
+    }
     const addSourceCheck = (
       id: string,
       label: string,
@@ -1758,7 +1815,7 @@ function Home() {
     } else {
       checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
     }
-    scenes.forEach((item) => {
+    visibleScenes.forEach((item) => {
       addSourceCheck(
         `scene-${item.id}-background`,
         `Background cảnh ${item.number}`,
@@ -2144,7 +2201,7 @@ function Home() {
           <div className="scene-list">
             {scenes.map((item, index) => {
               const playbackActive =
-                playing && playTime >= item.start && playTime < item.end;
+                playing && item.sceneVisible !== false && playTime >= item.start && playTime < item.end;
               const thumbSource =
                 assetPreviewSource(item.image) ||
                 assetPreviewSource(item.background ?? "") ||
@@ -2163,7 +2220,10 @@ function Home() {
                   item.id !== selectedId
                     ? "multi-selected"
                     : ""
-                } ${item.id === dragOverId ? "drag-over" : ""}`}
+                } ${item.id === dragOverId ? "drag-over" : ""} ${
+                  item.sceneVisible === false ? "is-hidden" : ""
+                }`}
+                data-scene-visibility={item.sceneVisible === false ? "hidden" : "visible"}
                 onClick={(event) => {
                   setDraggedId(null);
                   setDragOverId(null);
@@ -2213,6 +2273,31 @@ function Home() {
                   <small>
                     {formatTime(item.start)}–{formatTime(item.end)}
                   </small>
+                </span>
+                <span
+                  className={`scene-visibility-button ${item.sceneVisible === false ? "is-hidden" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  title={item.sceneVisible === false ? "Hiện cảnh" : "Ẩn cảnh"}
+                  aria-label={item.sceneVisible === false ? `Hiện cảnh ${item.number}` : `Ẩn cảnh ${item.number}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleSceneVisibility(item.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleSceneVisibility(item.id);
+                    }
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                    <circle cx="12" cy="12" r="2.2" />
+                    {item.sceneVisible === false && <path d="m4 4 16 16" />}
+                  </svg>
                 </span>
               </button>
               );
@@ -2264,7 +2349,7 @@ function Home() {
             </div>
           </div>
           <div className={`phone-preview ${playing ? "is-playing" : ""}`}>
-            {scene.backgroundVisible !== false && backgroundPreviewSource && (
+            {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               <img
                 className="project-background"
                 src={backgroundPreviewSource}
@@ -2277,7 +2362,7 @@ function Home() {
                 }}
               />
             )}
-            {playing && (
+            {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
               </div>
@@ -2821,7 +2906,7 @@ function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>{projectDuration} giây · {scenes.length} cảnh · {renderFps} FPS</span>
+            <span>{projectDuration} giây · {visibleScenes.length} cảnh hiện · {renderFps} FPS</span>
           </div>
           <div className="timeline-transport" aria-label="Điều khiển phát timeline">
             <button
@@ -2884,7 +2969,7 @@ function Home() {
           <div className="track">
             <strong>Popup</strong>
             <div className="track-content grid">
-              {scenes.filter((item) => item.popupVisible !== false).map((item) => {
+              {visibleScenes.filter((item) => item.popupVisible !== false).map((item) => {
                 const sceneLength = Math.max(0.1, item.end - item.start);
                 const popupStart = Math.min(
                   sceneLength,
@@ -2936,7 +3021,7 @@ function Home() {
           <div className="track">
             <strong>Thuyết minh</strong>
             <div className="track-content grid">
-              {narrationEnabled && scenes.map((item) => (
+              {narrationEnabled && visibleScenes.map((item) => (
                 <button
                   key={item.id}
                   className="clip voice-clip"
