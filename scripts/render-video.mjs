@@ -386,6 +386,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const popupVisible = scene.popupVisible !== false;
   const popupIn = scene.popupIn ?? "fade-slide-up";
   const popupOut = scene.popupOut ?? "fade-slide-down";
+  const popupTextEffect = scene.popupTextEffect ?? "none";
   const popupInProgress = `(t-${popupStart})/${transition}`;
   const popupOutProgress = `(t-${popupEnd - transition})/${transition}`;
   const popupScaleStart = (effect) => ({
@@ -407,10 +408,14 @@ for (let index = 0; index < scenes.length; index += 1) {
     bounce: `if(lt(${popupOutProgress},0.35),1+0.03*(${popupOutProgress})/0.35,1.03-0.23*((${popupOutProgress})-0.35)/0.65)`,
     flip: `1-0.14*(${popupOutProgress})`,
   }[effect] ?? "1");
-  const popupScale =
+  const popupScaleBase =
     `if(lt(t,${popupStart}),${popupScaleStart(popupIn)},` +
     `if(lt(t,${popupStart + transition}),${popupScaleIn(popupIn)},` +
     `if(gt(t,${popupEnd - transition}),${popupScaleOut(popupOut)},1)))`;
+  const popupTextScale = popupTextEffect === "pop"
+    ? `if(lt(t,${popupStart}),0.88,if(lt(t,${popupStart + transition}),0.88+0.12*(${popupInProgress}),if(gt(t,${popupEnd - transition}),1-0.12*(${popupOutProgress}),1)))`
+    : "1";
+  const popupScale = `(${popupScaleBase})*(${popupTextScale})`;
   const popupAngle =
     `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
     `if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
