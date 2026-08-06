@@ -40,6 +40,12 @@ type Scene = {
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
+  popupLayout?: "image-top" | "split" | "quote" | "stats";
+  popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
+  popupTextEffect?: "none" | "fade" | "rise" | "pop";
+  popupVideo?: string;
+  popupX?: number;
+  popupY?: number;
   popupVisible?: boolean;
   backgroundVisible?: boolean;
   sceneVisible: boolean;
@@ -73,6 +79,12 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   voiceVolume: 95,
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
+  popupLayout: "image-top",
+  popupTheme: "travel",
+  popupTextEffect: "none",
+  popupVideo: "",
+  popupX: 5,
+  popupY: 55,
   popupVisible: true,
   backgroundVisible: true,
   sceneVisible: true,
@@ -322,6 +334,18 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
       voiceVolume: clampVolume(item.voiceVolume, 95),
+      popupLayout: ["image-top", "split", "quote", "stats"].includes(String(item.popupLayout))
+        ? item.popupLayout as Scene["popupLayout"]
+        : "image-top",
+      popupTheme: ["travel", "sunset", "ocean", "minimal"].includes(String(item.popupTheme))
+        ? item.popupTheme as Scene["popupTheme"]
+        : "travel",
+      popupTextEffect: ["none", "fade", "rise", "pop"].includes(String(item.popupTextEffect))
+        ? item.popupTextEffect as Scene["popupTextEffect"]
+        : "none",
+      popupVideo: String(item.popupVideo ?? ""),
+      popupX: clampPercent(item.popupX, 5),
+      popupY: clampPercent(item.popupY, 55),
       popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -492,6 +516,7 @@ function Home() {
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
   const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
+  const popupVideoPreviewSource = assetPreviewSource(scene.popupVideo ?? "");
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
   const backgroundPreviewSource =
     assetPreviewSource(scene.background ?? "") ||
@@ -1405,6 +1430,12 @@ function Home() {
       sceneVisible: true,
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
+      popupLayout: "image-top",
+      popupTheme: "travel",
+      popupTextEffect: "none",
+      popupVideo: "",
+      popupX: 5,
+      popupY: 55,
       status: "Nháp",
     };
     setScenes((items) => [...items, next]);
@@ -1512,6 +1543,36 @@ function Home() {
       window.removeEventListener("pointerup", stop);
     };
     window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startPopupDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (playing || (event.target as HTMLElement).closest(".popup-resize-handle")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(scene.popupX, 5);
+    const baseY = clampPercent(scene.popupY, 55);
+    const maxX = Math.max(0, 100 - Number(scene.popupWidth ?? 90));
+    const maxY = Math.max(0, 100 - ((Number(scene.popupHeight ?? 255) / bounds.height) * 100));
+    const updatePosition = (clientX: number, clientY: number) => {
+      const nextX = Math.min(maxX, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
+      const nextY = Math.min(maxY, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === selectedId
+        ? { ...item, popupX: Number(nextX.toFixed(1)), popupY: Number(nextY.toFixed(1)) }
+        : item));
+    };
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
   };
 
@@ -1658,6 +1719,7 @@ function Home() {
           return {
             milestone: item.number,
             title: item.title,
+            location: item.location,
             start: item.start,
             end: item.end,
             zoomStart: item.zoomStart,
@@ -1683,6 +1745,12 @@ function Home() {
             popupOut: item.popupOut,
             popupWidth: item.popupWidth ?? 90,
             popupHeight: item.popupHeight ?? 255,
+            popupLayout: item.popupLayout ?? "image-top",
+            popupTheme: item.popupTheme ?? "travel",
+            popupTextEffect: item.popupTextEffect ?? "none",
+            ...(item.popupVideo ? { popupVideo: assetReference(item.popupVideo) } : {}),
+            popupX: item.popupX ?? 5,
+            popupY: item.popupY ?? 55,
             popupVisible: item.popupVisible !== false,
           };
         }),
@@ -1731,6 +1799,7 @@ function Home() {
         ...(item.sceneVisible === false ? [] : [
         item.background ?? "",
         item.image ?? "",
+        item.popupVideo ?? "",
         item.voiceFile ?? "",
         ]),
       ]),
@@ -2427,7 +2496,7 @@ function Home() {
             </div>
             {popupPlaybackVisible && (
               <article
-                className={`preview-card ${
+                className={`preview-card popup-layout-${scene.popupLayout ?? "image-top"} popup-theme-${scene.popupTheme ?? "travel"} popup-text-${scene.popupTextEffect ?? "none"} ${
                   playing
                     ? `playback-popup popup-${popupPlaybackPhase} popup-in-${scene.popupIn} popup-out-${scene.popupOut}`
                     : ""
@@ -2435,12 +2504,26 @@ function Home() {
                 style={{
                   width: `${scene.popupWidth ?? 90}%`,
                   height: `${scene.popupHeight ?? 255}px`,
+                  left: `${scene.popupX ?? 5}%`,
+                  top: `${scene.popupY ?? 55}%`,
+                  right: "auto",
+                  bottom: "auto",
                   ["--popup-transition-duration" as string]: `${popupTransitionDuration}s`,
                 }}
+                onPointerDown={startPopupDrag}
               >
-              {imageEnabled && (
+              {(imageEnabled || popupVideoPreviewSource) && (
                 <div className="photo-placeholder">
-                  {imagePreviewSource ? (
+                  {popupVideoPreviewSource ? (
+                    <video
+                      className="popup-video"
+                      src={popupVideoPreviewSource}
+                      muted
+                      autoPlay
+                      loop
+                      playsInline
+                    />
+                  ) : imagePreviewSource ? (
                     <img src={imagePreviewSource} alt={`Ảnh minh họa ${scene.title}`} />
                   ) : (
                     <>
@@ -2453,8 +2536,15 @@ function Home() {
                 </div>
               )}
               <div className="card-content">
+                {scene.popupLayout === "stats" && (
+                  <div className="popup-stat-row">
+                    <span>{scene.location || "HÀNH TRÌNH"}</span>
+                    <b>{String(scene.number).padStart(2, "0")}</b>
+                  </div>
+                )}
+                {scene.popupLayout === "quote" && <span className="popup-quote-mark">“</span>}
                 <h3>{scene.title}</h3>
-                <p>{scene.popup}</p>
+                <p>{scene.popup || "Nội dung popup sẽ hiển thị ở đây."}</p>
               </div>
               <button
                 className="popup-resize-handle"
@@ -2858,6 +2948,54 @@ function Home() {
                 <strong>Popup</strong>
                 <span>Thời gian và hiệu ứng xuất hiện</span>
               </div>
+              <div className="popup-design-grid">
+                <label className="field">
+                  <span>Bố cục popup</span>
+                  <select
+                    value={scene.popupLayout ?? "image-top"}
+                    onChange={(event) => updateScene("popupLayout", event.target.value as Scene["popupLayout"])}
+                  >
+                    <option value="image-top">Ảnh trên · Cơ bản</option>
+                    <option value="split">Ảnh trái · Nội dung phải</option>
+                    <option value="quote">Trích dẫn nổi bật</option>
+                    <option value="stats">Thông tin địa điểm</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Phong cách màu</span>
+                  <select
+                    value={scene.popupTheme ?? "travel"}
+                    onChange={(event) => updateScene("popupTheme", event.target.value as Scene["popupTheme"])}
+                  >
+                    <option value="travel">Hành trình</option>
+                    <option value="sunset">Hoàng hôn</option>
+                    <option value="ocean">Đại dương</option>
+                    <option value="minimal">Tối giản</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Hiệu ứng chữ</span>
+                  <select
+                    value={scene.popupTextEffect ?? "none"}
+                    onChange={(event) => updateScene("popupTextEffect", event.target.value as Scene["popupTextEffect"])}
+                  >
+                    <option value="none">Không hiệu ứng</option>
+                    <option value="fade">Mờ dần</option>
+                    <option value="rise">Trượt lên</option>
+                    <option value="pop">Bật nhẹ</option>
+                  </select>
+                </label>
+              </div>
+              <label className="field popup-video-field">
+                <span>Video ngắn trong popup (URL hoặc tên file)</span>
+                <input
+                  type="text"
+                  value={scene.popupVideo ?? ""}
+                  placeholder="https://.../popup.mp4 hoặc popup.mp4"
+                  onChange={(event) => updateScene("popupVideo", event.target.value)}
+                />
+                <small>Kéo trực tiếp popup trên khung xem trước để đổi vị trí.</small>
+              </label>
               <label className="field">
                 <span>Thời gian bắt đầu xuất hiện popup</span>
                 <div className="number-with-unit">

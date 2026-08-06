@@ -229,6 +229,21 @@ const resolveAudio = async (value, required = false) => {
   return findLocalResource("audio", value, localCandidates(value));
 };
 
+const resolveVideo = async (value, fallbackName, required = false) => {
+  if (!value) return null;
+  if (isRemote(value)) {
+    try {
+      return await downloadResource("video", value, fallbackName);
+    } catch (error) {
+      if (required) throw new Error(`KhÃ´ng thá»ƒ táº£i video popup tá»« URL: ${errorDetail(error)}`);
+      return null;
+    }
+  }
+  const local = await findLocalResource("video", value, localCandidates(value));
+  if (!local && required) throw new Error(`KhÃ´ng tÃ¬m tháº¥y video popup: ${value}`);
+  return local;
+};
+
 const createPopup = async (scene, index) => {
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440)));
@@ -238,74 +253,69 @@ const createPopup = async (scene, index) => {
   const titleFontSize = Math.round(previewPx(15));
   const bodyFontSize = Math.round(previewPx(11));
   const bodyLineHeight = Math.round(previewPx(18.15));
+  const layout = scene.popupLayout ?? "image-top";
+  const colors = {
+    travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
+    sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
+    ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
+    minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
+  }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
   const imageVisible = scene.imageVisible !== false;
-  const image = imageVisible
-    ? await resolveImage(scene.image, `scene-${index + 1}-image`)
-    : null;
-  const imageHeight = imageVisible ? Math.round(previewPx(115)) : 0;
-  const titleY = imageHeight + Math.round(previewPx(33));
-  const bodyY = titleY + Math.round(previewPx(24));
-  const maxCharacters = Math.max(
-    24,
-    Math.floor((width - paddingX * 2) / Math.max(1, bodyFontSize * 0.54)),
-  );
-  const maxBodyLines = Math.max(
-    1,
-    Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1,
-  );
+  const image = imageVisible ? await resolveImage(scene.image, `scene-${index + 1}-image`) : null;
+  const video = layout === "quote" ? null : await resolveVideo(scene.popupVideo, `scene-${index + 1}-popup.mp4`);
+  const hasVisual = imageVisible || Boolean(video);
+  const split = layout === "split";
+  const imageWidth = split ? Math.round(width * 0.42) : width;
+  const imageHeight = layout === "quote" ? 0 : split ? height : hasVisual ? Math.round(previewPx(115)) : 0;
+  const contentX = split ? imageWidth + paddingX : paddingX;
+  const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
+  const titleY = layout === "quote"
+    ? Math.round(previewPx(56))
+    : imageHeight + Math.round(previewPx(layout === "stats" ? 33 : 33));
+  const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
+  const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
+  const maxBodyLines = Math.max(1, Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1);
   const bodyLines = wrap(scene.body ?? "", maxCharacters).slice(0, maxBodyLines);
-  const bodyText = bodyLines
-    .map((line, lineIndex) =>
-      `<text x="${paddingX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="#e9ddc7">${escapeXml(line)}</text>`,
-    )
-    .join("");
-  const imageClipPath = `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${imageHeight} H 0 V ${radius} Q 0 0 ${radius} 0 Z`;
+  const bodyText = bodyLines.map((line, lineIndex) =>
+    `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
+  ).join("");
+  const imageClipPath = split
+    ? `M ${radius} 0 H ${imageWidth} V ${height} H ${radius} Q 0 ${height} 0 ${height - radius} V ${radius} Q 0 0 ${radius} 0 Z`
+    : `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${imageHeight} H 0 V ${radius} Q 0 0 ${radius} 0 Z`;
+  const placeholder = split
+    ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
+    : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
+  const quoteMark = layout === "quote"
+    ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
+    : "";
+  const statRow = layout === "stats"
+    ? `<text x="${contentX}" y="${Math.round(previewPx(19))}" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(8))}" letter-spacing="2" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${Math.round(previewPx(25))}" text-anchor="end" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(17))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
+    : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#c9e4f5"/>
-          <stop offset="100%" stop-color="#f6d8af"/>
-        </linearGradient>
+        <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
       </defs>
-      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="#262118" fill-opacity=".94"/>
-      ${imageVisible && !image ? `
-        <g clip-path="url(#imageClip)">
-          <rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>
-          <circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/>
-          <ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/>
-          <ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/>
-        </g>
-      ` : ""}
-      <text x="${paddingX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="#fff3d6">${escapeXml(String(scene.title ?? "").toUpperCase())}</text>
+      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>
+      ${hasVisual && !image && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
+      ${quoteMark}${statRow}
+      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(String(scene.title ?? "").toUpperCase())}</text>
       <g font-family="Arial">${bodyText}</g>
     </svg>
   `);
   const base = sharp(svg);
   const composites = [];
-  if (image) {
-    const mask = Buffer.from(`
-      <svg width="${width}" height="${imageHeight}" xmlns="http://www.w3.org/2000/svg">
-        <path d="${imageClipPath}" fill="#fff"/>
-      </svg>
-    `);
-    const resized = await sharp(image)
-      .resize(width, imageHeight, { fit: "cover" })
-      .composite([{ input: mask, blend: "dest-in" }])
-      .png()
-      .toBuffer();
+  if (image && imageHeight > 0) {
+    const mask = Buffer.from(`<svg width="${imageWidth}" height="${imageHeight}" xmlns="http://www.w3.org/2000/svg"><path d="${imageClipPath}" fill="#fff"/></svg>`);
+    const resized = await sharp(image).resize(imageWidth, imageHeight, { fit: "cover" }).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
     composites.push({ input: resized, top: 0, left: 0 });
   }
-  const border = Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="none" stroke="#aa772c" stroke-width="${borderWidth}"/>
-    </svg>
-  `);
+  const border = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="none" stroke="${colors.border}" stroke-width="${borderWidth}"/></svg>`);
   composites.push({ input: border, top: 0, left: 0 });
   const filename = path.join(renderDir, `popup-${index + 1}.png`);
   await base.composite(composites).png().toFile(filename);
-  return filename;
+  return { path: filename, video, videoWidth: imageWidth, videoHeight: imageHeight };
 };
 
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
@@ -340,6 +350,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const end = scenes[index + 1]?.start ?? timelineDuration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
+  const popupPath = popup.path;
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
@@ -404,7 +415,11 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
     `if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},` +
     `if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
-  const popupCenterX = "(main_w-overlay_w)/2";
+  const popupWidthRatio = clamp(Number(scene.popupWidth ?? 90) / 100, 0.45, 1);
+  const popupHeightRatio = clamp(previewPx(Number(scene.popupHeight ?? 255)) / outputHeight, 0.2, 1);
+  const popupXRatio = clamp(Number(scene.popupX ?? 5) / 100, 0, 1 - popupWidthRatio);
+  const popupYRatio = clamp(Number(scene.popupY ?? 55) / 100, 0, 1 - popupHeightRatio);
+  const popupCenterX = `main_w*${popupXRatio}`;
   const openingX = popupIn === "slide-left"
     ? `if(lt(t,${popupStart + transition}),-overlay_w+(${popupCenterX}+overlay_w)*(t-${popupStart})/${transition},${popupCenterX})`
     : popupIn === "slide-right"
@@ -415,13 +430,12 @@ for (let index = 0; index < scenes.length; index += 1) {
     : popupOut === "slide-right"
       ? `if(gt(t,${popupEnd - transition}),${popupCenterX}+(main_w-${popupCenterX})*(t-${popupEnd - transition})/${transition},${openingX})`
       : openingX;
-  const popupBottom = Math.round(outputHeight * (55 / PREVIEW_REFERENCE_HEIGHT));
   const popupSlideDistance = Math.round(previewPx(52));
   const bounceInDistance = Math.round(previewPx(70));
   const bouncePeak = Math.round(previewPx(12));
   const bounceOutPeak = Math.round(previewPx(13));
   const bounceOutDistance = Math.round(previewPx(75));
-  const centerYExpression = `main_h-overlay_h-${popupBottom}`;
+  const centerYExpression = `main_h*${popupYRatio}`;
   const popupY = popupIn === "bounce"
     ? `if(lt(t,${popupStart + transition}),${centerYExpression}+if(lt(${popupInProgress},0.65),${bounceInDistance}-${bounceInDistance + bouncePeak}*(${popupInProgress})/0.65,-${bouncePeak}*(1-(${popupInProgress}-0.65)/0.35)),${centerYExpression})`
     : popupOut === "bounce"
@@ -442,7 +456,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
   if (popupVisible) {
     filter +=
-      `[1:v]format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +
+      (popup.video
+        ? `[2:v]scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[popupVideo];[1:v][popupVideo]overlay=0:0:shortest=1[popupBase];`
+        : "") +
+      `${popup.video ? "[popupBase]" : "[1:v]"}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,` +
       (popupIn === "flip" || popupOut === "flip"
         ? `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`
         : "") +
@@ -455,9 +472,10 @@ for (let index = 0; index < scenes.length; index += 1) {
   const args = [
     "-y",
     "-loop", "1", "-i", sceneBackground,
-    "-loop", "1", "-i", popup,
+    "-loop", "1", "-i", popupPath,
+    ...(popup.video ? ["-stream_loop", "-1", "-i", popup.video] : []),
   ];
-  const audioInputIndex = 2;
+  const audioInputIndex = popup.video ? 3 : 2;
   if (voice) {
     args.push("-i", voice);
   } else {

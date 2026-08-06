@@ -68,6 +68,13 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /const displayItem/);
   assert.match(page, /visibleScenes\.filter/);
   assert.match(page, /visibleScenes\.map/);
+  assert.match(page, /popupLayout/);
+  assert.match(page, /popupTheme/);
+  assert.match(page, /popupTextEffect/);
+  assert.match(page, /popupVideo/);
+  assert.match(page, /startPopupDrag/);
+  assert.match(page, /popupX/);
+  assert.match(page, /popupY/);
   assert.match(page, /zoomStart/);
   assert.match(page, /zoomEnd/);
   assert.match(page, /zoomInDuration/);
@@ -107,6 +114,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
   assert.match(css, /aspect-ratio: 9 \/ 16/);
   assert.match(css, /width: min\(100%, 420px\)/);
+  assert.match(css, /popup-layout-split/);
+  assert.match(css, /popup-theme-ocean/);
+  assert.match(css, /popup-text-pop/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /zoompan/);
   assert.match(renderer, /scene\.zoom/);
@@ -119,6 +129,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /Không có cảnh đang hiện để render/);
   assert.match(renderer, /aresample=async=1:first_pts=0/);
   assert.match(renderer, /audioVolume/);
+  assert.match(renderer, /resolveVideo/);
+  assert.match(renderer, /popup\.video/);
+  assert.match(renderer, /scene\.popupLayout/);
+  assert.match(renderer, /scene\.popupX/);
+  assert.match(renderer, /scene\.popupY/);
   assert.match(renderer, /volume=\$\{voiceVolume\.toFixed\(3\)\}/);
   assert.match(renderer, /"-c:v", "copy"/);
   assert.match(renderer, /"-c:a", "aac"/);
