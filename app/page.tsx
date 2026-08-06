@@ -329,6 +329,22 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
   });
 };
 
+const reflowVisibleSceneTimeline = (items: Scene[]) => {
+  let cursor = 0;
+  return items
+    .filter((item) => item.sceneVisible !== false)
+    .map((item) => {
+      const duration = Math.max(0.1, item.end - item.start);
+      const next = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + duration).toFixed(2)),
+      };
+      cursor += duration;
+      return next;
+    });
+};
+
 type StudioErrorBoundaryProps = { children: ReactNode };
 type StudioErrorBoundaryState = { error: Error | null };
 
@@ -454,11 +470,16 @@ function Home() {
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
 
-  const scene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
   const visibleScenes = useMemo(
-    () => scenes.filter((item) => item.sceneVisible !== false),
+    () => reflowVisibleSceneTimeline(scenes.filter((item) => item.sceneVisible !== false)),
     [scenes],
   );
+  const scene =
+    visibleScenes.find((item) => item.id === selectedId) ??
+    scenes.find((item) => item.id === selectedId) ??
+    visibleScenes[0] ??
+    scenes[0] ??
+    initialScenes[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
@@ -1144,15 +1165,24 @@ function Home() {
     const target = scenes.find((item) => item.id === sceneId);
     if (!target) return;
     const willShow = target.sceneVisible === false;
-    setScenes((items) =>
-      items.map((item) =>
-        item.id === sceneId ? { ...item, sceneVisible: willShow } : item,
-      ),
+    const selectedSourceScene = scenes.find((item) => item.id === selectedId);
+    const selectedOffset = selectedSourceScene
+      ? Math.max(0, Math.min(playTime - selectedSourceScene.start, selectedSourceScene.end - selectedSourceScene.start))
+      : 0;
+    const nextScenes = scenes.map((item) =>
+      item.id === sceneId ? { ...item, sceneVisible: willShow } : item,
     );
+    const nextVisibleScenes = reflowVisibleSceneTimeline(nextScenes);
+    setScenes(nextScenes);
+
+    const selectedVisibleScene = nextVisibleScenes.find((item) => item.id === selectedId);
+    if (selectedVisibleScene) {
+      setPlayTime(Number((selectedVisibleScene.start + selectedOffset).toFixed(2)));
+      return;
+    }
+
     if (!willShow && sceneId === selectedId) {
-      const fallback = scenes.find(
-        (item) => item.id !== sceneId && item.sceneVisible !== false,
-      );
+      const fallback = nextVisibleScenes[0];
       setPlaying(false);
       if (fallback) {
         setSelectedId(fallback.id);
@@ -2199,9 +2229,17 @@ function Home() {
             </div>
           </div>
           <div className="scene-list">
-            {scenes.map((item, index) => {
+            {scenes.map((item) => {
+              const displayItem =
+                visibleScenes.find((visibleItem) => visibleItem.id === item.id) ?? item;
+              const visibleIndex = visibleScenes.findIndex(
+                (visibleItem) => visibleItem.id === item.id,
+              );
               const playbackActive =
-                playing && item.sceneVisible !== false && playTime >= item.start && playTime < item.end;
+                playing &&
+                visibleIndex >= 0 &&
+                playTime >= displayItem.start &&
+                playTime < displayItem.end;
               const thumbSource =
                 assetPreviewSource(item.image) ||
                 assetPreviewSource(item.background ?? "") ||
@@ -2227,7 +2265,7 @@ function Home() {
                 onClick={(event) => {
                   setDraggedId(null);
                   setDragOverId(null);
-                  selectScene(item, event.shiftKey);
+                  selectScene(displayItem, event.shiftKey);
                 }}
                 onDragStart={(event) => {
                   setDraggedId(item.id);
@@ -2258,7 +2296,7 @@ function Home() {
                     <b>{String(item.number).padStart(2, "0")}</b>
                   )}
                 </span>
-                {playbackActive && index < scenes.length - 1 && (
+                {playbackActive && visibleIndex < visibleScenes.length - 1 && (
                   <span className="scene-running-flow" aria-hidden="true">
                     <i />
                     <i />
@@ -2271,7 +2309,9 @@ function Home() {
                 <span className="scene-meta">
                   <strong>{item.title}</strong>
                   <small>
-                    {formatTime(item.start)}–{formatTime(item.end)}
+                    {item.sceneVisible === false
+                      ? "Đang ẩn"
+                      : `${formatTime(displayItem.start)}–${formatTime(displayItem.end)}`}
                   </small>
                 </span>
                 <span

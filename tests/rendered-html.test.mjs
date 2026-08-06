@@ -64,6 +64,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneVisible/);
   assert.match(page, /scene-visibility-button/);
   assert.match(page, /toggleSceneVisibility/);
+  assert.match(page, /reflowVisibleSceneTimeline/);
+  assert.match(page, /const displayItem/);
   assert.match(page, /visibleScenes\.filter/);
   assert.match(page, /visibleScenes\.map/);
   assert.match(page, /zoomStart/);
