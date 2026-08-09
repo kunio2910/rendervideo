@@ -72,6 +72,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /popupTheme/);
   assert.match(page, /popupTextEffect/);
   assert.match(page, /popupVideo/);
+  assert.match(page, /isVideoMedia/);
+  assert.match(page, /backgroundVideoPreviewSource/);
+  assert.match(page, /background-media-preview/);
   assert.match(page, /startPopupDrag/);
   assert.match(page, /popupX/);
   assert.match(page, /popupY/);
@@ -94,6 +97,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
+  assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
+  assert.match(page, /activeStudioTab === "settings"/);
+  assert.match(page, /SettingsWorkspace/);
+  assert.match(page, /duplicateProjectClip/);
+  assert.match(page, /deleteProjectClip/);
+  assert.match(page, /selectedScene/);
   assert.match(page, /Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
@@ -105,6 +114,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /timeline-playhead-layer/);
   assert.match(css, /overflow: clip/);
   assert.match(css, /playhead-grabber/);
+  assert.match(css, /settings-layout/);
+  assert.match(css, /settings-selected-scene/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
@@ -133,6 +144,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /popup-layout-split/);
   assert.match(css, /popup-theme-ocean/);
   assert.match(css, /popup-text-pop/);
+  assert.match(css, /image-url-preview video/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
@@ -149,6 +161,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /aresample=async=1:first_pts=0/);
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /resolveVideo/);
+  assert.match(renderer, /resolveBackground/);
+  assert.match(renderer, /backgroundIsVideo/);
+  assert.match(renderer, /-stream_loop/);
+  assert.match(renderer, /d=1,trim=duration/);
   assert.match(renderer, /popup\.video/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);

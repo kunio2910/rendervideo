@@ -142,6 +142,13 @@ const fileNameOnly = (value: string) => {
 
 const isRemoteUrl = (value: string) => /^https?:\/\/.+/i.test(value.trim());
 
+const isVideoMedia = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
+    || /\/video\/upload\//.test(normalized)
+    || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
 const assetReference = (value: string) => {
   const trimmed = value.trim();
   return isRemoteUrl(trimmed) ? trimmed : fileNameOnly(trimmed);
@@ -292,7 +299,7 @@ type EditorSectionState = {
   effects: boolean;
 };
 
-type StudioTab = "compose" | "export";
+type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
@@ -452,6 +459,262 @@ const isBundledSampleWorkspace = (data: unknown) => {
     || serialized.includes('"voiceFile":"audio/milestone-1.mp3"');
 };
 
+type SettingsWorkspaceProps = {
+  projectItems: ProjectSnapshot[];
+  activeProjectId: string;
+  projectTitle: string;
+  aspectRatio: AspectRatio;
+  onAddClip: () => void;
+  onDuplicateClip: (project: ProjectSnapshot) => ProjectSnapshot;
+  onDeleteClip: (project: ProjectSnapshot) => string | null;
+  onOpenScene: (project: ProjectSnapshot, scene: Scene) => void;
+};
+
+function SettingsWorkspace({
+  projectItems,
+  activeProjectId,
+  projectTitle,
+  aspectRatio,
+  onAddClip,
+  onDuplicateClip,
+  onDeleteClip,
+  onOpenScene,
+}: SettingsWorkspaceProps) {
+  const [selectedClipId, setSelectedClipId] = useState(activeProjectId);
+  const [selectedSceneId, setSelectedSceneId] = useState("");
+  const selectedClip = projectItems.find((item) => item.id === selectedClipId)
+    ?? projectItems.find((item) => item.id === activeProjectId)
+    ?? projectItems[0];
+  const selectedScenes = selectedClip?.scenes ?? [];
+  const selectedScene = selectedScenes.find((item) => item.id === selectedSceneId)
+    ?? selectedScenes[0];
+
+  useEffect(() => {
+    if (!projectItems.length) return;
+    if (!projectItems.some((item) => item.id === selectedClipId)) {
+      setSelectedClipId(projectItems.find((item) => item.id === activeProjectId)?.id ?? projectItems[0].id);
+    }
+  }, [activeProjectId, projectItems, selectedClipId]);
+
+  useEffect(() => {
+    if (!selectedScenes.length) {
+      setSelectedSceneId("");
+      return;
+    }
+    if (!selectedScenes.some((item) => item.id === selectedSceneId)) {
+      setSelectedSceneId(selectedScenes[0].id);
+    }
+  }, [selectedClipId, selectedSceneId, selectedScenes]);
+
+  const selectClip = (project: ProjectSnapshot) => {
+    setSelectedClipId(project.id);
+    setSelectedSceneId(project.scenes[0]?.id ?? "");
+  };
+
+  const handleDuplicateClip = () => {
+    if (!selectedClip) return;
+    const copied = onDuplicateClip(selectedClip);
+    setSelectedClipId(copied.id);
+    setSelectedSceneId(copied.scenes[0]?.id ?? "");
+  };
+
+  const handleDeleteClip = () => {
+    if (!selectedClip) return;
+    const fallbackId = onDeleteClip(selectedClip);
+    if (fallbackId) {
+      setSelectedClipId(fallbackId);
+      const fallback = projectItems.find((item) => item.id === fallbackId);
+      setSelectedSceneId(fallback?.scenes[0]?.id ?? "");
+    }
+  };
+
+  if (!selectedClip) {
+    return (
+      <section className="settings-workspace settings-empty-state">
+        <div className="settings-empty-card">
+          <span className="settings-kicker">CÀI ĐẶT DỰ ÁN</span>
+          <h2>Chưa có clip nào</h2>
+          <p>Tạo clip đầu tiên để bắt đầu quản lý cảnh và tài nguyên.</p>
+          <button type="button" className="button primary" onClick={onAddClip}>＋ Thêm clip</button>
+        </div>
+      </section>
+    );
+  }
+
+  const clipDuration = Math.max(
+    selectedClip.projectDuration,
+    ...selectedScenes.map((item) => item.end),
+  );
+
+  return (
+    <>
+      <header className="topbar settings-topbar">
+        <div className="settings-topbar-title">
+          <span className="settings-kicker">KITO VIDEO STUDIO / CÀI ĐẶT</span>
+          <h1>Quản lý clip &amp; cảnh</h1>
+        </div>
+        <div className="settings-project-chip">
+          <i />
+          <span>{projectTitle}</span>
+          <b>{projectItems.length} clip</b>
+        </div>
+      </header>
+
+      <section className="settings-workspace" aria-labelledby="settings-heading">
+        <div className="settings-layout">
+          <aside className="settings-nav" aria-label="Mục cài đặt">
+            <div className="settings-nav-title">Cài đặt dự án</div>
+            <button type="button">01&nbsp;&nbsp; Tổng quan</button>
+            <button type="button" className="active">02&nbsp;&nbsp; Clip &amp; cảnh</button>
+            <button type="button">03&nbsp;&nbsp; Tài nguyên</button>
+            <button type="button">04&nbsp;&nbsp; Render</button>
+            <button type="button">05&nbsp;&nbsp; Phím tắt</button>
+            <div className="settings-nav-note">
+              <span>Gợi ý</span>
+              <p>Chọn một cảnh để xem nhanh cấu hình và mở trực tiếp trong Biên soạn.</p>
+            </div>
+          </aside>
+
+          <div className="settings-content">
+            <div className="settings-page-heading">
+              <div>
+                <span className="settings-kicker">CLIP &amp; CẢNH</span>
+                <h2 id="settings-heading">Clip trong dự án</h2>
+                <p>Quản lý thông tin các clip, cảnh và thao tác nhanh trên từng nội dung.</p>
+              </div>
+              <button type="button" className="button primary" onClick={onAddClip}>＋ Thêm clip</button>
+            </div>
+
+            <div className="settings-clip-grid">
+              <section className="settings-card settings-clip-list-card">
+                <div className="settings-card-heading">
+                  <div>
+                    <span className="settings-section-label">DỰ ÁN</span>
+                    <h3>Danh sách clip</h3>
+                  </div>
+                  <span className="settings-count-badge">{projectItems.length}</span>
+                </div>
+                <div className="settings-clip-list">
+                  {projectItems.map((project) => {
+                    const duration = Math.max(
+                      project.projectDuration,
+                      ...project.scenes.map((item) => item.end),
+                    );
+                    return (
+                      <button
+                        type="button"
+                        key={project.id}
+                        className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""}`}
+                        onClick={() => selectClip(project)}
+                      >
+                        <span className="settings-clip-thumb" aria-hidden="true">
+                          <b>{String(project.scenes.length).padStart(2, "0")}</b>
+                          <i />
+                        </span>
+                        <span className="settings-clip-copy">
+                          <strong>{project.title || "Clip chưa đặt tên"}</strong>
+                          <span>{project.scenes.length} cảnh · {formatTime(duration)} · {project.aspectRatio ?? "9:16"}</span>
+                        </span>
+                        <span className={`settings-clip-status ${project.id === activeProjectId ? "open" : ""}`}>
+                          {project.id === activeProjectId ? "Đang mở" : "Đã lưu"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button type="button" className="settings-add-clip" onClick={onAddClip}>＋ Thêm clip mới</button>
+              </section>
+
+              <section className="settings-card settings-detail-card">
+                <div className="settings-detail-heading">
+                  <div>
+                    <span className="settings-section-label">THÔNG TIN CLIP</span>
+                    <h3>{selectedClip.title || "Clip chưa đặt tên"}</h3>
+                    <p>{selectedClip.id === activeProjectId ? "Clip đang được mở trong Biên soạn" : "Clip đã lưu trong dự án"}</p>
+                  </div>
+                  <span className="settings-detail-ratio">{selectedClip.aspectRatio ?? aspectRatio}</span>
+                </div>
+
+                <div className="settings-clip-actions">
+                  <div>
+                    <strong>Thao tác clip</strong>
+                    <span>Nhân bản để tạo một phiên bản độc lập hoặc xóa clip khỏi dự án.</span>
+                  </div>
+                  <div className="settings-action-buttons">
+                    <button type="button" className="button ghost" onClick={handleDuplicateClip}>⧉ Nhân bản clip</button>
+                    <button type="button" className="button settings-danger-button" onClick={handleDeleteClip}>⌫ Xóa clip</button>
+                  </div>
+                </div>
+
+                <div className="settings-summary-grid">
+                  <div><span>Số cảnh</span><b>{selectedScenes.length}</b></div>
+                  <div><span>Thời lượng</span><b>{formatTime(clipDuration)}</b></div>
+                  <div><span>Tỷ lệ</span><b>{selectedClip.aspectRatio ?? aspectRatio}</b></div>
+                </div>
+
+                <div className="settings-scene-heading">
+                  <div>
+                    <span className="settings-section-label">NỘI DUNG CLIP</span>
+                    <h3>Các cảnh trong clip</h3>
+                  </div>
+                  <span>{selectedScenes.length} cảnh · chọn để xem chi tiết</span>
+                </div>
+                <div className="settings-scenes-list">
+                  {selectedScenes.map((item) => (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className={`settings-scene-item ${item.id === selectedScene?.id ? "selected" : ""}`}
+                      onClick={() => setSelectedSceneId(item.id)}
+                    >
+                      <span className="settings-scene-number">{String(item.number).padStart(2, "0")}</span>
+                      <span className={`settings-scene-thumb scene-tone-${(item.number - 1) % 4}`} aria-hidden="true"><i /></span>
+                      <span className="settings-scene-copy">
+                        <strong>{item.title || `Cảnh ${item.number}`}</strong>
+                        <span>{formatTime(item.start)} – {formatTime(item.end)} · {item.status}</span>
+                        <small>
+                          {item.background || "Nền mặc định"}
+                          {item.popup ? " · Popup" : ""}
+                          {item.voiceFile ? " · Thuyết minh" : ""}
+                        </small>
+                      </span>
+                      <span className="settings-scene-arrow" aria-hidden="true">›</span>
+                    </button>
+                  ))}
+                </div>
+
+                {selectedScene && (
+                  <section className="settings-selected-scene" aria-labelledby="selected-scene-heading">
+                    <div className="settings-selected-scene-heading">
+                      <div>
+                        <span className="settings-section-label">CẢNH ĐANG CHỌN · {String(selectedScene.number).padStart(2, "0")}</span>
+                        <h4 id="selected-scene-heading">{selectedScene.title || `Cảnh ${selectedScene.number}`}</h4>
+                      </div>
+                      <button type="button" className="button primary" onClick={() => onOpenScene(selectedClip, selectedScene)}>Mở biên soạn</button>
+                    </div>
+                    <div className="settings-scene-facts">
+                      <div><span>Thời gian</span><b>{formatTime(selectedScene.end - selectedScene.start)}</b></div>
+                      <div><span>Background</span><b>{selectedScene.background || "Mặc định"}</b></div>
+                      <div><span>Popup</span><b>{selectedScene.popup ? "Đã bật" : "Chưa có nội dung"}</b></div>
+                      <div><span>Chuyển động</span><b>{selectedScene.zoomEnabled !== false ? `Zoom ${selectedScene.zoom.toFixed(1)}×` : "Đã tắt"}</b></div>
+                    </div>
+                    <p>{selectedScene.narration || "Cảnh này chưa có lời thuyết minh. Bạn có thể bổ sung nội dung trong Biên soạn."}</p>
+                  </section>
+                )}
+
+                <div className="settings-note">
+                  <span>i</span>
+                  <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
@@ -520,6 +783,7 @@ function Home() {
   const animationFrame = useRef<number | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
+  const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
   const historySnapshot = useRef("");
@@ -569,9 +833,11 @@ function Home() {
   const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
   const popupVideoPreviewSource = assetPreviewSource(scene.popupVideo ?? "");
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
-  const backgroundPreviewSource =
-    assetPreviewSource(scene.background ?? "") ||
-    assetPreviewSource(legacyBackgroundPreview);
+  const sceneBackgroundValue = String(scene.background ?? "").trim();
+  const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
+  const backgroundPreviewSource = assetPreviewSource(backgroundValue);
+  const backgroundIsVideo = isVideoMedia(backgroundValue);
+  const backgroundVideoPreviewSource = backgroundIsVideo ? backgroundPreviewSource : "";
   const narrationPreviewSource =
     audioPreview[scene.id] || assetPreviewSource(scene.voiceFile);
   const musicPreviewSource =
@@ -581,6 +847,19 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  useEffect(() => {
+    const video = backgroundVideoRef.current;
+    if (playing || !video || !backgroundVideoPreviewSource) return;
+    if (Number.isFinite(video.duration)) video.currentTime = sceneLocalTime;
+    video.pause();
+  }, [backgroundVideoPreviewSource, playing, scene.id, sceneLocalTime]);
+  useEffect(() => {
+    const video = backgroundVideoRef.current;
+    if (!playing || !video || !backgroundVideoPreviewSource) return;
+    void video.play().catch(() => {
+      // Trình duyệt có thể chặn autoplay; video vẫn có thể được xem khi bật phát thử.
+    });
+  }, [backgroundVideoPreviewSource, playing, scene.id]);
   const sceneProgress = sceneDuration > 0
     ? Math.min(1, Math.max(0, sceneLocalTime / sceneDuration))
     : 0;
@@ -689,6 +968,11 @@ function Home() {
     activeProjectId: projectId,
     projects: [...projects.filter((item) => item.id !== projectId), currentProject],
   }), [projects, projectId, currentProject]);
+
+  const projectItems = useMemo(
+    () => [...projects.filter((item) => item.id !== projectId), currentProject],
+    [projects, projectId, currentProject],
+  );
 
   const openProject = (project: ProjectSnapshot, preserveHistory = false) => {
     setProjectId(project.id);
@@ -1425,10 +1709,7 @@ function Home() {
   };
 
   const switchProject = (nextId: string) => {
-    const nextLibrary = [
-      ...projects.filter((item) => item.id !== projectId),
-      currentProject,
-    ];
+    const nextLibrary = projectItems;
     setProjects(nextLibrary);
     const target = nextLibrary.find((item) => item.id === nextId);
     if (target) openProject(target);
@@ -1469,6 +1750,52 @@ function Home() {
     setShowNewProject(false);
     setToast(`Đã tạo chủ đề “${title}”`);
     window.setTimeout(() => setToast(""), 2600);
+  };
+
+  const duplicateProjectClip = (source: ProjectSnapshot) => {
+    const copyId = `project-${Date.now().toString(36)}-copy`;
+    const copied: ProjectSnapshot = {
+      ...source,
+      id: copyId,
+      title: `${source.title || "Clip chưa đặt tên"} (bản sao)`,
+      scenes: source.scenes.map((item, index) => ({
+        ...item,
+        id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}`,
+      })),
+    };
+    setProjects((items) => [
+      ...items.filter((item) => item.id !== projectId && item.id !== copied.id),
+      currentProject,
+      copied,
+    ]);
+    setToast(`Đã nhân bản clip “${copied.title}”`);
+    window.setTimeout(() => setToast(""), 2400);
+    return copied;
+  };
+
+  const deleteProjectClip = (source: ProjectSnapshot) => {
+    if (projectItems.length <= 1) {
+      setToast("Dự án cần có ít nhất một clip");
+      window.setTimeout(() => setToast(""), 2400);
+      return null;
+    }
+    if (!window.confirm(`Xóa clip “${source.title || "Clip chưa đặt tên"}”?`)) return null;
+
+    const remaining = projectItems.filter((item) => item.id !== source.id);
+    const fallback = remaining[0];
+    setProjects(remaining.filter((item) => item.id !== projectId));
+    if (source.id === projectId && fallback) openProject(fallback);
+    setToast(`Đã xóa clip “${source.title || "Clip chưa đặt tên"}”`);
+    window.setTimeout(() => setToast(""), 2400);
+    return fallback?.id ?? null;
+  };
+
+  const openSettingsScene = (project: ProjectSnapshot, selectedScene: Scene) => {
+    if (project.id !== projectId) openProject(project);
+    setSelectedId(selectedScene.id);
+    setSelectedSceneIds([selectedScene.id]);
+    setPlayTime(selectedScene.start);
+    setActiveStudioTab("compose");
   };
 
   const addScene = () => {
@@ -2238,6 +2565,16 @@ function Home() {
             <span className="rail-icon" aria-hidden="true">↓</span>
             <span>Xuất</span>
           </button>
+          <button
+            type="button"
+            className={`rail-item ${activeStudioTab === "settings" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("settings")}
+            aria-current={activeStudioTab === "settings" ? "page" : undefined}
+            title="Quản lý clip và cảnh"
+          >
+            <span className="rail-icon" aria-hidden="true">⚙</span>
+            <span>Cài đặt</span>
+          </button>
         </nav>
 
         <div className="studio-main">
@@ -2572,17 +2909,41 @@ function Home() {
             style={{ transform: `scale(${previewZoom / 100})` }}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
-              <img
-                className="project-background"
-                src={backgroundPreviewSource}
-                alt=""
-                aria-hidden="true"
-                style={{
-                  transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                  transform: `scale(${playing ? playbackMapScale : 1})`,
-                  transitionDuration: playing ? "0ms" : "180ms",
-                }}
-              />
+              backgroundIsVideo ? (
+                <video
+                  key={backgroundVideoPreviewSource}
+                  ref={backgroundVideoRef}
+                  className="project-background"
+                  src={backgroundVideoPreviewSource}
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-hidden="true"
+                  onLoadedMetadata={(event) => {
+                    if (!playing && Number.isFinite(event.currentTarget.duration)) {
+                      event.currentTarget.currentTime = sceneLocalTime;
+                    }
+                  }}
+                  style={{
+                    transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
+                    transform: `scale(${playing ? playbackMapScale : 1})`,
+                    transitionDuration: playing ? "0ms" : "180ms",
+                  }}
+                />
+              ) : (
+                <img
+                  className="project-background"
+                  src={backgroundPreviewSource}
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
+                    transform: `scale(${playing ? playbackMapScale : 1})`,
+                    transitionDuration: playing ? "0ms" : "180ms",
+                  }}
+                />
+              )
             )}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
@@ -2749,17 +3110,29 @@ function Home() {
               <input
                 type="text"
                 inputMode="url"
-                placeholder="https://example.com/background.jpg"
+                placeholder="https://example.com/background.jpg hoặc .mp4"
                 value={scene.background ?? ""}
                 onChange={(event) => updateScene("background", event.target.value)}
               />
-              {isRemoteUrl(scene.background ?? "") && (
-                <div className="image-url-preview">
-                  <img src={scene.background} alt={`Xem trước background cảnh ${scene.number}`} />
+              {backgroundPreviewSource && (
+                <div className="image-url-preview background-media-preview">
+                  {backgroundIsVideo ? (
+                    <video
+                      src={backgroundPreviewSource}
+                      muted
+                      loop
+                      playsInline
+                      controls
+                      preload="metadata"
+                      aria-label={`Xem trước clip background cảnh ${scene.number}`}
+                    />
+                  ) : (
+                    <img src={backgroundPreviewSource} alt={`Xem trước background cảnh ${scene.number}`} />
+                  )}
                   <span>Background này chỉ áp dụng cho cảnh đang chọn.</span>
                 </div>
               )}
-              <small>Nhập URL hoặc tên file riêng cho cảnh. URL sẽ được renderer tự tải về và dùng lại nếu các cảnh trùng tài nguyên.</small>
+              <small>Nhập URL hoặc tên file ảnh/clip riêng cho cảnh (.jpg, .png, .webp, .mp4, .webm, .mov). URL sẽ được renderer tự tải về.</small>
             </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
@@ -3398,7 +3771,7 @@ function Home() {
         </div>
               </section>
             </>
-          ) : (
+          ) : activeStudioTab === "export" ? (
             <>
               <header className="topbar export-topbar">
                 <div className="export-topbar-title">
@@ -3594,6 +3967,17 @@ function Home() {
                 </div>
               </section>
             </>
+          ) : (
+            <SettingsWorkspace
+              projectItems={projectItems}
+              activeProjectId={projectId}
+              projectTitle={projectTitle}
+              aspectRatio={aspectRatio}
+              onAddClip={() => setShowNewProject(true)}
+              onDuplicateClip={duplicateProjectClip}
+              onDeleteClip={deleteProjectClip}
+              onOpenScene={openSettingsScene}
+            />
           )}
         </div>
       </div>
