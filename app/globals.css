@@ -4773,12 +4773,12 @@ body {
 .studio-shell[data-theme="dark"] .preview-aspect-switcher { background: var(--panel-soft); }
 
 .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview.preview-portrait {
-  width: min(100%, 300px);
+  width: min(100%, 360px);
   height: auto !important;
   aspect-ratio: 9 / 16;
 }
 .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview.preview-landscape {
-  width: min(100%, 440px);
+  width: min(100%, 528px);
   height: auto !important;
   aspect-ratio: 16 / 9;
 }
@@ -4799,13 +4799,52 @@ body {
   transform-origin: center center;
 }
 .preview-navigation {
-  width: min(100%, 440px);
+  width: min(100%, 528px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   margin: 12px auto 0;
 }
+
+.popup-manager {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  background: rgba(255, 250, 239, .72);
+}
+.popup-manager-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--ink);
+  font-size: 11px;
+}
+.popup-add-button { padding: 6px 9px; font-size: 10px; }
+.popup-manager-list { display: grid; gap: 6px; }
+.popup-manager-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .62);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.popup-manager-item span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
+.popup-manager-item b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.popup-manager-item.active { border-color: #d88b2b; background: #fff0d4; }
+.studio-shell[data-theme="dark"] .popup-manager { background: #182532; }
+.studio-shell[data-theme="dark"] .popup-manager-item { background: #213342; color: #edf5ff; }
+.studio-shell[data-theme="dark"] .popup-manager-item.active { border-color: #d89a3d; background: #3a3022; }
 .preview-scene-navigation,
 .preview-zoom-control {
   min-height: 38px;

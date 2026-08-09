@@ -14,6 +14,7 @@ import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
 type Scene = {
   id: string;
   number: number;
+  sceneName: string;
   title: string;
   location: string;
   reference: string;
@@ -47,9 +48,31 @@ type Scene = {
   popupX?: number;
   popupY?: number;
   popupVisible?: boolean;
+  popups?: PopupConfig[];
   backgroundVisible?: boolean;
   sceneVisible: boolean;
   status: "Nháp" | "Đã duyệt";
+};
+
+type PopupConfig = {
+  id: string;
+  title: string;
+  body: string;
+  image: string;
+  video: string;
+  start: number;
+  duration: number;
+  in: string;
+  out: string;
+  width: number;
+  height: number;
+  layout: Scene["popupLayout"];
+  theme: Scene["popupTheme"];
+  textEffect: Scene["popupTextEffect"];
+  x: number;
+  y: number;
+  visible: boolean;
+  imageVisible: boolean;
 };
 
 type AspectRatio = "9:16" | "16:9";
@@ -84,6 +107,7 @@ const normalizeRenderResolution = (
 const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   id,
   number,
+  sceneName: `Cảnh ${number}`,
   title: "",
   location: "",
   reference: "",
@@ -115,6 +139,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   popupX: 5,
   popupY: 55,
   popupVisible: true,
+  popups: [],
   backgroundVisible: true,
   sceneVisible: true,
   status: "Nháp",
@@ -335,6 +360,73 @@ const normalizeEditorSections = (
   effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
 });
 
+const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
+  id,
+  title: "",
+  body: "",
+  image: "",
+  video: "",
+  start: 0.5,
+  duration: 3,
+  in: "fade-slide-up",
+  out: "fade-slide-down",
+  width: 90,
+  height: 255,
+  layout: "image-top",
+  theme: "travel",
+  textEffect: "none",
+  x: 5,
+  y: 55,
+  visible: true,
+  imageVisible: true,
+  ...overrides,
+});
+
+const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
+  defaultPopupConfig(id, {
+    title: String(scene.title ?? ""),
+    body: String(scene.popup ?? ""),
+    image: String(scene.image ?? ""),
+    video: String(scene.popupVideo ?? ""),
+    start: positiveNumber(scene.popupStart, 0.5),
+    duration: positiveNumber(scene.popupDuration, 3, 0.1),
+    in: scene.popupIn ?? "fade-slide-up",
+    out: scene.popupOut ?? "fade-slide-down",
+    width: clampPercent(scene.popupWidth, 90),
+    height: positiveNumber(scene.popupHeight, 255, 170),
+    layout: scene.popupLayout ?? "image-top",
+    theme: scene.popupTheme ?? "travel",
+    textEffect: scene.popupTextEffect ?? "none",
+    x: clampPercent(scene.popupX, 5),
+    y: clampPercent(scene.popupY, 55),
+    visible: scene.popupVisible !== false,
+    imageVisible: (scene as Scene & { imageVisible?: boolean }).imageVisible !== false,
+  });
+
+const scenePopupList = (scene: Scene): PopupConfig[] => {
+  if (Array.isArray(scene.popups) && scene.popups.length > 0) return scene.popups;
+  return [popupConfigFromScene(scene, `${scene.id}-popup-1`)];
+};
+
+const popupSceneFields = (popup: PopupConfig) => ({
+  title: popup.title,
+  popup: popup.body,
+  image: popup.image,
+  popupVideo: popup.video,
+  popupStart: popup.start,
+  popupDuration: popup.duration,
+  popupIn: popup.in,
+  popupOut: popup.out,
+  popupWidth: popup.width,
+  popupHeight: popup.height,
+  popupLayout: popup.layout,
+  popupTheme: popup.theme,
+  popupTextEffect: popup.textEffect,
+  popupX: popup.x,
+  popupY: popup.y,
+  popupVisible: popup.visible,
+});
+
 const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
   const validItems = (Array.isArray(items) ? items : []).filter(isRecord) as Scene[];
@@ -357,12 +449,49 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       sceneDuration,
       Math.max(zoomInEnd, positiveNumber(item.zoomEnd, sceneDuration)),
     );
+    const rawPopups = (item as Scene & { popups?: unknown }).popups;
+    const popups = Array.isArray(rawPopups) && rawPopups.length > 0
+      ? rawPopups.filter(isRecord).map((rawPopup, popupIndex) => {
+          const fallback = popupIndex === 0 ? popupConfigFromScene(item, `${id}-popup-1`) : defaultPopupConfig(`${id}-popup-${popupIndex + 1}`);
+          return defaultPopupConfig(
+            String(rawPopup.id ?? fallback.id),
+            {
+              ...fallback,
+              title: String(rawPopup.title ?? rawPopup.popup ?? fallback.title),
+              body: String(rawPopup.body ?? rawPopup.content ?? rawPopup.popup ?? fallback.body),
+              image: String(rawPopup.image ?? fallback.image),
+              video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
+              start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
+              duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
+              in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
+              out: String(rawPopup.out ?? rawPopup.popupOut ?? fallback.out),
+              width: clampPercent(rawPopup.width ?? rawPopup.popupWidth, fallback.width),
+              height: positiveNumber(rawPopup.height ?? rawPopup.popupHeight, fallback.height, 170),
+              layout: ["image-top", "split", "quote", "stats"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
+                ? (rawPopup.layout ?? rawPopup.popupLayout) as Scene["popupLayout"]
+                : fallback.layout,
+              theme: ["travel", "sunset", "ocean", "minimal"].includes(String(rawPopup.theme ?? rawPopup.popupTheme))
+                ? (rawPopup.theme ?? rawPopup.popupTheme) as Scene["popupTheme"]
+                : fallback.theme,
+              textEffect: ["none", "fade", "rise", "pop"].includes(String(rawPopup.textEffect ?? rawPopup.popupTextEffect))
+                ? (rawPopup.textEffect ?? rawPopup.popupTextEffect) as Scene["popupTextEffect"]
+                : fallback.textEffect,
+              x: clampPercent(rawPopup.x ?? rawPopup.popupX, fallback.x),
+              y: clampPercent(rawPopup.y ?? rawPopup.popupY, fallback.y),
+              visible: rawPopup.visible !== false,
+              imageVisible: rawPopup.imageVisible !== false,
+            },
+          );
+        })
+      : [popupConfigFromScene(item, `${id}-popup-1`)];
+    const firstPopup = popups[0] ?? defaultPopupConfig(`${id}-popup-1`);
     return {
       ...item,
       id,
-      title: String(item.title ?? `Cảnh ${index + 1}`),
+      sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
+      ...popupSceneFields(firstPopup),
+      popups,
       narration: String(item.narration ?? ""),
-      popup: String(item.popup ?? ""),
       zoomStart,
       zoomEnd,
       zoomInDuration,
@@ -372,19 +501,6 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
       voiceVolume: clampVolume(item.voiceVolume, 95),
-      popupLayout: ["image-top", "split", "quote", "stats"].includes(String(item.popupLayout))
-        ? item.popupLayout as Scene["popupLayout"]
-        : "image-top",
-      popupTheme: ["travel", "sunset", "ocean", "minimal"].includes(String(item.popupTheme))
-        ? item.popupTheme as Scene["popupTheme"]
-        : "travel",
-      popupTextEffect: ["none", "fade", "rise", "pop"].includes(String(item.popupTextEffect))
-        ? item.popupTextEffect as Scene["popupTextEffect"]
-        : "none",
-      popupVideo: String(item.popupVideo ?? ""),
-      popupX: clampPercent(item.popupX, 5),
-      popupY: clampPercent(item.popupY, 55),
-      popupVisible: item.popupVisible ?? true,
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
     };
@@ -759,7 +875,7 @@ function SettingsWorkspace({
                           <i />
                         </span>
                         <span className="settings-scene-copy">
-                          <strong>{item.title || `Cảnh ${item.number}`}</strong>
+                          <strong>{item.sceneName || `Cảnh ${item.number}`}</strong>
                           <span>{formatTime(item.start)} – {formatTime(item.end)} · {item.status}</span>
                           <small>
                             {item.background || "Nền mặc định"}
@@ -778,7 +894,7 @@ function SettingsWorkspace({
                     <div className="settings-selected-scene-heading">
                       <div>
                         <span className="settings-section-label">CẢNH ĐANG CHỌN · {String(selectedScene.number).padStart(2, "0")}</span>
-                        <h4 id="selected-scene-heading">{selectedScene.title || `Cảnh ${selectedScene.number}`}</h4>
+                        <h4 id="selected-scene-heading">{selectedScene.sceneName || `Cảnh ${selectedScene.number}`}</h4>
                       </div>
                       <button type="button" className="button primary" onClick={() => onOpenScene(selectedClip, selectedScene)}>Mở biên soạn</button>
                     </div>
@@ -793,7 +909,8 @@ function SettingsWorkspace({
                       <section>
                         <h5>Nội dung cảnh</h5>
                         <div className="settings-info-grid">
-                          <div><span>Tiêu đề</span><b>{selectedScene.title || `Cảnh ${selectedScene.number}`}</b></div>
+                          <div><span>Tên cảnh</span><b>{selectedScene.sceneName || `Cảnh ${selectedScene.number}`}</b></div>
+                          <div><span>Tiêu đề popup</span><b>{selectedScene.title || "Chưa có"}</b></div>
                           <div><span>Vị trí</span><b>{selectedScene.location || "Chưa có"}</b></div>
                           <div><span>Tham chiếu</span><b>{selectedScene.reference || "Chưa có"}</b></div>
                           <div className="wide"><span>Popup</span><b>{selectedScene.popup || "Chưa có nội dung"}</b></div>
@@ -858,6 +975,7 @@ function SettingsWorkspace({
 function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
+  const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -941,6 +1059,8 @@ function Home() {
     visibleScenes[0] ??
     scenes[0] ??
     initialScenes[0];
+  const scenePopups = useMemo(() => scenePopupList(scene), [scene]);
+  const activePopup = scenePopups.find((item) => item.id === selectedPopupId) ?? scenePopups[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
@@ -970,8 +1090,7 @@ function Home() {
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
-  const imagePreviewSource = imageEnabled ? assetPreviewSource(scene.image) : "";
-  const popupVideoPreviewSource = assetPreviewSource(scene.popupVideo ?? "");
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? scene.image) : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
@@ -1006,27 +1125,33 @@ function Home() {
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
-  const popupStartTime = Math.min(
+  const activePopupStartTime = Math.min(
     sceneDuration,
-    Math.max(0, Number(scene.popupStart ?? 0)),
+    Math.max(0, Number(activePopup?.start ?? scene.popupStart ?? 0)),
   );
-  const popupEndTime = Math.min(sceneDuration, popupStartTime + scene.popupDuration);
-  const popupTransitionDuration = Math.min(0.65, scene.popupDuration / 3);
+  const activePopupDuration = Math.max(0.1, Number(activePopup?.duration ?? scene.popupDuration) || 0.1);
+  const activePopupEndTime = Math.min(sceneDuration, activePopupStartTime + activePopupDuration);
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
-  const popupPlaybackPhase = !playing
-    ? "idle"
-    : sceneLocalTime < popupStartTime + popupTransitionDuration
-      ? "opening"
-      : sceneLocalTime > popupEndTime - popupTransitionDuration
-        ? "closing"
-        : "visible";
   const popupPlaybackVisible =
-    scene.popupVisible !== false &&
+    activePopup?.visible !== false &&
+    Boolean(activePopup && (activePopup.title.trim() || activePopup.body.trim())) &&
     (sceneIsVisibleInPlayback &&
       (!playing ||
-        (sceneLocalTime >= popupStartTime && sceneLocalTime <= popupEndTime)));
+        (sceneLocalTime >= activePopupStartTime && sceneLocalTime <= activePopupEndTime)));
+  const previewPopupItems = !playing
+    ? (activePopup && popupPlaybackVisible ? [activePopup] : [])
+    : sceneIsVisibleInPlayback
+      ? scenePopups.filter((popup) => {
+          const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
+          const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
+          return popup.visible !== false
+            && Boolean(popup.title.trim() || popup.body.trim())
+            && sceneLocalTime >= timingStart
+            && sceneLocalTime <= timingEnd;
+        })
+      : [];
   const zoomEnabled = scene.zoomEnabled !== false;
   const zoomStartTime = Math.min(
     sceneDuration,
@@ -1489,6 +1614,7 @@ function Home() {
     if (!additive) {
       setSelectedSceneIds([item.id]);
       setSelectedId(item.id);
+      setSelectedPopupId("");
       setPlayTime(item.start);
       return;
     }
@@ -1504,6 +1630,7 @@ function Home() {
         : scenes.find((sceneItem) => sceneItem.id === nextIds.at(-1)) ?? item;
     setSelectedSceneIds(nextIds);
     setSelectedId(primary.id);
+    setSelectedPopupId("");
     setPlayTime(primary.start);
   };
 
@@ -1673,6 +1800,30 @@ function Home() {
     );
   };
 
+  const updatePopup = <K extends keyof PopupConfig>(key: K, value: PopupConfig[K]) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const popupIndex = Math.max(
+      0,
+      scenePopups.findIndex((item) => item.id === selectedPopupId),
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const popups = scenePopupList(item);
+      const current = popups[popupIndex];
+      if (!current) return item;
+      const nextPopup = { ...current, [key]: value } as PopupConfig;
+      const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
   const updateCurrentScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
     if (!hydrated) return;
     setScenes((items) =>
@@ -1715,53 +1866,29 @@ function Home() {
   };
 
   const updatePopupStart = (value: number) => {
-    const targetIds = new Set(
-      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    const duration = Math.max(0.1, scene.end - scene.start);
+    const popupDuration = Math.min(
+      Math.max(0.1, activePopup?.duration ?? 0.1),
+      duration,
     );
-    setScenes((items) =>
-      items.map((item) => {
-        if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const popupDuration = Math.min(
-          Math.max(0.1, item.popupDuration),
-          duration,
-        );
-        const nextStart = Math.min(
-          Math.max(0, duration - popupDuration),
-          Math.max(0, Number(value) || 0),
-        );
-        return {
-          ...item,
-          popupStart: Number(nextStart.toFixed(2)),
-          popupDuration: Number(popupDuration.toFixed(2)),
-        };
-      }),
+    const nextStart = Math.min(
+      Math.max(0, duration - popupDuration),
+      Math.max(0, Number(value) || 0),
     );
+    updatePopup("start", Number(nextStart.toFixed(2)));
   };
 
   const updatePopupDuration = (value: number) => {
-    const targetIds = new Set(
-      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    const duration = Math.max(0.1, scene.end - scene.start);
+    const popupStart = Math.min(
+      Math.max(0, Number(activePopup?.start ?? 0) || 0),
+      Math.max(0, duration - 0.1),
     );
-    setScenes((items) =>
-      items.map((item) => {
-        if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const popupStart = Math.min(
-          Math.max(0, Number(item.popupStart ?? 0) || 0),
-          Math.max(0, duration - 0.1),
-        );
-        const nextDuration = Math.min(
-          Math.max(0.1, Number(value) || 0.1),
-          Math.max(0.1, duration - popupStart),
-        );
-        return {
-          ...item,
-          popupStart: Number(popupStart.toFixed(2)),
-          popupDuration: Number(nextDuration.toFixed(2)),
-        };
-      }),
+    const nextDuration = Math.min(
+      Math.max(0.1, Number(value) || 0.1),
+      Math.max(0.1, duration - popupStart),
     );
+    updatePopup("duration", Number(nextDuration.toFixed(2)));
   };
 
   const updateZoomStart = (value: number) => {
@@ -1954,6 +2081,7 @@ function Home() {
     const next: Scene = {
       id: `scene-${Date.now().toString(36)}-${number}`,
       number,
+      sceneName: `Cảnh ${number}`,
       title: "",
       location: "",
       reference: "",
@@ -1986,6 +2114,7 @@ function Home() {
       popupVideo: "",
       popupX: 5,
       popupY: 55,
+      popups: [],
       status: "Nháp",
     };
     setScenes((items) => [...items, next]);
@@ -2000,9 +2129,14 @@ function Home() {
     const insertIndex = sourceIndex >= 0
       ? sourceIndex + 1
       : Math.max(0, scenes.findIndex((item) => item.id === selectedId) + 1);
+    const copiedId = `scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const copied: Scene = {
       ...source,
-      id: `scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      id: copiedId,
+      popups: scenePopupList(source).map((popup, index) => ({
+        ...popup,
+        id: `${copiedId}-popup-${index + 1}`,
+      })),
     };
     const nextScenes = [...scenes];
     nextScenes.splice(insertIndex, 0, copied);
@@ -2011,8 +2145,32 @@ function Home() {
     setProjectDuration((duration) => Math.max(duration, reflowed.at(-1)?.end ?? duration));
     setSelectedId(copied.id);
     setSelectedSceneIds([copied.id]);
+    setSelectedPopupId("");
     setPlayTime(copied.start);
     setToast("Đã nhân bản cảnh");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const addPopup = () => {
+    if (!scene) return;
+    const currentPopups = scenePopupList(scene);
+    const nextPopup = defaultPopupConfig(
+      `${scene.id}-popup-${currentPopups.length + 1}-${Date.now().toString(36)}`,
+      {
+        start: Math.min(
+          Math.max(0, sceneDuration - 1.5),
+          Math.max(0, (currentPopups.at(-1)?.start ?? 0.5) + (currentPopups.at(-1)?.duration ?? 2) + 0.2),
+        ),
+        duration: Math.min(2, sceneDuration),
+        y: Math.min(75, 55 + currentPopups.length * 6),
+      },
+    );
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, popups: [...scenePopupList(item), nextPopup] }
+      : item));
+    setSelectedPopupId(nextPopup.id);
+    setEditorSections((items) => ({ ...items, effects: true }));
+    setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
 
@@ -2039,7 +2197,7 @@ function Home() {
       window.setTimeout(() => setToast(""), 2400);
       return;
     }
-    const countLabel = idsToDelete.length > 1 ? `${idsToDelete.length} cảnh` : `cảnh “${scene.title}”`;
+    const countLabel = idsToDelete.length > 1 ? `${idsToDelete.length} cảnh` : `cảnh “${scene.sceneName}”`;
     if (!window.confirm(`Xóa ${countLabel}?`)) return;
     const removedIndex = Math.max(
       0,
@@ -2068,8 +2226,8 @@ function Home() {
     const bounds = preview.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
-    const startWidth = scene.popupWidth ?? 90;
-    const startHeight = scene.popupHeight ?? 255;
+    const startWidth = activePopup?.width ?? 90;
+    const startHeight = activePopup?.height ?? 255;
     const maxPopupHeight = Math.min(440, bounds.height * 0.88);
 
     const resize = (moveEvent: PointerEvent) => {
@@ -2081,13 +2239,8 @@ function Home() {
         maxPopupHeight,
         Math.max(170, startHeight + moveEvent.clientY - startY),
       );
-      setScenes((items) =>
-        items.map((item) =>
-          item.id === selectedId
-            ? { ...item, popupWidth: Math.round(width), popupHeight: Math.round(height) }
-            : item,
-        ),
-      );
+      updatePopup("width", Math.round(width));
+      updatePopup("height", Math.round(height));
     };
     const stop = () => {
       window.removeEventListener("pointermove", resize);
@@ -2107,16 +2260,15 @@ function Home() {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const startX = event.clientX;
     const startY = event.clientY;
-    const baseX = clampPercent(scene.popupX, 5);
-    const baseY = clampPercent(scene.popupY, 55);
-    const maxX = Math.max(0, 100 - Number(scene.popupWidth ?? 90));
-    const maxY = Math.max(0, 100 - ((Number(scene.popupHeight ?? 255) / bounds.height) * 100));
+    const baseX = clampPercent(activePopup?.x, 5);
+    const baseY = clampPercent(activePopup?.y, 55);
+    const maxX = Math.max(0, 100 - Number(activePopup?.width ?? 90));
+    const maxY = Math.max(0, 100 - ((Number(activePopup?.height ?? 255) / bounds.height) * 100));
     const updatePosition = (clientX: number, clientY: number) => {
       const nextX = Math.min(maxX, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
       const nextY = Math.min(maxY, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
-      setScenes((items) => items.map((item) => item.id === selectedId
-        ? { ...item, popupX: Number(nextX.toFixed(1)), popupY: Number(nextY.toFixed(1)) }
-        : item));
+      updatePopup("x", Number(nextX.toFixed(1)));
+      updatePopup("y", Number(nextY.toFixed(1)));
     };
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
@@ -2183,6 +2335,7 @@ function Home() {
     event: React.PointerEvent<HTMLElement>,
     sceneId: string,
     mode: "move" | "start" | "end",
+    popupId: string,
   ) => {
     if (playing) return;
     if (mode !== "move") event.preventDefault();
@@ -2192,13 +2345,17 @@ function Home() {
     const bounds = track.getBoundingClientRect();
     const originalScene = scenes.find((item) => item.id === sceneId);
     if (!originalScene || bounds.width <= 0) return;
+    const originalPopups = scenePopupList(originalScene);
+    const popupIndex = Math.max(0, originalPopups.findIndex((item) => item.id === popupId));
+    const originalPopup = originalPopups[popupIndex];
+    if (!originalPopup) return;
     const sceneDuration = Math.max(0.1, originalScene.end - originalScene.start);
     const originalStart = Math.min(
-      Math.max(0, Number(originalScene.popupStart ?? 0) || 0),
+      Math.max(0, Number(originalPopup.start) || 0),
       sceneDuration,
     );
     const originalDuration = Math.min(
-      Math.max(0.1, Number(originalScene.popupDuration) || 0.1),
+      Math.max(0.1, Number(originalPopup.duration) || 0.1),
       Math.max(0.1, sceneDuration - originalStart),
     );
     const originalEnd = originalStart + originalDuration;
@@ -2230,10 +2387,16 @@ function Home() {
               sceneDuration,
             );
           }
+          const nextPopup = {
+            ...scenePopupList(item)[popupIndex],
+            start: Number(nextStart.toFixed(2)),
+            duration: Number(Math.max(0.1, nextEnd - nextStart).toFixed(2)),
+          };
+          const nextPopups = scenePopupList(item).map((popup, index) => index === popupIndex ? nextPopup : popup);
           return {
             ...item,
-            popupStart: Number(nextStart.toFixed(2)),
-            popupDuration: Number(Math.max(0.1, nextEnd - nextStart).toFixed(2)),
+            popups: nextPopups,
+            ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
           };
         }),
       );
@@ -2265,12 +2428,35 @@ function Home() {
             }
           : {}),
         scenes: scenes.map((item) => {
-          const image = imageEnabled ? assetReference(item.image) : "";
+          const popups = scenePopupList(item);
+          const firstPopup = popups[0] ?? popupConfigFromScene(item, `${item.id}-popup-1`);
+          const image = imageEnabled ? assetReference(firstPopup.image) : "";
           const sceneBackground = assetReference(item.background ?? "");
           const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
+          const popupPayloads = popups.map((popup) => ({
+            id: popup.id,
+            title: popup.title,
+            body: popup.body,
+            start: popup.start,
+            duration: popup.duration,
+            imageVisible: imageEnabled && popup.imageVisible !== false,
+            ...(imageEnabled && popup.image.trim() ? { image: assetReference(popup.image) } : {}),
+            ...(popup.video.trim() ? { video: assetReference(popup.video) } : {}),
+            in: popup.in,
+            out: popup.out,
+            width: popup.width,
+            height: popup.height,
+            layout: popup.layout,
+            theme: popup.theme,
+            textEffect: popup.textEffect,
+            x: popup.x,
+            y: popup.y,
+            visible: popup.visible,
+          }));
           return {
             milestone: item.number,
-            title: item.title,
+            sceneName: item.sceneName,
+            title: firstPopup.title,
             location: item.location,
             start: item.start,
             end: item.end,
@@ -2283,9 +2469,9 @@ function Home() {
             centerY: item.centerY,
             zoomEnabled: item.zoomEnabled,
             sceneVisible: item.sceneVisible !== false,
-            popupDuration: item.popupDuration,
-            popupStart: item.popupStart ?? 0,
-            body: item.popup,
+            popupDuration: firstPopup.duration,
+            popupStart: firstPopup.start,
+            body: firstPopup.body,
             imageVisible: imageEnabled,
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
@@ -2293,17 +2479,18 @@ function Home() {
             narration: narrationEnabled ? item.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
             voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
-            popupIn: item.popupIn,
-            popupOut: item.popupOut,
-            popupWidth: item.popupWidth ?? 90,
-            popupHeight: item.popupHeight ?? 255,
-            popupLayout: item.popupLayout ?? "image-top",
-            popupTheme: item.popupTheme ?? "travel",
-            popupTextEffect: item.popupTextEffect ?? "none",
-            ...(item.popupVideo ? { popupVideo: assetReference(item.popupVideo) } : {}),
-            popupX: item.popupX ?? 5,
-            popupY: item.popupY ?? 55,
-            popupVisible: item.popupVisible !== false,
+            popupIn: firstPopup.in,
+            popupOut: firstPopup.out,
+            popupWidth: firstPopup.width,
+            popupHeight: firstPopup.height,
+            popupLayout: firstPopup.layout,
+            popupTheme: firstPopup.theme,
+            popupTextEffect: firstPopup.textEffect,
+            ...(firstPopup.video.trim() ? { popupVideo: assetReference(firstPopup.video) } : {}),
+            popupX: firstPopup.x,
+            popupY: firstPopup.y,
+            popupVisible: firstPopup.visible,
+            popups: popupPayloads,
           };
         }),
       };
@@ -2354,6 +2541,7 @@ function Home() {
         item.image ?? "",
         item.popupVideo ?? "",
         item.voiceFile ?? "",
+        ...(item.popups ?? []).flatMap((popup) => [popup.image, popup.video]),
         ]),
       ]),
     ];
@@ -2587,7 +2775,7 @@ function Home() {
       const nextStart = exportPayload.scenes[index + 1]?.start ?? projectDuration;
       const sceneDuration = Math.max(0, nextStart - item.start);
       return [
-        `CẢNH ${item.milestone}: ${item.title}`,
+        `CẢNH ${item.milestone}: ${item.sceneName ?? item.title}`,
         `- Thời gian: ${item.start}s–${nextStart}s (thời lượng ${sceneDuration}s).`,
         `- Hình ảnh: ${item.image ?? "Không có"}${item.image ? ` (tên file: ${fileNameOnly(item.image)})` : ""}.`,
         `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
@@ -2939,7 +3127,7 @@ function Home() {
                   </span>
                 )}
                 <span className="scene-meta">
-                  <strong>{item.title}</strong>
+                  <strong>{item.sceneName || `Cảnh ${item.number}`}</strong>
                   <small>
                     {item.sceneVisible === false
                       ? "Đang ẩn"
@@ -3009,7 +3197,7 @@ function Home() {
           <div className="preview-control-panel">
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
-              <strong>Cảnh {scene.number} · {scene.title || "CẢNH MỚI"}</strong>
+              <strong>Cảnh {scene.number} · {scene.sceneName || "CẢNH MỚI"}</strong>
               <span className="preview-aspect-badge">{aspectRatio}</span>
             </div>
             <div className="preview-control-bar">
@@ -3115,66 +3303,86 @@ function Home() {
                 <span />
               </div>
             )}
-            {popupPlaybackVisible && (
-              <article
-                className={`preview-card popup-layout-${scene.popupLayout ?? "image-top"} popup-theme-${scene.popupTheme ?? "travel"} popup-text-${scene.popupTextEffect ?? "none"} ${
-                  playing
-                    ? `playback-popup popup-${popupPlaybackPhase} popup-in-${scene.popupIn} popup-out-${scene.popupOut}`
-                    : ""
-                }`}
-                style={{
-                  width: `${scene.popupWidth ?? 90}%`,
-                  height: `min(${scene.popupHeight ?? 255}px, 88%)`,
-                  left: `${scene.popupX ?? 5}%`,
-                  top: `${scene.popupY ?? 55}%`,
-                  right: "auto",
-                  bottom: "auto",
-                  ["--popup-transition-duration" as string]: `${popupTransitionDuration}s`,
-                }}
-                onPointerDown={startPopupDrag}
-              >
-              {(imageEnabled || popupVideoPreviewSource) && (
-                <div className="photo-placeholder">
-                  {popupVideoPreviewSource ? (
-                    <video
-                      className="popup-video"
-                      src={popupVideoPreviewSource}
-                      muted
-                      autoPlay
-                      loop
-                      playsInline
-                    />
-                  ) : imagePreviewSource ? (
-                    <img src={imagePreviewSource} alt={`Ảnh minh họa ${scene.title}`} />
-                  ) : (
-                    <>
-                      <div className="sun" />
-                      <div className="hill hill-a" />
-                      <div className="hill hill-b" />
-                      <span>Nhập URL ảnh để xem trước</span>
-                    </>
+            {previewPopupItems.map((popup) => {
+              const popupStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
+              const popupDuration = Math.max(0.1, Number(popup.duration) || 0.1);
+              const popupEnd = Math.min(sceneDuration, popupStart + popupDuration);
+              const popupTransition = Math.min(0.65, popupDuration / 3);
+              const popupPhase = !playing
+                ? "idle"
+                : sceneLocalTime < popupStart + popupTransition
+                  ? "opening"
+                  : sceneLocalTime > popupEnd - popupTransition ? "closing" : "visible";
+              const popupImageSource = imageEnabled && popup.imageVisible !== false
+                ? assetPreviewSource(popup.image)
+                : "";
+              const popupVideoSource = assetPreviewSource(popup.video);
+              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
+                || Boolean(popup.video.trim());
+              return (
+                <article
+                  key={popup.id}
+                  className={`preview-card popup-layout-${popup.layout ?? "image-top"} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${
+                    playing
+                      ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
+                      : ""
+                  }`}
+                  style={{
+                    width: `${popup.width ?? 90}%`,
+                    height: `min(${popup.height ?? 255}px, 88%)`,
+                    left: `${popup.x ?? 5}%`,
+                    top: `${popup.y ?? 55}%`,
+                    right: "auto",
+                    bottom: "auto",
+                    ["--popup-transition-duration" as string]: `${popupTransition}s`,
+                  }}
+                  onPointerDown={startPopupDrag}
+                >
+                  {popupHasMedia && (
+                    <div className="photo-placeholder">
+                      {popupVideoSource ? (
+                        <video
+                          className="popup-video"
+                          src={popupVideoSource}
+                          muted
+                          autoPlay
+                          loop
+                          playsInline
+                        />
+                      ) : popupImageSource ? (
+                        <img src={popupImageSource} alt={`Ảnh minh họa ${popup.title || scene.sceneName}`} />
+                      ) : (
+                        <>
+                          <div className="sun" />
+                          <div className="hill hill-a" />
+                          <div className="hill hill-b" />
+                          <span>Không tải được tài nguyên popup</span>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
-              <div className="card-content">
-                {scene.popupLayout === "stats" && (
-                  <div className="popup-stat-row">
-                    <span>{scene.location || "HÀNH TRÌNH"}</span>
-                    <b>{String(scene.number).padStart(2, "0")}</b>
+                  <div className="card-content">
+                    {popup.layout === "stats" && (
+                      <div className="popup-stat-row">
+                        <span>{scene.location || "HÀNH TRÌNH"}</span>
+                        <b>{String(scene.number).padStart(2, "0")}</b>
+                      </div>
+                    )}
+                    {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
+                    {popup.title.trim() && <h3>{popup.title}</h3>}
+                    {popup.body.trim() && <p>{popup.body}</p>}
                   </div>
-                )}
-                {scene.popupLayout === "quote" && <span className="popup-quote-mark">“</span>}
-                <h3>{scene.title}</h3>
-                <p>{scene.popup || "Nội dung popup sẽ hiển thị ở đây."}</p>
-              </div>
-              <button
-                className="popup-resize-handle"
-                aria-label="Kéo để thay đổi kích thước popup"
-                title="Kéo để phóng to hoặc thu nhỏ popup"
-                onPointerDown={startPopupResize}
-              />
-              </article>
-            )}
+                  {popup.id === activePopup?.id && (
+                    <button
+                      className="popup-resize-handle"
+                      aria-label="Kéo để thay đổi kích thước popup"
+                      title="Kéo để phóng to hoặc thu nhỏ popup"
+                      onPointerDown={startPopupResize}
+                    />
+                  )}
+                </article>
+              );
+            })}
           </div>
           <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
             <button
@@ -3295,11 +3503,11 @@ function Home() {
               </button>
               <button
                 type="button"
-                className={`button editor-visibility-button ${scene.popupVisible !== false ? "active" : ""}`}
-                title={scene.popupVisible !== false ? "Ẩn popup khỏi xem trước" : "Hiện popup trong xem trước"}
-                onClick={() => updateCurrentScene("popupVisible", scene.popupVisible === false)}
+                className={`button editor-visibility-button ${activePopup?.visible !== false ? "active" : ""}`}
+                title={activePopup?.visible !== false ? "Ẩn popup khỏi xem trước" : "Hiện popup trong xem trước"}
+                onClick={() => updatePopup("visible", activePopup?.visible === false)}
               >
-                {scene.popupVisible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
+                {activePopup?.visible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
               </button>
             </div>
               </div>
@@ -3336,19 +3544,28 @@ function Home() {
               </small>
             </label>
             <label className="field">
+              <span>Tên Cảnh</span>
+              <input
+                value={scene.sceneName}
+                placeholder={`Cảnh ${scene.number}`}
+                onChange={(event) => updateScene("sceneName", event.target.value)}
+              />
+              <small>Tên này hiển thị ở danh sách cảnh và khu vực xem trước.</small>
+            </label>
+            <label className="field">
               <span>Tiêu đề</span>
               <input
-                value={scene.title}
-                onChange={(event) => updateScene("title", event.target.value)}
+                value={activePopup?.title ?? ""}
+                onChange={(event) => updatePopup("title", event.target.value)}
               />
             </label>
             <label className="field">
               <span>Nội dung popup</span>
               <textarea
-                value={scene.popup}
-                onChange={(event) => updateScene("popup", event.target.value)}
+                value={activePopup?.body ?? ""}
+                onChange={(event) => updatePopup("body", event.target.value)}
               />
-              <small>{scene.popup.length}/180 ký tự</small>
+              <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
             </label>
             <label className="field">
               <span>Lời thuyết minh</span>
@@ -3364,8 +3581,8 @@ function Home() {
                 <input
                   type="url"
                   placeholder="https://example.com/image.jpg"
-                  value={scene.image}
-                  onChange={(event) => updateScene("image", event.target.value)}
+                  value={activePopup?.image ?? ""}
+                  onChange={(event) => updatePopup("image", event.target.value)}
                 />
                 {imagePreviewSource && (
                   <div className="image-url-preview">
@@ -3613,17 +3830,36 @@ function Home() {
             >
               <summary className="editor-group-label"><span>05</span> Popup <i /></summary>
               <div className="editor-accordion-content">
+            <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
+              <div className="popup-manager-heading">
+                <strong>{scenePopups.length} popup{scenePopups.length > 1 ? "s" : ""}</strong>
+                <button type="button" className="button popup-add-button" onClick={addPopup}>＋ Thêm popup</button>
+              </div>
+              <div className="popup-manager-list">
+                {scenePopups.map((popup, index) => (
+                  <button
+                    type="button"
+                    key={popup.id}
+                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""}`}
+                    onClick={() => setSelectedPopupId(popup.id)}
+                  >
+                    <span>Popup {index + 1}</span>
+                    <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
-                <strong>Popup</strong>
+                <strong>Popup {Math.max(1, scenePopups.findIndex((item) => item.id === activePopup?.id) + 1)}</strong>
                 <span>Thời gian và hiệu ứng xuất hiện</span>
               </div>
               <div className="popup-design-grid">
                 <label className="field">
                   <span>Bố cục popup</span>
                   <select
-                    value={scene.popupLayout ?? "image-top"}
-                    onChange={(event) => updateScene("popupLayout", event.target.value as Scene["popupLayout"])}
+                    value={activePopup?.layout ?? "image-top"}
+                    onChange={(event) => updatePopup("layout", event.target.value as Scene["popupLayout"])}
                   >
                     <option value="image-top">Ảnh trên · Cơ bản</option>
                     <option value="split">Ảnh trái · Nội dung phải</option>
@@ -3634,8 +3870,8 @@ function Home() {
                 <label className="field">
                   <span>Phong cách màu</span>
                   <select
-                    value={scene.popupTheme ?? "travel"}
-                    onChange={(event) => updateScene("popupTheme", event.target.value as Scene["popupTheme"])}
+                    value={activePopup?.theme ?? "travel"}
+                    onChange={(event) => updatePopup("theme", event.target.value as Scene["popupTheme"])}
                   >
                     <option value="travel">Hành trình</option>
                     <option value="sunset">Hoàng hôn</option>
@@ -3646,8 +3882,8 @@ function Home() {
                 <label className="field">
                   <span>Hiệu ứng chữ</span>
                   <select
-                    value={scene.popupTextEffect ?? "none"}
-                    onChange={(event) => updateScene("popupTextEffect", event.target.value as Scene["popupTextEffect"])}
+                    value={activePopup?.textEffect ?? "none"}
+                    onChange={(event) => updatePopup("textEffect", event.target.value as Scene["popupTextEffect"])}
                   >
                     <option value="none">Không hiệu ứng</option>
                     <option value="fade">Mờ dần</option>
@@ -3660,9 +3896,9 @@ function Home() {
                 <span>Video ngắn trong popup (URL hoặc tên file)</span>
                 <input
                   type="text"
-                  value={scene.popupVideo ?? ""}
+                  value={activePopup?.video ?? ""}
                   placeholder="https://.../popup.mp4 hoặc popup.mp4"
-                  onChange={(event) => updateScene("popupVideo", event.target.value)}
+                  onChange={(event) => updatePopup("video", event.target.value)}
                 />
                 <small>Kéo trực tiếp popup trên khung xem trước để đổi vị trí.</small>
               </label>
@@ -3674,7 +3910,7 @@ function Home() {
                     min="0"
                     max={Math.max(0, sceneDuration - 0.1)}
                     step="0.1"
-                    value={scene.popupStart ?? 0}
+                    value={activePopup?.start ?? 0}
                     onChange={(event) => updatePopupStart(Number(event.target.value))}
                   />
                   <b>giây</b>
@@ -3688,7 +3924,7 @@ function Home() {
                   min="1"
                   max={Math.max(6, sceneDuration)}
                   step="0.1"
-                  value={scene.popupDuration}
+                  value={activePopup?.duration ?? 0.1}
                   onChange={(event) => updatePopupDuration(Number(event.target.value))}
                 />
                 <div className="number-with-unit popup-duration-number">
@@ -3697,7 +3933,7 @@ function Home() {
                     min="1"
                     max={Math.max(6, sceneDuration)}
                     step="0.1"
-                    value={scene.popupDuration}
+                    value={activePopup?.duration ?? 0.1}
                     onChange={(event) => updatePopupDuration(Number(event.target.value))}
                   />
                   <b>giây</b>
@@ -3708,8 +3944,8 @@ function Home() {
               <label className="field">
                 <span>Hiệu ứng mở</span>
                 <select
-                  value={scene.popupIn}
-                  onChange={(event) => updateScene("popupIn", event.target.value)}
+                  value={activePopup?.in ?? "fade-slide-up"}
+                  onChange={(event) => updatePopup("in", event.target.value)}
                 >
                   <option value="fade-slide-up">Fade + trượt lên</option>
                   <option value="zoom-soft">Zoom nhẹ</option>
@@ -3722,8 +3958,8 @@ function Home() {
               <label className="field">
                 <span>Hiệu ứng đóng</span>
                 <select
-                  value={scene.popupOut}
-                  onChange={(event) => updateScene("popupOut", event.target.value)}
+                  value={activePopup?.out ?? "fade-slide-down"}
+                  onChange={(event) => updatePopup("out", event.target.value)}
                 >
                   <option value="fade-slide-down">Fade + trượt xuống</option>
                   <option value="zoom-soft">Thu nhỏ</option>
@@ -3817,20 +4053,20 @@ function Home() {
           <div className="track">
             <strong>Popup</strong>
             <div className="track-content grid">
-              {visibleScenes.filter((item) => item.popupVisible !== false).map((item) => {
+              {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && Boolean(popup.title.trim() || popup.body.trim())).map(({ item, popup }) => {
                 const sceneLength = Math.max(0.1, item.end - item.start);
                 const popupStart = Math.min(
                   sceneLength,
-                  Math.max(0, Number(item.popupStart ?? 0) || 0),
+                  Math.max(0, Number(popup.start) || 0),
                 );
                 const popupDuration = Math.min(
-                  Math.max(0.1, Number(item.popupDuration) || 0.1),
+                  Math.max(0.1, Number(popup.duration) || 0.1),
                   Math.max(0.1, sceneLength - popupStart),
                 );
                 return (
                   <button
-                    key={item.id}
-                    onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move")}
+                    key={`${item.id}-${popup.id}`}
+                    onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
                     onClick={(event) => {
                       if (timelinePopupMoved.current) {
                         event.preventDefault();
@@ -3838,9 +4074,10 @@ function Home() {
                         timelinePopupMoved.current = false;
                         return;
                       }
+                      setSelectedPopupId(popup.id);
                       openTimelineEditor(item, "editor-popup");
                     }}
-                    className={`clip popup-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                    className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
                     style={{
                       left: `${((item.start + popupStart) / projectDuration) * 100}%`,
                       width: `${Math.min((popupDuration / projectDuration) * 100, 100 - ((item.start + popupStart) / projectDuration) * 100)}%`,
@@ -3850,15 +4087,15 @@ function Home() {
                       className="timeline-edge-handle timeline-edge-start"
                       title="Kéo để đổi thời gian bắt đầu popup"
                       aria-label="Điểm bắt đầu popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start")}
+                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)}
                       onClick={(event) => event.stopPropagation()}
                     />
-                    <span className="timeline-clip-label">Popup {item.number} · {popupDuration}s</span>
+                    <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {popupDuration}s</span>
                     <span
                       className="timeline-edge-handle timeline-edge-end"
                       title="Kéo để đổi thời lượng popup"
                       aria-label="Điểm kết thúc popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end")}
+                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)}
                       onClick={(event) => event.stopPropagation()}
                     />
                   </button>
