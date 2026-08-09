@@ -464,10 +464,14 @@ type SettingsWorkspaceProps = {
   activeProjectId: string;
   projectTitle: string;
   aspectRatio: AspectRatio;
+  assetPreviewSource: (value: string) => string;
   onAddClip: () => void;
   onDuplicateClip: (project: ProjectSnapshot) => ProjectSnapshot;
   onDeleteClip: (project: ProjectSnapshot) => string | null;
   onOpenScene: (project: ProjectSnapshot, scene: Scene) => void;
+  onSave: () => void;
+  saveDisabled: boolean;
+  saveLabel: string;
 };
 
 function SettingsWorkspace({
@@ -475,10 +479,14 @@ function SettingsWorkspace({
   activeProjectId,
   projectTitle,
   aspectRatio,
+  assetPreviewSource,
   onAddClip,
   onDuplicateClip,
   onDeleteClip,
   onOpenScene,
+  onSave,
+  saveDisabled,
+  saveLabel,
 }: SettingsWorkspaceProps) {
   const [selectedClipId, setSelectedClipId] = useState(activeProjectId);
   const [selectedSceneId, setSelectedSceneId] = useState("");
@@ -545,6 +553,11 @@ function SettingsWorkspace({
     selectedClip.projectDuration,
     ...selectedScenes.map((item) => item.end),
   );
+  const firstScene = selectedScenes[0];
+  const clipAvatarValue = String(firstScene?.background ?? "").trim()
+    || String(selectedClip.previewBackground ?? "").trim()
+    || String(selectedClip.background ?? "").trim()
+    || String(firstScene?.image ?? "").trim();
 
   return (
     <>
@@ -558,23 +571,18 @@ function SettingsWorkspace({
           <span>{projectTitle}</span>
           <b>{projectItems.length} clip</b>
         </div>
+        <button
+          type="button"
+          className="button settings-save-button"
+          onClick={onSave}
+          disabled={saveDisabled}
+        >
+          {saveLabel}
+        </button>
       </header>
 
       <section className="settings-workspace" aria-labelledby="settings-heading">
         <div className="settings-layout">
-          <aside className="settings-nav" aria-label="Mục cài đặt">
-            <div className="settings-nav-title">Cài đặt dự án</div>
-            <button type="button">01&nbsp;&nbsp; Tổng quan</button>
-            <button type="button" className="active">02&nbsp;&nbsp; Clip &amp; cảnh</button>
-            <button type="button">03&nbsp;&nbsp; Tài nguyên</button>
-            <button type="button">04&nbsp;&nbsp; Render</button>
-            <button type="button">05&nbsp;&nbsp; Phím tắt</button>
-            <div className="settings-nav-note">
-              <span>Gợi ý</span>
-              <p>Chọn một cảnh để xem nhanh cấu hình và mở trực tiếp trong Biên soạn.</p>
-            </div>
-          </aside>
-
           <div className="settings-content">
             <div className="settings-page-heading">
               <div>
@@ -607,10 +615,28 @@ function SettingsWorkspace({
                         className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""}`}
                         onClick={() => selectClip(project)}
                       >
-                        <span className="settings-clip-thumb" aria-hidden="true">
-                          <b>{String(project.scenes.length).padStart(2, "0")}</b>
-                          <i />
-                        </span>
+                        {(() => {
+                          const projectFirstScene = project.scenes[0];
+                          const projectAvatarValue = String(projectFirstScene?.background ?? "").trim()
+                            || String(project.previewBackground ?? "").trim()
+                            || String(project.background ?? "").trim()
+                            || String(projectFirstScene?.image ?? "").trim();
+                          const projectAvatarSource = assetPreviewSource(projectAvatarValue);
+                          return (
+                            <span className="settings-clip-thumb" aria-hidden="true">
+                              {projectAvatarSource ? (
+                                isVideoMedia(projectAvatarValue) ? (
+                                  <video src={projectAvatarSource} muted loop playsInline preload="metadata" />
+                                ) : (
+                                  <img src={projectAvatarSource} alt="" />
+                                )
+                              ) : (
+                                <b>{String(project.scenes.length).padStart(2, "0")}</b>
+                              )}
+                              <em>{String(project.scenes.length).padStart(2, "0")}</em>
+                            </span>
+                          );
+                        })()}
                         <span className="settings-clip-copy">
                           <strong>{project.title || "Clip chưa đặt tên"}</strong>
                           <span>{project.scenes.length} cảnh · {formatTime(duration)} · {project.aspectRatio ?? "9:16"}</span>
@@ -660,27 +686,44 @@ function SettingsWorkspace({
                   <span>{selectedScenes.length} cảnh · chọn để xem chi tiết</span>
                 </div>
                 <div className="settings-scenes-list">
-                  {selectedScenes.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className={`settings-scene-item ${item.id === selectedScene?.id ? "selected" : ""}`}
-                      onClick={() => setSelectedSceneId(item.id)}
-                    >
-                      <span className="settings-scene-number">{String(item.number).padStart(2, "0")}</span>
-                      <span className={`settings-scene-thumb scene-tone-${(item.number - 1) % 4}`} aria-hidden="true"><i /></span>
-                      <span className="settings-scene-copy">
-                        <strong>{item.title || `Cảnh ${item.number}`}</strong>
-                        <span>{formatTime(item.start)} – {formatTime(item.end)} · {item.status}</span>
-                        <small>
-                          {item.background || "Nền mặc định"}
-                          {item.popup ? " · Popup" : ""}
-                          {item.voiceFile ? " · Thuyết minh" : ""}
-                        </small>
-                      </span>
-                      <span className="settings-scene-arrow" aria-hidden="true">›</span>
-                    </button>
-                  ))}
+                  {selectedScenes.map((item) => {
+                    const sceneMediaValue = String(item.image ?? "").trim()
+                      || String(item.background ?? "").trim()
+                      || clipAvatarValue;
+                    const sceneMediaSource = assetPreviewSource(sceneMediaValue);
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        className={`settings-scene-item ${item.id === selectedScene?.id ? "selected" : ""}`}
+                        onClick={() => setSelectedSceneId(item.id)}
+                      >
+                        <span className="settings-scene-number">{String(item.number).padStart(2, "0")}</span>
+                        <span className={`settings-scene-thumb scene-tone-${(item.number - 1) % 4}`} aria-hidden="true">
+                          {sceneMediaSource ? (
+                            isVideoMedia(sceneMediaValue) ? (
+                              <video src={sceneMediaSource} muted loop playsInline preload="metadata" />
+                            ) : (
+                              <img src={sceneMediaSource} alt="" />
+                            )
+                          ) : (
+                            <b>{String(item.number).padStart(2, "0")}</b>
+                          )}
+                          <i />
+                        </span>
+                        <span className="settings-scene-copy">
+                          <strong>{item.title || `Cảnh ${item.number}`}</strong>
+                          <span>{formatTime(item.start)} – {formatTime(item.end)} · {item.status}</span>
+                          <small>
+                            {item.background || "Nền mặc định"}
+                            {item.popup ? " · Popup" : ""}
+                            {item.voiceFile ? " · Thuyết minh" : ""}
+                          </small>
+                        </span>
+                        <span className="settings-scene-arrow" aria-hidden="true">›</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {selectedScene && (
@@ -3973,10 +4016,14 @@ function Home() {
               activeProjectId={projectId}
               projectTitle={projectTitle}
               aspectRatio={aspectRatio}
+              assetPreviewSource={assetPreviewSource}
               onAddClip={() => setShowNewProject(true)}
               onDuplicateClip={duplicateProjectClip}
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
+              onSave={() => void saveProjectNow()}
+              saveDisabled={saveStatus === "loading" || saveStatus === "saving"}
+              saveLabel={saveStatus === "saving" ? "Đang lưu" : "Lưu"}
             />
           )}
         </div>

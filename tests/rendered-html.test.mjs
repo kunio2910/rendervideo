@@ -103,6 +103,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /duplicateProjectClip/);
   assert.match(page, /deleteProjectClip/);
   assert.match(page, /selectedScene/);
+  assert.match(page, /saveLabel/);
+  assert.match(page, /assetPreviewSource=\{assetPreviewSource\}/);
+  assert.match(page, /projectFirstScene\?\.background/);
+  assert.match(page, /sceneMediaValue/);
+  assert.doesNotMatch(page, /settings-nav-title/);
   assert.match(page, /Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
@@ -116,6 +121,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /playhead-grabber/);
   assert.match(css, /settings-layout/);
   assert.match(css, /settings-selected-scene/);
+  assert.match(css, /settings-save-button/);
+  assert.match(css, /settings-clip-thumb img/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
