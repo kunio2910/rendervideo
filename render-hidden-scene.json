@@ -1,0 +1,38 @@
+{
+  "title": "render-hidden-scene",
+  "duration": 4.2,
+  "resolution": "360x640",
+  "fps": 12,
+  "background": "render-map.png",
+  "scenes": [
+    {
+      "milestone": 1,
+      "title": "Cảnh hiện thứ nhất",
+      "start": 0,
+      "end": 1.4,
+      "zoomEnabled": false,
+      "backgroundVisible": true,
+      "popupVisible": false
+    },
+    {
+      "milestone": 2,
+      "title": "Cảnh bị ẩn",
+      "start": 1.4,
+      "end": 2.8,
+      "sceneVisible": false,
+      "background": "missing-hidden-background.png",
+      "voiceFile": "missing-hidden-voice.mp3",
+      "backgroundVisible": true,
+      "popupVisible": false
+    },
+    {
+      "milestone": 3,
+      "title": "Cảnh hiện thứ hai",
+      "start": 2.8,
+      "end": 4.2,
+      "zoomEnabled": false,
+      "backgroundVisible": true,
+      "popupVisible": false
+    }
+  ]
+}

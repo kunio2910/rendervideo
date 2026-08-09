@@ -132,6 +132,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /settings-clip-thumb img/);
   assert.match(css, /settings-clip-title-input/);
   assert.match(css, /settings-info-grid/);
+  assert.match(css, /data-theme="dark"\]\[data-studio-tab="compose"\]/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);

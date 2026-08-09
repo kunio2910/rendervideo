@@ -116,6 +116,13 @@ const resourceCache = new Map();
 
 const isRemote = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
 
+const isVideoMedia = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
+    || /\/video\/upload\//.test(normalized)
+    || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
 const referenceName = (value, fallbackName) => {
   const trimmed = String(value ?? "").trim();
   if (!trimmed) return fallbackName;
@@ -258,6 +265,16 @@ const resolveVideo = async (value, fallbackName, required = false) => {
   return local;
 };
 
+const resolveBackground = async (value, fallbackName, required = false) => {
+  if (!isVideoMedia(value)) return resolveImage(value, fallbackName, required);
+  try {
+    return await resolveVideo(value, `${fallbackName}.mp4`, required);
+  } catch (error) {
+    if (required) throw new Error(`Không thể tải video background: ${errorDetail(error)}`);
+    return null;
+  }
+};
+
 const createPopup = async (scene, index) => {
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = popupPixelHeight(scene);
@@ -345,22 +362,27 @@ await sharp({
 const needsDefaultBackground = scenes.some(
   (scene) => scene.backgroundVisible !== false && !String(scene.background ?? "").trim(),
 );
-const background = needsDefaultBackground && project.background
-  ? await resolveImage(project.background, "background", true)
+const defaultBackgroundValue = String(project.background ?? "").trim();
+const background = needsDefaultBackground && defaultBackgroundValue
+  ? await resolveBackground(defaultBackgroundValue, "background", true)
   : null;
 const backgroundPath = background ?? hiddenBackgroundPath;
 
 const clipPaths = [];
 for (let index = 0; index < scenes.length; index += 1) {
   const scene = scenes[index];
+  const sceneBackgroundValue = String(scene.background ?? "").trim();
+  const sceneBackgroundReference = sceneBackgroundValue || defaultBackgroundValue;
   const sceneBackground = scene.backgroundVisible === false
     ? hiddenBackgroundPath
-    : String(scene.background ?? "").trim()
-      ? await resolveImage(scene.background, `scene-${index + 1}-background`, true)
+    : sceneBackgroundValue
+      ? await resolveBackground(sceneBackgroundValue, `scene-${index + 1}-background`, true)
       : backgroundPath;
   if (!sceneBackground) {
     throw new Error(`Không tìm thấy background cho cảnh ${index + 1}: ${scene.background || "map.png"}`);
   }
+  const backgroundIsVideo = scene.backgroundVisible !== false
+    && (isVideoMedia(sceneBackgroundReference) || isVideoMedia(sceneBackground));
   const end = scenes[index + 1]?.start ?? timelineDuration;
   const duration = Math.max(0.1, end - scene.start);
   const popup = await createPopup(scene, index);
@@ -467,12 +489,17 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
-  let filter =
-    `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-    `zoompan=z='${zoomExpression}':` +
-    `x='iw*${centerX}*(1-1/zoom)':` +
-    `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  let filter = backgroundIsVideo
+    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+      `zoompan=z='${zoomExpression}':` +
+      `x='iw*${centerX}*(1-1/zoom)':` +
+      `y='ih*${centerY}*(1-1/zoom)':` +
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=1,trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
+    : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+      `zoompan=z='${zoomExpression}':` +
+      `x='iw*${centerX}*(1-1/zoom)':` +
+      `y='ih*${centerY}*(1-1/zoom)':` +
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
   if (popupVisible) {
     filter +=
       (popup.video
@@ -490,7 +517,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   const args = [
     "-y",
-    "-loop", "1", "-i", sceneBackground,
+    ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
     "-loop", "1", "-i", popupPath,
     ...(popup.video ? ["-stream_loop", "-1", "-i", popup.video] : []),
   ];

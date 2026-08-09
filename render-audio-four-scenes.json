@@ -3,7 +3,7 @@
   "duration": 12,
   "resolution": "360x640",
   "fps": 12,
-  "background": "map.png",
+  "background": "render-map.png",
   "scenes": [
     {
       "milestone": 1,
@@ -14,8 +14,6 @@
       "backgroundVisible": true,
       "imageVisible": false,
       "popupVisible": true,
-      "zoomEnabled": false,
-      "zoomMarkerEnabled": false,
       "popupStart": 0.2,
       "popupDuration": 2,
       "voiceFile": "vuadavit_canh01.mp3"
@@ -29,8 +27,6 @@
       "backgroundVisible": true,
       "imageVisible": false,
       "popupVisible": true,
-      "zoomEnabled": false,
-      "zoomMarkerEnabled": false,
       "popupStart": 0.2,
       "popupDuration": 2,
       "voiceFile": "vuadavit_canh02.mp3"
@@ -44,8 +40,6 @@
       "backgroundVisible": true,
       "imageVisible": false,
       "popupVisible": true,
-      "zoomEnabled": false,
-      "zoomMarkerEnabled": false,
       "popupStart": 0.2,
       "popupDuration": 2,
       "voiceFile": "vuadavit_canh03.mp3"
@@ -59,8 +53,6 @@
       "backgroundVisible": true,
       "imageVisible": false,
       "popupVisible": true,
-      "zoomEnabled": false,
-      "zoomMarkerEnabled": false,
       "popupStart": 0.2,
       "popupDuration": 2
     }
