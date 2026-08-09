@@ -108,6 +108,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /projectFirstScene\?\.background/);
   assert.match(page, /sceneMediaValue/);
   assert.doesNotMatch(page, /settings-nav-title/);
+  assert.doesNotMatch(page, /settings-page-heading/);
+  assert.match(page, /settings-add-clip-action/);
   assert.match(page, /Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);

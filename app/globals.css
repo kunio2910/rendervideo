@@ -5105,6 +5105,8 @@ body {
 .settings-action-buttons .button { min-height: 32px; padding-inline: 10px; font-size: 10px; white-space: nowrap; }
 .settings-danger-button { border-color: #e7bbb1; background: #fff4f1; color: #b54d3f; }
 .settings-danger-button:hover { background: #fce2dd; }
+.settings-add-clip-action { border-color: #d5a05f; background: #fff4df; color: #925b22; }
+.settings-add-clip-action:hover { background: #f8e4c3; }
 .settings-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
 .settings-summary-grid > div { min-width: 0; padding: 10px 11px; border-radius: 9px; background: var(--panel-soft); }
 .settings-summary-grid span, .settings-summary-grid b { display: block; }

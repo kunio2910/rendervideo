@@ -581,18 +581,9 @@ function SettingsWorkspace({
         </button>
       </header>
 
-      <section className="settings-workspace" aria-labelledby="settings-heading">
+      <section className="settings-workspace" aria-label="Nội dung cài đặt clip và cảnh">
         <div className="settings-layout">
           <div className="settings-content">
-            <div className="settings-page-heading">
-              <div>
-                <span className="settings-kicker">CLIP &amp; CẢNH</span>
-                <h2 id="settings-heading">Clip trong dự án</h2>
-                <p>Quản lý thông tin các clip, cảnh và thao tác nhanh trên từng nội dung.</p>
-              </div>
-              <button type="button" className="button primary" onClick={onAddClip}>＋ Thêm clip</button>
-            </div>
-
             <div className="settings-clip-grid">
               <section className="settings-card settings-clip-list-card">
                 <div className="settings-card-heading">
@@ -648,7 +639,6 @@ function SettingsWorkspace({
                     );
                   })}
                 </div>
-                <button type="button" className="settings-add-clip" onClick={onAddClip}>＋ Thêm clip mới</button>
               </section>
 
               <section className="settings-card settings-detail-card">
@@ -667,6 +657,7 @@ function SettingsWorkspace({
                     <span>Nhân bản để tạo một phiên bản độc lập hoặc xóa clip khỏi dự án.</span>
                   </div>
                   <div className="settings-action-buttons">
+                    <button type="button" className="button settings-add-clip-action" onClick={onAddClip}>＋ Thêm clip</button>
                     <button type="button" className="button ghost" onClick={handleDuplicateClip}>⧉ Nhân bản clip</button>
                     <button type="button" className="button settings-danger-button" onClick={handleDeleteClip}>⌫ Xóa clip</button>
                   </div>
