@@ -5,7 +5,7 @@ Trình biên tập video hành trình dọc 9:16 với bốn khu vực:
 - Danh sách và trạng thái cảnh.
 - Preview bản đồ, cột mốc và popup.
 - Bảng biên soạn nội dung, ảnh và giọng đọc.
-- Timeline camera, popup, thuyết minh và nhạc nền.
+- Timeline popup, thuyết minh và nhạc nền.
 
 ## Website
 

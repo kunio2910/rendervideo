@@ -1,0 +1,33 @@
+{
+  "title": "render-parity-smoke",
+  "duration": 2,
+  "resolution": "720x1280",
+  "fps": 24,
+  "background": "render-map.png",
+  "scenes": [
+    {
+      "milestone": 1,
+      "title": "Kiểm tra đồng bộ",
+      "start": 0,
+      "end": 2,
+      "zoomStart": 0.2,
+      "zoomEnd": 1.8,
+      "zoomInDuration": 0.4,
+      "zoomOutDuration": 0.4,
+      "zoom": 1.25,
+      "centerX": 42,
+      "centerY": 38,
+      "zoomEnabled": true,
+      "body": "Popup, background và chuyển động phải nằm đúng vị trí như trong khung xem thử.",
+      "imageVisible": true,
+      "backgroundVisible": true,
+      "popupStart": 0.25,
+      "popupDuration": 1.5,
+      "popupIn": "fade-slide-up",
+      "popupOut": "fade-slide-down",
+      "popupWidth": 90,
+      "popupHeight": 255,
+      "popupVisible": true
+    }
+  ]
+}

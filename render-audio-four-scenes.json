@@ -1,0 +1,60 @@
+{
+  "title": "render-audio-four-scenes",
+  "duration": 12,
+  "resolution": "360x640",
+  "fps": 12,
+  "background": "render-map.png",
+  "scenes": [
+    {
+      "milestone": 1,
+      "title": "Scene one",
+      "start": 0,
+      "end": 3,
+      "body": "Scene one",
+      "backgroundVisible": true,
+      "imageVisible": false,
+      "popupVisible": true,
+      "popupStart": 0.2,
+      "popupDuration": 2,
+      "voiceFile": "vuadavit_canh01.mp3"
+    },
+    {
+      "milestone": 2,
+      "title": "Scene two",
+      "start": 3,
+      "end": 6,
+      "body": "Scene two",
+      "backgroundVisible": true,
+      "imageVisible": false,
+      "popupVisible": true,
+      "popupStart": 0.2,
+      "popupDuration": 2,
+      "voiceFile": "vuadavit_canh02.mp3"
+    },
+    {
+      "milestone": 3,
+      "title": "Scene three",
+      "start": 6,
+      "end": 9,
+      "body": "Scene three",
+      "backgroundVisible": true,
+      "imageVisible": false,
+      "popupVisible": true,
+      "popupStart": 0.2,
+      "popupDuration": 2,
+      "voiceFile": "vuadavit_canh03.mp3"
+    },
+    {
+      "milestone": 4,
+      "title": "Scene four",
+      "start": 9,
+      "end": 12,
+      "body": "Scene four",
+      "backgroundVisible": true,
+      "imageVisible": false,
+      "popupVisible": true,
+      "popupStart": 0.2,
+      "popupDuration": 2
+    }
+  ]
+}
