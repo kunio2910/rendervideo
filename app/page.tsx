@@ -1134,9 +1134,14 @@ function Home() {
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
+  const popupHasMediaInput = (popup: PopupConfig) =>
+    (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
+    || Boolean(popup.video.trim());
+  const popupHasContent = (popup: PopupConfig) =>
+    Boolean(popup.title.trim() || popup.body.trim() || popupHasMediaInput(popup));
   const popupPlaybackVisible =
     activePopup?.visible !== false &&
-    Boolean(activePopup && (activePopup.title.trim() || activePopup.body.trim())) &&
+    Boolean(activePopup && popupHasContent(activePopup)) &&
     (sceneIsVisibleInPlayback &&
       (!playing ||
         (sceneLocalTime >= activePopupStartTime && sceneLocalTime <= activePopupEndTime)));
@@ -1147,7 +1152,7 @@ function Home() {
           const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
           const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
           return popup.visible !== false
-            && Boolean(popup.title.trim() || popup.body.trim())
+            && popupHasContent(popup)
             && sceneLocalTime >= timingStart
             && sceneLocalTime <= timingEnd;
         })
@@ -3319,10 +3324,11 @@ function Home() {
               const popupVideoSource = assetPreviewSource(popup.video);
               const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
                 || Boolean(popup.video.trim());
+              const popupMediaOnly = popupHasMedia && !popup.title.trim() && !popup.body.trim();
               return (
                 <article
                   key={popup.id}
-                  className={`preview-card popup-layout-${popup.layout ?? "image-top"} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${
+                  className={`preview-card popup-layout-${popup.layout ?? "image-top"} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
@@ -4050,10 +4056,37 @@ function Home() {
               ))}
             </div>
           </div>
-          <div className="track">
+          <div className="track scene-time-track">
+            <strong>Thời gian</strong>
+            <div className="track-content grid">
+              {visibleScenes.map((item) => (
+                <button
+                  type="button"
+                  key={`${item.id}-time`}
+                  className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelectedId(item.id);
+                    setSelectedSceneIds([item.id]);
+                    setSelectedPopupId("");
+                    setPlayTime(item.start);
+                    setPlaying(false);
+                  }}
+                  style={{
+                    left: `${(item.start / projectDuration) * 100}%`,
+                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
+                  }}
+                  title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
+                >
+                  <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
+                  <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="track popup-track">
             <strong>Popup</strong>
             <div className="track-content grid">
-              {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && Boolean(popup.title.trim() || popup.body.trim())).map(({ item, popup }) => {
+              {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && popupHasContent(popup)).map(({ item, popup }) => {
                 const sceneLength = Math.max(0.1, item.end - item.start);
                 const popupStart = Math.min(
                   sceneLength,
@@ -4103,7 +4136,7 @@ function Home() {
               })}
             </div>
           </div>
-          <div className="track">
+          <div className="track narration-track">
             <strong>Thuyết minh</strong>
             <div className="track-content grid">
               {narrationEnabled && visibleScenes.map((item) => (
@@ -4119,18 +4152,6 @@ function Home() {
                   🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
                 </button>
               ))}
-            </div>
-          </div>
-          <div className="track">
-            <strong>Nhạc nền</strong>
-            <div className="track-content grid">
-              <button
-                className={`clip music-clip ${backgroundMusic ? "" : "is-empty"}`}
-                onClick={() => openTimelineEditor(null, "editor-music")}
-                style={{ left: "0%", width: "100%" }}
-              >
-                ♫ {backgroundMusic || "Chưa có nhạc nền · Bấm để thêm"}
-              </button>
             </div>
           </div>
           <div

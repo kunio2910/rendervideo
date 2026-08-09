@@ -294,8 +294,13 @@ const resolveVideo = async (value, fallbackName, required = false) => {
 };
 
 const createPopup = async (scene, index) => {
-  const hasText = Boolean(String(scene.title ?? "").trim() || String(scene.body ?? scene.popup ?? "").trim());
-  if (!hasText) return null;
+  const titleValue = String(scene.title ?? "").trim();
+  const bodyValue = String(scene.body ?? scene.popup ?? "").trim();
+  const imageValue = String(scene.image ?? "").trim();
+  const imageVisible = scene.imageVisible !== false && Boolean(imageValue);
+  const videoValue = String(scene.popupVideo ?? "").trim();
+  const hasVisualInput = Boolean((imageVisible && imageValue) || videoValue);
+  if (!titleValue && !bodyValue && !hasVisualInput) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
@@ -304,17 +309,15 @@ const createPopup = async (scene, index) => {
   const titleFontSize = Math.round(previewPx(15));
   const bodyFontSize = Math.round(previewPx(11));
   const bodyLineHeight = Math.round(previewPx(18.15));
-  const layout = scene.popupLayout ?? "image-top";
+  const requestedLayout = scene.popupLayout ?? "image-top";
+  const layout = !titleValue && !bodyValue && hasVisualInput ? "image-top" : requestedLayout;
   const colors = {
     travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
     sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
     ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
     minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
   }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
-  const imageValue = String(scene.image ?? "").trim();
-  const imageVisible = scene.imageVisible !== false && Boolean(imageValue);
   const image = imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
-  const videoValue = String(scene.popupVideo ?? "").trim();
   const video = layout === "quote" || !videoValue ? null : await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`);
   const hasVisual = Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
@@ -404,7 +407,13 @@ for (let index = 0; index < scenes.length; index += 1) {
   const duration = Math.max(0.1, end - scene.start);
   const popupScenes = popupEntriesForScene(scene)
     .filter((popupScene) => popupScene.popupVisible !== false)
-    .filter((popupScene) => Boolean(String(popupScene.title ?? "").trim() || String(popupScene.body ?? "").trim()));
+    .filter((popupScene) => {
+      const title = String(popupScene.title ?? "").trim();
+      const body = String(popupScene.body ?? "").trim();
+      const image = popupScene.imageVisible !== false && String(popupScene.image ?? "").trim();
+      const video = String(popupScene.popupVideo ?? "").trim();
+      return Boolean(title || body || image || video);
+    });
   const popupRenders = [];
   for (let popupIndex = 0; popupIndex < popupScenes.length; popupIndex += 1) {
     const popupScene = popupScenes[popupIndex];

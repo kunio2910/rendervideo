@@ -4707,6 +4707,9 @@ body {
 .preview-card.popup-layout-split .card-content { flex: 1; min-width: 0; }
 .preview-card.popup-layout-quote .photo-placeholder { display: none; }
 .preview-card.popup-layout-quote .card-content { position: relative; padding-top: 28px; }
+.preview-card.popup-layout-quote.popup-media-only { flex-direction: column; }
+.preview-card.popup-layout-quote.popup-media-only .photo-placeholder { display: block; }
+.preview-card.popup-layout-quote.popup-media-only .card-content { display: none; }
 .popup-quote-mark {
   position: absolute;
   top: 2px;
@@ -5396,4 +5399,122 @@ body {
 @media (max-width: 460px) {
   .settings-info-grid { grid-template-columns: 1fr; }
   .settings-info-grid > div.wide { grid-column: auto; }
+}
+
+/* Timeline readability: align the ruler, grid and scene-time blocks. */
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-labels {
+  min-height: 30px;
+  border-bottom: 1px solid #e4d7c6;
+  background: #fffaf2;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale {
+  min-width: 0;
+  align-items: stretch;
+  border-left: 1px solid #d8c5aa;
+  background-image: linear-gradient(to right, rgba(183, 151, 111, .26) 1px, transparent 1px);
+  background-size: 20% 100%;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding-inline: 3px;
+  color: #8c7356;
+  font: 700 9px/1 var(--font-mono);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i:first-child {
+  justify-content: flex-start;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i:last-child {
+  justify-content: flex-end;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .track-content.grid {
+  background-size: 20% 100%;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .scene-time-track > strong::before {
+  background: #c67a2e;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .popup-track > strong::before {
+  background: #8760a5;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .narration-track > strong::before {
+  background: #4b9b8e;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px 8px;
+  border-color: #e8bf8b;
+  background: #f5dfbf;
+  color: #7d4a20;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip:hover,
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip.selected {
+  border-color: #c67a2e;
+  background: #efd0a2;
+  color: #673914;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip-scene,
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip-range {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip-scene {
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.studio-shell[data-studio-tab="compose"] .timeline .time-clip-range {
+  color: inherit;
+  font: 8px/1 var(--font-mono);
+  opacity: .78;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-labels {
+  border-bottom-color: #304052;
+  background: #131d28;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-scale {
+  border-left-color: #40536b;
+  background-image: linear-gradient(to right, rgba(111, 145, 173, .28) 1px, transparent 1px);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-scale i {
+  color: #a7b6ca;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .time-clip {
+  border-color: #8d6036;
+  background: #4a3323;
+  color: #f2c58c;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .time-clip:hover,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .time-clip.selected {
+  border-color: #c67a2e;
+  background: #684729;
+  color: #ffe2b5;
 }
