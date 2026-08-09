@@ -86,6 +86,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /aspectRatio/);
   assert.match(page, /updateAspectRatio/);
   assert.match(page, /preview-landscape/);
+  assert.match(page, /preview-control-panel/);
+  assert.match(page, /preview-control-bar/);
+  assert.match(page, /preview-panel-progress/);
+  assert.match(page, /sceneLocalTime/);
   assert.match(page, /Tỷ lệ khung hình dự án/);
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
@@ -123,6 +127,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /transform-origin: center bottom/);
   assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
   assert.match(css, /aspect-ratio: 9 \/ 16/);
+  assert.match(css, /preview-control-panel/);
+  assert.match(css, /preview-panel-progress/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);
   assert.match(css, /popup-theme-ocean/);

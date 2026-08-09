@@ -4870,3 +4870,171 @@ body {
   }
   .preview-scene-navigation { padding-inline: 7px; font-size: 10px; }
 }
+
+/* Preview control card: matches the compact reference panel above the map. */
+.studio-shell[data-studio-tab="compose"] .preview-control-panel {
+  width: min(100%, 510px);
+  margin: 0 auto 10px;
+  text-align: left;
+}
+.preview-panel-kicker {
+  display: block;
+  margin: 0 0 3px 2px;
+  color: #a28e76;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1.2;
+}
+.preview-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 7px 2px;
+  color: #312820;
+  font-size: 10px;
+  line-height: 1.2;
+}
+.preview-panel-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-aspect-badge {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #cae9ff;
+  color: #087cff;
+  font: 700 8px var(--font-mono);
+}
+.preview-control-bar {
+  display: grid;
+  grid-template-columns: minmax(145px, 1fr) 126px auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 1px solid #eadfce;
+  border-radius: 8px;
+  background: #fffdf9;
+  box-shadow: 0 5px 14px rgba(111, 77, 35, .05);
+}
+.preview-control-bar .preview-aspect-switcher {
+  width: 100%;
+  justify-content: center;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px;
+  border-color: #eadfce;
+  border-radius: 6px;
+  background: #fff;
+  color: #8c8172;
+}
+.preview-control-bar .preview-aspect-switcher span {
+  padding-inline: 5px;
+  color: #8c8172;
+  font-size: 8px;
+}
+.preview-control-bar .preview-aspect-switcher button {
+  min-height: 24px;
+  padding-inline: 12px;
+  border-radius: 5px;
+  font-size: 8px;
+}
+.preview-control-bar .preview-aspect-switcher button.active {
+  background: #087cff;
+  box-shadow: 0 2px 5px rgba(8, 124, 255, .2);
+}
+.preview-control-bar .preview-play-button {
+  width: 126px;
+  min-height: 29px !important;
+  justify-content: center;
+  padding-inline: 8px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: #e87518 !important;
+  color: white !important;
+  box-shadow: 0 4px 8px rgba(232, 117, 24, .16);
+  font-size: 9px !important;
+  font-weight: 800;
+}
+.preview-control-bar .preview-play-button:hover:not(:disabled) {
+  background: #d9670c !important;
+  color: white !important;
+}
+.preview-control-bar .preview-play-button:disabled {
+  background: #e7b88b !important;
+  color: white !important;
+}
+.preview-control-bar .play-icon {
+  margin-right: 4px;
+}
+.preview-control-bar .time-pill {
+  justify-self: end;
+  min-width: 105px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #eaf4ff;
+  color: #087cff;
+  font-size: 9px;
+  text-align: center;
+  white-space: nowrap;
+}
+.preview-panel-progress {
+  position: relative;
+  height: 4px;
+  margin: 9px 5px 0;
+  border-radius: 999px;
+  background: #eee7dc;
+}
+.preview-panel-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1687ee;
+  transition: width .12s linear;
+}
+.preview-panel-progress i {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #1687ee;
+  box-shadow: 0 1px 4px rgba(8, 124, 255, .28);
+  transform: translate(-50%, -50%);
+  transition: left .12s linear;
+}
+.studio-shell[data-theme="dark"] .preview-control-bar {
+  border-color: #354354;
+  background: #15212e;
+}
+.studio-shell[data-theme="dark"] .preview-panel-meta { color: #eef5ff; }
+.studio-shell[data-theme="dark"] .preview-panel-kicker { color: #b8a488; }
+.studio-shell[data-theme="dark"] .preview-control-bar .preview-aspect-switcher {
+  border-color: #354354;
+  background: #1b2a3a;
+}
+.studio-shell[data-theme="dark"] .preview-control-bar .preview-time-pill,
+.studio-shell[data-theme="dark"] .preview-control-bar .time-pill {
+  background: #163357;
+  color: #78b9ff;
+}
+.studio-shell[data-theme="dark"] .preview-panel-progress { background: #304052; }
+@media (max-width: 560px) {
+  .preview-control-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 7px;
+  }
+  .preview-control-bar .preview-play-button {
+    width: 100%;
+  }
+  .preview-control-bar .time-pill {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+}

@@ -581,6 +581,9 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneProgress = sceneDuration > 0
+    ? Math.min(1, Math.max(0, sceneLocalTime / sceneDuration))
+    : 0;
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
@@ -2516,9 +2519,13 @@ function Home() {
         </aside>
 
         <section className="preview-panel">
-          <div className="panel-heading preview-panel-heading">
-            <h2>Xem trước cảnh</h2>
-            <div className="preview-heading-actions">
+          <div className="preview-control-panel">
+            <span className="preview-panel-kicker">XEM TRƯỚC</span>
+            <div className="preview-panel-meta">
+              <strong>Cảnh {scene.number} · {scene.title || "CẢNH MỚI"}</strong>
+              <span className="preview-aspect-badge">{aspectRatio}</span>
+            </div>
+            <div className="preview-control-bar">
               <div className="preview-aspect-switcher" role="group" aria-label="Tỷ lệ khung hình dự án">
                 <span>Tỷ lệ</span>
                 <button
@@ -2546,7 +2553,18 @@ function Home() {
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
               </button>
-              <span className="time-pill">{formatTime(scene.start)}</span>
+              <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
+            </div>
+            <div
+              className="preview-panel-progress"
+              role="progressbar"
+              aria-label={`Tiến trình cảnh ${scene.number}`}
+              aria-valuemin={0}
+              aria-valuemax={sceneDuration}
+              aria-valuenow={Number(sceneLocalTime.toFixed(1))}
+            >
+              <span style={{ width: `${sceneProgress * 100}%` }} />
+              <i style={{ left: `${sceneProgress * 100}%` }} />
             </div>
           </div>
           <div
@@ -2586,9 +2604,6 @@ function Home() {
                 <span />
               </div>
             )}
-            <div className="preview-progress">
-              <span style={{ width: `${(playTime / projectDuration) * 100}%` }} />
-            </div>
             {popupPlaybackVisible && (
               <article
                 className={`preview-card popup-layout-${scene.popupLayout ?? "image-top"} popup-theme-${scene.popupTheme ?? "travel"} popup-text-${scene.popupTextEffect ?? "none"} ${
