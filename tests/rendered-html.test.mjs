@@ -87,6 +87,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /updateAspectRatio/);
   assert.match(page, /preview-landscape/);
   assert.match(page, /Tỷ lệ khung hình dự án/);
+  assert.match(page, /selectAdjacentScene/);
+  assert.match(page, /preview-navigation/);
+  assert.match(page, /preview-zoom-control/);
+  assert.match(page, /Cảnh tiếp theo/);
+  assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
   assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera|editor-effects/);
   assert.match(css, /zoom-focus-target/);

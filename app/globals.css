@@ -4792,3 +4792,81 @@ body {
     width: min(100%, 360px);
   }
 }
+
+/* Preview navigation: keep scene navigation symmetrical and zoom centered. */
+.studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview {
+  transform-origin: center center;
+}
+.preview-navigation {
+  width: min(100%, 440px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: 12px auto 0;
+}
+.preview-scene-navigation,
+.preview-zoom-control {
+  min-height: 38px;
+  border: 1px solid var(--studio-line, #dce3ec);
+  border-radius: 9px;
+  background: var(--panel-bg, #fff);
+  color: var(--studio-ink, #142033);
+  font-size: 11px;
+}
+.preview-scene-navigation {
+  width: 100%;
+  padding: 8px 11px;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.preview-scene-navigation-previous { text-align: left; }
+.preview-scene-navigation-next { text-align: right; }
+.preview-scene-navigation:hover:not(:disabled) {
+  border-color: #087cff;
+  color: #087cff;
+  box-shadow: 0 5px 13px rgba(8,124,255,.1);
+}
+.preview-scene-navigation:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+.preview-zoom-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px;
+  white-space: nowrap;
+}
+.preview-zoom-control button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--studio-ink, #142033);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.preview-zoom-control button:hover:not(:disabled) { background: #edf5ff; color: #087cff; }
+.preview-zoom-control button:disabled { cursor: not-allowed; opacity: .35; }
+.preview-zoom-control output {
+  min-width: 50px;
+  color: var(--studio-ink, #142033);
+  font: 700 11px var(--font-mono);
+  text-align: center;
+}
+.studio-shell[data-theme="dark"] .preview-scene-navigation,
+.studio-shell[data-theme="dark"] .preview-zoom-control {
+  background: var(--panel-bg);
+  border-color: var(--studio-line);
+}
+@media (max-width: 760px) {
+  .preview-navigation {
+    width: min(100%, 360px);
+    gap: 7px;
+  }
+  .preview-scene-navigation { padding-inline: 7px; font-size: 10px; }
+}

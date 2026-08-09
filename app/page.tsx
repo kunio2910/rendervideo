@@ -498,6 +498,7 @@ function Home() {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
+  const [previewZoom, setPreviewZoom] = useState(100);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
   const [localRenderState, setLocalRenderState] = useState<LocalRenderState>({
     status: "idle",
@@ -542,6 +543,19 @@ function Home() {
   const updateAspectRatio = (nextAspectRatio: AspectRatio) => {
     setAspectRatio(nextAspectRatio);
     setRenderResolution(defaultResolutionFor(nextAspectRatio));
+  };
+  const adjustPreviewZoom = (delta: number) => {
+    setPreviewZoom((value) => Math.min(125, Math.max(75, value + delta)));
+  };
+  const selectAdjacentScene = (direction: -1 | 1) => {
+    const candidates = visibleScenes.length ? visibleScenes : scenes;
+    const currentIndex = candidates.findIndex((item) => item.id === scene.id);
+    const nextScene = candidates[currentIndex + direction];
+    if (!nextScene) return;
+    setSelectedId(nextScene.id);
+    setSelectedSceneIds([nextScene.id]);
+    setPlayTime(nextScene.start);
+    setPlaying(false);
   };
   const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
   const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
@@ -2535,7 +2549,10 @@ function Home() {
               <span className="time-pill">{formatTime(scene.start)}</span>
             </div>
           </div>
-          <div className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""}`}>
+          <div
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""}`}
+            style={{ transform: `scale(${previewZoom / 100})` }}
+          >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               <img
                 className="project-background"
@@ -2632,6 +2649,43 @@ function Home() {
               />
               </article>
             )}
+          </div>
+          <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
+            <button
+              type="button"
+              className="preview-scene-navigation preview-scene-navigation-previous"
+              onClick={() => selectAdjacentScene(-1)}
+              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) <= 0}
+            >
+              ← Cảnh trước
+            </button>
+            <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
+              <button
+                type="button"
+                onClick={() => adjustPreviewZoom(-5)}
+                disabled={previewZoom <= 75}
+                aria-label="Thu nhỏ xem trước"
+              >
+                −
+              </button>
+              <output>{previewZoom}%</output>
+              <button
+                type="button"
+                onClick={() => adjustPreviewZoom(5)}
+                disabled={previewZoom >= 125}
+                aria-label="Phóng to xem trước"
+              >
+                +
+              </button>
+            </div>
+            <button
+              type="button"
+              className="preview-scene-navigation preview-scene-navigation-next"
+              onClick={() => selectAdjacentScene(1)}
+              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) >= visibleScenes.length - 1}
+            >
+              Cảnh tiếp theo →
+            </button>
           </div>
         </section>
 
