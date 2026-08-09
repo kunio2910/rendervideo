@@ -5184,3 +5184,111 @@ body {
   .settings-scene-thumb { width: 45px; height: 52px; }
   .settings-summary-grid b { font-size: 11px; }
 }
+
+/* Settings readability scale */
+.settings-topbar {
+  min-height: 86px;
+  padding: 16px 38px;
+  gap: 24px;
+}
+.settings-topbar-title { gap: 5px; }
+.settings-topbar-title h1 { font-size: 26px; }
+.settings-kicker, .settings-section-label { font-size: 11px; letter-spacing: .1em; }
+.settings-project-chip { max-width: 420px; gap: 10px; padding: 11px 14px; font-size: 12px; }
+.settings-project-chip i { width: 9px; height: 9px; }
+.settings-project-chip b { font-size: 12px; }
+.settings-save-button { min-width: 92px; min-height: 40px; font-size: 13px; }
+.settings-workspace { min-height: calc(100vh - 86px); padding: 42px 48px 64px; }
+.settings-layout { width: min(100%, 1680px); }
+.settings-page-heading { gap: 28px; margin-bottom: 30px; }
+.settings-page-heading h2 { margin: 9px 0 8px; font-size: 34px; }
+.settings-page-heading p { font-size: 15px; }
+.settings-page-heading > .button { min-height: 42px; padding-inline: 18px; font-size: 13px; }
+.settings-clip-grid { grid-template-columns: minmax(400px, .9fr) minmax(0, 1.6fr); gap: 28px; }
+.settings-card { border-radius: 18px; }
+.settings-clip-list-card { padding: 24px; }
+.settings-detail-card { padding: 28px; }
+.settings-card-heading, .settings-detail-heading, .settings-scene-heading, .settings-selected-scene-heading { gap: 18px; }
+.settings-card-heading h3, .settings-detail-heading h3, .settings-scene-heading h3, .settings-selected-scene-heading h4 { margin-top: 7px; font-size: 22px; }
+.settings-detail-heading h3 { font-size: 28px; }
+.settings-detail-heading p { margin-top: 8px; font-size: 13px; }
+.settings-count-badge, .settings-detail-ratio { min-width: 36px; min-height: 32px; padding-inline: 9px; font-size: 12px; }
+.settings-clip-list { gap: 10px; max-height: 700px; margin-top: 22px; }
+.settings-clip-item { grid-template-columns: 68px minmax(0, 1fr) auto; gap: 15px; padding: 14px; border-radius: 13px; }
+.settings-clip-thumb { width: 68px; height: 80px; border-radius: 11px; }
+.settings-clip-thumb b { font-size: 20px; }
+.settings-clip-thumb em { right: 6px; bottom: 6px; padding: 3px 5px; font-size: 10px; }
+.settings-clip-copy { gap: 6px; }
+.settings-clip-copy strong, .settings-scene-copy strong { font-size: 15px; }
+.settings-clip-copy span, .settings-scene-copy span, .settings-scene-copy small { font-size: 11px; }
+.settings-clip-status { padding-top: 4px; font-size: 11px; }
+.settings-add-clip { min-height: 48px; margin-top: 20px; border-radius: 11px; font-size: 13px; }
+.settings-clip-actions { gap: 22px; margin-top: 24px; padding: 18px; border-radius: 12px; }
+.settings-clip-actions strong { font-size: 14px; }
+.settings-clip-actions span { font-size: 12px; }
+.settings-action-buttons { gap: 10px; }
+.settings-action-buttons .button { min-height: 40px; padding-inline: 15px; font-size: 12px; }
+.settings-summary-grid { gap: 12px; margin-top: 20px; }
+.settings-summary-grid > div { padding: 14px; border-radius: 11px; }
+.settings-summary-grid span { font-size: 11px; }
+.settings-summary-grid b { margin-top: 6px; font-size: 16px; }
+.settings-scene-heading { margin-top: 32px; padding-bottom: 14px; }
+.settings-scene-heading > span { font-size: 11px; }
+.settings-scenes-list { gap: 10px; max-height: 430px; margin-top: 14px; }
+.settings-scene-item { grid-template-columns: 36px 78px minmax(0, 1fr) 22px; gap: 15px; padding: 13px 15px 13px 10px; border-radius: 13px; }
+.settings-scene-number { width: 36px; height: 36px; font-size: 11px; }
+.settings-scene-thumb { width: 78px; height: 82px; border-radius: 11px; }
+.settings-scene-thumb b { font-size: 18px; }
+.settings-scene-thumb i { right: -9px; bottom: -12px; width: 43px; height: 43px; border-width: 9px; }
+.settings-scene-arrow { font-size: 28px; }
+.settings-selected-scene { margin-top: 22px; padding: 20px; border-radius: 13px; }
+.settings-selected-scene-heading h4 { font-size: 21px; }
+.settings-selected-scene-heading .button { min-height: 40px; padding-inline: 15px; font-size: 12px; }
+.settings-scene-facts { gap: 10px; margin-top: 18px; }
+.settings-scene-facts > div { padding: 12px; border-radius: 10px; }
+.settings-scene-facts span { font-size: 11px; }
+.settings-scene-facts b { margin-top: 6px; font-size: 12px; }
+.settings-selected-scene > p { margin-top: 15px; font-size: 12px; }
+.settings-note { gap: 11px; margin-top: 24px; padding-top: 17px; }
+.settings-note > span { width: 21px; height: 21px; font-size: 12px; }
+.settings-note p { font-size: 12px; }
+
+@media (max-width: 1080px) {
+  .settings-workspace { padding-inline: 30px; }
+  .settings-clip-grid { grid-template-columns: minmax(340px, .9fr) minmax(0, 1.4fr); gap: 20px; }
+}
+
+@media (max-width: 760px) {
+  .settings-topbar { min-height: 78px; padding: 13px 18px; }
+  .settings-topbar-title h1 { font-size: 22px; }
+  .settings-workspace { min-height: 0; padding: 28px 18px 42px; }
+  .settings-page-heading h2 { font-size: 29px; }
+  .settings-page-heading p { font-size: 13px; }
+  .settings-clip-grid { grid-template-columns: 1fr; }
+  .settings-clip-list-card, .settings-detail-card { padding: 20px; }
+  .settings-clip-item { grid-template-columns: 58px minmax(0, 1fr) auto; }
+  .settings-clip-thumb { width: 58px; height: 70px; }
+  .settings-scene-item { grid-template-columns: 32px 68px minmax(0, 1fr) 18px; gap: 11px; }
+  .settings-scene-number { width: 32px; height: 32px; }
+  .settings-scene-thumb { width: 68px; height: 72px; }
+  .settings-scene-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 460px) {
+  .settings-topbar { min-height: 98px; padding: 13px 16px; }
+  .settings-topbar-title h1 { font-size: 20px; }
+  .settings-project-chip { max-width: 100%; padding: 9px 11px; }
+  .settings-save-button { min-height: 36px; }
+  .settings-workspace { padding: 24px 12px 34px; }
+  .settings-page-heading h2 { font-size: 26px; }
+  .settings-clip-list-card, .settings-detail-card { padding: 15px; }
+  .settings-clip-item { grid-template-columns: 50px minmax(0, 1fr); gap: 11px; padding: 11px; }
+  .settings-clip-thumb { width: 50px; height: 60px; }
+  .settings-clip-status { display: none; }
+  .settings-scene-item { grid-template-columns: 28px 58px minmax(0, 1fr) 14px; gap: 8px; padding: 11px 8px; }
+  .settings-scene-number { width: 28px; height: 28px; }
+  .settings-scene-thumb { width: 58px; height: 64px; }
+  .settings-clip-actions { padding: 14px; }
+  .settings-action-buttons { width: 100%; }
+  .settings-action-buttons .button { flex: 1 1 auto; }
+}
