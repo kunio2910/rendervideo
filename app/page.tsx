@@ -466,6 +466,7 @@ type SettingsWorkspaceProps = {
   aspectRatio: AspectRatio;
   assetPreviewSource: (value: string) => string;
   onAddClip: () => void;
+  onRenameClip: (projectId: string, title: string) => void;
   onDuplicateClip: (project: ProjectSnapshot) => ProjectSnapshot;
   onDeleteClip: (project: ProjectSnapshot) => string | null;
   onOpenScene: (project: ProjectSnapshot, scene: Scene) => void;
@@ -481,6 +482,7 @@ function SettingsWorkspace({
   aspectRatio,
   assetPreviewSource,
   onAddClip,
+  onRenameClip,
   onDuplicateClip,
   onDeleteClip,
   onOpenScene,
@@ -490,6 +492,8 @@ function SettingsWorkspace({
 }: SettingsWorkspaceProps) {
   const [selectedClipId, setSelectedClipId] = useState(activeProjectId);
   const [selectedSceneId, setSelectedSceneId] = useState("");
+  const [editingClipId, setEditingClipId] = useState<string | null>(null);
+  const [editingClipTitle, setEditingClipTitle] = useState("");
   const selectedClip = projectItems.find((item) => item.id === selectedClipId)
     ?? projectItems.find((item) => item.id === activeProjectId)
     ?? projectItems[0];
@@ -515,8 +519,29 @@ function SettingsWorkspace({
   }, [selectedClipId, selectedSceneId, selectedScenes]);
 
   const selectClip = (project: ProjectSnapshot) => {
+    setEditingClipId(null);
+    setEditingClipTitle("");
     setSelectedClipId(project.id);
     setSelectedSceneId(project.scenes[0]?.id ?? "");
+  };
+
+  const startClipRename = (project: ProjectSnapshot) => {
+    setSelectedClipId(project.id);
+    setEditingClipId(project.id);
+    setEditingClipTitle(project.title || "");
+  };
+
+  const cancelClipRename = () => {
+    setEditingClipId(null);
+    setEditingClipTitle("");
+  };
+
+  const commitClipRename = () => {
+    if (!editingClipId) return;
+    const source = projectItems.find((item) => item.id === editingClipId);
+    const nextTitle = editingClipTitle.trim() || source?.title || "Clip chưa đặt tên";
+    onRenameClip(editingClipId, nextTitle);
+    cancelClipRename();
   };
 
   const handleDuplicateClip = () => {
@@ -629,7 +654,38 @@ function SettingsWorkspace({
                           );
                         })()}
                         <span className="settings-clip-copy">
-                          <strong>{project.title || "Clip chưa đặt tên"}</strong>
+                          {editingClipId === project.id ? (
+                            <input
+                              className="settings-clip-title-input"
+                              value={editingClipTitle}
+                              autoFocus
+                              aria-label={`Đổi tên clip ${project.title || "chưa đặt tên"}`}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => setEditingClipTitle(event.target.value)}
+                              onBlur={commitClipRename}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  commitClipRename();
+                                }
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  cancelClipRename();
+                                }
+                              }}
+                            />
+                          ) : (
+                            <strong
+                              title="Nhấp đúp để đổi tên clip"
+                              onDoubleClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                startClipRename(project);
+                              }}
+                            >
+                              {project.title || "Clip chưa đặt tên"}
+                            </strong>
+                          )}
                           <span>{project.scenes.length} cảnh · {formatTime(duration)} · {project.aspectRatio ?? "9:16"}</span>
                         </span>
                         <span className={`settings-clip-status ${project.id === activeProjectId ? "open" : ""}`}>
@@ -733,6 +789,56 @@ function SettingsWorkspace({
                       <div><span>Chuyển động</span><b>{selectedScene.zoomEnabled !== false ? `Zoom ${selectedScene.zoom.toFixed(1)}×` : "Đã tắt"}</b></div>
                     </div>
                     <p>{selectedScene.narration || "Cảnh này chưa có lời thuyết minh. Bạn có thể bổ sung nội dung trong Biên soạn."}</p>
+                    <div className="settings-full-scene-info">
+                      <section>
+                        <h5>Nội dung cảnh</h5>
+                        <div className="settings-info-grid">
+                          <div><span>Tiêu đề</span><b>{selectedScene.title || `Cảnh ${selectedScene.number}`}</b></div>
+                          <div><span>Vị trí</span><b>{selectedScene.location || "Chưa có"}</b></div>
+                          <div><span>Tham chiếu</span><b>{selectedScene.reference || "Chưa có"}</b></div>
+                          <div className="wide"><span>Popup</span><b>{selectedScene.popup || "Chưa có nội dung"}</b></div>
+                          <div className="wide"><span>Thuyết minh</span><b>{selectedScene.narration || "Chưa có nội dung"}</b></div>
+                          <div><span>Giọng đọc</span><b>{selectedScene.voice || "Chưa chọn"}</b></div>
+                          <div><span>Trạng thái</span><b>{selectedScene.status}</b></div>
+                        </div>
+                      </section>
+                      <section>
+                        <h5>Tài nguyên</h5>
+                        <div className="settings-info-grid">
+                          <div className="wide"><span>Ảnh cảnh</span><b>{selectedScene.image || "Chưa có"}</b></div>
+                          <div className="wide"><span>Background</span><b>{selectedScene.background || "Mặc định"}</b></div>
+                          <div className="wide"><span>Video popup</span><b>{selectedScene.popupVideo || "Chưa có"}</b></div>
+                          <div className="wide"><span>Âm thanh thuyết minh</span><b>{selectedScene.voiceFile || "Chưa có"}</b></div>
+                          <div><span>Âm lượng</span><b>{selectedScene.voiceVolume}%</b></div>
+                        </div>
+                      </section>
+                      <section>
+                        <h5>Popup</h5>
+                        <div className="settings-info-grid">
+                          <div><span>Hiển thị</span><b>{selectedScene.popupVisible !== false ? "Bật" : "Tắt"}</b></div>
+                          <div><span>Bắt đầu</span><b>{formatTime(selectedScene.popupStart ?? 0)}</b></div>
+                          <div><span>Thời lượng</span><b>{formatTime(selectedScene.popupDuration)}</b></div>
+                          <div><span>Mở / đóng</span><b>{selectedScene.popupIn || "Chưa chọn"} / {selectedScene.popupOut || "Chưa chọn"}</b></div>
+                          <div><span>Bố cục</span><b>{selectedScene.popupLayout || "Chưa chọn"}</b></div>
+                          <div><span>Chủ đề</span><b>{selectedScene.popupTheme || "Chưa chọn"}</b></div>
+                          <div><span>Hiệu ứng chữ</span><b>{selectedScene.popupTextEffect || "Chưa chọn"}</b></div>
+                          <div><span>Vị trí</span><b>X {selectedScene.popupX ?? 5}% · Y {selectedScene.popupY ?? 55}%</b></div>
+                          <div><span>Kích thước</span><b>{selectedScene.popupWidth ?? 90}% × {selectedScene.popupHeight ?? 255}px</b></div>
+                        </div>
+                      </section>
+                      <section>
+                        <h5>Zoom camera &amp; trạng thái</h5>
+                        <div className="settings-info-grid">
+                          <div><span>Zoom</span><b>{selectedScene.zoomEnabled !== false ? `${selectedScene.zoom.toFixed(1)}×` : "Tắt"}</b></div>
+                          <div><span>Bắt đầu / kết thúc</span><b>{formatTime(selectedScene.zoomStart)} / {formatTime(selectedScene.zoomEnd)}</b></div>
+                          <div><span>Thời lượng vào / ra</span><b>{formatTime(selectedScene.zoomInDuration)} / {formatTime(selectedScene.zoomOutDuration)}</b></div>
+                          <div><span>Tâm zoom</span><b>X {Math.round(selectedScene.centerX)}% · Y {Math.round(selectedScene.centerY)}%</b></div>
+                          <div><span>Khung thời gian</span><b>{formatTime(selectedScene.start)} – {formatTime(selectedScene.end)}</b></div>
+                          <div><span>Hiển thị cảnh</span><b>{selectedScene.sceneVisible !== false ? "Bật" : "Tắt"}</b></div>
+                          <div><span>Background trong cảnh</span><b>{selectedScene.backgroundVisible !== false ? "Bật" : "Tắt"}</b></div>
+                        </div>
+                      </section>
+                    </div>
                   </section>
                 )}
 
@@ -1805,6 +1911,16 @@ function Home() {
     setToast(`Đã nhân bản clip “${copied.title}”`);
     window.setTimeout(() => setToast(""), 2400);
     return copied;
+  };
+
+  const renameProjectClip = (targetId: string, title: string) => {
+    const nextTitle = title.trim() || "Clip chưa đặt tên";
+    if (targetId === projectId) setProjectTitle(nextTitle);
+    setProjects((items) => items.map((item) => (
+      item.id === targetId ? { ...item, title: nextTitle } : item
+    )));
+    setToast(`Đã đổi tên clip “${nextTitle}”`);
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const deleteProjectClip = (source: ProjectSnapshot) => {
@@ -4009,6 +4125,7 @@ function Home() {
               aspectRatio={aspectRatio}
               assetPreviewSource={assetPreviewSource}
               onAddClip={() => setShowNewProject(true)}
+              onRenameClip={renameProjectClip}
               onDuplicateClip={duplicateProjectClip}
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
