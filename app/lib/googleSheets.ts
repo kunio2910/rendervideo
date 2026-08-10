@@ -4,9 +4,8 @@ export const GOOGLE_SCRIPT_URL =
 export const GOOGLE_PROJECT_ID = "render-video-default";
 const GOOGLE_SHEETS_API = "/api/google-sheets";
 
-async function requestGoogleSheets(
+async function requestGoogleSheetsProxy(
   proxyUrl: string,
-  directUrl: string,
   init: RequestInit,
 ) {
   try {
@@ -22,6 +21,17 @@ async function requestGoogleSheets(
   } catch {
     // Static hosts such as GitHub Pages do not expose the proxy route.
   }
+
+  return null;
+}
+
+async function requestGoogleSheets(
+  proxyUrl: string,
+  directUrl: string,
+  init: RequestInit,
+) {
+  const proxyResponse = await requestGoogleSheetsProxy(proxyUrl, init);
+  if (proxyResponse) return proxyResponse;
 
   return fetch(directUrl, init);
 }
@@ -48,6 +58,10 @@ async function readJsonResponse(response: Response) {
 }
 
 export async function saveDataToGoogle(data: unknown) {
+  const body = JSON.stringify({
+    projectId: GOOGLE_PROJECT_ID,
+    data,
+  });
   const requestInit: RequestInit = {
     method: "POST",
     headers: {
@@ -59,18 +73,45 @@ export async function saveDataToGoogle(data: unknown) {
       // from `e.postData.contents` by the Apps Script endpoint.
       "Content-Type": "text/plain;charset=UTF-8",
     },
-    body: JSON.stringify({
-      projectId: GOOGLE_PROJECT_ID,
-      data,
-    }),
+    body,
   };
   const proxyUrl = new URL(GOOGLE_SHEETS_API, window.location.origin).toString();
-  const response = await requestGoogleSheets(proxyUrl, GOOGLE_SCRIPT_URL, requestInit);
+  const proxyResponse = await requestGoogleSheetsProxy(proxyUrl, requestInit);
+  if (proxyResponse) {
+    const result = await readJsonResponse(proxyResponse);
+    return { ...result, acknowledged: true };
+  }
 
-  return readJsonResponse(response);
+  try {
+    // A normal save is initiated with fetch so the browser keeps the request
+    // alive until the network layer has accepted it. `sendBeacon` resolves as
+    // soon as the browser queues the request and can be dropped silently on
+    // some static-host/browser combinations, which made saves look successful
+    // without reaching Apps Script.
+    await fetch(GOOGLE_SCRIPT_URL, {
+      ...requestInit,
+      mode: "no-cors",
+      keepalive: true,
+    });
+    return { success: true, queued: true, transport: "fetch" };
+  } catch (fetchError) {
+    // Keep Beacon only as the unload-safe fallback when fetch cannot start.
+    try {
+      const queued = typeof navigator !== "undefined"
+        && typeof navigator.sendBeacon === "function"
+        && navigator.sendBeacon(
+          GOOGLE_SCRIPT_URL,
+          new Blob([body], { type: "text/plain;charset=UTF-8" }),
+        );
+      if (queued) return { success: true, queued: true, transport: "beacon" };
+    } catch {
+      // Re-throw the original fetch error below.
+    }
+    throw fetchError;
+  }
 }
 
-export async function loadDataFromGoogle() {
+async function loadGoogleResult() {
   const proxyUrl = new URL(GOOGLE_SHEETS_API, window.location.origin);
   proxyUrl.searchParams.set("projectId", GOOGLE_PROJECT_ID);
   const directUrl = new URL(GOOGLE_SCRIPT_URL);
@@ -82,5 +123,19 @@ export async function loadDataFromGoogle() {
   });
   const result = await readJsonResponse(response);
 
-  return result.data;
+  return result;
+}
+
+export async function loadGoogleSnapshot() {
+  const result = await loadGoogleResult();
+
+  return {
+    data: result.data,
+    updatedAt: typeof result.updatedAt === "string" ? result.updatedAt : "",
+  };
+}
+
+export async function loadDataFromGoogle() {
+  const snapshot = await loadGoogleSnapshot();
+  return snapshot.data;
 }

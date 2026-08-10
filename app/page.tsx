@@ -9,7 +9,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
+import type { User as FirebaseUser } from "firebase/auth";
+import {
+  observeGoogleUser,
+  signInWithGoogle,
+  signOutFromGoogle,
+} from "./lib/firebase";
+import { loadGoogleSnapshot, saveDataToGoogle } from "./lib/googleSheets";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
@@ -226,6 +232,8 @@ const assetReference = (value: string) => {
 
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
+const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
+const LOCAL_PENDING_SAVE_KEY = "kito-video-studio-pending-save";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
@@ -1178,6 +1186,9 @@ function Home() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [googleAuthReady, setGoogleAuthReady] = useState(false);
+  const [googleAuthBusy, setGoogleAuthBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
     "loading" | "saved" | "saving" | "unsaved" | "offline" | "error"
@@ -1224,6 +1235,58 @@ function Home() {
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => undefined;
+
+    try {
+      unsubscribe = observeGoogleUser((user) => {
+        if (cancelled) return;
+        setGoogleUser(user);
+        setGoogleAuthReady(true);
+      });
+    } catch {
+      if (!cancelled) setGoogleAuthReady(true);
+    }
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleAuthBusy(true);
+    try {
+      await signInWithGoogle();
+      setToast("Đăng nhập Google thành công");
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể đăng nhập Google";
+      setToast(`Đăng nhập Google lỗi: ${reason}`);
+    } finally {
+      setGoogleAuthBusy(false);
+      window.setTimeout(() => setToast(""), 3200);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    setGoogleAuthBusy(true);
+    try {
+      await signOutFromGoogle();
+      setToast("Đã đăng xuất Google");
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể đăng xuất Google";
+      setToast(`Đăng xuất Google lỗi: ${reason}`);
+    } finally {
+      setGoogleAuthBusy(false);
+      window.setTimeout(() => setToast(""), 2800);
+    }
+  };
 
   const visibleScenes = useMemo(
     () => reflowVisibleSceneTimeline(scenes.filter((item) => item.sceneVisible !== false)),
@@ -1530,10 +1593,89 @@ function Home() {
       let restoredLocally = false;
       let cloudLoaded = false;
       let cloudFailed = false;
+      let localValue = "";
+      let localData: unknown = null;
+      let pendingSaveData: unknown = null;
+      let pendingSaveAt = 0;
+      const localSavedAt = Number(window.localStorage.getItem(LOCAL_SAVED_AT_KEY) || 0);
+
+      const retryPendingSave = (data: unknown) => {
+        if (!data) return;
+        void saveDataToGoogle(data)
+          .then((result) => {
+            if (isRecord(result) && result.acknowledged === true) {
+              window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+            }
+          })
+          .catch(() => {
+            // Keep the pending payload for the next load or online event.
+          });
+      };
 
       try {
-        const cloudData = await loadDataFromGoogle();
-        if (!cancelled && cloudData && applyStoredProject(cloudData)) {
+        localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY) || "";
+        if (localValue) {
+          const parsedLocalData = JSON.parse(localValue);
+          if (isBundledSampleWorkspace(parsedLocalData)) {
+            window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+            window.localStorage.removeItem(LOCAL_SAVED_AT_KEY);
+          } else {
+            localData = parsedLocalData;
+          }
+        }
+      } catch {
+        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+        window.localStorage.removeItem(LOCAL_SAVED_AT_KEY);
+        localValue = "";
+      }
+
+      try {
+        const pendingValue = window.localStorage.getItem(LOCAL_PENDING_SAVE_KEY);
+        if (pendingValue) {
+          const pending = JSON.parse(pendingValue);
+          if (isRecord(pending) && pending.data) {
+            pendingSaveData = pending.data;
+            pendingSaveAt = Number(pending.savedAt) || 0;
+          } else {
+            window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+          }
+        }
+      } catch {
+        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+      }
+
+      try {
+        const cloudSnapshot = await loadGoogleSnapshot();
+        const cloudData = cloudSnapshot.data;
+        const cloudSavedAt = Date.parse(cloudSnapshot.updatedAt);
+        const localMatchesCloud = Boolean(
+          localData
+          && cloudData
+          && JSON.stringify(localData) === JSON.stringify(cloudData),
+        );
+        if (localMatchesCloud || (
+          pendingSaveData
+          && pendingSaveAt > 0
+          && Number.isFinite(cloudSavedAt)
+          && cloudSavedAt >= pendingSaveAt
+        )) {
+          window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+        }
+        const localIsNewer = Boolean(
+          localData
+          && !localMatchesCloud
+          && localSavedAt > 0
+          && (!Number.isFinite(cloudSavedAt) || localSavedAt > cloudSavedAt),
+        );
+
+        if (!cancelled && localIsNewer && applyStoredProject(localData)) {
+          restorePreferredActiveProject(localData);
+          restoredLocally = true;
+          lastSavedProjectSnapshot.current = localValue;
+          setSaveStatus("offline");
+          setLastSavedAt(new Date(localSavedAt));
+          retryPendingSave(pendingSaveData);
+        } else if (!cancelled && cloudData && applyStoredProject(cloudData)) {
           restorePreferredActiveProject(cloudData);
           cloudLoaded = true;
           lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
@@ -1549,23 +1691,15 @@ function Home() {
         return;
       }
 
-      try {
-        const localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (localValue) {
-          const localData = JSON.parse(localValue);
-          if (isBundledSampleWorkspace(localData)) {
-            window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-          } else {
-            restoredLocally = applyStoredProject(localData);
-            if (restoredLocally) restorePreferredActiveProject(localData);
-          }
-          if (restoredLocally) {
-            lastSavedProjectSnapshot.current = localValue;
-            setSaveStatus("offline");
-          }
+      if (!restoredLocally && localData && localValue) {
+        restoredLocally = applyStoredProject(localData);
+        if (restoredLocally) {
+          restorePreferredActiveProject(localData);
+          lastSavedProjectSnapshot.current = localValue;
+          setSaveStatus("offline");
+          if (localSavedAt > 0) setLastSavedAt(new Date(localSavedAt));
+          retryPendingSave(pendingSaveData);
         }
-      } catch {
-        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
       }
 
       if (!cancelled && !restoredLocally) {
@@ -1589,6 +1723,31 @@ function Home() {
       Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url));
     };
   }, [localRenderFiles]);
+
+  useEffect(() => {
+    const retryPendingSaveWhenOnline = () => {
+      try {
+        const pendingValue = window.localStorage.getItem(LOCAL_PENDING_SAVE_KEY);
+        if (!pendingValue) return;
+        const pending = JSON.parse(pendingValue);
+        if (!isRecord(pending) || !pending.data) return;
+        void saveDataToGoogle(pending.data)
+          .then((result) => {
+            if (isRecord(result) && result.acknowledged === true) {
+              window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+            }
+          })
+          .catch(() => {
+            // Keep the payload for the next online event or page load.
+          });
+      } catch {
+        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+      }
+    };
+
+    window.addEventListener("online", retryPendingSaveWhenOnline);
+    return () => window.removeEventListener("online", retryPendingSaveWhenOnline);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
@@ -1661,18 +1820,51 @@ function Home() {
 
   const saveProjectNow = async () => {
     const currentSnapshot = JSON.stringify(storedProject);
+    const savedAt = Date.now();
     window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
       currentSnapshot,
     );
+    window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+    window.localStorage.setItem(
+      LOCAL_PENDING_SAVE_KEY,
+      JSON.stringify({ savedAt, data: storedProject }),
+    );
     setSaveStatus("saving");
     try {
-      await saveDataToGoogle(storedProject);
+      const saveResult = await saveDataToGoogle(storedProject);
+      if (isRecord(saveResult) && saveResult.acknowledged === true) {
+        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+      }
       const now = new Date();
       setSaveStatus("saved");
       setLastSavedAt(now);
-      setToast("Đã lưu dự án lên Google Sheet");
+      setToast(
+        isRecord(saveResult) && saveResult.queued === true
+          ? "Đã gửi dữ liệu lên Google Sheet · Đang xác nhận đồng bộ"
+          : "Đã lưu dự án lên Google Sheet",
+      );
+
+      if (isRecord(saveResult) && saveResult.queued === true) {
+        const verifyQueuedSave = async () => {
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 900 * (attempt + 1));
+            });
+            try {
+              const snapshot = await loadGoogleSnapshot();
+              if (JSON.stringify(snapshot.data) === currentSnapshot) {
+                window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
+                return;
+              }
+            } catch {
+              // The pending payload remains available for the next retry.
+            }
+          }
+        };
+        void verifyQueuedSave();
+      }
     } catch (error) {
       setSaveStatus("offline");
       const reason = error instanceof Error
@@ -3320,6 +3512,30 @@ function Home() {
           >
             {theme === "light" ? "☾ Tối" : "☀ Sáng"}
           </button>
+          {googleUser ? (
+            <div className="google-account" title={googleUser.email ?? "Tài khoản Google"}>
+              <span className="google-account-name">
+                {googleUser.displayName || googleUser.email || "Google"}
+              </span>
+              <button
+                type="button"
+                className="button google-signin-button"
+                onClick={() => void handleGoogleSignOut()}
+                disabled={googleAuthBusy}
+              >
+                Đăng xuất
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="button google-signin-button"
+              onClick={() => void handleGoogleSignIn()}
+              disabled={!googleAuthReady || googleAuthBusy}
+            >
+              {googleAuthBusy ? "Đang đăng nhập…" : "G Đăng nhập Google"}
+            </button>
+          )}
           <div className={`save-state ${saveStatus}`} aria-live="polite">
             <i />
             <span>
