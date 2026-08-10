@@ -433,6 +433,66 @@ const createPopup = async (scene, index) => {
   };
 };
 
+const decorationColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
+  ? String(value)
+  : fallback;
+
+const decorationGlyph = (decoration) => {
+  if (decoration.type === "effect") {
+    return {
+      sparkles: "✦",
+      ring: "◉",
+      confetti: "✺",
+      glow: "✧",
+    }[decoration.effect] ?? "✦";
+  }
+  return String(decoration.symbol ?? "✦").trim() || "✦";
+};
+
+const createMapDecoration = async (decoration, index) => {
+  const type = ["text-3d", "sticker", "icon", "effect"].includes(String(decoration?.type))
+    ? String(decoration.type)
+    : "text-3d";
+  const asset = String(decoration?.asset ?? "").trim();
+  if (type === "sticker") {
+    const image = await resolveImage(asset, `decoration-${index + 1}-sticker`);
+    if (!image) return null;
+    const filename = path.join(renderDir, `decoration-${index + 1}.png`);
+    await sharp(image)
+      .resize({ width: Math.round(previewPx(180)), height: Math.round(previewPx(180)), fit: "inside" })
+      .png()
+      .toFile(filename);
+    return { path: filename };
+  }
+  const size = Math.round(previewPx(clamp(Number(decoration?.size ?? (type === "text-3d" ? 48 : 64)), 14, 120)));
+  const depth = Math.round(previewPx(clamp(Number(decoration?.depth ?? 5), 0, 16)));
+  const color = decorationColor(decoration?.color, "#ffd166");
+  const accentColor = decorationColor(decoration?.accentColor, "#7c3aed");
+  const text = type === "text-3d" ? String(decoration?.text ?? "").trim() : decorationGlyph({
+    ...decoration,
+    type,
+  });
+  if (!text) return null;
+  const fontSize = type === "text-3d" ? size : Math.round(size * 1.05);
+  const width = type === "text-3d"
+    ? Math.max(Math.round(previewPx(50)), Math.ceil(text.length * fontSize * 0.62 + depth + previewPx(18)))
+    : Math.max(Math.round(previewPx(44)), Math.ceil(fontSize + depth * 2));
+  const height = Math.max(Math.round(previewPx(44)), fontSize + depth + Math.round(previewPx(18)));
+  const layers = Array.from({ length: depth }, (_, layerIndex) => {
+    const offset = depth - layerIndex;
+    return `<text x="${width / 2 + offset}" y="${height / 2 + fontSize * 0.35 + offset}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="${fontSize}" fill="${accentColor}">${escapeXml(text)}</text>`;
+  }).join("");
+  const svg = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      ${layers}
+      <text x="${width / 2}" y="${height / 2 + fontSize * 0.35}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="${fontSize}" fill="${color}">${escapeXml(text)}</text>
+    </svg>
+  `);
+  const filename = path.join(renderDir, `decoration-${index + 1}.png`);
+  await sharp(svg).png().toFile(filename);
+  return { path: filename };
+};
+
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
 await sharp({
   create: {
@@ -485,6 +545,23 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popupScene = popupScenes[popupIndex];
     const rendered = await createPopup(popupScene, index * 100 + popupIndex);
     if (rendered) popupRenders.push({ scene: popupScene, rendered });
+  }
+  const decorationScenes = Array.isArray(scene.mapDecorations)
+    ? scene.mapDecorations.filter((decoration) => {
+        if (!decoration || decoration.visible === false) return false;
+        const type = String(decoration.type ?? "text-3d");
+        return type === "sticker"
+          ? Boolean(String(decoration.asset ?? "").trim())
+          : type === "text-3d"
+            ? Boolean(String(decoration.text ?? "").trim())
+            : Boolean(String(decoration.symbol ?? "").trim() || String(decoration.effect ?? "").trim());
+      })
+    : [];
+  const decorationRenders = [];
+  for (let decorationIndex = 0; decorationIndex < decorationScenes.length; decorationIndex += 1) {
+    const decoration = decorationScenes[decorationIndex];
+    const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
+    if (rendered) decorationRenders.push({ scene: decoration, rendered });
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
@@ -578,7 +655,35 @@ for (let index = 0; index < scenes.length; index += 1) {
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
-  let popupInputIndex = 1;
+  let popupInputIndex = 1 + decorationRenders.length;
+  decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
+    const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
+    const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
+    const decorationEnd = Math.min(duration, decorationStart + decorationDuration);
+    const animation = String(decoration.animation ?? "none");
+    const popDuration = Math.min(0.45, Math.max(0.1, decorationEnd - decorationStart));
+    const popScale = animation === "pop"
+      ? `if(lt(t,${decorationStart}),0.72,if(lt(t,${decorationStart + popDuration}),0.72+0.28*(t-${decorationStart})/${popDuration},1))`
+      : animation === "pulse"
+        ? `1+0.08*sin((t-${decorationStart})*5)`
+        : "1";
+    const baseScale = clamp(Number(decoration.scale ?? 1), 0.1, 3);
+    const floatDistance = animation === "float" ? Math.round(previewPx(10)) : 0;
+    const baseRotation = clamp(Number(decoration.rotate ?? 0), -180, 180) * Math.PI / 180;
+    const rotation = animation === "spin"
+      ? `${baseRotation}+(t-${decorationStart})*0.9`
+      : String(baseRotation);
+    const fadeIn = animation === "fade"
+      ? `fade=t=in:st=${decorationStart}:d=${popDuration}:alpha=1,fade=t=out:st=${Math.max(decorationStart, decorationEnd - popDuration)}:d=${popDuration}:alpha=1,`
+      : "";
+    const inputLabel = `decorationInput${decorationIndex}`;
+    const outputLabel = `decorated${decorationIndex}`;
+    const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
+    const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
+    filter += `[${decorationIndex + 1}:v]format=rgba,${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
+    composedLabel = `[${outputLabel}]`;
+  });
   popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
     const popupStart = Math.min(duration, Math.max(0, Number(popupScene.popupStart ?? 0)));
     const popupEnd = Math.min(duration, popupStart + Number(popupScene.popupDuration ?? duration));
@@ -658,11 +763,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = composedOutput;
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
-  filter += popupRenders.length ? `${composedLabel}copy[composed]` : "[bg]copy[composed]";
+  filter += (popupRenders.length || decorationRenders.length)
+    ? `${composedLabel}copy[composed]`
+    : "[bg]copy[composed]";
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
   ];
+  decorationRenders.forEach(({ rendered: decoration }) => {
+    args.push("-loop", "1", "-i", decoration.path);
+  });
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
     if (popup.video) {

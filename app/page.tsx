@@ -40,6 +40,31 @@ type TextOverlay = {
   y: number;
 };
 
+type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect";
+type MapDecorationAnimation = "none" | "fade" | "pop" | "float" | "pulse" | "spin";
+
+type MapDecoration = {
+  id: string;
+  type: MapDecorationType;
+  text: string;
+  asset: string;
+  symbol: string;
+  effect: "sparkles" | "ring" | "confetti" | "glow";
+  x: number;
+  y: number;
+  scale: number;
+  rotate: number;
+  opacity: number;
+  depth: number;
+  size: number;
+  color: string;
+  accentColor: string;
+  start: number;
+  duration: number;
+  animation: MapDecorationAnimation;
+  visible: boolean;
+};
+
 type Scene = {
   id: string;
   number: number;
@@ -74,6 +99,7 @@ type Scene = {
   overlayTextX: number;
   overlayTextY: number;
   textOverlays: TextOverlay[];
+  mapDecorations: MapDecoration[];
   popupDuration: number;
   voiceFile: string;
   voiceVolume: number;
@@ -182,6 +208,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextX: 50,
   overlayTextY: 18,
   textOverlays: [],
+  mapDecorations: [],
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -424,6 +451,7 @@ type EditorSectionClipboard =
   | {
       section: "text";
       textOverlays: TextOverlay[];
+      mapDecorations: MapDecoration[];
     };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -485,6 +513,79 @@ const defaultTextOverlay = (
   y: 18,
   ...overrides,
 });
+
+const defaultMapDecoration = (
+  id: string,
+  type: MapDecorationType,
+  overrides: Partial<MapDecoration> = {},
+): MapDecoration => ({
+  id,
+  type,
+  text: type === "text-3d" ? "ĐIỂM ĐẾN" : "",
+  asset: "",
+  symbol: type === "icon" ? "📍" : "✦",
+  effect: type === "effect" ? "sparkles" : "sparkles",
+  x: 50,
+  y: type === "text-3d" ? 30 : 50,
+  scale: type === "text-3d" ? 1 : 0.8,
+  rotate: 0,
+  opacity: 100,
+  depth: 5,
+  size: type === "text-3d" ? 48 : 64,
+  color: "#ffd166",
+  accentColor: "#7c3aed",
+  start: 0,
+  duration: 5,
+  animation: type === "effect" ? "pulse" : "pop",
+  visible: true,
+  ...overrides,
+});
+
+const normalizeMapDecoration = (
+  value: unknown,
+  id: string,
+  fallback: Partial<MapDecoration> = {},
+): MapDecoration => {
+  const raw = isRecord(value) ? value : {};
+  const rawType = String(raw.type ?? fallback.type ?? "text-3d");
+  const type: MapDecorationType = ["text-3d", "sticker", "icon", "effect"].includes(rawType)
+    ? rawType as MapDecorationType
+    : "text-3d";
+  const rawEffect = String(raw.effect ?? fallback.effect ?? "sparkles");
+  const effect: MapDecoration["effect"] = ["sparkles", "ring", "confetti", "glow"].includes(rawEffect)
+    ? rawEffect as MapDecoration["effect"]
+    : "sparkles";
+  const rawAnimation = String(raw.animation ?? fallback.animation ?? "none");
+  const animation: MapDecorationAnimation = ["none", "fade", "pop", "float", "pulse", "spin"].includes(rawAnimation)
+    ? rawAnimation as MapDecorationAnimation
+    : "none";
+  const base = defaultMapDecoration(id, type, fallback);
+  return {
+    ...base,
+    id: String(raw.id ?? base.id),
+    type,
+    text: String(raw.text ?? base.text),
+    asset: String(raw.asset ?? raw.url ?? base.asset),
+    symbol: String(raw.symbol ?? base.symbol),
+    effect,
+    x: clampPercent(raw.x ?? base.x, base.x),
+    y: clampPercent(raw.y ?? base.y, base.y),
+    scale: Math.min(3, Math.max(0.1, positiveNumber(raw.scale, base.scale, 0.1))),
+    rotate: (() => {
+      const rawRotate = Number(raw.rotate ?? base.rotate);
+      return Number.isFinite(rawRotate) ? Math.max(-180, Math.min(180, rawRotate)) : base.rotate;
+    })(),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    depth: Math.min(16, Math.max(0, Math.round(positiveNumber(raw.depth, base.depth)))),
+    size: Math.min(120, Math.max(14, positiveNumber(raw.size, base.size, 14))),
+    color: normalizeHexColor(raw.color, base.color),
+    accentColor: normalizeHexColor(raw.accentColor, base.accentColor),
+    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
+    animation,
+    visible: raw.visible !== false,
+  };
+};
 
 const normalizeTextOverlay = (
   value: unknown,
@@ -706,6 +807,13 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
             y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
           }, `${id}-text-1`)]
         : [];
+    const rawDecorations = (item as Scene & { mapDecorations?: unknown }).mapDecorations;
+    const mapDecorations = Array.isArray(rawDecorations)
+      ? rawDecorations.filter(isRecord).map((rawDecoration, decorationIndex) => normalizeMapDecoration(
+          rawDecoration,
+          String((rawDecoration as { id?: unknown }).id ?? `${id}-decoration-${decorationIndex + 1}`),
+        ))
+      : [];
     const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${id}-text-1`);
     return {
       ...item,
@@ -713,6 +821,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
       ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
+      mapDecorations,
       narration: String(item.narration ?? ""),
       zoomStart,
       zoomEnd,
@@ -1211,6 +1320,7 @@ function Home() {
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
+  const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1267,6 +1377,7 @@ function Home() {
   });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
+  const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -1407,6 +1518,9 @@ function Home() {
   const sceneTextOverlays = scene.textOverlays ?? [];
   const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
     ?? sceneTextOverlays[0];
+  const sceneDecorations = scene.mapDecorations ?? [];
+  const activeDecoration = sceneDecorations.find((item) => item.id === selectedDecorationId)
+    ?? sceneDecorations[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
@@ -1510,6 +1624,39 @@ function Home() {
         })
       : scenePopups.filter((popup) => popup.visible !== false && popupHasContent(popup))
     : [];
+  const decorationHasContent = (decoration: MapDecoration) =>
+    decoration.type === "text-3d"
+      ? Boolean(decoration.text.trim())
+      : decoration.type === "sticker"
+        ? Boolean(decoration.asset.trim())
+        : Boolean(decoration.symbol.trim() || decoration.effect);
+  const previewDecorationItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneDecorations.filter((decoration) => {
+          const start = Math.min(sceneDuration, Math.max(0, Number(decoration.start) || 0));
+          const end = Math.min(sceneDuration, start + Math.max(0.1, Number(decoration.duration) || 0.1));
+          return decoration.visible !== false
+            && decorationHasContent(decoration)
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
+    : [];
+  const decorationSymbol = (decoration: MapDecoration) => {
+    if (decoration.type === "effect") {
+      return {
+        sparkles: "✦",
+        ring: "◉",
+        confetti: "✺",
+        glow: "✧",
+      }[decoration.effect];
+    }
+    return decoration.symbol || "✦";
+  };
+  const decorationTextShadow = (decoration: MapDecoration) => Array.from(
+    { length: Math.max(0, Math.round(decoration.depth)) },
+    (_, index) => `${(index + 1) * 1.2}px ${(index + 1) * 1.2}px 0 ${decoration.accentColor}`,
+  ).join(", ");
   const zoomEnabled = scene.zoomEnabled !== false;
   const zoomStartTime = Math.min(
     sceneDuration,
@@ -2275,6 +2422,7 @@ function Home() {
               : {
                   section,
                   textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
+                  mapDecorations: (scene.mapDecorations ?? []).map((decoration) => ({ ...decoration })),
                 };
     setSectionClipboard((items) => ({ ...items, [section]: data }));
     setToast(`Đã sao chép thông số mục ${section}`);
@@ -2342,10 +2490,15 @@ function Home() {
             ...overlay,
             id: `${item.id}-text-${String(index + 1).padStart(2, "0")}`,
           }));
+          const mapDecorations = data.mapDecorations.map((decoration, index) => ({
+            ...decoration,
+            id: `${item.id}-decoration-${String(index + 1).padStart(2, "0")}`,
+          }));
           const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${item.id}-text-1`);
           return {
             ...item,
             textOverlays,
+            mapDecorations,
             ...textOverlaySceneFields(firstTextOverlay),
           };
         }
@@ -2718,6 +2871,7 @@ function Home() {
       overlayTextX: 50,
       overlayTextY: 18,
       textOverlays: [],
+      mapDecorations: [],
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -2756,6 +2910,10 @@ function Home() {
       popups: scenePopupList(source).map((popup, index) => ({
         ...popup,
         id: `${copiedId}-popup-${index + 1}`,
+      })),
+      mapDecorations: (source.mapDecorations ?? []).map((decoration, index) => ({
+        ...decoration,
+        id: `${copiedId}-decoration-${index + 1}`,
       })),
     };
     const nextScenes = [...scenes];
@@ -2814,6 +2972,86 @@ function Home() {
     setSelectedTextOverlayId(nextOverlay.id);
     setEditorSections((items) => ({ ...items, text: true }));
     setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const mapDecorationTypeLabel = (type: MapDecorationType) => ({
+    "text-3d": "Chữ 3D",
+    sticker: "Sticker",
+    icon: "Icon",
+    effect: "Hiệu ứng",
+  }[type]);
+
+  const addMapDecoration = (type: MapDecorationType) => {
+    if (!scene) return;
+    const currentDecorations = scene.mapDecorations ?? [];
+    const nextDecoration = defaultMapDecoration(
+      `${scene.id}-decoration-${currentDecorations.length + 1}-${Date.now().toString(36)}`,
+      type,
+      type === "sticker"
+        ? { symbol: "⭐", y: 50 }
+        : type === "icon"
+          ? { symbol: "📍", y: 50 }
+          : type === "effect"
+            ? { symbol: "✦", y: 45 }
+            : { text: "ĐIỂM ĐẾN", y: 30 },
+    );
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
+      : item));
+    setSelectedDecorationId(nextDecoration.id);
+    setEditorSections((items) => ({ ...items, text: true }));
+    setToast(`Đã thêm ${mapDecorationTypeLabel(type)}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const updateMapDecoration = <K extends keyof MapDecoration>(key: K, value: MapDecoration[K]) => {
+    if (!hydrated || !activeDecoration) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const decorationIndex = Math.max(
+      0,
+      sceneDecorations.findIndex((item) => item.id === activeDecoration.id),
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const decorations = item.mapDecorations ?? [];
+      const current = decorations[decorationIndex];
+      if (!current) return item;
+      return {
+        ...item,
+        mapDecorations: decorations.map((decoration, index) => index === decorationIndex
+          ? { ...decoration, [key]: value }
+          : decoration),
+      };
+    }));
+  };
+
+  const toggleMapDecorationVisibility = (decorationId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          mapDecorations: (item.mapDecorations ?? []).map((decoration) => decoration.id === decorationId
+            ? { ...decoration, visible: !decoration.visible }
+            : decoration),
+        }
+      : item));
+  };
+
+  const deleteMapDecoration = (decorationId = activeDecoration?.id) => {
+    if (!scene || !decorationId) return;
+    const currentDecorations = scene.mapDecorations ?? [];
+    const decorationIndex = currentDecorations.findIndex((decoration) => decoration.id === decorationId);
+    if (decorationIndex < 0) return;
+    if (!window.confirm(`Xóa ${mapDecorationTypeLabel(currentDecorations[decorationIndex].type)} ${decorationIndex + 1}?`)) return;
+    const remaining = currentDecorations.filter((decoration) => decoration.id !== decorationId);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, mapDecorations: remaining }
+      : item));
+    setSelectedDecorationId(remaining[Math.min(decorationIndex, remaining.length - 1)]?.id ?? "");
+    setToast(`Đã xóa ${mapDecorationTypeLabel(currentDecorations[decorationIndex].type)}`);
     window.setTimeout(() => setToast(""), 2200);
   };
 
@@ -3080,6 +3318,49 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startMapDecorationDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    decorationId = activeDecoration?.id,
+  ) => {
+    if (playing) return;
+    const decorationIndex = sceneDecorations.findIndex((item) => item.id === decorationId);
+    const draggedDecoration = sceneDecorations[decorationIndex];
+    if (!draggedDecoration) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(draggedDecoration.x, 50);
+    const baseY = clampPercent(draggedDecoration.y, 50);
+    setSelectedDecorationId(draggedDecoration.id);
+    setDraggingMapDecoration(true);
+    const updatePosition = (clientX: number, clientY: number) => {
+      const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
+      const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === selectedId
+        ? {
+            ...item,
+            mapDecorations: (item.mapDecorations ?? []).map((decoration, index) => index === decorationIndex
+              ? { ...decoration, x: Number(nextX.toFixed(1)), y: Number(nextY.toFixed(1)) }
+              : decoration),
+          }
+        : item));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingMapDecoration(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -3250,6 +3531,12 @@ function Home() {
             overlayTextX: item.overlayTextX,
             overlayTextY: item.overlayTextY,
             textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
+            mapDecorations: (item.mapDecorations ?? []).map((decoration) => ({
+              ...decoration,
+              ...(decoration.type === "sticker" && decoration.asset.trim()
+                ? { asset: assetReference(decoration.asset) }
+                : {}),
+            })),
             sceneVisible: item.sceneVisible !== false,
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
@@ -3324,6 +3611,7 @@ function Home() {
         item.image ?? "",
         item.popupVideo ?? "",
         item.voiceFile ?? "",
+        ...(item.mapDecorations ?? []).map((decoration) => decoration.asset ?? ""),
         ...(item.popups ?? []).flatMap((popup) => [popup.image, popup.video]),
         ]),
       ]),
@@ -4093,6 +4381,39 @@ function Home() {
                 {overlay.text}
               </div>
             ) : null)}
+            {sceneIsVisibleInPlayback && previewDecorationItems.map((decoration) => {
+              const stickerSource = decoration.type === "sticker"
+                ? assetPreviewSource(decoration.asset)
+                : "";
+              const decorationContent = decoration.type === "sticker" && stickerSource
+                ? <img src={stickerSource} alt="" draggable={false} />
+                : <span className="map-decoration-content">
+                    {decoration.type === "text-3d" ? decoration.text : decorationSymbol(decoration)}
+                  </span>;
+              return (
+                <div
+                  key={decoration.id}
+                  data-decoration-id={decoration.id}
+                  className={`map-decoration map-decoration-${decoration.type} map-decoration-animation-${decoration.animation} ${draggingMapDecoration && decoration.id === activeDecoration?.id ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
+                  style={{
+                    left: `${decoration.x}%`,
+                    top: `${decoration.y}%`,
+                    opacity: decoration.opacity / 100,
+                    color: colorWithAlpha(decoration.color, decoration.opacity / 100, "#ffd166"),
+                    fontSize: `${decoration.size}px`,
+                    transform: `translate(-50%, -50%) rotate(${decoration.rotate}deg) scale(${decoration.scale})`,
+                    ["--decoration-depth-shadow" as string]: decorationTextShadow(decoration),
+                    ["--decoration-accent" as string]: decoration.accentColor,
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${mapDecorationTypeLabel(decoration.type)} trên bản đồ. Kéo để di chuyển.`}
+                  onPointerDown={(event) => startMapDecorationDrag(event, decoration.id)}
+                >
+                  {decorationContent}
+                </div>
+              );
+            })}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
@@ -4609,6 +4930,132 @@ function Home() {
                 <div className="field text-position-readout">
                   <span>Vị trí hiện tại</span>
                     <b>X {Math.round(activeTextOverlay?.x ?? 50)}% · Y {Math.round(activeTextOverlay?.y ?? 18)}%</b>
+                </div>
+                <div className="map-decoration-manager">
+                  <div className="text-overlay-list-heading">
+                    <span>Trang trí trên bản đồ</span>
+                    <div className="map-decoration-add-actions">
+                      <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("text-3d")}>＋ Chữ 3D</button>
+                      <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("sticker")}>＋ Sticker</button>
+                      <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("icon")}>＋ Icon</button>
+                      <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("effect")}>＋ Hiệu ứng</button>
+                    </div>
+                  </div>
+                  {sceneDecorations.length > 0 ? (
+                    <div className="map-decoration-list">
+                      {sceneDecorations.map((decoration, index) => (
+                        <div key={decoration.id} className={`map-decoration-item ${decoration.id === activeDecoration?.id ? "active" : ""} ${decoration.visible === false ? "is-hidden" : ""}`}>
+                          <button type="button" className="map-decoration-select" onClick={() => setSelectedDecorationId(decoration.id)}>
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <strong>{decoration.type === "text-3d" ? (decoration.text.trim() || "Chữ 3D") : mapDecorationTypeLabel(decoration.type)}</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={`map-decoration-visibility ${decoration.visible === false ? "is-hidden" : ""}`}
+                            aria-label={decoration.visible === false ? `Hiện ${mapDecorationTypeLabel(decoration.type)} ${index + 1}` : `Ẩn ${mapDecorationTypeLabel(decoration.type)} ${index + 1}`}
+                            title={decoration.visible === false ? "Hiện lớp" : "Ẩn lớp"}
+                            onClick={() => toggleMapDecorationVisibility(decoration.id)}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                              <circle cx="12" cy="12" r="2.2" />
+                              {decoration.visible === false && <path d="m4 4 16 16" />}
+                            </svg>
+                          </button>
+                          <button type="button" className="map-decoration-delete" aria-label={`Xóa lớp ${index + 1}`} onClick={() => deleteMapDecoration(decoration.id)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-overlay-empty">Chưa có chữ 3D, sticker, icon hoặc hiệu ứng.</div>
+                  )}
+                  {activeDecoration && (
+                    <div className="map-decoration-controls">
+                      {activeDecoration.type === "text-3d" && (
+                        <label className="field">
+                          <span>Nội dung chữ 3D</span>
+                          <input type="text" value={activeDecoration.text} placeholder="ĐIỂM ĐẾN" onChange={(event) => updateMapDecoration("text", event.target.value)} />
+                        </label>
+                      )}
+                      {activeDecoration.type === "sticker" && (
+                        <label className="field">
+                          <span>URL hoặc tên file sticker</span>
+                          <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
+                          <small>Sticker dùng ảnh PNG/WebP/JPG có nền trong suốt nếu muốn.</small>
+                        </label>
+                      )}
+                      {activeDecoration.type === "icon" && (
+                        <label className="field">
+                          <span>Icon</span>
+                          <select value={activeDecoration.symbol} onChange={(event) => updateMapDecoration("symbol", event.target.value)}>
+                            <option value="📍">📍 Vị trí</option>
+                            <option value="⭐">⭐ Sao</option>
+                            <option value="✈️">✈️ Máy bay</option>
+                            <option value="📸">📸 Ảnh</option>
+                            <option value="🏷️">🏷️ Nhãn</option>
+                            <option value="🌟">🌟 Điểm nhấn</option>
+                          </select>
+                        </label>
+                      )}
+                      {activeDecoration.type === "effect" && (
+                        <label className="field">
+                          <span>Kiểu hiệu ứng</span>
+                          <select value={activeDecoration.effect} onChange={(event) => updateMapDecoration("effect", event.target.value as MapDecoration["effect"])}>
+                            <option value="sparkles">✦ Lấp lánh</option>
+                            <option value="ring">◉ Vòng sáng</option>
+                            <option value="confetti">✺ Pháo giấy</option>
+                            <option value="glow">✧ Quầng sáng</option>
+                          </select>
+                        </label>
+                      )}
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Kích thước</span>
+                          <div className="number-with-unit"><input type="number" min="14" max="120" step="1" value={activeDecoration.size} onChange={(event) => updateMapDecoration("size", Math.min(120, Math.max(14, Number(event.target.value) || 14)))} /><b>px</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Tỉ lệ</span>
+                          <div className="number-with-unit"><input type="number" min="0.1" max="3" step="0.1" value={activeDecoration.scale} onChange={(event) => updateMapDecoration("scale", Math.min(3, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>x</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Xoay</span>
+                          <div className="number-with-unit"><input type="number" min="-180" max="180" step="1" value={activeDecoration.rotate} onChange={(event) => updateMapDecoration("rotate", Math.min(180, Math.max(-180, Number(event.target.value) || 0)))} /><b>°</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Độ trong suốt</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="1" value={activeDecoration.opacity} onChange={(event) => updateMapDecoration("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Độ nổi 3D</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="16" step="1" value={activeDecoration.depth} onChange={(event) => updateMapDecoration("depth", Math.min(16, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Hiệu ứng động</span>
+                          <select value={activeDecoration.animation} onChange={(event) => updateMapDecoration("animation", event.target.value as MapDecorationAnimation)}>
+                            <option value="none">Không</option>
+                            <option value="fade">Mờ dần</option>
+                            <option value="pop">Bật nảy</option>
+                            <option value="float">Trôi nhẹ</option>
+                            <option value="pulse">Nhịp sáng</option>
+                            <option value="spin">Xoay</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field color-field"><span>Màu chính</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.color, "#ffd166")} onChange={(event) => updateMapDecoration("color", event.target.value)} /></label>
+                        <label className="field color-field"><span>Màu chiều sâu</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.accentColor, "#7c3aed")} onChange={(event) => updateMapDecoration("accentColor", event.target.value)} /></label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeDecoration.start} onChange={(event) => updateMapDecoration("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeDecoration.duration)} onChange={(event) => updateMapDecoration("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                      </div>
+                      <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeDecoration.x)}% · Y {Math.round(activeDecoration.y)}%</b></div>
+                    </div>
+                  )}
                 </div>
               </div>
             </details>

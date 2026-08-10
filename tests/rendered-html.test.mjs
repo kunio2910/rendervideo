@@ -75,6 +75,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /copyEditorSection/);
   assert.match(page, /pasteEditorSection/);
   assert.match(page, /editorSectionActions/);
+  assert.match(page, /type MapDecorationType/);
+  assert.match(page, /mapDecorations/);
+  assert.match(page, /addMapDecoration/);
+  assert.match(page, /startMapDecorationDrag/);
+  assert.match(page, /map-decoration-manager/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
@@ -138,6 +143,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /settings-clip-thumb img/);
   assert.match(css, /settings-clip-title-input/);
   assert.match(css, /settings-info-grid/);
+  assert.match(css, /\.map-decoration/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
@@ -190,6 +196,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /resolveVideo/);
   assert.match(renderer, /resolveBackground/);
+  assert.match(renderer, /createMapDecoration/);
+  assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /backgroundIsVideo/);
   assert.match(renderer, /backgroundIsVideo\s*\n\s*\? `\[0:v\]scale=\$\{outputWidth\}:\$\{outputHeight\}:force_original_aspect_ratio=increase,crop=\$\{outputWidth\}:\$\{outputHeight\}/);
   assert.doesNotMatch(renderer, /backgroundIsVideo\s*\n\s*\? `\[0:v\]scale=\$\{outputWidth \* 2\}:\$\{outputHeight \* 2\}/);

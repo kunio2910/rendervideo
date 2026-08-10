@@ -1,0 +1,59 @@
+{
+  "title": "render-decoration-smoke",
+  "duration": 2,
+  "resolution": "720x1280",
+  "fps": 24,
+  "scenes": [
+    {
+      "sceneName": "Trang trí bản đồ",
+      "start": 0,
+      "end": 2,
+      "backgroundVisible": true,
+      "background": "",
+      "mapDecorations": [
+        {
+          "id": "decoration-text",
+          "type": "text-3d",
+          "text": "ĐIỂM ĐẾN",
+          "x": 50,
+          "y": 30,
+          "size": 48,
+          "scale": 1,
+          "depth": 5,
+          "color": "#ffd166",
+          "accentColor": "#7c3aed",
+          "start": 0,
+          "duration": 2,
+          "animation": "pop",
+          "visible": true
+        },
+        {
+          "id": "decoration-icon",
+          "type": "icon",
+          "symbol": "📍",
+          "x": 50,
+          "y": 55,
+          "size": 64,
+          "scale": 0.8,
+          "start": 0.2,
+          "duration": 1.5,
+          "animation": "pulse",
+          "visible": true
+        },
+        {
+          "id": "decoration-effect",
+          "type": "effect",
+          "effect": "sparkles",
+          "x": 50,
+          "y": 70,
+          "size": 64,
+          "scale": 0.8,
+          "start": 0,
+          "duration": 2,
+          "animation": "float",
+          "visible": true
+        }
+      ]
+    }
+  ]
+}
