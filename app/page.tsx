@@ -37,6 +37,11 @@ type Scene = {
   overlayTextSize: number;
   overlayTextStyle: "normal" | "bold" | "italic" | "bold-italic";
   overlayTextColor: string;
+  overlayTextFont: OverlayTextFont;
+  overlayTextStrokeWidth: number;
+  overlayTextStrokeColor: string;
+  overlayTextBorderWidth: number;
+  overlayTextBorderColor: string;
   overlayTextX: number;
   overlayTextY: number;
   popupDuration: number;
@@ -81,6 +86,8 @@ type PopupConfig = {
   visible: boolean;
   imageVisible: boolean;
 };
+
+type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
@@ -137,6 +144,11 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextSize: 24,
   overlayTextStyle: "normal",
   overlayTextColor: "#ffffff",
+  overlayTextFont: "Arial",
+  overlayTextStrokeWidth: 0,
+  overlayTextStrokeColor: "#000000",
+  overlayTextBorderWidth: 0,
+  overlayTextBorderColor: "#ffffff",
   overlayTextX: 50,
   overlayTextY: 18,
   popupDuration: 3,
@@ -363,6 +375,11 @@ const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   return Number.isFinite(numeric) ? Math.max(minimum, numeric) : fallback;
 };
 
+const normalizeHexColor = (value: unknown, fallback: string) => {
+  const color = String(value ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+};
+
 const clampVolume = (value: unknown, fallback = 100) => {
   const numeric = Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
@@ -531,6 +548,13 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       overlayTextColor: /^#[0-9a-f]{6}$/i.test(String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor ?? ""))
         ? String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor)
         : "#ffffff",
+      overlayTextFont: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(String((item as Scene & { overlayTextFont?: unknown }).overlayTextFont))
+        ? (String((item as Scene & { overlayTextFont?: unknown }).overlayTextFont) as OverlayTextFont)
+        : "Arial",
+      overlayTextStrokeWidth: Math.min(12, positiveNumber((item as Scene & { overlayTextStrokeWidth?: unknown }).overlayTextStrokeWidth, 0)),
+      overlayTextStrokeColor: normalizeHexColor((item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor, "#000000"),
+      overlayTextBorderWidth: Math.min(12, positiveNumber((item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth, 0)),
+      overlayTextBorderColor: normalizeHexColor((item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor, "#ffffff"),
       overlayTextX: clampPercent((item as Scene & { overlayTextX?: unknown }).overlayTextX, 50),
       overlayTextY: clampPercent((item as Scene & { overlayTextY?: unknown }).overlayTextY, 18),
       voiceVolume: clampVolume(item.voiceVolume, 95),
@@ -1174,9 +1198,10 @@ function Home() {
     || Boolean(popup.video.trim());
   const popupHasContent = (popup: PopupConfig) =>
     Boolean(popup.title.trim() || popup.body.trim() || popupHasMediaInput(popup));
+  const hasExplicitPopups = Array.isArray(scene.popups) && scene.popups.length > 0;
   const popupPlaybackVisible =
     activePopup?.visible !== false &&
-    Boolean(activePopup && popupHasContent(activePopup)) &&
+    Boolean(activePopup && (popupHasContent(activePopup) || hasExplicitPopups)) &&
     (sceneIsVisibleInPlayback &&
       (!playing ||
         (sceneLocalTime >= activePopupStartTime && sceneLocalTime <= activePopupEndTime)));
@@ -2145,6 +2170,11 @@ function Home() {
       overlayTextSize: 24,
       overlayTextStyle: "normal",
       overlayTextColor: "#ffffff",
+      overlayTextFont: "Arial",
+      overlayTextStrokeWidth: 0,
+      overlayTextStrokeColor: "#000000",
+      overlayTextBorderWidth: 0,
+      overlayTextBorderColor: "#ffffff",
       overlayTextX: 50,
       overlayTextY: 18,
       popupDuration: 2,
@@ -2215,7 +2245,7 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, content: true }));
+    setEditorSections((items) => ({ ...items, popup: true }));
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -2577,6 +2607,11 @@ function Home() {
             overlayTextSize: item.overlayTextSize,
             overlayTextStyle: item.overlayTextStyle,
             overlayTextColor: item.overlayTextColor,
+            overlayTextFont: item.overlayTextFont,
+            overlayTextStrokeWidth: item.overlayTextStrokeWidth,
+            overlayTextStrokeColor: item.overlayTextStrokeColor,
+            overlayTextBorderWidth: item.overlayTextBorderWidth,
+            overlayTextBorderColor: item.overlayTextBorderColor,
             overlayTextX: item.overlayTextX,
             overlayTextY: item.overlayTextY,
             sceneVisible: item.sceneVisible !== false,
@@ -3402,8 +3437,14 @@ function Home() {
                   top: `${scene.overlayTextY}%`,
                   color: scene.overlayTextColor,
                   fontSize: `${scene.overlayTextSize}px`,
+                  fontFamily: scene.overlayTextFont,
                   fontWeight: scene.overlayTextStyle.includes("bold") ? 700 : 400,
                   fontStyle: scene.overlayTextStyle.includes("italic") ? "italic" : "normal",
+                  WebkitTextStroke: scene.overlayTextStrokeWidth > 0
+                    ? `${scene.overlayTextStrokeWidth}px ${scene.overlayTextStrokeColor}`
+                    : undefined,
+                  ["--text-border-width" as string]: `${scene.overlayTextBorderWidth}px`,
+                  ["--text-border-color" as string]: scene.overlayTextBorderColor,
                 }}
                 role="button"
                 tabIndex={0}
@@ -3451,11 +3492,12 @@ function Home() {
                 || Boolean(popup.video.trim());
                const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
                const popupMediaOnly = popupHasMedia && !popupHasText;
+               const popupEmptyFrame = !popupHasMedia && !popupHasText;
                const popupLayout = popupMediaOnly ? "image-top" : popup.layout ?? "image-top";
               return (
                 <article
                   key={popup.id}
-                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${
+                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
@@ -3740,19 +3782,95 @@ function Home() {
                   </label>
                 </div>
                 <div className="field-row">
+                  <label className="field">
+                    <span>Font chữ</span>
+                    <select
+                      value={scene.overlayTextFont}
+                      onChange={(event) => updateScene("overlayTextFont", event.target.value as OverlayTextFont)}
+                    >
+                      <option value="Arial">Arial</option>
+                      <option value="Verdana">Verdana</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="Tahoma">Tahoma</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                      <option value="Courier New">Courier New</option>
+                    </select>
+                  </label>
                   <label className="field color-field">
-                    <span>Màu chữ</span>
+                    <span>Màu chữ · mã HEX</span>
+                    <div className="color-input-row">
+                      <input
+                        className="text-color-picker"
+                        type="color"
+                        value={normalizeHexColor(scene.overlayTextColor, "#ffffff")}
+                        onChange={(event) => updateScene("overlayTextColor", event.target.value)}
+                      />
+                      <input
+                        className="text-color-code"
+                        type="text"
+                        inputMode="text"
+                        maxLength={7}
+                        value={scene.overlayTextColor}
+                        placeholder="#FFFFFF"
+                        onChange={(event) => updateScene("overlayTextColor", event.target.value)}
+                        onBlur={(event) => updateScene("overlayTextColor", normalizeHexColor(event.target.value, "#ffffff"))}
+                      />
+                    </div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Stroke chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={scene.overlayTextStrokeWidth}
+                        onChange={(event) => updateScene("overlayTextStrokeWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field color-field">
+                    <span>Màu stroke</span>
                     <input
                       className="text-color-picker"
                       type="color"
-                      value={scene.overlayTextColor}
-                      onChange={(event) => updateScene("overlayTextColor", event.target.value)}
+                      value={normalizeHexColor(scene.overlayTextStrokeColor, "#000000")}
+                      onChange={(event) => updateScene("overlayTextStrokeColor", event.target.value)}
                     />
                   </label>
-                  <div className="field text-position-readout">
-                    <span>Vị trí hiện tại</span>
-                    <b>X {Math.round(scene.overlayTextX)}% · Y {Math.round(scene.overlayTextY)}%</b>
-                  </div>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Border khung</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={scene.overlayTextBorderWidth}
+                        onChange={(event) => updateScene("overlayTextBorderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field color-field">
+                    <span>Màu border</span>
+                    <input
+                      className="text-color-picker"
+                      type="color"
+                      value={normalizeHexColor(scene.overlayTextBorderColor, "#ffffff")}
+                      onChange={(event) => updateScene("overlayTextBorderColor", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="field text-position-readout">
+                  <span>Vị trí hiện tại</span>
+                  <b>X {Math.round(scene.overlayTextX)}% · Y {Math.round(scene.overlayTextY)}%</b>
                 </div>
               </div>
             </details>

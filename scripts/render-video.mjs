@@ -467,11 +467,22 @@ for (let index = 0; index < scenes.length; index += 1) {
   const overlayTextColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextColor ?? ""))
     ? String(scene.overlayTextColor)
     : "#ffffff";
+  const overlayTextFont = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(String(scene.overlayTextFont ?? ""))
+    ? String(scene.overlayTextFont)
+    : "Arial";
   const overlayTextSize = Math.round(previewPx(clamp(Number(scene.overlayTextSize ?? 24), 8, 120)));
+  const overlayTextStrokeWidth = Math.round(previewPx(clamp(Number(scene.overlayTextStrokeWidth ?? 0), 0, 12)));
+  const overlayTextStrokeColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextStrokeColor ?? ""))
+    ? String(scene.overlayTextStrokeColor)
+    : "#000000";
+  const overlayTextBorderWidth = Math.round(previewPx(clamp(Number(scene.overlayTextBorderWidth ?? 0), 0, 12)));
+  const overlayTextBorderColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextBorderColor ?? ""))
+    ? String(scene.overlayTextBorderColor)
+    : "#ffffff";
   const overlayTextX = clamp(Number(scene.overlayTextX ?? 50) / 100, 0, 1);
   const overlayTextY = clamp(Number(scene.overlayTextY ?? 18) / 100, 0, 1);
   const overlayTextFilter = overlayText
-    ? `,drawtext=font='Arial':text='${escapeDrawtext(overlayText)}':fontcolor=${overlayTextColor}:fontsize=${overlayTextSize}:x='w*${overlayTextX}-text_w/2':y='h*${overlayTextY}-text_h/2'`
+    ? `,drawtext=font='${escapeDrawtext(overlayTextFont)}':text='${escapeDrawtext(overlayText)}':fontcolor=${overlayTextColor}:fontsize=${overlayTextSize}:borderw=${overlayTextStrokeWidth}:bordercolor=${overlayTextStrokeColor}:box=1:boxcolor=black@0.28:boxborderw=${overlayTextBorderWidth}:boxbordercolor=${overlayTextBorderColor}:x='w*${overlayTextX}-text_w/2':y='h*${overlayTextY}-text_h/2'`
     : "";
   let filter =
     `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
