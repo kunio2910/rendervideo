@@ -530,7 +530,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
-    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
+    ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
     : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
       `zoompan=z='${zoomExpression}':` +
       `x='iw*${centerX}*(1-1/zoom)':` +
