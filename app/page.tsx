@@ -25,6 +25,7 @@ type TextOverlay = {
   strokeColor: string;
   borderWidth: number;
   borderColor: string;
+  borderOpacity: number;
   borderFill: string;
   x: number;
   y: number;
@@ -400,6 +401,14 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const colorWithAlpha = (value: unknown, alpha: number, fallback: string) => {
+  const color = normalizeHexColor(value, fallback).slice(1);
+  const red = Number.parseInt(color.slice(0, 2), 16);
+  const green = Number.parseInt(color.slice(2, 4), 16);
+  const blue = Number.parseInt(color.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
+};
+
 const defaultTextOverlay = (
   id: string,
   overrides: Partial<TextOverlay> = {},
@@ -415,6 +424,7 @@ const defaultTextOverlay = (
   strokeColor: "#000000",
   borderWidth: 0,
   borderColor: "#ffffff",
+  borderOpacity: 100,
   borderFill: "#14202e",
   x: 50,
   y: 18,
@@ -447,6 +457,7 @@ const normalizeTextOverlay = (
     strokeColor: normalizeHexColor(raw.strokeColor ?? raw.overlayTextStrokeColor, base.strokeColor),
     borderWidth: Math.min(12, positiveNumber(raw.borderWidth ?? raw.overlayTextBorderWidth, base.borderWidth)),
     borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
+    borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity ?? raw.overlayTextBorderOpacity, base.borderOpacity))),
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
@@ -3647,18 +3658,17 @@ function Home() {
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
-                  color: overlay.color,
-                  opacity: overlay.opacity / 100,
+                  color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
                   fontStyle: overlay.style.includes("italic") ? "italic" : "normal",
                   WebkitTextStroke: overlay.strokeWidth > 0
-                    ? `${overlay.strokeWidth}px ${overlay.strokeColor}`
+                    ? `${overlay.strokeWidth}px ${colorWithAlpha(overlay.strokeColor, overlay.opacity / 100, "#000000")}`
                     : undefined,
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
-                  ["--text-border-color" as string]: overlay.borderColor,
-                  ["--text-border-fill" as string]: overlay.borderFill,
+                  ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
+                  ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
                 }}
                 role="button"
                 tabIndex={0}
@@ -4139,6 +4149,22 @@ function Home() {
                         onChange={(event) => updateTextOverlay("borderFill", event.target.value)}
                         onBlur={(event) => updateTextOverlay("borderFill", normalizeHexColor(event.target.value, "#14202e"))}
                       />
+                    </div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Độ mờ border (%)</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={activeTextOverlay?.borderOpacity ?? 100}
+                        onChange={(event) => updateTextOverlay("borderOpacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>%</b>
                     </div>
                   </label>
                 </div>

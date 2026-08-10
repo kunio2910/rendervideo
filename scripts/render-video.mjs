@@ -58,7 +58,12 @@ if (!resolutionMatchesAspect) {
 const fps = Math.max(1, Number(project.fps ?? 30) || 30);
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
-const previewScale = outputWidth / PREVIEW_REFERENCE_WIDTH;
+const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
+const PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" ? 297 : 640;
+const previewScale = Math.min(
+  outputWidth / PREVIEW_CANVAS_WIDTH,
+  outputHeight / PREVIEW_CANVAS_HEIGHT,
+);
 const previewPx = (value) => value * previewScale;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const popupPixelHeight = (scene) => Math.min(
@@ -491,6 +496,7 @@ for (let index = 0; index < scenes.length; index += 1) {
           strokeColor: scene.overlayTextStrokeColor,
           borderWidth: scene.overlayTextBorderWidth,
           borderColor: scene.overlayTextBorderColor,
+          borderOpacity: 100,
           borderFill: "#14202e",
           x: scene.overlayTextX,
           y: scene.overlayTextY,
@@ -505,17 +511,18 @@ for (let index = 0; index < scenes.length; index += 1) {
       const borderColor = normalizeColor(overlay.borderColor, "#ffffff").replace("#", "0x");
       const borderFill = normalizeColor(overlay.borderFill, "#14202e").replace("#", "0x");
       const font = fontOptions.includes(String(overlay.font)) ? String(overlay.font) : "Arial";
-      const opacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
+      const textOpacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
+      const borderOpacity = clamp(Number(overlay.borderOpacity ?? 100) / 100, 0, 1).toFixed(3);
       const size = Math.round(previewPx(clamp(Number(overlay.size ?? 24), 8, 120)));
       const strokeWidth = Math.round(previewPx(clamp(Number(overlay.strokeWidth ?? 0), 0, 12)));
       const borderWidth = Math.round(previewPx(clamp(Number(overlay.borderWidth ?? 0), 0, 12)));
       const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
       const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
       const position = `x='w*${x}-text_w/2':y='h*${y}-text_h/2'`;
-      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${opacity}:${position}`;
-      const fillBox = `,drawtext=${common}:fontcolor=${color}@${opacity}:box=1:boxcolor=${borderFill}@${opacity}:boxborderw=0`;
+      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${textOpacity}:${position}`;
+      const fillBox = `,drawtext=${common}:fontcolor=${color}@${textOpacity}:box=1:boxcolor=${borderFill}@${borderOpacity}:boxborderw=0`;
       const borderBox = borderWidth > 0
-        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${opacity}:boxborderw=${borderWidth}`
+        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${borderOpacity}:boxborderw=${borderWidth}`
         : "";
       return `${borderBox}${fillBox}`;
     })
