@@ -86,6 +86,7 @@ const popupEntriesForScene = (scene) => {
       popupOut: popup.out ?? popup.popupOut ?? "fade-slide-down",
       popupWidth: popup.width ?? popup.popupWidth ?? 90,
       popupHeight: popup.height ?? popup.popupHeight ?? 255,
+      popupBorderWidth: popup.borderWidth ?? popup.popupBorderWidth ?? scene.popupBorderWidth ?? 1,
       popupLayout: popup.layout ?? popup.popupLayout ?? "image-top",
       popupTheme: popup.theme ?? popup.popupTheme ?? "travel",
       popupTextEffect: popup.textEffect ?? popup.popupTextEffect ?? "none",
@@ -101,6 +102,7 @@ const popupEntriesForScene = (scene) => {
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
+    popupBorderWidth: Number(scene.popupBorderWidth ?? 1),
     popupIndex: 0,
   }];
 };
@@ -323,19 +325,19 @@ const createPopup = async (scene, index) => {
   const imageVisible = scene.imageVisible !== false && Boolean(imageValue);
   const videoValue = String(scene.popupVideo ?? "").trim();
   const hasVisualInput = Boolean((imageVisible && imageValue) || videoValue);
-  if (!titleValue && !bodyValue && !hasVisualInput) return null;
-  const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
-  const hasText = Boolean(titleValue || bodyValue);
   const requestedLayout = scene.popupLayout ?? "image-top";
   const imageOnly = requestedLayout === "image-only";
   const contentOnly = requestedLayout === "content-only";
+  const hasText = Boolean(titleValue || bodyValue);
   const showVisual = !contentOnly && hasVisualInput;
   const showText = !imageOnly && hasText;
+  if (!showText && !showVisual) return null;
+  const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = !showText && showVisual
     ? Math.round(previewPx(115))
     : popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
-  const borderWidth = Math.max(1, Math.round(previewPx(1)));
+  const borderWidth = Math.max(0, Math.round(previewPx(clamp(Number(scene.popupBorderWidth ?? 1), 0, 12))));
   const paddingX = Math.round(previewPx(15));
   const titleFontSize = Math.round(previewPx(15));
   const bodyFontSize = Math.round(previewPx(11));
@@ -407,7 +409,22 @@ const createPopup = async (scene, index) => {
   composites.push({ input: border, top: 0, left: 0 });
   const filename = path.join(renderDir, `popup-${index + 1}.png`);
   await base.composite(composites).png().toFile(filename);
-  return { path: filename, video, videoWidth: imageWidth, videoHeight: imageHeight };
+  const borderFilename = path.join(renderDir, `popup-${index + 1}-border.png`);
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite([{ input: border, top: 0, left: 0 }]).png().toFile(borderFilename);
+  return {
+    path: filename,
+    borderPath: borderFilename,
+    video,
+    videoWidth: imageWidth,
+    videoHeight: imageHeight,
+  };
 };
 
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
@@ -448,7 +465,14 @@ for (let index = 0; index < scenes.length; index += 1) {
       const body = String(popupScene.body ?? "").trim();
       const image = popupScene.imageVisible !== false && String(popupScene.image ?? "").trim();
       const video = String(popupScene.popupVideo ?? "").trim();
-      return Boolean(title || body || image || video);
+      const layout = popupScene.popupLayout ?? "image-top";
+      const hasText = Boolean(title || body);
+      const hasMedia = Boolean(image || video);
+      return layout === "image-only"
+        ? hasMedia
+        : layout === "content-only"
+          ? hasText
+          : hasText || hasMedia;
     });
   const popupRenders = [];
   for (let popupIndex = 0; popupIndex < popupScenes.length; popupIndex += 1) {
@@ -513,7 +537,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         }]
       : [];
   const overlayTextFilter = textOverlays
-    .filter((overlay) => String(overlay.text ?? "").trim())
+    .filter((overlay) => overlay.visible !== false && String(overlay.text ?? "").trim())
     .map((overlay) => {
       const text = String(overlay.text ?? "").trim();
       const color = normalizeColor(overlay.color, "#ffffff").replace("#", "0x");
@@ -608,19 +632,25 @@ for (let index = 0; index < scenes.length; index += 1) {
           ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
           : centerYExpression;
     const videoInputIndex = popup.video ? popupInputIndex + 1 : null;
+    const borderInputIndex = popup.video && popup.borderPath ? popupInputIndex + 2 : null;
     const videoLabel = `popupVideo${popupIndex}`;
     const baseLabel = `popupBase${popupIndex}`;
+    const borderLabel = `popupBorder${popupIndex}`;
+    const borderedLabel = `popupBordered${popupIndex}`;
     const popLabel = `pop${popupIndex}`;
     const composedOutput = `[composed${popupIndex}]`;
     if (popup.video) {
       filter += `[${videoInputIndex}:v]scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
+      if (borderInputIndex !== null) {
+        filter += `[${borderInputIndex}:v]format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
+      }
     }
-    filter += `${popup.video ? `[${baseLabel}]` : `[${popupInputIndex}:v]`}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
+    filter += `${popup.video ? `[${borderInputIndex !== null ? borderedLabel : baseLabel}]` : `[${popupInputIndex}:v]`}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
     if (popupIn === "flip" || popupOut === "flip") filter += `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`;
     filter += `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[${popLabel}];`;
     filter += `${composedLabel}[${popLabel}]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'${composedOutput};`;
     composedLabel = composedOutput;
-    popupInputIndex += popup.video ? 2 : 1;
+    popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
   filter += popupRenders.length ? `${composedLabel}copy[composed]` : "[bg]copy[composed]";
   const args = [
@@ -629,7 +659,10 @@ for (let index = 0; index < scenes.length; index += 1) {
   ];
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
-    if (popup.video) args.push("-stream_loop", "-1", "-i", popup.video);
+    if (popup.video) {
+      args.push("-stream_loop", "-1", "-i", popup.video);
+      args.push("-loop", "1", "-i", popup.borderPath);
+    }
   });
   const audioInputIndex = popupInputIndex;
   if (voice) {

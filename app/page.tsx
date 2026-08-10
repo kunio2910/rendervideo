@@ -2,6 +2,7 @@
 
 import {
   Component,
+  Fragment,
   type ErrorInfo,
   type ReactNode,
   useEffect,
@@ -23,6 +24,7 @@ type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New R
 type TextOverlay = {
   id: string;
   text: string;
+  visible: boolean;
   size: number;
   style: "normal" | "bold" | "italic" | "bold-italic";
   color: string;
@@ -80,6 +82,7 @@ type Scene = {
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
+  popupBorderWidth?: number;
   popupLayout?: "image-top" | "split" | "quote" | "stats" | "image-only" | "content-only";
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
   popupTextEffect?: "none" | "fade" | "rise" | "pop";
@@ -106,6 +109,7 @@ type PopupConfig = {
   out: string;
   width: number;
   height: number;
+  borderWidth: number;
   layout: Scene["popupLayout"];
   theme: Scene["popupTheme"];
   textEffect: Scene["popupTextEffect"];
@@ -190,6 +194,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   popupVideo: "",
   popupX: 5,
   popupY: 55,
+  popupBorderWidth: 1,
   popupVisible: true,
   popups: [],
   backgroundVisible: true,
@@ -423,6 +428,7 @@ const defaultTextOverlay = (
 ): TextOverlay => ({
   id,
   text: "",
+  visible: true,
   size: 24,
   style: "normal",
   color: "#ffffff",
@@ -452,6 +458,7 @@ const normalizeTextOverlay = (
     ...base,
     id: String(raw.id ?? base.id),
     text: String(raw.text ?? raw.overlayText ?? base.text),
+    visible: raw.visible !== false,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
     style: ["normal", "bold", "italic", "bold-italic"].includes(style)
       ? style as TextOverlay["style"]
@@ -501,6 +508,7 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   out: "fade-slide-down",
   width: 90,
   height: 255,
+  borderWidth: 1,
   layout: "image-top",
   theme: "travel",
   textEffect: "none",
@@ -524,6 +532,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     out: scene.popupOut ?? "fade-slide-down",
     width: clampPercent(scene.popupWidth, 90),
     height: positiveNumber(scene.popupHeight, 255, 170),
+    borderWidth: Math.min(12, positiveNumber(scene.popupBorderWidth, 1)),
     layout: scene.popupLayout ?? "image-top",
     theme: scene.popupTheme ?? "travel",
     textEffect: scene.popupTextEffect ?? "none",
@@ -550,6 +559,7 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popupOut: popup.out,
   popupWidth: popup.width,
   popupHeight: popup.height,
+  popupBorderWidth: popup.borderWidth,
   popupLayout: popup.layout,
   popupTheme: popup.theme,
   popupTextEffect: popup.textEffect,
@@ -613,6 +623,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               out: String(rawPopup.out ?? rawPopup.popupOut ?? fallback.out),
               width: clampPercent(rawPopup.width ?? rawPopup.popupWidth, fallback.width),
               height: positiveNumber(rawPopup.height ?? rawPopup.popupHeight, fallback.height, 170),
+              borderWidth: Math.min(12, positiveNumber(rawPopup.borderWidth ?? rawPopup.popupBorderWidth, fallback.borderWidth)),
               layout: ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
                 ? (rawPopup.layout ?? rawPopup.popupLayout) as Scene["popupLayout"]
                 : fallback.layout,
@@ -1356,6 +1367,8 @@ function Home() {
     ?? sceneTextOverlays[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
+  const timelineLength = Math.max(0.1, projectDuration);
+  const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
   const updateAspectRatio = (nextAspectRatio: AspectRatio) => {
     setAspectRatio(nextAspectRatio);
@@ -1427,30 +1440,24 @@ function Home() {
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
-  const activePopupStartTime = Math.min(
-    sceneDuration,
-    Math.max(0, Number(activePopup?.start ?? scene.popupStart ?? 0)),
-  );
-  const activePopupDuration = Math.max(0.1, Number(activePopup?.duration ?? scene.popupDuration) || 0.1);
-  const activePopupEndTime = Math.min(sceneDuration, activePopupStartTime + activePopupDuration);
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
   const popupHasMediaInput = (popup: PopupConfig) =>
     (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
     || Boolean(popup.video.trim());
-  const popupHasContent = (popup: PopupConfig) =>
-    Boolean(popup.title.trim() || popup.body.trim() || popupHasMediaInput(popup));
-  const hasExplicitPopups = Array.isArray(scene.popups) && scene.popups.length > 0;
-  const popupPlaybackVisible =
-    activePopup?.visible !== false &&
-    Boolean(activePopup && (popupHasContent(activePopup) || hasExplicitPopups)) &&
-    (sceneIsVisibleInPlayback &&
-      (!playing ||
-        (sceneLocalTime >= activePopupStartTime && sceneLocalTime <= activePopupEndTime)));
-  const previewPopupItems = !playing
-    ? (activePopup && popupPlaybackVisible ? [activePopup] : [])
-    : sceneIsVisibleInPlayback
+  const popupHasContent = (popup: PopupConfig) => {
+    const hasText = Boolean(popup.title.trim() || popup.body.trim());
+    const hasMedia = popupHasMediaInput(popup);
+    const layout = popup.layout ?? "image-top";
+    return layout === "image-only"
+      ? hasMedia
+      : layout === "content-only"
+        ? hasText
+        : hasText || hasMedia;
+  };
+  const previewPopupItems = sceneIsVisibleInPlayback
+    ? playing
       ? scenePopups.filter((popup) => {
           const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
           const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
@@ -1459,7 +1466,8 @@ function Home() {
             && sceneLocalTime >= timingStart
             && sceneLocalTime <= timingEnd;
         })
-      : [];
+      : scenePopups.filter((popup) => popup.visible !== false && popupHasContent(popup))
+    : [];
   const zoomEnabled = scene.zoomEnabled !== false;
   const zoomStartTime = Math.min(
     sceneDuration,
@@ -2125,7 +2133,11 @@ function Home() {
     );
   };
 
-  const updatePopup = <K extends keyof PopupConfig>(key: K, value: PopupConfig[K]) => {
+  const updatePopup = <K extends keyof PopupConfig>(
+    key: K,
+    value: PopupConfig[K],
+    popupId = selectedPopupId,
+  ) => {
     if (!hydrated) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
@@ -2156,7 +2168,7 @@ function Home() {
     );
     const popupIndex = Math.max(
       0,
-      scenePopups.findIndex((item) => item.id === selectedPopupId),
+      scenePopups.findIndex((item) => item.id === popupId),
     );
     const isVideo = isVideoMedia(value);
     setScenes((items) => items.map((item) => {
@@ -2506,6 +2518,7 @@ function Home() {
       popupVideo: "",
       popupX: 5,
       popupY: 55,
+      popupBorderWidth: 1,
       popups: [],
       status: "Nháp",
     };
@@ -2591,6 +2604,18 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const toggleTextOverlayVisibility = (overlayId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const overlays = item.textOverlays ?? [];
+      const nextOverlays = overlays.map((overlay) => overlay.id === overlayId
+        ? { ...overlay, visible: !overlay.visible }
+        : overlay);
+      return { ...item, textOverlays: nextOverlays };
+    }));
+  };
+
   const deleteTextOverlay = (overlayId = activeTextOverlay?.id) => {
     if (!scene || !overlayId) return;
     const currentOverlays = scene.textOverlays ?? [];
@@ -2627,6 +2652,23 @@ function Home() {
     setSelectedPopupId(remaining[Math.min(popupIndex, remaining.length - 1)]?.id ?? "");
     setToast(`Đã xóa ${popupLabel}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const togglePopupVisibility = (popupId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const popups = scenePopupList(item);
+      const nextPopups = popups.map((popup) => popup.id === popupId
+        ? { ...popup, visible: !popup.visible }
+        : popup);
+      const firstPopup = nextPopups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...popupSceneFields(firstPopup),
+      };
+    }));
   };
 
   const copySelectedScene = () => {
@@ -2705,7 +2747,7 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startPopupDrag = (event: React.PointerEvent<HTMLElement>) => {
+  const startPopupDrag = (event: React.PointerEvent<HTMLElement>, popupId = activePopup?.id) => {
     if (playing || (event.target as HTMLElement).closest(".popup-resize-handle")) return;
     event.preventDefault();
     event.stopPropagation();
@@ -2713,17 +2755,19 @@ function Home() {
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
+    if (!draggedPopup) return;
     const startX = event.clientX;
     const startY = event.clientY;
-    const baseX = clampPercent(activePopup?.x, 5);
-    const baseY = clampPercent(activePopup?.y, 55);
-    const maxX = Math.max(0, 100 - Number(activePopup?.width ?? 90));
-    const maxY = Math.max(0, 100 - ((Number(activePopup?.height ?? 255) / bounds.height) * 100));
+    const baseX = clampPercent(draggedPopup.x, 5);
+    const baseY = clampPercent(draggedPopup.y, 55);
+    const maxX = Math.max(0, 100 - Number(draggedPopup.width ?? 90));
+    const maxY = Math.max(0, 100 - ((Number(draggedPopup.height ?? 255) / bounds.height) * 100));
     const updatePosition = (clientX: number, clientY: number) => {
       const nextX = Math.min(maxX, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
       const nextY = Math.min(maxY, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
-      updatePopup("x", Number(nextX.toFixed(1)));
-      updatePopup("y", Number(nextY.toFixed(1)));
+      updatePopup("x", Number(nextX.toFixed(1)), popupId);
+      updatePopup("y", Number(nextY.toFixed(1)), popupId);
     };
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
@@ -2951,6 +2995,7 @@ function Home() {
             out: popup.out,
             width: popup.width,
             height: popup.height,
+            borderWidth: popup.borderWidth,
             layout: popup.layout,
             theme: popup.theme,
             textEffect: popup.textEffect,
@@ -3000,6 +3045,7 @@ function Home() {
             popupOut: firstPopup.out,
             popupWidth: firstPopup.width,
             popupHeight: firstPopup.height,
+            popupBorderWidth: firstPopup.borderWidth,
             popupLayout: firstPopup.layout,
             popupTheme: firstPopup.theme,
             popupTextEffect: firstPopup.textEffect,
@@ -3800,7 +3846,7 @@ function Home() {
                 />
               )
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.map((overlay) => overlay.text.trim() ? (
+            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => overlay.text.trim() ? (
               <div
                 key={overlay.id}
                 className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
@@ -3885,8 +3931,9 @@ function Home() {
                     right: "auto",
                     bottom: "auto",
                     ["--popup-transition-duration" as string]: `${popupTransition}s`,
+                    ["--popup-border-width" as string]: `${popup.borderWidth ?? 1}px`,
                   }}
-                  onPointerDown={startPopupDrag}
+                  onPointerDown={(event) => startPopupDrag(event, popup.id)}
                 >
                   {popupShowMedia && (
                     <div className="photo-placeholder">
@@ -4134,10 +4181,23 @@ function Home() {
                     {sceneTextOverlays.length > 0 ? (
                       <div className="text-overlay-list">
                         {sceneTextOverlays.map((overlay, index) => (
-                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""}`}>
+                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""}`}>
                             <button type="button" className="text-overlay-select" onClick={() => setSelectedTextOverlayId(overlay.id)}>
                               <span>{String(index + 1).padStart(2, "0")}</span>
                               <strong>{overlay.text.trim() || `Chữ ${index + 1}`}</strong>
+                            </button>
+                            <button
+                              type="button"
+                              className={`text-overlay-visibility ${overlay.visible === false ? "is-hidden" : ""}`}
+                              aria-label={overlay.visible === false ? `Hiện chữ ${index + 1}` : `Ẩn chữ ${index + 1}`}
+                              title={overlay.visible === false ? `Hiện chữ ${index + 1}` : `Ẩn chữ ${index + 1}`}
+                              onClick={() => toggleTextOverlayVisibility(overlay.id)}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                                <circle cx="12" cy="12" r="2.2" />
+                                {overlay.visible === false && <path d="m4 4 16 16" />}
+                              </svg>
                             </button>
                             <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
                           </div>
@@ -4566,7 +4626,7 @@ function Home() {
                 {scenePopups.map((popup, index) => (
                   <div
                     key={popup.id}
-                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""}`}
+                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""}`}
                   >
                     <button
                       type="button"
@@ -4575,6 +4635,19 @@ function Home() {
                     >
                       <span>Popup {index + 1}</span>
                       <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
+                    </button>
+                    <button
+                      type="button"
+                      className={`popup-visibility-button ${popup.visible === false ? "is-hidden" : ""}`}
+                      aria-label={popup.visible === false ? `Hiện Popup ${index + 1}` : `Ẩn Popup ${index + 1}`}
+                      title={popup.visible === false ? `Hiện Popup ${index + 1}` : `Ẩn Popup ${index + 1}`}
+                      onClick={() => togglePopupVisibility(popup.id)}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                        <circle cx="12" cy="12" r="2.2" />
+                        {popup.visible === false && <path d="m4 4 16 16" />}
+                      </svg>
                     </button>
                     <button
                       type="button"
@@ -4658,6 +4731,21 @@ function Home() {
                   </select>
                 </label>
               </div>
+              <label className="field popup-border-field">
+                <span>Độ dày viền popup</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="12"
+                    step="1"
+                    value={activePopup?.borderWidth ?? 1}
+                    onChange={(event) => updatePopup("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                  />
+                  <b>px</b>
+                </div>
+                <small>Nhập 0 để tắt viền.</small>
+              </label>
               <label className="field popup-image-field">
                 <span>Ảnh / video popup riêng</span>
                 <input
@@ -4833,36 +4921,48 @@ function Home() {
           <div className="ruler-labels">
             <span />
             <div className="ruler-scale">
-              {Array.from({ length: 6 }, (_, index) => (
-                <i key={index}>{(projectDuration / 5) * index}s</i>
-              ))}
+              {Array.from({ length: 6 }, (_, index) => {
+                const time = (projectDuration / 5) * index;
+                return (
+                  <i key={index} style={{ left: `${index * 20}%` }}>
+                    {formatTime(time)}
+                  </i>
+                );
+              })}
             </div>
           </div>
           <div className="track scene-time-track">
             <strong>Thời gian</strong>
             <div className="track-content grid">
               {visibleScenes.map((item) => (
-                <button
-                  type="button"
-                  key={`${item.id}-time`}
-                  className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelectedId(item.id);
-                    setSelectedSceneIds([item.id]);
-                    setSelectedPopupId("");
-                    setSelectedTextOverlayId("");
-                    setPlayTime(item.start);
-                    setPlaying(false);
-                  }}
-                  style={{
-                    left: `${(item.start / projectDuration) * 100}%`,
-                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
-                  }}
-                  title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
-                >
-                  <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
-                  <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
-                </button>
+                <Fragment key={`${item.id}-time`}>
+                  <button
+                    type="button"
+                    className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      setSelectedSceneIds([item.id]);
+                      setSelectedPopupId("");
+                      setSelectedTextOverlayId("");
+                      setPlayTime(item.start);
+                      setPlaying(false);
+                    }}
+                    style={{
+                      left: timelinePercent(item.start),
+                      width: timelinePercent(item.end - item.start),
+                    }}
+                    title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
+                  >
+                    <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
+                    <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
+                  </button>
+                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                    {formatTime(item.start)}
+                  </span>
+                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                    {formatTime(item.end)}
+                  </span>
+                </Fragment>
               ))}
             </div>
           </div>
@@ -4879,9 +4979,11 @@ function Home() {
                   Math.max(0.1, Number(popup.duration) || 0.1),
                   Math.max(0.1, sceneLength - popupStart),
                 );
+                const popupGlobalStart = item.start + popupStart;
+                const popupGlobalEnd = popupGlobalStart + popupDuration;
                 return (
+                  <Fragment key={`${item.id}-${popup.id}`}>
                   <button
-                    key={`${item.id}-${popup.id}`}
                     onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
                     onClick={(event) => {
                       if (timelinePopupMoved.current) {
@@ -4895,8 +4997,8 @@ function Home() {
                     }}
                     className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
                     style={{
-                      left: `${((item.start + popupStart) / projectDuration) * 100}%`,
-                      width: `${Math.min((popupDuration / projectDuration) * 100, 100 - ((item.start + popupStart) / projectDuration) * 100)}%`,
+                      left: timelinePercent(popupGlobalStart),
+                      width: timelinePercent(popupDuration),
                     }}
                   >
                     <span
@@ -4915,6 +5017,13 @@ function Home() {
                       onClick={(event) => event.stopPropagation()}
                     />
                   </button>
+                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(popupGlobalStart) }}>
+                    {formatTime(popupGlobalStart)}
+                  </span>
+                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(popupGlobalEnd) }}>
+                    {formatTime(popupGlobalEnd)}
+                  </span>
+                  </Fragment>
                 );
               })}
             </div>
@@ -4923,17 +5032,25 @@ function Home() {
             <strong>Thuyết minh</strong>
             <div className="track-content grid">
               {narrationEnabled && visibleScenes.map((item) => (
+                <Fragment key={`${item.id}-narration`}>
                 <button
                   key={item.id}
                   className="clip voice-clip"
                   onClick={() => openTimelineEditor(item, "editor-audio")}
                   style={{
-                    left: `${(item.start / projectDuration) * 100}%`,
-                    width: `${((item.end - item.start) / projectDuration) * 100}%`,
+                    left: timelinePercent(item.start),
+                    width: timelinePercent(item.end - item.start),
                   }}
                 >
                   🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
                 </button>
+                <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                  {formatTime(item.start)}
+                </span>
+                <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                  {formatTime(item.end)}
+                </span>
+                </Fragment>
               ))}
             </div>
           </div>

@@ -506,12 +506,21 @@ button { color: inherit; }
 .text-overlay-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); font-size: 10px; font-weight: 700; }
 .text-overlay-add { min-height: 28px; padding-inline: 9px; font-size: 9px; }
 .text-overlay-list { display: grid; gap: 5px; }
-.text-overlay-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.text-overlay-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
 .text-overlay-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
-.text-overlay-select, .text-overlay-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.text-overlay-item.is-hidden, .popup-manager-item.is-hidden { opacity: .55; }
+.text-overlay-select, .text-overlay-visibility, .text-overlay-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
 .text-overlay-select { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; }
 .text-overlay-select span { color: var(--muted); font: 700 9px var(--font-mono); }
 .text-overlay-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.text-overlay-visibility,
+.popup-visibility-button { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 0; border-radius: 5px; }
+.text-overlay-visibility svg,
+.popup-visibility-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.text-overlay-visibility:hover,
+.popup-visibility-button:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
+.text-overlay-visibility.is-hidden,
+.popup-visibility-button.is-hidden { color: #a46b5d; }
 .text-overlay-delete { width: 25px; height: 25px; border-radius: 5px; color: var(--muted); font-size: 17px; line-height: 1; }
 .text-overlay-delete:hover { background: rgba(193, 77, 62, .12); color: #b54d3f; }
 .text-overlay-empty { padding: 8px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); font-size: 9px; line-height: 1.45; }
@@ -4785,6 +4794,7 @@ body {
 .preview-card.popup-theme-sunset .card-content p,
 .preview-card.popup-theme-ocean .card-content p,
 .preview-card.popup-theme-minimal .card-content p { color: var(--popup-body) !important; }
+.preview-card { border-width: var(--popup-border-width, 1px); }
 
 .preview-card.popup-layout-split { flex-direction: row; }
 .preview-card.popup-layout-split .photo-placeholder {
@@ -4932,7 +4942,7 @@ body {
 .popup-manager-list { display: grid; gap: 6px; }
 .popup-manager-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
   gap: 8px;
   align-items: center;
   width: 100%;
@@ -4960,6 +4970,7 @@ body {
 .popup-manager-select span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
 .popup-manager-select b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .popup-manager-select:focus-visible,
+.popup-visibility-button:focus-visible,
 .popup-delete-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .popup-delete-button {
   width: 24px;
@@ -4974,6 +4985,7 @@ body {
   line-height: 1;
 }
 .popup-delete-button:hover { border-color: #df8d79; background: #fff0ec; color: #b6412e; }
+.popup-border-field { max-width: 220px; }
 .popup-manager-item.active { border-color: #d88b2b; background: #fff0d4; }
 .popup-empty-state {
   display: grid;
@@ -5659,6 +5671,63 @@ body {
   border-color: #c67a2e;
   background: #684729;
   color: #ffe2b5;
+}
+
+/* Put timeline labels on the same time axis as every clip edge. */
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale {
+  position: relative;
+  display: block;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i {
+  position: absolute;
+  top: 50%;
+  display: block;
+  flex: none;
+  transform: translate(-50%, -50%);
+  padding: 0 3px;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i:first-child {
+  transform: translateY(-50%);
+  text-align: left;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i:last-child {
+  transform: translate(-100%, -50%);
+  text-align: right;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary {
+  position: absolute;
+  top: -15px;
+  bottom: -2px;
+  z-index: 4;
+  width: 1px;
+  padding: 0 3px;
+  color: #8c7356;
+  font: 700 7px/10px var(--font-mono);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: rgba(183, 151, 111, .65);
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary-start {
+  transform: translateX(0);
+  text-align: left;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary-end {
+  transform: translateX(-100%);
+  text-align: right;
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .timeline-boundary {
+  color: #a7b6ca;
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .timeline-boundary::before {
+  background: rgba(111, 145, 173, .72);
 }
 
 /* Keep the light theme controls aligned with the dark theme and keep the
