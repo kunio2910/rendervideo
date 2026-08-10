@@ -1673,9 +1673,12 @@ function Home() {
       setSaveStatus("saved");
       setLastSavedAt(now);
       setToast("Đã lưu dự án lên Google Sheet");
-    } catch {
+    } catch (error) {
       setSaveStatus("offline");
-      setToast("Đã lưu trên thiết bị · Google Sheet tạm thời lỗi");
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không xác định được nguyên nhân";
+      setToast(`Đã lưu trên thiết bị · Google Sheet lỗi: ${reason}`);
     }
     lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
