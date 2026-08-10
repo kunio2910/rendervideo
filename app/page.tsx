@@ -404,7 +404,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
   });
 
 const scenePopupList = (scene: Scene): PopupConfig[] => {
-  if (Array.isArray(scene.popups) && scene.popups.length > 0) return scene.popups;
+  if (Array.isArray(scene.popups)) return scene.popups;
   return [popupConfigFromScene(scene, `${scene.id}-popup-1`)];
 };
 
@@ -450,7 +450,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       Math.max(zoomInEnd, positiveNumber(item.zoomEnd, sceneDuration)),
     );
     const rawPopups = (item as Scene & { popups?: unknown }).popups;
-    const popups = Array.isArray(rawPopups) && rawPopups.length > 0
+    const popups = Array.isArray(rawPopups)
       ? rawPopups.filter(isRecord).map((rawPopup, popupIndex) => {
           const fallback = popupIndex === 0 ? popupConfigFromScene(item, `${id}-popup-1`) : defaultPopupConfig(`${id}-popup-${popupIndex + 1}`);
           return defaultPopupConfig(
@@ -484,12 +484,12 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
           );
         })
       : [popupConfigFromScene(item, `${id}-popup-1`)];
-    const firstPopup = popups[0] ?? defaultPopupConfig(`${id}-popup-1`);
+    const firstPopup = popups[0];
     return {
       ...item,
       id,
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
-      ...popupSceneFields(firstPopup),
+      ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
       narration: String(item.narration ?? ""),
       zoomStart,
@@ -1090,7 +1090,7 @@ function Home() {
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
-  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? scene.image) : "";
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? "") : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
@@ -2174,8 +2174,30 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, effects: true }));
+    setEditorSections((items) => ({ ...items, content: true }));
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const deletePopup = (popupId = activePopup?.id) => {
+    if (!scene || !popupId) return;
+    const currentPopups = scenePopupList(scene);
+    const popupIndex = currentPopups.findIndex((popup) => popup.id === popupId);
+    if (popupIndex < 0) return;
+    const popupLabel = currentPopups[popupIndex].title.trim() || `Popup ${popupIndex + 1}`;
+    if (!window.confirm(`Xóa ${popupLabel}?`)) return;
+    const remaining = currentPopups.filter((popup) => popup.id !== popupId);
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const firstPopup = remaining[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+      return {
+        ...item,
+        popups: remaining,
+        ...popupSceneFields(firstPopup),
+      };
+    }));
+    setSelectedPopupId(remaining[Math.min(popupIndex, remaining.length - 1)]?.id ?? "");
+    setToast(`Đã xóa ${popupLabel}`);
     window.setTimeout(() => setToast(""), 2200);
   };
 
@@ -3324,18 +3346,20 @@ function Home() {
               const popupVideoSource = assetPreviewSource(popup.video);
               const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
                 || Boolean(popup.video.trim());
-              const popupMediaOnly = popupHasMedia && !popup.title.trim() && !popup.body.trim();
+               const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
+               const popupMediaOnly = popupHasMedia && !popupHasText;
+               const popupLayout = popupMediaOnly ? "image-top" : popup.layout ?? "image-top";
               return (
                 <article
                   key={popup.id}
-                  className={`preview-card popup-layout-${popup.layout ?? "image-top"} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only" : ""} ${
+                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                    height: `min(${popup.height ?? 255}px, 88%)`,
+                     height: popupMediaOnly ? "auto" : `min(${popup.height ?? 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
                     right: "auto",
@@ -3367,17 +3391,17 @@ function Home() {
                       )}
                     </div>
                   )}
-                  <div className="card-content">
-                    {popup.layout === "stats" && (
+                   {popupHasText && <div className="card-content">
+                     {popupLayout === "stats" && (
                       <div className="popup-stat-row">
                         <span>{scene.location || "HÀNH TRÌNH"}</span>
-                        <b>{String(scene.number).padStart(2, "0")}</b>
-                      </div>
-                    )}
+                    <b>{String(scene.number).padStart(2, "0")}</b>
+                    </div>
+                     )}
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
                     {popup.title.trim() && <h3>{popup.title}</h3>}
                     {popup.body.trim() && <p>{popup.body}</p>}
-                  </div>
+                   </div>}
                   {popup.id === activePopup?.id && (
                     <button
                       className="popup-resize-handle"
@@ -3581,34 +3605,6 @@ function Home() {
               />
               <small>{wordCount} từ · Ước tính {voiceEstimate} giây</small>
             </label>
-            <div className="field-row">
-              <label className="field">
-                <span>Ảnh popup</span>
-                <input
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
-                  value={activePopup?.image ?? ""}
-                  onChange={(event) => updatePopup("image", event.target.value)}
-                />
-                {imagePreviewSource && (
-                  <div className="image-url-preview">
-                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
-                    <span>Đang hiển thị đúng tài nguyên sẽ dùng khi render</span>
-                  </div>
-                )}
-              </label>
-              <label className="field">
-                <span>Giọng đọc</span>
-                <select
-                  value={scene.voice}
-                  onChange={(event) => updateScene("voice", event.target.value)}
-                >
-                  <option>Nam trầm</option>
-                  <option>Nữ ấm</option>
-                  <option>Nam trẻ</option>
-                </select>
-              </label>
-            </div>
               </div>
             </details>
             <details
@@ -3843,18 +3839,32 @@ function Home() {
               </div>
               <div className="popup-manager-list">
                 {scenePopups.map((popup, index) => (
-                  <button
-                    type="button"
+                  <div
                     key={popup.id}
                     className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""}`}
-                    onClick={() => setSelectedPopupId(popup.id)}
                   >
-                    <span>Popup {index + 1}</span>
-                    <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
-                  </button>
+                    <button
+                      type="button"
+                      className="popup-manager-select"
+                      onClick={() => setSelectedPopupId(popup.id)}
+                    >
+                      <span>Popup {index + 1}</span>
+                      <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
+                    </button>
+                    <button
+                      type="button"
+                      className="popup-delete-button"
+                      aria-label={`Xóa Popup ${index + 1}`}
+                      title={`Xóa Popup ${index + 1}`}
+                      onClick={() => deletePopup(popup.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
+            {activePopup ? (
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
                 <strong>Popup {Math.max(1, scenePopups.findIndex((item) => item.id === activePopup?.id) + 1)}</strong>
@@ -3898,6 +3908,21 @@ function Home() {
                   </select>
                 </label>
               </div>
+              <label className="field popup-image-field">
+                <span>Ảnh popup riêng</span>
+                <input
+                  type="url"
+                  placeholder="https://example.com/image.jpg"
+                  value={activePopup?.image ?? ""}
+                  onChange={(event) => updatePopup("image", event.target.value)}
+                />
+                {imagePreviewSource && (
+                  <div className="image-url-preview">
+                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
+                    <span>Ảnh này chỉ dùng cho popup đang chọn.</span>
+                  </div>
+                )}
+              </label>
               <label className="field popup-video-field">
                 <span>Video ngắn trong popup (URL hoặc tên file)</span>
                 <input
@@ -3977,6 +4002,12 @@ function Home() {
               </label>
               </div>
             </div>
+            ) : (
+              <div className="popup-empty-state">
+                <strong>Chưa có popup</strong>
+                <span>Nhấn “＋ Thêm popup” để tạo popup đầu tiên cho cảnh này.</span>
+              </div>
+            )}
             </div>
             </details>
           </div>

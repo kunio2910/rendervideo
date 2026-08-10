@@ -4830,24 +4830,64 @@ body {
 .popup-manager-list { display: grid; gap: 6px; }
 .popup-manager-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   width: 100%;
-  padding: 7px 9px;
+  padding: 0 6px 0 9px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: rgba(255, 255, 255, .62);
   color: var(--ink);
+  text-align: left;
+}
+.popup-manager-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
 }
-.popup-manager-item span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
-.popup-manager-item b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.popup-manager-select span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
+.popup-manager-select b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.popup-manager-select:focus-visible,
+.popup-delete-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.popup-delete-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.popup-delete-button:hover { border-color: #df8d79; background: #fff0ec; color: #b6412e; }
 .popup-manager-item.active { border-color: #d88b2b; background: #fff0d4; }
+.popup-empty-state {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 16px 13px;
+  border: 1px dashed var(--studio-line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.popup-empty-state strong { color: var(--ink); }
 .studio-shell[data-theme="dark"] .popup-manager { background: #182532; }
 .studio-shell[data-theme="dark"] .popup-manager-item { background: #213342; color: #edf5ff; }
 .studio-shell[data-theme="dark"] .popup-manager-item.active { border-color: #d89a3d; background: #3a3022; }
+.studio-shell[data-theme="dark"] .popup-delete-button:hover { border-color: #a75f57; background: #402d2c; color: #ff9d8a; }
 .preview-scene-navigation,
 .preview-zoom-control {
   min-height: 38px;
