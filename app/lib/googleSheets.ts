@@ -4,6 +4,28 @@ export const GOOGLE_SCRIPT_URL =
 export const GOOGLE_PROJECT_ID = "render-video-default";
 const GOOGLE_SHEETS_API = "/api/google-sheets";
 
+async function requestGoogleSheets(
+  proxyUrl: string,
+  directUrl: string,
+  init: RequestInit,
+) {
+  try {
+    const proxyResponse = await fetch(proxyUrl, init);
+    const contentType = proxyResponse.headers.get("content-type")?.toLowerCase() || "";
+    const proxyUnavailable =
+      proxyResponse.status === 404
+      || proxyResponse.status === 405
+      || (proxyResponse.ok && !contentType.includes("application/json"));
+    if (!proxyUnavailable) {
+      return proxyResponse;
+    }
+  } catch {
+    // Static hosts such as GitHub Pages do not expose the proxy route.
+  }
+
+  return fetch(directUrl, init);
+}
+
 async function readJsonResponse(response: Response) {
   let result: { success?: boolean; message?: string; [key: string]: unknown };
   try {
@@ -26,7 +48,7 @@ async function readJsonResponse(response: Response) {
 }
 
 export async function saveDataToGoogle(data: unknown) {
-  const response = await fetch(GOOGLE_SHEETS_API, {
+  const requestInit: RequestInit = {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -36,16 +58,20 @@ export async function saveDataToGoogle(data: unknown) {
       projectId: GOOGLE_PROJECT_ID,
       data,
     }),
-  });
+  };
+  const proxyUrl = new URL(GOOGLE_SHEETS_API, window.location.origin).toString();
+  const response = await requestGoogleSheets(proxyUrl, GOOGLE_SCRIPT_URL, requestInit);
 
   return readJsonResponse(response);
 }
 
 export async function loadDataFromGoogle() {
-  const url = new URL(GOOGLE_SHEETS_API, window.location.origin);
-  url.searchParams.set("projectId", GOOGLE_PROJECT_ID);
+  const proxyUrl = new URL(GOOGLE_SHEETS_API, window.location.origin);
+  proxyUrl.searchParams.set("projectId", GOOGLE_PROJECT_ID);
+  const directUrl = new URL(GOOGLE_SCRIPT_URL);
+  directUrl.searchParams.set("projectId", GOOGLE_PROJECT_ID);
 
-  const response = await fetch(url.toString(), {
+  const response = await requestGoogleSheets(proxyUrl.toString(), directUrl.toString(), {
     method: "GET",
     cache: "no-store",
   });
