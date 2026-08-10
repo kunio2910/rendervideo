@@ -33,6 +33,12 @@ type Scene = {
   centerX: number;
   centerY: number;
   zoomEnabled: boolean;
+  overlayText: string;
+  overlayTextSize: number;
+  overlayTextStyle: "normal" | "bold" | "italic" | "bold-italic";
+  overlayTextColor: string;
+  overlayTextX: number;
+  overlayTextY: number;
   popupDuration: number;
   voiceFile: string;
   voiceVolume: number;
@@ -58,6 +64,7 @@ type PopupConfig = {
   id: string;
   title: string;
   body: string;
+  narration: string;
   image: string;
   video: string;
   start: number;
@@ -126,6 +133,12 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   centerX: 50,
   centerY: 50,
   zoomEnabled: true,
+  overlayText: "",
+  overlayTextSize: 24,
+  overlayTextStyle: "normal",
+  overlayTextColor: "#ffffff",
+  overlayTextX: 50,
+  overlayTextY: 18,
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -322,6 +335,8 @@ type EditorSectionState = {
   content: boolean;
   audio: boolean;
   effects: boolean;
+  popup: boolean;
+  text: boolean;
 };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -331,6 +346,8 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   content: true,
   audio: true,
   effects: true,
+  popup: true,
+  text: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -358,12 +375,15 @@ const normalizeEditorSections = (
   content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
   audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
   effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
+  popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
+  text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
 });
 
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
   id,
   title: "",
   body: "",
+  narration: "",
   image: "",
   video: "",
   start: 0.5,
@@ -386,6 +406,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
   defaultPopupConfig(id, {
     title: String(scene.title ?? ""),
     body: String(scene.popup ?? ""),
+    narration: String(scene.narration ?? ""),
     image: String(scene.image ?? ""),
     video: String(scene.popupVideo ?? ""),
     start: positiveNumber(scene.popupStart, 0.5),
@@ -411,6 +432,7 @@ const scenePopupList = (scene: Scene): PopupConfig[] => {
 const popupSceneFields = (popup: PopupConfig) => ({
   title: popup.title,
   popup: popup.body,
+  narration: popup.narration,
   image: popup.image,
   popupVideo: popup.video,
   popupStart: popup.start,
@@ -459,6 +481,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               ...fallback,
               title: String(rawPopup.title ?? rawPopup.popup ?? fallback.title),
               body: String(rawPopup.body ?? rawPopup.content ?? rawPopup.popup ?? fallback.body),
+              narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
@@ -500,6 +523,16 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
+      overlayText: String((item as Scene & { overlayText?: unknown }).overlayText ?? ""),
+      overlayTextSize: Math.min(120, Math.max(8, positiveNumber((item as Scene & { overlayTextSize?: unknown }).overlayTextSize, 24, 8))),
+      overlayTextStyle: ["normal", "bold", "italic", "bold-italic"].includes(String((item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle))
+        ? (String((item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle) as Scene["overlayTextStyle"])
+        : "normal",
+      overlayTextColor: /^#[0-9a-f]{6}$/i.test(String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor ?? ""))
+        ? String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor)
+        : "#ffffff",
+      overlayTextX: clampPercent((item as Scene & { overlayTextX?: unknown }).overlayTextX, 50),
+      overlayTextY: clampPercent((item as Scene & { overlayTextY?: unknown }).overlayTextY, 18),
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -1027,6 +1060,7 @@ function Home() {
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
+  const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -1081,8 +1115,9 @@ function Home() {
     setPlayTime(nextScene.start);
     setPlaying(false);
   };
-  const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
-  const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
+  const popupNarration = activePopup?.narration ?? "";
+  const popupWordCount = popupNarration.trim().split(/\s+/).filter(Boolean).length;
+  const popupVoiceEstimate = Math.max(1, Math.ceil((popupWordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return "";
@@ -2106,6 +2141,12 @@ function Home() {
       centerX: 50,
       centerY: 50,
       zoomEnabled: true,
+      overlayText: "",
+      overlayTextSize: 24,
+      overlayTextStyle: "normal",
+      overlayTextColor: "#ffffff",
+      overlayTextX: 50,
+      overlayTextY: 18,
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -2339,6 +2380,42 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTextOverlayDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (playing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(scene.overlayTextX, 50);
+    const baseY = clampPercent(scene.overlayTextY, 18);
+    setDraggingTextOverlay(true);
+
+    const updatePosition = (clientX: number, clientY: number) => {
+      const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
+      const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === selectedId
+        ? {
+            ...item,
+            overlayTextX: Number(nextX.toFixed(1)),
+            overlayTextY: Number(nextY.toFixed(1)),
+          }
+        : item));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -2464,6 +2541,7 @@ function Home() {
             id: popup.id,
             title: popup.title,
             body: popup.body,
+            narration: narrationEnabled ? popup.narration : "",
             start: popup.start,
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
@@ -2495,6 +2573,12 @@ function Home() {
             centerX: item.centerX,
             centerY: item.centerY,
             zoomEnabled: item.zoomEnabled,
+            overlayText: item.overlayText,
+            overlayTextSize: item.overlayTextSize,
+            overlayTextStyle: item.overlayTextStyle,
+            overlayTextColor: item.overlayTextColor,
+            overlayTextX: item.overlayTextX,
+            overlayTextY: item.overlayTextY,
             sceneVisible: item.sceneVisible !== false,
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
@@ -2503,7 +2587,7 @@ function Home() {
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
-            narration: narrationEnabled ? item.narration : "",
+            narration: narrationEnabled ? firstPopup.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
             voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
             popupIn: firstPopup.in,
@@ -3310,6 +3394,25 @@ function Home() {
                 />
               )
             )}
+            {sceneIsVisibleInPlayback && scene.overlayText.trim() && (
+              <div
+                className={`map-text-overlay ${draggingTextOverlay ? "is-dragging" : ""}`}
+                style={{
+                  left: `${scene.overlayTextX}%`,
+                  top: `${scene.overlayTextY}%`,
+                  color: scene.overlayTextColor,
+                  fontSize: `${scene.overlayTextSize}px`,
+                  fontWeight: scene.overlayTextStyle.includes("bold") ? 700 : 400,
+                  fontStyle: scene.overlayTextStyle.includes("italic") ? "italic" : "normal",
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="Chữ viết trên bản đồ. Kéo để di chuyển."
+                onPointerDown={startTextOverlayDrag}
+              >
+                {scene.overlayText}
+              </div>
+            )}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
@@ -3467,6 +3570,8 @@ function Home() {
                     content: shouldOpen,
                     audio: shouldOpen,
                     effects: shouldOpen,
+                    popup: shouldOpen,
+                    text: shouldOpen,
                   });
                 }}
               >
@@ -3582,29 +3687,73 @@ function Home() {
               />
               <small>Tên này hiển thị ở danh sách cảnh và khu vực xem trước.</small>
             </label>
-            <label className="field">
-              <span>Tiêu đề</span>
-              <input
-                value={activePopup?.title ?? ""}
-                onChange={(event) => updatePopup("title", event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Nội dung popup</span>
-              <textarea
-                value={activePopup?.body ?? ""}
-                onChange={(event) => updatePopup("body", event.target.value)}
-              />
-              <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
-            </label>
-            <label className="field">
-              <span>Lời thuyết minh</span>
-              <textarea
-                value={scene.narration}
-                onChange={(event) => updateScene("narration", event.target.value)}
-              />
-              <small>{wordCount} từ · Ước tính {voiceEstimate} giây</small>
-            </label>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
+              open={editorSections.text}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  text: open,
+                }));
+              }}
+            >
+              <summary className="editor-group-label"><span>03</span> Chữ viết <i /></summary>
+              <div className="editor-accordion-content">
+                <label className="field">
+                  <span>Nội dung chữ viết</span>
+                  <textarea
+                    value={scene.overlayText}
+                    placeholder="Nhập chữ hiển thị trên bản đồ..."
+                    onChange={(event) => updateScene("overlayText", event.target.value)}
+                  />
+                  <small>Kéo trực tiếp dòng chữ trên khung bản đồ để di chuyển vị trí.</small>
+                </label>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Cỡ chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="8"
+                        max="120"
+                        step="1"
+                        value={scene.overlayTextSize}
+                        onChange={(event) => updateScene("overlayTextSize", Math.min(120, Math.max(8, Number(event.target.value) || 24)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Kiểu chữ</span>
+                    <select
+                      value={scene.overlayTextStyle}
+                      onChange={(event) => updateScene("overlayTextStyle", event.target.value as Scene["overlayTextStyle"])}
+                    >
+                      <option value="normal">Thường</option>
+                      <option value="bold">Đậm</option>
+                      <option value="italic">Nghiêng</option>
+                      <option value="bold-italic">Đậm + nghiêng</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field color-field">
+                    <span>Màu chữ</span>
+                    <input
+                      className="text-color-picker"
+                      type="color"
+                      value={scene.overlayTextColor}
+                      onChange={(event) => updateScene("overlayTextColor", event.target.value)}
+                    />
+                  </label>
+                  <div className="field text-position-readout">
+                    <span>Vị trí hiện tại</span>
+                    <b>X {Math.round(scene.overlayTextX)}% · Y {Math.round(scene.overlayTextY)}%</b>
+                  </div>
+                </div>
               </div>
             </details>
             <details
@@ -3618,7 +3767,7 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>03</span> Âm thanh <i /></summary>
+              <summary className="editor-group-label"><span>04</span> Âm thanh <i /></summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
               <span>Nhạc nền chủ đề</span>
@@ -3728,7 +3877,7 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>04</span> Hiệu ứng <i /></summary>
+              <summary className="editor-group-label"><span>05</span> Hiệu ứng <i /></summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card">
                   <div className="motion-settings-title">
@@ -3828,9 +3977,16 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
-              open={editorSections.content}
+              open={editorSections.popup}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  popup: open,
+                }));
+              }}
             >
-              <summary className="editor-group-label"><span>05</span> Popup <i /></summary>
+              <summary className="editor-group-label"><span>06</span> Popup <i /></summary>
               <div className="editor-accordion-content">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
               <div className="popup-manager-heading">
@@ -3870,6 +4026,29 @@ function Home() {
                 <strong>Popup {Math.max(1, scenePopups.findIndex((item) => item.id === activePopup?.id) + 1)}</strong>
                 <span>Thời gian và hiệu ứng xuất hiện</span>
               </div>
+              <label className="field">
+                <span>Tiêu đề</span>
+                <input
+                  value={activePopup?.title ?? ""}
+                  onChange={(event) => updatePopup("title", event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Nội dung cảnh</span>
+                <textarea
+                  value={activePopup?.body ?? ""}
+                  onChange={(event) => updatePopup("body", event.target.value)}
+                />
+                <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
+              </label>
+              <label className="field">
+                <span>Lời thuyết minh</span>
+                <textarea
+                  value={activePopup?.narration ?? ""}
+                  onChange={(event) => updatePopup("narration", event.target.value)}
+                />
+                <small>{popupWordCount} từ · Ước tính {popupVoiceEstimate} giây</small>
+              </label>
               <div className="popup-design-grid">
                 <label className="field">
                   <span>Bố cục popup</span>

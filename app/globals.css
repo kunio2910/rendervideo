@@ -429,6 +429,30 @@ button { color: inherit; }
   box-shadow: 0 18px 38px rgba(29, 52, 77, .2);
   backdrop-filter: blur(10px);
 }
+.map-text-overlay {
+  position: absolute;
+  z-index: 4;
+  max-width: 88%;
+  padding: 5px 9px;
+  border: 1px dashed rgba(255, 255, 255, .58);
+  border-radius: 6px;
+  background: rgba(20, 28, 38, .28);
+  line-height: 1.15;
+  text-align: center;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, .72);
+  white-space: pre-wrap;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+.map-text-overlay:hover,
+.map-text-overlay.is-dragging {
+  border-color: var(--orange);
+  background: rgba(20, 28, 38, .44);
+}
+.map-text-overlay.is-dragging { cursor: grabbing; }
+.map-text-overlay:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 .preview-card .card-content { min-height: 0; overflow: auto; }
 .popup-resize-handle {
   position: absolute;
