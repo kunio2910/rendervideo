@@ -52,7 +52,12 @@ export async function saveDataToGoogle(data: unknown) {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      // Keep the direct Google Apps Script fallback as a CORS-simple request.
+      // `application/json` triggers an OPTIONS preflight that Apps Script web
+      // apps do not answer reliably, which surfaces as `Failed to fetch` on
+      // static hosts such as GitHub Pages. The body is still JSON and is read
+      // from `e.postData.contents` by the Apps Script endpoint.
+      "Content-Type": "text/plain;charset=UTF-8",
     },
     body: JSON.stringify({
       projectId: GOOGLE_PROJECT_ID,
