@@ -79,6 +79,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
   assert.match(page, /startPopupDrag/);
+  assert.match(page, /data-popup-id=\{popup\.id\}/);
+  assert.match(page, /draggedPopupBounds/);
+  assert.match(page, /height: `min\(\$\{popup\.height \?\? 255\}px, 88%\)`/);
   assert.match(page, /popupX/);
   assert.match(page, /popupY/);
   assert.match(page, /zoomStart/);
@@ -164,12 +167,16 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /popup-theme-ocean/);
   assert.match(css, /popup-text-pop/);
   assert.match(css, /image-url-preview video/);
+  assert.match(css, /popup-layout-image-only \.photo-placeholder/);
+  assert.match(css, /flex: 1 1 auto/);
   assert.match(css, /editor-section-actions/);
   assert.match(css, /editor-section-action/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
   assert.match(renderer, /popupPixelHeight/);
+  assert.match(renderer, /const height = popupPixelHeight\(scene\)/);
+  assert.match(renderer, /imageOnly\s*\?/);
   assert.match(renderer, /zoompan/);
   assert.match(renderer, /scene\.zoom/);
   assert.match(renderer, /scene\.zoomEnd/);

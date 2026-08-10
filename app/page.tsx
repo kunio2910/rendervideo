@@ -2970,12 +2970,19 @@ function Home() {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
     if (!draggedPopup) return;
+    const draggedPopupElement = popupId
+      ? Array.from(preview.querySelectorAll<HTMLElement>("[data-popup-id]"))
+        .find((element) => element.dataset.popupId === popupId)
+      : null;
+    const draggedPopupBounds = draggedPopupElement?.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
     const baseX = clampPercent(draggedPopup.x, 5);
     const baseY = clampPercent(draggedPopup.y, 55);
-    const maxX = Math.max(0, 100 - Number(draggedPopup.width ?? 90));
-    const maxY = Math.max(0, 100 - ((Number(draggedPopup.height ?? 255) / bounds.height) * 100));
+    const popupWidth = draggedPopupBounds?.width ?? (bounds.width * Number(draggedPopup.width ?? 90)) / 100;
+    const popupHeight = draggedPopupBounds?.height ?? Number(draggedPopup.height ?? 255);
+    const maxX = Math.max(0, 100 - (popupWidth / bounds.width) * 100);
+    const maxY = Math.max(0, 100 - (popupHeight / bounds.height) * 100);
     const updatePosition = (clientX: number, clientY: number) => {
       const nextX = Math.min(maxX, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
       const nextY = Math.min(maxY, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
@@ -4131,6 +4138,7 @@ function Home() {
               return (
                 <article
                   key={popup.id}
+                  data-popup-id={popup.id}
                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
@@ -4138,7 +4146,7 @@ function Home() {
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                    height: popupMediaOnly ? "auto" : `min(${popup.height ?? 255}px, 88%)`,
+                    height: `min(${popup.height ?? 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
                     right: "auto",

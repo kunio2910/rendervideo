@@ -333,9 +333,7 @@ const createPopup = async (scene, index) => {
   const showText = !imageOnly && hasText;
   if (!showText && !showVisual) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
-  const height = !showText && showVisual
-    ? Math.round(previewPx(115))
-    : popupPixelHeight(scene);
+  const height = popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
   const borderWidth = Math.max(0, Math.round(previewPx(clamp(Number(scene.popupBorderWidth ?? 1), 0, 12))));
   const paddingX = Math.round(previewPx(15));
@@ -360,7 +358,15 @@ const createPopup = async (scene, index) => {
   const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
   const imageWidth = split ? Math.round(width * 0.42) : width;
-  const imageHeight = layout === "quote" ? 0 : split ? height : hasVisual ? Math.round(previewPx(115)) : 0;
+  const imageHeight = layout === "quote"
+    ? 0
+    : split
+      ? height
+      : hasVisual
+        ? imageOnly
+          ? height
+          : Math.round(previewPx(115))
+        : 0;
   const contentX = split ? imageWidth + paddingX : paddingX;
   const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
   const titleY = layout === "quote"
