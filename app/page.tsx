@@ -385,6 +385,47 @@ type EditorSectionState = {
   text: boolean;
 };
 
+type EditorSectionKey = keyof EditorSectionState;
+
+type EditorSectionClipboard =
+  | {
+      section: "visual";
+      background: string;
+      backgroundVisible: boolean;
+    }
+  | {
+      section: "content";
+      duration: number;
+      sceneName: string;
+    }
+  | {
+      section: "audio";
+      voice: string;
+      voiceFile: string;
+      voiceVolume: number;
+      backgroundMusic: string;
+      backgroundMusicVolume: number;
+    }
+  | {
+      section: "effects";
+      zoomEnabled: boolean;
+      zoomStart: number;
+      zoomEnd: number;
+      zoomInDuration: number;
+      zoomOutDuration: number;
+      zoom: number;
+      centerX: number;
+      centerY: number;
+    }
+  | {
+      section: "popup";
+      popups: PopupConfig[];
+    }
+  | {
+      section: "text";
+      textOverlays: TextOverlay[];
+    };
+
 type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
@@ -1218,6 +1259,7 @@ function Home() {
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
+  const [sectionClipboard, setSectionClipboard] = useState<Partial<Record<EditorSectionKey, EditorSectionClipboard>>>({});
   const [localRenderState, setLocalRenderState] = useState<LocalRenderState>({
     status: "idle",
     progress: 0,
@@ -2144,7 +2186,7 @@ function Home() {
     );
     const popupIndex = Math.max(
       0,
-      scenePopups.findIndex((item) => item.id === selectedPopupId),
+      scenePopups.findIndex((item) => item.id === popupId),
     );
     setScenes((items) => items.map((item) => {
       if (!targetIds.has(item.id)) return item;
@@ -2161,7 +2203,7 @@ function Home() {
     }));
   };
 
-  const updatePopupMedia = (value: string) => {
+  const updatePopupMedia = (value: string, popupId = selectedPopupId) => {
     if (!hydrated) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
@@ -2189,6 +2231,177 @@ function Home() {
       };
     }));
   };
+
+  const copyEditorSection = (section: EditorSectionKey) => {
+    if (!scene) return;
+    const data: EditorSectionClipboard = section === "visual"
+      ? {
+          section,
+          background: String(scene.background ?? ""),
+          backgroundVisible: scene.backgroundVisible !== false,
+        }
+      : section === "content"
+        ? {
+            section,
+            duration: Math.max(0.1, scene.end - scene.start),
+            sceneName: scene.sceneName ?? "",
+          }
+        : section === "audio"
+          ? {
+              section,
+              voice: scene.voice ?? "",
+              voiceFile: scene.voiceFile ?? "",
+              voiceVolume: clampVolume(scene.voiceVolume, 95),
+              backgroundMusic,
+              backgroundMusicVolume,
+            }
+          : section === "effects"
+            ? {
+                section,
+                zoomEnabled: scene.zoomEnabled !== false,
+                zoomStart: Number(scene.zoomStart ?? 0),
+                zoomEnd: Number(scene.zoomEnd ?? scene.end - scene.start),
+                zoomInDuration: Number(scene.zoomInDuration ?? 0.8),
+                zoomOutDuration: Number(scene.zoomOutDuration ?? 0.8),
+                zoom: Number(scene.zoom ?? 1.25),
+                centerX: Number(scene.centerX ?? 50),
+                centerY: Number(scene.centerY ?? 50),
+              }
+            : section === "popup"
+              ? {
+                  section,
+                  popups: scenePopupList(scene).map((popup) => ({ ...popup })),
+                }
+              : {
+                  section,
+                  textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
+                };
+    setSectionClipboard((items) => ({ ...items, [section]: data }));
+    setToast(`Đã sao chép thông số mục ${section}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const pasteEditorSection = (section: EditorSectionKey) => {
+    const data = sectionClipboard[section];
+    if (!data) {
+      setToast("Chưa có thông số để dán ở mục này");
+      window.setTimeout(() => setToast(""), 2200);
+      return;
+    }
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const nextScenes = scenes.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      switch (data.section) {
+        case "visual":
+          return {
+            ...item,
+            background: data.background,
+            backgroundVisible: data.backgroundVisible,
+          };
+        case "content":
+          return {
+            ...item,
+            sceneName: data.sceneName,
+            end: item.start + Math.max(0.1, data.duration),
+          };
+        case "audio":
+          return {
+            ...item,
+            voice: data.voice,
+            voiceFile: data.voiceFile,
+            voiceVolume: data.voiceVolume,
+          };
+        case "effects":
+          return {
+            ...item,
+            zoomEnabled: data.zoomEnabled,
+            zoomStart: data.zoomStart,
+            zoomEnd: data.zoomEnd,
+            zoomInDuration: data.zoomInDuration,
+            zoomOutDuration: data.zoomOutDuration,
+            zoom: data.zoom,
+            centerX: data.centerX,
+            centerY: data.centerY,
+          };
+        case "popup": {
+          const popups = data.popups.map((popup, index) => ({
+            ...popup,
+            id: `${item.id}-popup-${String(index + 1).padStart(2, "0")}`,
+          }));
+          const firstPopup = popups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+          return {
+            ...item,
+            popups,
+            ...popupSceneFields(firstPopup),
+          };
+        }
+        case "text": {
+          const textOverlays = data.textOverlays.map((overlay, index) => ({
+            ...overlay,
+            id: `${item.id}-text-${String(index + 1).padStart(2, "0")}`,
+          }));
+          const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${item.id}-text-1`);
+          return {
+            ...item,
+            textOverlays,
+            ...textOverlaySceneFields(firstTextOverlay),
+          };
+        }
+        default:
+          return item;
+      }
+    });
+    const reflowedScenes = data.section === "content"
+      ? reflowSceneTimeline(nextScenes)
+      : nextScenes;
+    setScenes(reflowedScenes);
+    if (data.section === "audio") {
+      setBackgroundMusic(data.backgroundMusic);
+      setBackgroundMusicVolume(data.backgroundMusicVolume);
+      setBackgroundMusicPreview("");
+    }
+    if (data.section === "content") {
+      setProjectDuration((duration) => Math.max(duration, reflowedScenes.at(-1)?.end ?? duration));
+    }
+    setToast(`Đã dán thông số mục ${section} vào ${targetIds.size} cảnh`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const editorSectionActions = (section: EditorSectionKey) => (
+    <span
+      className="editor-section-actions"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="editor-section-action"
+        title={`Sao chép thông số mục ${section}`}
+        aria-label={`Sao chép thông số mục ${section}`}
+        onClick={(event) => {
+          event.preventDefault();
+          copyEditorSection(section);
+        }}
+      >
+        ⧉
+      </button>
+      <button
+        type="button"
+        className="editor-section-action"
+        title={`Dán thông số mục ${section}`}
+        aria-label={`Dán thông số mục ${section}`}
+        disabled={!sectionClipboard[section]}
+        onClick={(event) => {
+          event.preventDefault();
+          pasteEditorSection(section);
+        }}
+      >
+        ⇩
+      </button>
+    </span>
+  );
 
   const updateTextOverlay = <K extends keyof TextOverlay>(key: K, value: TextOverlay[K]) => {
     if (!hydrated || !activeTextOverlay) return;
@@ -4060,7 +4273,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>01</span> Hình ảnh & nền <i /></summary>
+              <summary className="editor-group-label">
+                <span>01</span><strong>Hình ảnh & nền</strong>{editorSectionActions("visual")}<i />
+              </summary>
               <div className="editor-accordion-content">
             <label className="field background-field">
               <span>Background chủ đề cảnh {scene.number}</span>
@@ -4122,7 +4337,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>02</span> Nội dung cảnh <i /></summary>
+              <summary className="editor-group-label">
+                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+              </summary>
               <div className="editor-accordion-content">
             <label className="field">
               <span>Thời lượng cảnh</span>
@@ -4164,7 +4381,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>03</span> Chữ viết <i /></summary>
+              <summary className="editor-group-label">
+                <span>03</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
+              </summary>
               <div className="editor-accordion-content">
                 <label className="field">
                   <span>Nội dung chữ viết</span>
@@ -4396,7 +4615,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>04</span> Âm thanh <i /></summary>
+              <summary className="editor-group-label">
+                <span>04</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
+              </summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
               <span>Nhạc nền chủ đề</span>
@@ -4506,7 +4727,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>05</span> Hiệu ứng <i /></summary>
+              <summary className="editor-group-label">
+                <span>05</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
+              </summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card">
                   <div className="motion-settings-title">
@@ -4615,7 +4838,9 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>06</span> Popup <i /></summary>
+              <summary className="editor-group-label">
+                <span>06</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
+              </summary>
               <div className="editor-accordion-content">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
               <div className="popup-manager-heading">

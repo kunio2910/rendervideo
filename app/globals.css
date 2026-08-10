@@ -1011,7 +1011,7 @@ button { color: inherit; }
   font-weight: 700;
 }
 .editor-group-label:not(:first-child) { margin-top: 16px; }
-.editor-group-label span {
+.editor-group-label > span:not(.editor-section-actions) {
   color: #087cff;
   font: 700 8px var(--font-mono);
 }
@@ -1682,7 +1682,7 @@ body {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 14px;
 }
-.editor-group-label span {
+.editor-group-label > span:not(.editor-section-actions) {
   display: grid;
   place-items: center;
   width: 22px;
@@ -2106,6 +2106,41 @@ body {
 .accordion-toggle-all:hover {
   border-color: #dda13e !important;
   color: #dda13e !important;
+}
+.editor-group-label > strong {
+  min-width: 0;
+  flex: 1;
+}
+.editor-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+.editor-section-action {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--studio-line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--studio-muted);
+  cursor: pointer;
+  font: 700 12px/1 var(--font-mono);
+}
+.editor-section-action:hover:not(:disabled) {
+  border-color: #dda13e;
+  background: rgba(221, 161, 62, .14);
+  color: #dda13e;
+}
+.editor-section-action:disabled {
+  cursor: not-allowed;
+  opacity: .38;
+}
+.editor-group-label > i {
+  margin-left: 2px !important;
 }
 .prompt-modal-backdrop {
   z-index: 80;

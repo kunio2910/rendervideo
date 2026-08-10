@@ -71,6 +71,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /popupTheme/);
   assert.match(page, /popupTextEffect/);
   assert.match(page, /popupVideo/);
+  assert.match(page, /const updatePopupMedia = \(value: string, popupId = selectedPopupId\)/);
+  assert.match(page, /copyEditorSection/);
+  assert.match(page, /pasteEditorSection/);
+  assert.match(page, /editorSectionActions/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
@@ -160,6 +164,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /popup-theme-ocean/);
   assert.match(css, /popup-text-pop/);
   assert.match(css, /image-url-preview video/);
+  assert.match(css, /editor-section-actions/);
+  assert.match(css, /editor-section-action/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
