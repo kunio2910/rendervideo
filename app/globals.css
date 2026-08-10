@@ -5639,3 +5639,7 @@ body {
   .settings-selected-scene-panel { grid-column: auto; }
   .settings-clip-note { grid-column: auto; }
 }
+
+/* The export view keeps the file picker, but no longer shows the persistent asset rows. */
+.studio-shell[data-studio-tab="export"] .local-media-picker + .local-render-note,
+.studio-shell[data-studio-tab="export"] .asset-library-list { display: none; }
