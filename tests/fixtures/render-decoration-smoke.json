@@ -10,6 +10,25 @@
       "end": 2,
       "backgroundVisible": true,
       "background": "",
+      "textOverlays": [
+        {
+          "id": "text-border",
+          "text": "Bo góc preview",
+          "size": 24,
+          "style": "bold",
+          "color": "#ffffff",
+          "opacity": 100,
+          "font": "Arial",
+          "strokeWidth": 0,
+          "borderWidth": 4,
+          "borderColor": "#dda13e",
+          "borderOpacity": 100,
+          "borderFill": "#14202e",
+          "x": 50,
+          "y": 82,
+          "visible": true
+        }
+      ],
       "mapDecorations": [
         {
           "id": "decoration-text",

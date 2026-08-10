@@ -493,6 +493,51 @@ const createMapDecoration = async (decoration, index) => {
   return { path: filename };
 };
 
+const createTextOverlay = async (overlay, index) => {
+  const text = String(overlay?.text ?? "").trim();
+  if (!text || overlay?.visible === false) return null;
+  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
+  const font = fontOptions.includes(String(overlay?.font)) ? String(overlay.font) : "Arial";
+  const size = Math.round(previewPx(clamp(Number(overlay?.size ?? 24), 8, 120)));
+  const strokeWidth = Math.round(previewPx(clamp(Number(overlay?.strokeWidth ?? 0), 0, 12)));
+  const borderWidth = Math.round(previewPx(clamp(Number(overlay?.borderWidth ?? 0), 0, 12)));
+  const textOpacity = clamp(Number(overlay?.opacity ?? 100) / 100, 0, 1);
+  const borderOpacity = clamp(Number(overlay?.borderOpacity ?? 100) / 100, 0, 1);
+  const color = decorationColor(overlay?.color, "#ffffff");
+  const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
+  const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
+  const borderFill = decorationColor(overlay?.borderFill, "#14202e");
+  const lines = text.split(/\r?\n/);
+  const paddingX = Math.round(previewPx(9));
+  const paddingY = Math.round(previewPx(5));
+  const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
+  const longestLine = Math.max(1, ...lines.map((line) => line.length));
+  const width = Math.max(
+    Math.round(previewPx(32)),
+    Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
+  );
+  const height = Math.max(
+    Math.round(previewPx(24)),
+    Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
+  );
+  const radius = Math.min(Math.round(previewPx(6)), Math.floor(Math.min(width, height) / 2));
+  const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
+  const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  const textNodes = lines.map((line, lineIndex) => {
+    const y = paddingY + size * 0.86 + lineIndex * lineHeight;
+    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
+  }).join("");
+  const svg = Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
+      ${textNodes}
+    </svg>
+  `);
+  const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
+  await sharp(svg).png().toFile(filename);
+  return { path: filename };
+};
+
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
 await sharp({
   create: {
@@ -594,10 +639,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
-  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
-    ? String(value)
-    : fallback;
-  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
   const legacyText = String(scene.overlayText ?? "").trim();
   const textOverlays = Array.isArray(scene.textOverlays) && scene.textOverlays.length > 0
     ? scene.textOverlays
@@ -619,43 +660,31 @@ for (let index = 0; index < scenes.length; index += 1) {
           y: scene.overlayTextY,
         }]
       : [];
-  const overlayTextFilter = textOverlays
-    .filter((overlay) => overlay.visible !== false && String(overlay.text ?? "").trim())
-    .map((overlay) => {
-      const text = String(overlay.text ?? "").trim();
-      const color = normalizeColor(overlay.color, "#ffffff").replace("#", "0x");
-      const strokeColor = normalizeColor(overlay.strokeColor, "#000000").replace("#", "0x");
-      const borderColor = normalizeColor(overlay.borderColor, "#ffffff").replace("#", "0x");
-      const borderFill = normalizeColor(overlay.borderFill, "#14202e").replace("#", "0x");
-      const font = fontOptions.includes(String(overlay.font)) ? String(overlay.font) : "Arial";
-      const textOpacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
-      const borderOpacity = clamp(Number(overlay.borderOpacity ?? 100) / 100, 0, 1).toFixed(3);
-      const size = Math.round(previewPx(clamp(Number(overlay.size ?? 24), 8, 120)));
-      const strokeWidth = Math.round(previewPx(clamp(Number(overlay.strokeWidth ?? 0), 0, 12)));
-      const borderWidth = Math.round(previewPx(clamp(Number(overlay.borderWidth ?? 0), 0, 12)));
-      const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
-      const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
-      const position = `x='w*${x}-text_w/2':y='h*${y}-text_h/2'`;
-      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${textOpacity}:${position}`;
-      const fillBox = `,drawtext=${common}:fontcolor=${color}@${textOpacity}:box=1:boxcolor=${borderFill}@${borderOpacity}:boxborderw=0`;
-      const borderBox = borderWidth > 0
-        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${borderOpacity}:boxborderw=${borderWidth}`
-        : "";
-      return `${borderBox}${fillBox}`;
-    })
-    .join("");
+  const textOverlayRenders = [];
+  for (let textIndex = 0; textIndex < textOverlays.length; textIndex += 1) {
+    const overlay = textOverlays[textIndex];
+    const rendered = await createTextOverlay(overlay, index * 100 + textIndex);
+    if (rendered) textOverlayRenders.push({ scene: overlay, rendered });
+  }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
-    ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
+    ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
     : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
       `zoompan=z='${zoomExpression}':` +
       `x='iw*${centerX}*(1-1/zoom)':` +
       `y='ih*${centerY}*(1-1/zoom)':` +
-      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
-  let popupInputIndex = 1 + decorationRenders.length;
+  textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
+    const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
+    const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const outputLabel = `texted${textIndex}`;
+    filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    composedLabel = `[${outputLabel}]`;
+  });
+  let popupInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
   decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
@@ -680,7 +709,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     const outputLabel = `decorated${decorationIndex}`;
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
-    filter += `[${decorationIndex + 1}:v]format=rgba,${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
+    filter += `[${decorationInputIndex}:v]format=rgba,${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
@@ -763,13 +793,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = composedOutput;
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
-  filter += (popupRenders.length || decorationRenders.length)
+  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length)
     ? `${composedLabel}copy[composed]`
     : "[bg]copy[composed]";
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
   ];
+  textOverlayRenders.forEach(({ rendered: overlay }) => {
+    args.push("-loop", "1", "-i", overlay.path);
+  });
   decorationRenders.forEach(({ rendered: decoration }) => {
     args.push("-loop", "1", "-i", decoration.path);
   });
