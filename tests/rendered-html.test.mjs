@@ -33,8 +33,7 @@ test("server-renders the Kito Video Studio editor shell", async () => {
   assert.match(html, /Render cục bộ/);
   assert.match(html, /Hiệu ứng/);
   assert.match(html, /Timeline/);
-  assert.match(html, /Khôi phục/);
-  assert.match(html, /Hoàn tác/);
+  assert.doesNotMatch(html, /history-button|restore-button/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 

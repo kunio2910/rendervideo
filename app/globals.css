@@ -5643,3 +5643,113 @@ body {
 /* The export view keeps the file picker, but no longer shows the persistent asset rows. */
 .studio-shell[data-studio-tab="export"] .local-media-picker + .local-render-note,
 .studio-shell[data-studio-tab="export"] .asset-library-list { display: none; }
+
+/* Keep the compose scene browser and preview in the dark theme after the
+   editor-v2 light-theme rules that style these surfaces by default. */
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .workspace {
+  background: var(--studio-bg);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-panel,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-panel {
+  border-color: var(--studio-line);
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-panel {
+  background: #0b111a;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-panel .panel-heading h2,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-count {
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-count {
+  color: #91a0b4;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-list::before {
+  border-left-color: #3b4a5c;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item {
+  border-color: transparent;
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item:hover {
+  border-color: var(--studio-line);
+  background: var(--panel-soft);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active {
+  border-color: #d89a34;
+  background: #3b2b1d;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active .scene-meta strong,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-meta strong {
+  color: #edf5ff;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-meta small {
+  color: #91a0b4;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-number {
+  border-color: #3c4d61;
+  background: #182432;
+  color: #c7d4e3;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active .scene-number {
+  border-color: #d89a34;
+  background: #493519;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-icon-button,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button {
+  border-color: #3c4d61;
+  background: #182432;
+  color: #aebed0;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-icon-button:hover,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button:hover,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button:focus-visible {
+  border-color: #d89a34;
+  background: #30291d;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button.is-hidden {
+  background: #293744;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .add-scene-button {
+  border-color: #80643d;
+  background: #151f2e;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .add-scene-button:hover {
+  border-color: #d89a34;
+  background: #30291d;
+  color: #ffd98f;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .phone-preview {
+  border-color: #34445a;
+  background: #141c24;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, .42);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-footer {
+  border-color: #354354;
+  background: #131d28;
+}

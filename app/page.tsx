@@ -3341,32 +3341,6 @@ function Home() {
           >
             ☁ Lưu
           </button>
-          <button
-            className="button history-button"
-            onClick={undo}
-            disabled={!historyPast.current.length}
-            title="Hoàn tác (Ctrl/Cmd + Z)"
-            aria-label="Hoàn tác"
-          >
-            ↶
-          </button>
-          <button
-            className="button history-button"
-            onClick={redo}
-            disabled={!historyFuture.current.length}
-            title="Làm lại (Ctrl/Cmd + Y)"
-            aria-label="Làm lại"
-          >
-            ↷
-          </button>
-          <button
-            className="button restore-button"
-            onClick={restoreLastSavedProject}
-            disabled={!lastSavedProjectSnapshot.current || saveStatus === "loading" || saveStatus === "saving"}
-            title="Khôi phục bản lưu gần nhất"
-          >
-            ↥ Khôi phục
-          </button>
           <label className="duration-picker">
             <span>Độ dài</span>
             <input
