@@ -1272,8 +1272,13 @@ function Home() {
         setSaveStatus("saved");
         setLastSavedAt(new Date());
       })
-      .catch(() => {
-        // Firestore can be empty before the first migration or blocked by rules.
+      .catch((error) => {
+        if (cancelled) return;
+        const reason = error instanceof Error
+          ? error.message.replace(/\s+/g, " ").slice(0, 180)
+          : "Không xác định được nguyên nhân";
+        setToast(`Không tải được Firestore: ${reason}`);
+        window.setTimeout(() => setToast(""), 3600);
       });
 
     return () => {
@@ -1909,12 +1914,16 @@ function Home() {
     );
     setSaveStatus("saving");
     let firestoreSaveFailed = false;
+    let firestoreSaveError = "";
     try {
       if (googleUser) {
         try {
           await saveWorkspaceToFirestore(storedProject);
-        } catch {
+        } catch (error) {
           firestoreSaveFailed = true;
+          firestoreSaveError = error instanceof Error
+            ? error.message.replace(/\s+/g, " ").slice(0, 180)
+            : "Không xác định được nguyên nhân";
         }
       }
       const saveResult = await saveDataToGoogle(storedProject);
@@ -1922,11 +1931,11 @@ function Home() {
         window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
       }
       const now = new Date();
-      setSaveStatus("saved");
+      setSaveStatus(firestoreSaveFailed ? "error" : "saved");
       setLastSavedAt(now);
       setToast(
         firestoreSaveFailed
-          ? "Đã lưu Google Sheet · Firestore lỗi"
+          ? `Đã lưu Google Sheet · Firestore lỗi: ${firestoreSaveError}`
           : googleUser
             ? "Đã lưu Google Sheet + Firestore"
             : isRecord(saveResult) && saveResult.queued === true
