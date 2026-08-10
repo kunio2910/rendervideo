@@ -72,6 +72,7 @@ const popupEntriesForScene = (scene) => {
       ...popup,
       title: String(popup.title ?? ""),
       body: String(popup.body ?? popup.content ?? popup.popup ?? ""),
+      narration: String(popup.narration ?? popup.voiceover ?? ""),
       image: String(popup.image ?? ""),
       popupVideo: String(popup.video ?? popup.popupVideo ?? ""),
       popupStart: Number(popup.start ?? popup.popupStart ?? 0),
@@ -94,6 +95,7 @@ const popupEntriesForScene = (scene) => {
     ...scene,
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
+    narration: String(scene.narration ?? ""),
     popupIndex: 0,
   }];
 };
@@ -114,6 +116,13 @@ const escapeXml = (value = "") =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+
+const escapeDrawtext = (value = "") => String(value)
+  .replaceAll("\\", "\\\\")
+  .replaceAll("'", "\\'")
+  .replaceAll(":", "\\:")
+  .replaceAll("%", "\\%")
+  .replace(/\r?\n/g, "\\n");
 
 const wrap = (value = "", max = 42) => {
   const words = value.trim().split(/\s+/).filter(Boolean);
@@ -454,12 +463,22 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
+  const overlayText = String(scene.overlayText ?? "").trim();
+  const overlayTextColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextColor ?? ""))
+    ? String(scene.overlayTextColor)
+    : "#ffffff";
+  const overlayTextSize = Math.round(previewPx(clamp(Number(scene.overlayTextSize ?? 24), 8, 120)));
+  const overlayTextX = clamp(Number(scene.overlayTextX ?? 50) / 100, 0, 1);
+  const overlayTextY = clamp(Number(scene.overlayTextY ?? 18) / 100, 0, 1);
+  const overlayTextFilter = overlayText
+    ? `,drawtext=font='Arial':text='${escapeDrawtext(overlayText)}':fontcolor=${overlayTextColor}:fontsize=${overlayTextSize}:x='w*${overlayTextX}-text_w/2':y='h*${overlayTextY}-text_h/2'`
+    : "";
   let filter =
     `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
     `zoompan=z='${zoomExpression}':` +
     `x='iw*${centerX}*(1-1/zoom)':` +
     `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
   let composedLabel = "[bg]";
   let popupInputIndex = 1;
   popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
