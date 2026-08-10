@@ -5679,7 +5679,6 @@ body {
     background: #c67a2e;
   }
 }
-
 /* Keep scene details beside the clip information on wide settings screens. */
 .settings-clip-grid { grid-template-columns: minmax(260px, .68fr) minmax(380px, 1.35fr) minmax(300px, .95fr); }
 .settings-selected-scene-panel { position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 120px); margin-top: 0; overflow: auto; }
