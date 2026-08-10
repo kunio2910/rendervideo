@@ -9,7 +9,34 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
+import type { User as FirebaseUser } from "firebase/auth";
+import {
+  loadWorkspaceFromFirestore,
+  observeGoogleUser,
+  saveWorkspaceToFirestore,
+  signInWithGoogle,
+  signOutFromGoogle,
+} from "./lib/firebase";
+
+type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
+
+type TextOverlay = {
+  id: string;
+  text: string;
+  size: number;
+  style: "normal" | "bold" | "italic" | "bold-italic";
+  color: string;
+  opacity: number;
+  font: OverlayTextFont;
+  strokeWidth: number;
+  strokeColor: string;
+  borderWidth: number;
+  borderColor: string;
+  borderOpacity: number;
+  borderFill: string;
+  x: number;
+  y: number;
+};
 
 type Scene = {
   id: string;
@@ -33,6 +60,18 @@ type Scene = {
   centerX: number;
   centerY: number;
   zoomEnabled: boolean;
+  overlayText: string;
+  overlayTextSize: number;
+  overlayTextStyle: "normal" | "bold" | "italic" | "bold-italic";
+  overlayTextColor: string;
+  overlayTextFont: OverlayTextFont;
+  overlayTextStrokeWidth: number;
+  overlayTextStrokeColor: string;
+  overlayTextBorderWidth: number;
+  overlayTextBorderColor: string;
+  overlayTextX: number;
+  overlayTextY: number;
+  textOverlays: TextOverlay[];
   popupDuration: number;
   voiceFile: string;
   voiceVolume: number;
@@ -58,6 +97,7 @@ type PopupConfig = {
   id: string;
   title: string;
   body: string;
+  narration: string;
   image: string;
   video: string;
   start: number;
@@ -126,6 +166,18 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   centerX: 50,
   centerY: 50,
   zoomEnabled: true,
+  overlayText: "",
+  overlayTextSize: 24,
+  overlayTextStyle: "normal",
+  overlayTextColor: "#ffffff",
+  overlayTextFont: "Arial",
+  overlayTextStrokeWidth: 0,
+  overlayTextStrokeColor: "#000000",
+  overlayTextBorderWidth: 0,
+  overlayTextBorderColor: "#ffffff",
+  overlayTextX: 50,
+  overlayTextY: 18,
+  textOverlays: [],
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -180,6 +232,8 @@ const assetReference = (value: string) => {
 };
 
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
+const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
+const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
@@ -322,6 +376,8 @@ type EditorSectionState = {
   content: boolean;
   audio: boolean;
   effects: boolean;
+  popup: boolean;
+  text: boolean;
 };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -331,6 +387,8 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   content: true,
   audio: true,
   effects: true,
+  popup: true,
+  text: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -346,6 +404,74 @@ const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   return Number.isFinite(numeric) ? Math.max(minimum, numeric) : fallback;
 };
 
+const normalizeHexColor = (value: unknown, fallback: string) => {
+  const color = String(value ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+};
+
+const colorWithAlpha = (value: unknown, alpha: number, fallback: string) => {
+  const color = normalizeHexColor(value, fallback).slice(1);
+  const red = Number.parseInt(color.slice(0, 2), 16);
+  const green = Number.parseInt(color.slice(2, 4), 16);
+  const blue = Number.parseInt(color.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
+};
+
+const defaultTextOverlay = (
+  id: string,
+  overrides: Partial<TextOverlay> = {},
+): TextOverlay => ({
+  id,
+  text: "",
+  size: 24,
+  style: "normal",
+  color: "#ffffff",
+  opacity: 100,
+  font: "Arial",
+  strokeWidth: 0,
+  strokeColor: "#000000",
+  borderWidth: 0,
+  borderColor: "#ffffff",
+  borderOpacity: 100,
+  borderFill: "#14202e",
+  x: 50,
+  y: 18,
+  ...overrides,
+});
+
+const normalizeTextOverlay = (
+  value: unknown,
+  id: string,
+  fallback: Partial<TextOverlay> = {},
+): TextOverlay => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultTextOverlay(id, fallback);
+  const style = String(raw.style ?? raw.overlayTextStyle ?? base.style);
+  const font = String(raw.font ?? raw.overlayTextFont ?? base.font);
+  return {
+    ...base,
+    id: String(raw.id ?? base.id),
+    text: String(raw.text ?? raw.overlayText ?? base.text),
+    size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
+    style: ["normal", "bold", "italic", "bold-italic"].includes(style)
+      ? style as TextOverlay["style"]
+      : base.style,
+    color: normalizeHexColor(raw.color ?? raw.overlayTextColor, base.color),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    font: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(font)
+      ? font as OverlayTextFont
+      : base.font,
+    strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth ?? raw.overlayTextStrokeWidth, base.strokeWidth)),
+    strokeColor: normalizeHexColor(raw.strokeColor ?? raw.overlayTextStrokeColor, base.strokeColor),
+    borderWidth: Math.min(12, positiveNumber(raw.borderWidth ?? raw.overlayTextBorderWidth, base.borderWidth)),
+    borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
+    borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity ?? raw.overlayTextBorderOpacity, base.borderOpacity))),
+    borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
+    x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
+    y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
+  };
+};
+
 const clampVolume = (value: unknown, fallback = 100) => {
   const numeric = Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
@@ -358,12 +484,15 @@ const normalizeEditorSections = (
   content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
   audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
   effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
+  popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
+  text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
 });
 
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
   id,
   title: "",
   body: "",
+  narration: "",
   image: "",
   video: "",
   start: 0.5,
@@ -386,6 +515,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
   defaultPopupConfig(id, {
     title: String(scene.title ?? ""),
     body: String(scene.popup ?? ""),
+    narration: String(scene.narration ?? ""),
     image: String(scene.image ?? ""),
     video: String(scene.popupVideo ?? ""),
     start: positiveNumber(scene.popupStart, 0.5),
@@ -404,13 +534,14 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
   });
 
 const scenePopupList = (scene: Scene): PopupConfig[] => {
-  if (Array.isArray(scene.popups) && scene.popups.length > 0) return scene.popups;
+  if (Array.isArray(scene.popups)) return scene.popups;
   return [popupConfigFromScene(scene, `${scene.id}-popup-1`)];
 };
 
 const popupSceneFields = (popup: PopupConfig) => ({
   title: popup.title,
   popup: popup.body,
+  narration: popup.narration,
   image: popup.image,
   popupVideo: popup.video,
   popupStart: popup.start,
@@ -425,6 +556,20 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popupX: popup.x,
   popupY: popup.y,
   popupVisible: popup.visible,
+});
+
+const textOverlaySceneFields = (overlay: TextOverlay) => ({
+  overlayText: overlay.text,
+  overlayTextSize: overlay.size,
+  overlayTextStyle: overlay.style,
+  overlayTextColor: overlay.color,
+  overlayTextFont: overlay.font,
+  overlayTextStrokeWidth: overlay.strokeWidth,
+  overlayTextStrokeColor: overlay.strokeColor,
+  overlayTextBorderWidth: overlay.borderWidth,
+  overlayTextBorderColor: overlay.borderColor,
+  overlayTextX: overlay.x,
+  overlayTextY: overlay.y,
 });
 
 const ensureUniqueSceneIds = (items?: Scene[]) => {
@@ -450,7 +595,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       Math.max(zoomInEnd, positiveNumber(item.zoomEnd, sceneDuration)),
     );
     const rawPopups = (item as Scene & { popups?: unknown }).popups;
-    const popups = Array.isArray(rawPopups) && rawPopups.length > 0
+    const popups = Array.isArray(rawPopups)
       ? rawPopups.filter(isRecord).map((rawPopup, popupIndex) => {
           const fallback = popupIndex === 0 ? popupConfigFromScene(item, `${id}-popup-1`) : defaultPopupConfig(`${id}-popup-${popupIndex + 1}`);
           return defaultPopupConfig(
@@ -459,6 +604,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               ...fallback,
               title: String(rawPopup.title ?? rawPopup.popup ?? fallback.title),
               body: String(rawPopup.body ?? rawPopup.content ?? rawPopup.popup ?? fallback.body),
+              narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
@@ -484,12 +630,36 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
           );
         })
       : [popupConfigFromScene(item, `${id}-popup-1`)];
-    const firstPopup = popups[0] ?? defaultPopupConfig(`${id}-popup-1`);
+    const firstPopup = popups[0];
+    const rawTextOverlays = (item as Scene & { textOverlays?: unknown }).textOverlays;
+    const legacyText = String((item as Scene & { overlayText?: unknown }).overlayText ?? "");
+    const textOverlays = Array.isArray(rawTextOverlays) && rawTextOverlays.some(isRecord)
+      ? rawTextOverlays.filter(isRecord).map((rawText, textIndex) => normalizeTextOverlay(
+          rawText,
+          String((rawText as { id?: unknown }).id ?? `${id}-text-${textIndex + 1}`),
+        ))
+      : legacyText.trim()
+        ? [normalizeTextOverlay({
+            id: `${id}-text-1`,
+            text: legacyText,
+            size: (item as Scene & { overlayTextSize?: unknown }).overlayTextSize,
+            style: (item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle,
+            color: (item as Scene & { overlayTextColor?: unknown }).overlayTextColor,
+            font: (item as Scene & { overlayTextFont?: unknown }).overlayTextFont,
+            strokeWidth: (item as Scene & { overlayTextStrokeWidth?: unknown }).overlayTextStrokeWidth,
+            strokeColor: (item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor,
+            borderWidth: (item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth,
+            borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
+            x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
+            y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
+          }, `${id}-text-1`)]
+        : [];
+    const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${id}-text-1`);
     return {
       ...item,
       id,
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
-      ...popupSceneFields(firstPopup),
+      ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
       narration: String(item.narration ?? ""),
       zoomStart,
@@ -500,6 +670,18 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
+      overlayText: firstTextOverlay.text,
+      overlayTextSize: firstTextOverlay.size,
+      overlayTextStyle: firstTextOverlay.style,
+      overlayTextColor: firstTextOverlay.color,
+      overlayTextFont: firstTextOverlay.font,
+      overlayTextStrokeWidth: firstTextOverlay.strokeWidth,
+      overlayTextStrokeColor: firstTextOverlay.strokeColor,
+      overlayTextBorderWidth: firstTextOverlay.borderWidth,
+      overlayTextBorderColor: firstTextOverlay.borderColor,
+      overlayTextX: firstTextOverlay.x,
+      overlayTextY: firstTextOverlay.y,
+      textOverlays,
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -546,7 +728,7 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
           <h1>Không thể hiển thị khu vực biên soạn</h1>
           <p>
             Dữ liệu cảnh hiện tại không hợp lệ hoặc chưa tải xong.
-            Hãy tải lại để lấy lại dữ liệu từ Google Sheet.
+            Hãy đăng nhập lại để tải dữ liệu từ Firestore.
           </p>
           <button type="button" className="button primary" onClick={() => window.location.reload()}>
             Tải lại dữ liệu
@@ -888,9 +1070,10 @@ function SettingsWorkspace({
                     );
                   })}
                 </div>
+              </section>
 
                 {selectedScene && (
-                  <section className="settings-selected-scene" aria-labelledby="selected-scene-heading">
+                  <section className="settings-card settings-selected-scene settings-selected-scene-panel" aria-labelledby="selected-scene-heading">
                     <div className="settings-selected-scene-heading">
                       <div>
                         <span className="settings-section-label">CẢNH ĐANG CHỌN · {String(selectedScene.number).padStart(2, "0")}</span>
@@ -959,11 +1142,10 @@ function SettingsWorkspace({
                   </section>
                 )}
 
-                <div className="settings-note">
+                <div className="settings-note settings-clip-note">
                   <span>i</span>
                   <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
                 </div>
-              </section>
             </div>
           </div>
         </div>
@@ -976,6 +1158,7 @@ function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedPopupId, setSelectedPopupId] = useState("");
+  const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1003,6 +1186,9 @@ function Home() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [googleAuthReady, setGoogleAuthReady] = useState(false);
+  const [googleAuthBusy, setGoogleAuthBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
     "loading" | "saved" | "saving" | "unsaved" | "offline" | "error"
@@ -1027,6 +1213,7 @@ function Home() {
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
+  const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -1049,6 +1236,109 @@ function Home() {
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => undefined;
+
+    try {
+      unsubscribe = observeGoogleUser((user) => {
+        if (cancelled) return;
+        setGoogleUser(user);
+        setGoogleAuthReady(true);
+      });
+    } catch {
+      if (!cancelled) setGoogleAuthReady(true);
+    }
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleAuthBusy(true);
+    try {
+      await signInWithGoogle();
+      setToast("Đăng nhập Google thành công");
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể đăng nhập Google";
+      setToast(`Đăng nhập Google lỗi: ${reason}`);
+    } finally {
+      setGoogleAuthBusy(false);
+      window.setTimeout(() => setToast(""), 3200);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    setGoogleAuthBusy(true);
+    try {
+      await signOutFromGoogle();
+      setToast("Đã đăng xuất Google");
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể đăng xuất Google";
+      setToast(`Đăng xuất Google lỗi: ${reason}`);
+    } finally {
+      setGoogleAuthBusy(false);
+      window.setTimeout(() => setToast(""), 2800);
+    }
+  };
+
+  /* Excel import was removed from the editor UI; keep this migration path disabled. const handleExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    setFirestoreImportBusy(true);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const worksheet = workbook.Sheets.Storage ?? workbook.Sheets[workbook.SheetNames[0]];
+      if (!worksheet) throw new Error("File Excel không có sheet dữ liệu.");
+
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+        header: 1,
+        raw: true,
+        defval: "",
+      });
+      const dataRow = rows.find((row) =>
+        String(row[0] ?? "").trim() === "render-video-default"
+        && String(row[1] ?? "").trim(),
+      );
+      const rawJson = String(dataRow?.[1] ?? "").trim();
+      if (!rawJson) throw new Error("Không tìm thấy dữ liệu workspace trong file Excel.");
+
+      const workspace = JSON.parse(rawJson) as unknown;
+      if (!isRecord(workspace) || workspace.version !== 2 || !Array.isArray(workspace.projects)) {
+        throw new Error("Dữ liệu workspace trong Excel không đúng định dạng Kito.");
+      }
+
+      const result = await importWorkspaceSnapshotToFirestore(workspace);
+      if (!applyStoredProject(workspace)) {
+        throw new Error("Đã ghi Firestore nhưng không thể mở workspace từ file Excel.");
+      }
+      lastSavedProjectSnapshot.current = JSON.stringify(workspace);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setToast(
+        result.backupId
+          ? "Đã nhập Excel vào Firestore · Bản hiện tại đã được sao lưu"
+          : "Đã nhập Excel vào Firestore",
+      );
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể nhập dữ liệu Excel";
+      setToast(`Nhập Excel lỗi: ${reason}`);
+    } finally {
+      setFirestoreImportBusy(false);
+      window.setTimeout(() => setToast(""), 3600);
+    }
+  }; */
+
   const visibleScenes = useMemo(
     () => reflowVisibleSceneTimeline(scenes.filter((item) => item.sceneVisible !== false)),
     [scenes],
@@ -1061,6 +1351,9 @@ function Home() {
     initialScenes[0];
   const scenePopups = useMemo(() => scenePopupList(scene), [scene]);
   const activePopup = scenePopups.find((item) => item.id === selectedPopupId) ?? scenePopups[0];
+  const sceneTextOverlays = scene.textOverlays ?? [];
+  const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
+    ?? sceneTextOverlays[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
@@ -1078,11 +1371,14 @@ function Home() {
     if (!nextScene) return;
     setSelectedId(nextScene.id);
     setSelectedSceneIds([nextScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(nextScene.start);
     setPlaying(false);
   };
-  const wordCount = scene.narration.trim().split(/\s+/).filter(Boolean).length;
-  const voiceEstimate = Math.max(1, Math.ceil((wordCount / 145) * 60));
+  const popupNarration = activePopup?.narration ?? "";
+  const popupWordCount = popupNarration.trim().split(/\s+/).filter(Boolean).length;
+  const popupVoiceEstimate = Math.max(1, Math.ceil((popupWordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return "";
@@ -1090,7 +1386,7 @@ function Home() {
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
-  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? scene.image) : "";
+  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? "") : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
@@ -1139,9 +1435,10 @@ function Home() {
     || Boolean(popup.video.trim());
   const popupHasContent = (popup: PopupConfig) =>
     Boolean(popup.title.trim() || popup.body.trim() || popupHasMediaInput(popup));
+  const hasExplicitPopups = Array.isArray(scene.popups) && scene.popups.length > 0;
   const popupPlaybackVisible =
     activePopup?.visible !== false &&
-    Boolean(activePopup && popupHasContent(activePopup)) &&
+    Boolean(activePopup && (popupHasContent(activePopup) || hasExplicitPopups)) &&
     (sceneIsVisibleInPlayback &&
       (!playing ||
         (sceneLocalTime >= activePopupStartTime && sceneLocalTime <= activePopupEndTime)));
@@ -1271,6 +1568,8 @@ function Home() {
     setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
     setPlayTime(restoredScenes[0]?.start ?? 0);
     setPlaying(false);
@@ -1330,60 +1629,57 @@ function Home() {
     return true;
   };
 
+  const restorePreferredActiveProject = (data: unknown) => {
+    if (!isRecord(data) || data.version !== 2 || !Array.isArray(data.projects)) return;
+    const preferredId = window.localStorage.getItem(LOCAL_ACTIVE_PROJECT_KEY);
+    if (!preferredId) return;
+    const preferred = (data.projects as ProjectSnapshot[]).find((item) => item.id === preferredId);
+    if (preferred) openProject(preferred);
+  };
+
   useEffect(() => {
+    if (!googleAuthReady) return;
     let cancelled = false;
 
     const restoreProject = async () => {
-      let restoredLocally = false;
-      let cloudLoaded = false;
-      let cloudFailed = false;
-
-      try {
-        const cloudData = await loadDataFromGoogle();
-        if (!cancelled && cloudData && applyStoredProject(cloudData)) {
-          cloudLoaded = true;
-          lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
-          setSaveStatus("saved");
-          setLastSavedAt(new Date());
-        }
-      } catch {
-        cloudFailed = true;
-      }
-
-      if (cloudLoaded) {
-        if (!cancelled) setHydrated(true);
+      if (!googleUser) {
+        setSaveStatus("error");
+        setHydrated(true);
         return;
       }
 
       try {
-        const localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (localValue) {
-          const localData = JSON.parse(localValue);
-          if (isBundledSampleWorkspace(localData)) {
-            window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-          } else {
-            restoredLocally = applyStoredProject(localData);
-          }
-          if (restoredLocally) {
-            lastSavedProjectSnapshot.current = localValue;
-            setSaveStatus("offline");
-          }
-        }
-      } catch {
-        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-      }
+        const firestoreData = await loadWorkspaceFromFirestore();
+        if (cancelled) return;
 
-      if (!cancelled && !restoredLocally) {
-        setSaveStatus(cloudFailed ? "error" : "saved");
+        if (firestoreData && applyStoredProject(firestoreData)) {
+          restorePreferredActiveProject(firestoreData);
+          lastSavedProjectSnapshot.current = JSON.stringify(firestoreData);
+          setSaveStatus("saved");
+          setLastSavedAt(new Date());
+        } else {
+          setSaveStatus("error");
+          setToast("Firestore chưa có workspace cho tài khoản này");
+          window.setTimeout(() => setToast(""), 3600);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const reason = error instanceof Error
+          ? error.message.replace(/\s+/g, " ").slice(0, 180)
+          : "Không xác định được nguyên nhân";
+        setSaveStatus("error");
+        setToast(`Không tải được Firestore: ${reason}`);
+        window.setTimeout(() => setToast(""), 3600);
+      } finally {
+        if (!cancelled) setHydrated(true);
       }
-      if (!cancelled) setHydrated(true);
     };
 
-    restoreProject();
+    void restoreProject();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [googleAuthReady, googleUser]);
 
   useEffect(() => {
     const nextUrls = Object.fromEntries(
@@ -1465,23 +1761,37 @@ function Home() {
   }, []);
 
   const saveProjectNow = async () => {
+    if (!googleUser) {
+      setSaveStatus("error");
+      setToast("Hãy đăng nhập Google để lưu dữ liệu lên Firestore");
+      window.setTimeout(() => setToast(""), 3200);
+      return;
+    }
+
     const currentSnapshot = JSON.stringify(storedProject);
+    const savedAt = Date.now();
+    window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
       currentSnapshot,
     );
+    window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
     setSaveStatus("saving");
     try {
-      await saveDataToGoogle(storedProject);
+      await saveWorkspaceToFirestore(storedProject);
       const now = new Date();
+      lastSavedProjectSnapshot.current = currentSnapshot;
       setSaveStatus("saved");
       setLastSavedAt(now);
-      setToast("Đã lưu dự án lên Google Sheet");
-    } catch {
-      setSaveStatus("offline");
-      setToast("Đã lưu trên thiết bị · Google Sheet tạm thời lỗi");
+      setToast("Đã lưu dữ liệu lên Firestore");
+
+    } catch (error) {
+      setSaveStatus("error");
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không xác định được nguyên nhân";
+      setToast(`Firestore lỗi: ${reason}`);
     }
-    lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
   };
 
@@ -1620,6 +1930,7 @@ function Home() {
       setSelectedSceneIds([item.id]);
       setSelectedId(item.id);
       setSelectedPopupId("");
+      setSelectedTextOverlayId("");
       setPlayTime(item.start);
       return;
     }
@@ -1636,6 +1947,7 @@ function Home() {
     setSelectedSceneIds(nextIds);
     setSelectedId(primary.id);
     setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(primary.start);
   };
 
@@ -1646,6 +1958,8 @@ function Home() {
     if (item) {
       setSelectedId(item.id);
       setSelectedSceneIds([item.id]);
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
       setPlayTime(item.start);
     }
     setPlaying(false);
@@ -1825,6 +2139,30 @@ function Home() {
         ...item,
         popups: nextPopups,
         ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updateTextOverlay = <K extends keyof TextOverlay>(key: K, value: TextOverlay[K]) => {
+    if (!hydrated || !activeTextOverlay) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const overlayIndex = Math.max(
+      0,
+      sceneTextOverlays.findIndex((item) => item.id === activeTextOverlay.id),
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const overlays = item.textOverlays ?? [];
+      const current = overlays[overlayIndex];
+      if (!current) return item;
+      const nextOverlay = { ...current, [key]: value } as TextOverlay;
+      const nextOverlays = overlays.map((overlay, index) => index === overlayIndex ? nextOverlay : overlay);
+      return {
+        ...item,
+        textOverlays: nextOverlays,
+        ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlay) : {}),
       };
     }));
   };
@@ -2076,6 +2414,8 @@ function Home() {
     if (project.id !== projectId) openProject(project);
     setSelectedId(selectedScene.id);
     setSelectedSceneIds([selectedScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(selectedScene.start);
     setActiveStudioTab("compose");
   };
@@ -2106,6 +2446,18 @@ function Home() {
       centerX: 50,
       centerY: 50,
       zoomEnabled: true,
+      overlayText: "",
+      overlayTextSize: 24,
+      overlayTextStyle: "normal",
+      overlayTextColor: "#ffffff",
+      overlayTextFont: "Arial",
+      overlayTextStrokeWidth: 0,
+      overlayTextStrokeColor: "#000000",
+      overlayTextBorderWidth: 0,
+      overlayTextBorderColor: "#ffffff",
+      overlayTextX: 50,
+      overlayTextY: 18,
+      textOverlays: [],
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -2126,6 +2478,8 @@ function Home() {
     setProjectDuration((duration) => Math.max(duration, next.end));
     setSelectedId(next.id);
     setSelectedSceneIds([next.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
   };
 
   const duplicateScene = (source = scene) => {
@@ -2151,6 +2505,7 @@ function Home() {
     setSelectedId(copied.id);
     setSelectedSceneIds([copied.id]);
     setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(copied.start);
     setToast("Đã nhân bản cảnh");
     window.setTimeout(() => setToast(""), 2200);
@@ -2174,8 +2529,68 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, effects: true }));
+    setEditorSections((items) => ({ ...items, popup: true }));
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const addTextOverlay = () => {
+    if (!scene) return;
+    const currentOverlays = scene.textOverlays ?? [];
+    const nextOverlay = defaultTextOverlay(
+      `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
+      { y: Math.min(82, 18 + currentOverlays.length * 8) },
+    );
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const nextOverlays = [...(item.textOverlays ?? []), nextOverlay];
+      return {
+        ...item,
+        textOverlays: nextOverlays,
+        ...(nextOverlays.length === 1 ? textOverlaySceneFields(nextOverlay) : {}),
+      };
+    }));
+    setSelectedTextOverlayId(nextOverlay.id);
+    setEditorSections((items) => ({ ...items, text: true }));
+    setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const deleteTextOverlay = (overlayId = activeTextOverlay?.id) => {
+    if (!scene || !overlayId) return;
+    const currentOverlays = scene.textOverlays ?? [];
+    const overlayIndex = currentOverlays.findIndex((overlay) => overlay.id === overlayId);
+    if (overlayIndex < 0) return;
+    if (!window.confirm(`Xóa chữ ${overlayIndex + 1}?`)) return;
+    const remaining = currentOverlays.filter((overlay) => overlay.id !== overlayId);
+    const firstOverlay = remaining[0] ?? defaultTextOverlay(`${scene.id}-text-1`);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, textOverlays: remaining, ...textOverlaySceneFields(firstOverlay) }
+      : item));
+    setSelectedTextOverlayId(remaining[Math.min(overlayIndex, remaining.length - 1)]?.id ?? "");
+    setToast(`Đã xóa chữ ${overlayIndex + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const deletePopup = (popupId = activePopup?.id) => {
+    if (!scene || !popupId) return;
+    const currentPopups = scenePopupList(scene);
+    const popupIndex = currentPopups.findIndex((popup) => popup.id === popupId);
+    if (popupIndex < 0) return;
+    const popupLabel = currentPopups[popupIndex].title.trim() || `Popup ${popupIndex + 1}`;
+    if (!window.confirm(`Xóa ${popupLabel}?`)) return;
+    const remaining = currentPopups.filter((popup) => popup.id !== popupId);
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const firstPopup = remaining[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+      return {
+        ...item,
+        popups: remaining,
+        ...popupSceneFields(firstPopup),
+      };
+    }));
+    setSelectedPopupId(remaining[Math.min(popupIndex, remaining.length - 1)]?.id ?? "");
+    setToast(`Đã xóa ${popupLabel}`);
     window.setTimeout(() => setToast(""), 2200);
   };
 
@@ -2317,6 +2732,55 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTextOverlayDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    overlayId = activeTextOverlay?.id,
+  ) => {
+    if (playing) return;
+    const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
+    const draggedOverlay = sceneTextOverlays[overlayIndex];
+    if (!draggedOverlay) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(draggedOverlay.x, 50);
+    const baseY = clampPercent(draggedOverlay.y, 18);
+    setSelectedTextOverlayId(draggedOverlay.id);
+    setDraggingTextOverlay(true);
+
+    const updatePosition = (clientX: number, clientY: number) => {
+      const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
+      const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== selectedId) return item;
+        const overlays = item.textOverlays ?? [];
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, x: Number(nextX.toFixed(1)), y: Number(nextY.toFixed(1)) }
+          : overlay);
+        const nextOverlay = nextOverlays[overlayIndex];
+        return {
+          ...item,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 && nextOverlay ? textOverlaySceneFields(nextOverlay) : {}),
+        };
+      }));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -2442,6 +2906,7 @@ function Home() {
             id: popup.id,
             title: popup.title,
             body: popup.body,
+            narration: narrationEnabled ? popup.narration : "",
             start: popup.start,
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
@@ -2473,6 +2938,18 @@ function Home() {
             centerX: item.centerX,
             centerY: item.centerY,
             zoomEnabled: item.zoomEnabled,
+            overlayText: item.overlayText,
+            overlayTextSize: item.overlayTextSize,
+            overlayTextStyle: item.overlayTextStyle,
+            overlayTextColor: item.overlayTextColor,
+            overlayTextFont: item.overlayTextFont,
+            overlayTextStrokeWidth: item.overlayTextStrokeWidth,
+            overlayTextStrokeColor: item.overlayTextStrokeColor,
+            overlayTextBorderWidth: item.overlayTextBorderWidth,
+            overlayTextBorderColor: item.overlayTextBorderColor,
+            overlayTextX: item.overlayTextX,
+            overlayTextY: item.overlayTextY,
+            textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             sceneVisible: item.sceneVisible !== false,
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
@@ -2481,7 +2958,7 @@ function Home() {
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
-            narration: narrationEnabled ? item.narration : "",
+            narration: narrationEnabled ? firstPopup.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
             voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
             popupIn: firstPopup.in,
@@ -2954,6 +3431,32 @@ function Home() {
           >
             {theme === "light" ? "☾ Tối" : "☀ Sáng"}
           </button>
+          {googleUser ? (
+            <>
+              <div className="google-account" title={googleUser.email ?? "Tài khoản Google"}>
+                <span className="google-account-name">
+                  {googleUser.displayName || googleUser.email || "Google"}
+                </span>
+                <button
+                  type="button"
+                  className="button google-signin-button"
+                  onClick={() => void handleGoogleSignOut()}
+                  disabled={googleAuthBusy}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="button google-signin-button"
+              onClick={() => void handleGoogleSignIn()}
+              disabled={!googleAuthReady || googleAuthBusy}
+            >
+              {googleAuthBusy ? "Đang đăng nhập…" : "G Đăng nhập Google"}
+            </button>
+          )}
           <div className={`save-state ${saveStatus}`} aria-live="polite">
             <i />
             <span>
@@ -2974,35 +3477,9 @@ function Home() {
           <button
             className="button save-button"
             onClick={saveProjectNow}
-            disabled={saveStatus === "loading" || saveStatus === "saving"}
+            disabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
           >
             ☁ Lưu
-          </button>
-          <button
-            className="button history-button"
-            onClick={undo}
-            disabled={!historyPast.current.length}
-            title="Hoàn tác (Ctrl/Cmd + Z)"
-            aria-label="Hoàn tác"
-          >
-            ↶
-          </button>
-          <button
-            className="button history-button"
-            onClick={redo}
-            disabled={!historyFuture.current.length}
-            title="Làm lại (Ctrl/Cmd + Y)"
-            aria-label="Làm lại"
-          >
-            ↷
-          </button>
-          <button
-            className="button restore-button"
-            onClick={restoreLastSavedProject}
-            disabled={!lastSavedProjectSnapshot.current || saveStatus === "loading" || saveStatus === "saving"}
-            title="Khôi phục bản lưu gần nhất"
-          >
-            ↥ Khôi phục
           </button>
           <label className="duration-picker">
             <span>Độ dài</span>
@@ -3288,6 +3765,33 @@ function Home() {
                 />
               )
             )}
+            {sceneIsVisibleInPlayback && sceneTextOverlays.map((overlay) => overlay.text.trim() ? (
+              <div
+                key={overlay.id}
+                className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
+                style={{
+                  left: `${overlay.x}%`,
+                  top: `${overlay.y}%`,
+                  color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
+                  fontSize: `${overlay.size}px`,
+                  fontFamily: overlay.font,
+                  fontWeight: overlay.style.includes("bold") ? 700 : 400,
+                  fontStyle: overlay.style.includes("italic") ? "italic" : "normal",
+                  WebkitTextStroke: overlay.strokeWidth > 0
+                    ? `${overlay.strokeWidth}px ${colorWithAlpha(overlay.strokeColor, overlay.opacity / 100, "#000000")}`
+                    : undefined,
+                  ["--text-border-width" as string]: `${overlay.borderWidth}px`,
+                  ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
+                  ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="Chữ viết trên bản đồ. Kéo để di chuyển."
+                onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
+              >
+                {overlay.text}
+              </div>
+            ) : null)}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
@@ -3324,18 +3828,21 @@ function Home() {
               const popupVideoSource = assetPreviewSource(popup.video);
               const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
                 || Boolean(popup.video.trim());
-              const popupMediaOnly = popupHasMedia && !popup.title.trim() && !popup.body.trim();
+               const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
+               const popupMediaOnly = popupHasMedia && !popupHasText;
+               const popupEmptyFrame = !popupHasMedia && !popupHasText;
+               const popupLayout = popupMediaOnly ? "image-top" : popup.layout ?? "image-top";
               return (
                 <article
                   key={popup.id}
-                  className={`preview-card popup-layout-${popup.layout ?? "image-top"} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only" : ""} ${
+                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                    height: `min(${popup.height ?? 255}px, 88%)`,
+                     height: popupMediaOnly ? "auto" : `min(${popup.height ?? 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
                     right: "auto",
@@ -3367,17 +3874,17 @@ function Home() {
                       )}
                     </div>
                   )}
-                  <div className="card-content">
-                    {popup.layout === "stats" && (
+                   {popupHasText && <div className="card-content">
+                     {popupLayout === "stats" && (
                       <div className="popup-stat-row">
                         <span>{scene.location || "HÀNH TRÌNH"}</span>
-                        <b>{String(scene.number).padStart(2, "0")}</b>
-                      </div>
-                    )}
+                    <b>{String(scene.number).padStart(2, "0")}</b>
+                    </div>
+                     )}
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
                     {popup.title.trim() && <h3>{popup.title}</h3>}
                     {popup.body.trim() && <p>{popup.body}</p>}
-                  </div>
+                   </div>}
                   {popup.id === activePopup?.id && (
                     <button
                       className="popup-resize-handle"
@@ -3443,6 +3950,8 @@ function Home() {
                     content: shouldOpen,
                     audio: shouldOpen,
                     effects: shouldOpen,
+                    popup: shouldOpen,
+                    text: shouldOpen,
                   });
                 }}
               >
@@ -3558,57 +4067,225 @@ function Home() {
               />
               <small>Tên này hiển thị ở danh sách cảnh và khu vực xem trước.</small>
             </label>
-            <label className="field">
-              <span>Tiêu đề</span>
-              <input
-                value={activePopup?.title ?? ""}
-                onChange={(event) => updatePopup("title", event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Nội dung popup</span>
-              <textarea
-                value={activePopup?.body ?? ""}
-                onChange={(event) => updatePopup("body", event.target.value)}
-              />
-              <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
-            </label>
-            <label className="field">
-              <span>Lời thuyết minh</span>
-              <textarea
-                value={scene.narration}
-                onChange={(event) => updateScene("narration", event.target.value)}
-              />
-              <small>{wordCount} từ · Ước tính {voiceEstimate} giây</small>
-            </label>
-            <div className="field-row">
-              <label className="field">
-                <span>Ảnh popup</span>
-                <input
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
-                  value={activePopup?.image ?? ""}
-                  onChange={(event) => updatePopup("image", event.target.value)}
-                />
-                {imagePreviewSource && (
-                  <div className="image-url-preview">
-                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
-                    <span>Đang hiển thị đúng tài nguyên sẽ dùng khi render</span>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
+              open={editorSections.text}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  text: open,
+                }));
+              }}
+            >
+              <summary className="editor-group-label"><span>03</span> Chữ viết <i /></summary>
+              <div className="editor-accordion-content">
+                <label className="field">
+                  <span>Nội dung chữ viết</span>
+                  <textarea
+                    value={activeTextOverlay?.text ?? ""}
+                    placeholder="Nhập chữ hiển thị trên bản đồ..."
+                    onChange={(event) => updateTextOverlay("text", event.target.value)}
+                  />
+                  <div className="text-overlay-manager">
+                    <div className="text-overlay-list-heading">
+                      <span>Danh sách chữ trên bản đồ</span>
+                      <button type="button" className="button primary text-overlay-add" onClick={addTextOverlay}>＋ Thêm chữ</button>
+                    </div>
+                    {sceneTextOverlays.length > 0 ? (
+                      <div className="text-overlay-list">
+                        {sceneTextOverlays.map((overlay, index) => (
+                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""}`}>
+                            <button type="button" className="text-overlay-select" onClick={() => setSelectedTextOverlayId(overlay.id)}>
+                              <span>{String(index + 1).padStart(2, "0")}</span>
+                              <strong>{overlay.text.trim() || `Chữ ${index + 1}`}</strong>
+                            </button>
+                            <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-overlay-empty">Chưa có chữ. Bấm “Thêm chữ” để tạo một lớp mới.</div>
+                    )}
                   </div>
-                )}
-              </label>
-              <label className="field">
-                <span>Giọng đọc</span>
-                <select
-                  value={scene.voice}
-                  onChange={(event) => updateScene("voice", event.target.value)}
-                >
-                  <option>Nam trầm</option>
-                  <option>Nữ ấm</option>
-                  <option>Nam trẻ</option>
-                </select>
-              </label>
-            </div>
+                  <small>Kéo trực tiếp dòng chữ trên khung bản đồ để di chuyển vị trí.</small>
+                </label>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Cỡ chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="8"
+                        max="120"
+                        step="1"
+                        value={activeTextOverlay?.size ?? 24}
+                        onChange={(event) => updateTextOverlay("size", Math.min(120, Math.max(8, Number(event.target.value) || 24)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Kiểu chữ</span>
+                    <select
+                      value={activeTextOverlay?.style ?? "normal"}
+                      onChange={(event) => updateTextOverlay("style", event.target.value as TextOverlay["style"])}
+                    >
+                      <option value="normal">Thường</option>
+                      <option value="bold">Đậm</option>
+                      <option value="italic">Nghiêng</option>
+                      <option value="bold-italic">Đậm + nghiêng</option>
+                    </select>
+                  </label>
+                 </div>
+                 <div className="field-row">
+                   <label className="field">
+                     <span>Độ trong suốt</span>
+                     <div className="number-with-unit">
+                       <input
+                         type="number"
+                         min="0"
+                         max="100"
+                         step="1"
+                         value={activeTextOverlay?.opacity ?? 100}
+                         onChange={(event) => updateTextOverlay("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                       />
+                       <b>%</b>
+                     </div>
+                   </label>
+                 </div>
+                 <div className="field-row">
+                  <label className="field">
+                    <span>Font chữ</span>
+                    <select
+                      value={activeTextOverlay?.font ?? "Arial"}
+                      onChange={(event) => updateTextOverlay("font", event.target.value as OverlayTextFont)}
+                    >
+                      <option value="Arial">Arial</option>
+                      <option value="Verdana">Verdana</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="Tahoma">Tahoma</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                      <option value="Courier New">Courier New</option>
+                    </select>
+                  </label>
+                  <label className="field color-field">
+                    <span>Màu chữ · mã HEX</span>
+                    <div className="color-input-row">
+                      <input
+                        className="text-color-picker"
+                        type="color"
+                        value={normalizeHexColor(activeTextOverlay?.color ?? "#ffffff", "#ffffff")}
+                        onChange={(event) => updateTextOverlay("color", event.target.value)}
+                      />
+                      <input
+                        className="text-color-code"
+                        type="text"
+                        inputMode="text"
+                        maxLength={7}
+                        value={activeTextOverlay?.color ?? "#ffffff"}
+                        placeholder="#FFFFFF"
+                        onChange={(event) => updateTextOverlay("color", event.target.value)}
+                        onBlur={(event) => updateTextOverlay("color", normalizeHexColor(event.target.value, "#ffffff"))}
+                      />
+                    </div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Stroke chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={activeTextOverlay?.strokeWidth ?? 0}
+                        onChange={(event) => updateTextOverlay("strokeWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field color-field">
+                    <span>Màu stroke</span>
+                    <input
+                      className="text-color-picker"
+                      type="color"
+                      value={normalizeHexColor(activeTextOverlay?.strokeColor ?? "#000000", "#000000")}
+                      onChange={(event) => updateTextOverlay("strokeColor", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Border khung</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={activeTextOverlay?.borderWidth ?? 0}
+                        onChange={(event) => updateTextOverlay("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>px</b>
+                    </div>
+                  </label>
+                  <label className="field color-field">
+                    <span>Màu border</span>
+                    <input
+                      className="text-color-picker"
+                      type="color"
+                      value={normalizeHexColor(activeTextOverlay?.borderColor ?? "#ffffff", "#ffffff")}
+                      onChange={(event) => updateTextOverlay("borderColor", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field color-field">
+                    <span>Màu nền border</span>
+                    <div className="color-input-row">
+                      <input
+                        className="text-color-picker"
+                        type="color"
+                        value={normalizeHexColor(activeTextOverlay?.borderFill ?? "#14202e", "#14202e")}
+                        onChange={(event) => updateTextOverlay("borderFill", event.target.value)}
+                      />
+                      <input
+                        className="text-color-code"
+                        type="text"
+                        inputMode="text"
+                        maxLength={7}
+                        value={activeTextOverlay?.borderFill ?? "#14202e"}
+                        placeholder="#14202E"
+                        onChange={(event) => updateTextOverlay("borderFill", event.target.value)}
+                        onBlur={(event) => updateTextOverlay("borderFill", normalizeHexColor(event.target.value, "#14202e"))}
+                      />
+                    </div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Độ mờ border (%)</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={activeTextOverlay?.borderOpacity ?? 100}
+                        onChange={(event) => updateTextOverlay("borderOpacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                      />
+                      <b>%</b>
+                    </div>
+                  </label>
+                </div>
+                <div className="field text-position-readout">
+                  <span>Vị trí hiện tại</span>
+                    <b>X {Math.round(activeTextOverlay?.x ?? 50)}% · Y {Math.round(activeTextOverlay?.y ?? 18)}%</b>
+                </div>
               </div>
             </details>
             <details
@@ -3622,7 +4299,7 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>03</span> Âm thanh <i /></summary>
+              <summary className="editor-group-label"><span>04</span> Âm thanh <i /></summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
               <span>Nhạc nền chủ đề</span>
@@ -3732,7 +4409,7 @@ function Home() {
                 }));
               }}
             >
-              <summary className="editor-group-label"><span>04</span> Hiệu ứng <i /></summary>
+              <summary className="editor-group-label"><span>05</span> Hiệu ứng <i /></summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card">
                   <div className="motion-settings-title">
@@ -3832,9 +4509,16 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
-              open={editorSections.content}
+              open={editorSections.popup}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({
+                  ...items,
+                  popup: open,
+                }));
+              }}
             >
-              <summary className="editor-group-label"><span>05</span> Popup <i /></summary>
+              <summary className="editor-group-label"><span>06</span> Popup <i /></summary>
               <div className="editor-accordion-content">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
               <div className="popup-manager-heading">
@@ -3843,23 +4527,60 @@ function Home() {
               </div>
               <div className="popup-manager-list">
                 {scenePopups.map((popup, index) => (
-                  <button
-                    type="button"
+                  <div
                     key={popup.id}
                     className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""}`}
-                    onClick={() => setSelectedPopupId(popup.id)}
                   >
-                    <span>Popup {index + 1}</span>
-                    <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
-                  </button>
+                    <button
+                      type="button"
+                      className="popup-manager-select"
+                      onClick={() => setSelectedPopupId(popup.id)}
+                    >
+                      <span>Popup {index + 1}</span>
+                      <b>{popup.title || popup.body || "Chưa có nội dung"}</b>
+                    </button>
+                    <button
+                      type="button"
+                      className="popup-delete-button"
+                      aria-label={`Xóa Popup ${index + 1}`}
+                      title={`Xóa Popup ${index + 1}`}
+                      onClick={() => deletePopup(popup.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
+            {activePopup ? (
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
                 <strong>Popup {Math.max(1, scenePopups.findIndex((item) => item.id === activePopup?.id) + 1)}</strong>
                 <span>Thời gian và hiệu ứng xuất hiện</span>
               </div>
+              <label className="field">
+                <span>Tiêu đề</span>
+                <input
+                  value={activePopup?.title ?? ""}
+                  onChange={(event) => updatePopup("title", event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Nội dung cảnh</span>
+                <textarea
+                  value={activePopup?.body ?? ""}
+                  onChange={(event) => updatePopup("body", event.target.value)}
+                />
+                <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
+              </label>
+              <label className="field">
+                <span>Lời thuyết minh</span>
+                <textarea
+                  value={activePopup?.narration ?? ""}
+                  onChange={(event) => updatePopup("narration", event.target.value)}
+                />
+                <small>{popupWordCount} từ · Ước tính {popupVoiceEstimate} giây</small>
+              </label>
               <div className="popup-design-grid">
                 <label className="field">
                   <span>Bố cục popup</span>
@@ -3898,6 +4619,21 @@ function Home() {
                   </select>
                 </label>
               </div>
+              <label className="field popup-image-field">
+                <span>Ảnh popup riêng</span>
+                <input
+                  type="url"
+                  placeholder="https://example.com/image.jpg"
+                  value={activePopup?.image ?? ""}
+                  onChange={(event) => updatePopup("image", event.target.value)}
+                />
+                {imagePreviewSource && (
+                  <div className="image-url-preview">
+                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
+                    <span>Ảnh này chỉ dùng cho popup đang chọn.</span>
+                  </div>
+                )}
+              </label>
               <label className="field popup-video-field">
                 <span>Video ngắn trong popup (URL hoặc tên file)</span>
                 <input
@@ -3977,6 +4713,12 @@ function Home() {
               </label>
               </div>
             </div>
+            ) : (
+              <div className="popup-empty-state">
+                <strong>Chưa có popup</strong>
+                <span>Nhấn “＋ Thêm popup” để tạo popup đầu tiên cho cảnh này.</span>
+              </div>
+            )}
             </div>
             </details>
           </div>
@@ -4068,6 +4810,7 @@ function Home() {
                     setSelectedId(item.id);
                     setSelectedSceneIds([item.id]);
                     setSelectedPopupId("");
+                    setSelectedTextOverlayId("");
                     setPlayTime(item.start);
                     setPlaying(false);
                   }}
@@ -4388,7 +5131,7 @@ function Home() {
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
               onSave={() => void saveProjectNow()}
-              saveDisabled={saveStatus === "loading" || saveStatus === "saving"}
+              saveDisabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
               saveLabel={saveStatus === "saving" ? "Đang lưu" : "Lưu"}
             />
           )}

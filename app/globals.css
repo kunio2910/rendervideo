@@ -128,6 +128,35 @@ button { color: inherit; }
   outline: none;
 }
 .new-project-button { color: var(--blue-deep); border-color: #b9d9ff; background: #f1f7ff; }
+.google-account {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 190px;
+  height: 36px;
+  padding: 0 5px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+.google-account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 650;
+}
+.google-signin-button {
+  flex-shrink: 0;
+  color: #3c65a0;
+  border-color: #bfd2ee;
+  background: #f4f8ff;
+  font-size: 10px;
+}
+.google-signin-button:disabled { cursor: wait; opacity: .6; }
 .save-state {
   display: flex;
   align-items: center;
@@ -429,6 +458,63 @@ button { color: inherit; }
   box-shadow: 0 18px 38px rgba(29, 52, 77, .2);
   backdrop-filter: blur(10px);
 }
+.map-text-overlay {
+  position: absolute;
+  z-index: 4;
+  max-width: 88%;
+  padding: 5px 9px;
+  border: var(--text-border-width, 0px) solid var(--text-border-color, transparent);
+  border-radius: 6px;
+  background: var(--text-border-fill, rgba(20, 28, 38, .28));
+  line-height: 1.15;
+  text-align: center;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, .72);
+  white-space: pre-wrap;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+.map-text-overlay:hover,
+.map-text-overlay.is-dragging {
+  filter: brightness(1.14);
+}
+.map-text-overlay.is-dragging {
+  cursor: grabbing;
+  outline: 1px dashed var(--orange);
+  outline-offset: 2px;
+}
+.map-text-overlay:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.color-input-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+.text-color-picker {
+  width: 100%;
+  min-height: 38px;
+  padding: 3px;
+  cursor: pointer;
+}
+.text-color-code {
+  min-width: 0;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.text-overlay-manager { display: grid; gap: 8px; margin: 2px 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+.text-overlay-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); font-size: 10px; font-weight: 700; }
+.text-overlay-add { min-height: 28px; padding-inline: 9px; font-size: 9px; }
+.text-overlay-list { display: grid; gap: 5px; }
+.text-overlay-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.text-overlay-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
+.text-overlay-select, .text-overlay-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.text-overlay-select { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; }
+.text-overlay-select span { color: var(--muted); font: 700 9px var(--font-mono); }
+.text-overlay-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.text-overlay-delete { width: 25px; height: 25px; border-radius: 5px; color: var(--muted); font-size: 17px; line-height: 1; }
+.text-overlay-delete:hover { background: rgba(193, 77, 62, .12); color: #b54d3f; }
+.text-overlay-empty { padding: 8px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .preview-card .card-content { min-height: 0; overflow: auto; }
 .popup-resize-handle {
   position: absolute;
@@ -3831,9 +3917,11 @@ body {
   }
 
   .studio-shell[data-studio-tab="compose"] .editor-scroll {
-    max-height: 540px;
-    overflow-y: auto;
-    padding-right: 8px;
+    max-height: none;
+    overflow: visible;
+    padding: 0 0 16px;
+    scroll-padding-bottom: 16px;
+    scrollbar-gutter: auto;
   }
 }
 
@@ -4733,6 +4821,11 @@ body {
 }
 .popup-stat-row b { font-size: 18px; letter-spacing: 0; }
 .popup-video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.preview-card.popup-empty-frame {
+  min-height: 110px;
+  border-style: dashed;
+  background: rgba(38, 33, 24, .78);
+}
 .popup-resize-handle { touch-action: none; }
 .preview-card.popup-text-fade .card-content { animation: popup-text-fade .48s ease both; }
 .preview-card.popup-text-rise .card-content { animation: popup-text-rise .48s cubic-bezier(.22, .8, .25, 1) both; }
@@ -4830,24 +4923,64 @@ body {
 .popup-manager-list { display: grid; gap: 6px; }
 .popup-manager-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   width: 100%;
-  padding: 7px 9px;
+  padding: 0 6px 0 9px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: rgba(255, 255, 255, .62);
   color: var(--ink);
+  text-align: left;
+}
+.popup-manager-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
 }
-.popup-manager-item span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
-.popup-manager-item b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.popup-manager-select span { color: var(--muted); font: 700 9px var(--font-mono); white-space: nowrap; }
+.popup-manager-select b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.popup-manager-select:focus-visible,
+.popup-delete-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.popup-delete-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.popup-delete-button:hover { border-color: #df8d79; background: #fff0ec; color: #b6412e; }
 .popup-manager-item.active { border-color: #d88b2b; background: #fff0d4; }
+.popup-empty-state {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 16px 13px;
+  border: 1px dashed var(--studio-line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.popup-empty-state strong { color: var(--ink); }
 .studio-shell[data-theme="dark"] .popup-manager { background: #182532; }
 .studio-shell[data-theme="dark"] .popup-manager-item { background: #213342; color: #edf5ff; }
 .studio-shell[data-theme="dark"] .popup-manager-item.active { border-color: #d89a3d; background: #3a3022; }
+.studio-shell[data-theme="dark"] .popup-delete-button:hover { border-color: #a75f57; background: #402d2c; color: #ff9d8a; }
 .preview-scene-navigation,
 .preview-zoom-control {
   min-height: 38px;
@@ -5517,4 +5650,163 @@ body {
   border-color: #c67a2e;
   background: #684729;
   color: #ffe2b5;
+}
+
+/* Keep the light theme controls aligned with the dark theme and keep the
+   resize target above the timeline surface. */
+@media (min-width: 761px) {
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport {
+    position: absolute;
+    z-index: 3;
+    left: 50%;
+    margin: 0;
+    transform: translateX(-50%);
+  }
+
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle {
+    z-index: 60;
+    display: block;
+    pointer-events: auto;
+    user-select: none;
+  }
+
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle span {
+    background: #b58a54;
+  }
+
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle:hover span,
+  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle:active span {
+    background: #c67a2e;
+  }
+}
+
+/* Keep scene details beside the clip information on wide settings screens. */
+.settings-clip-grid { grid-template-columns: minmax(260px, .68fr) minmax(380px, 1.35fr) minmax(300px, .95fr); }
+.settings-selected-scene-panel { position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 120px); margin-top: 0; overflow: auto; }
+.settings-clip-note { grid-column: 2 / -1; margin-top: -10px; }
+
+@media (max-width: 1080px) {
+  .settings-clip-grid { grid-template-columns: minmax(300px, .9fr) minmax(0, 1.4fr); }
+  .settings-selected-scene-panel { position: static; grid-column: 1 / -1; max-height: none; }
+  .settings-clip-note { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .settings-clip-grid { grid-template-columns: 1fr; }
+  .settings-selected-scene-panel { grid-column: auto; }
+  .settings-clip-note { grid-column: auto; }
+}
+
+/* The export view keeps the file picker, but no longer shows the persistent asset rows. */
+.studio-shell[data-studio-tab="export"] .local-media-picker + .local-render-note,
+.studio-shell[data-studio-tab="export"] .asset-library-list { display: none; }
+
+/* Keep the compose scene browser and preview in the dark theme after the
+   editor-v2 light-theme rules that style these surfaces by default. */
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .workspace {
+  background: var(--studio-bg);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-panel,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-panel {
+  border-color: var(--studio-line);
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-panel {
+  background: #0b111a;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-panel .panel-heading h2,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-count {
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-count {
+  color: #91a0b4;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-list::before {
+  border-left-color: #3b4a5c;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item {
+  border-color: transparent;
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item:hover {
+  border-color: var(--studio-line);
+  background: var(--panel-soft);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active {
+  border-color: #d89a34;
+  background: #3b2b1d;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active .scene-meta strong,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-meta strong {
+  color: #edf5ff;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-meta small {
+  color: #91a0b4;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-number {
+  border-color: #3c4d61;
+  background: #182432;
+  color: #c7d4e3;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-item.active .scene-number {
+  border-color: #d89a34;
+  background: #493519;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-icon-button,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button {
+  border-color: #3c4d61;
+  background: #182432;
+  color: #aebed0;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-icon-button:hover,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button:hover,
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button:focus-visible {
+  border-color: #d89a34;
+  background: #30291d;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .scene-visibility-button.is-hidden {
+  background: #293744;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .add-scene-button {
+  border-color: #80643d;
+  background: #151f2e;
+  color: #f2c681;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .add-scene-button:hover {
+  border-color: #d89a34;
+  background: #30291d;
+  color: #ffd98f;
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .phone-preview {
+  border-color: #34445a;
+  background: #141c24;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, .42);
+}
+
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .preview-footer {
+  border-color: #354354;
+  background: #131d28;
 }

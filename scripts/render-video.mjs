@@ -58,7 +58,12 @@ if (!resolutionMatchesAspect) {
 const fps = Math.max(1, Number(project.fps ?? 30) || 30);
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
-const previewScale = outputWidth / PREVIEW_REFERENCE_WIDTH;
+const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
+const PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" ? 297 : 640;
+const previewScale = Math.min(
+  outputWidth / PREVIEW_CANVAS_WIDTH,
+  outputHeight / PREVIEW_CANVAS_HEIGHT,
+);
 const previewPx = (value) => value * previewScale;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const popupPixelHeight = (scene) => Math.min(
@@ -66,12 +71,13 @@ const popupPixelHeight = (scene) => Math.min(
   Math.round(outputHeight * 0.88),
 );
 const popupEntriesForScene = (scene) => {
-  if (Array.isArray(scene.popups) && scene.popups.length) {
+  if (Array.isArray(scene.popups)) {
     return scene.popups.map((popup, index) => ({
       ...scene,
       ...popup,
       title: String(popup.title ?? ""),
       body: String(popup.body ?? popup.content ?? popup.popup ?? ""),
+      narration: String(popup.narration ?? popup.voiceover ?? ""),
       image: String(popup.image ?? ""),
       popupVideo: String(popup.video ?? popup.popupVideo ?? ""),
       popupStart: Number(popup.start ?? popup.popupStart ?? 0),
@@ -94,10 +100,16 @@ const popupEntriesForScene = (scene) => {
     ...scene,
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
+    narration: String(scene.narration ?? ""),
     popupIndex: 0,
   }];
 };
-const isVideoMedia = (value) => /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/i.test(String(value ?? "").trim());
+const isVideoMedia = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
+    || /\/video\/upload\//.test(normalized)
+    || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
 // Legacy scene fields remain supported: scene.popupLayout, scene.popupX, scene.popupY.
 const audioVolume = (value, fallback) => {
   const numeric = Number(value);
@@ -114,6 +126,13 @@ const escapeXml = (value = "") =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+
+const escapeDrawtext = (value = "") => String(value)
+  .replaceAll("\\", "\\\\")
+  .replaceAll("'", "\\'")
+  .replaceAll(":", "\\:")
+  .replaceAll("%", "\\%")
+  .replace(/\r?\n/g, "\\n");
 
 const wrap = (value = "", max = 42) => {
   const words = value.trim().split(/\s+/).filter(Boolean);
@@ -243,7 +262,6 @@ const resolveImage = async (value, fallbackName, required = false) => {
   if (!local && required) throw new Error(`Không tìm thấy ảnh background: ${value}`);
   return local;
 };
-const resolveBackground = resolveImage;
 
 const resolveVoice = async (scene, index) => {
   const value = String(scene.voiceFile ?? "").trim();
@@ -293,6 +311,11 @@ const resolveVideo = async (value, fallbackName, required = false) => {
   return local;
 };
 
+const resolveBackground = async (value, fallbackName, required = false) =>
+  isVideoMedia(value)
+    ? resolveVideo(value, `${fallbackName}.mp4`, required)
+    : resolveImage(value, fallbackName, required);
+
 const createPopup = async (scene, index) => {
   const titleValue = String(scene.title ?? "").trim();
   const bodyValue = String(scene.body ?? scene.popup ?? "").trim();
@@ -302,7 +325,10 @@ const createPopup = async (scene, index) => {
   const hasVisualInput = Boolean((imageVisible && imageValue) || videoValue);
   if (!titleValue && !bodyValue && !hasVisualInput) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
-  const height = popupPixelHeight(scene);
+  const hasText = Boolean(titleValue || bodyValue);
+  const height = !hasText && hasVisualInput
+    ? Math.round(previewPx(115))
+    : popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
   const borderWidth = Math.max(1, Math.round(previewPx(1)));
   const paddingX = Math.round(previewPx(15));
@@ -310,7 +336,7 @@ const createPopup = async (scene, index) => {
   const bodyFontSize = Math.round(previewPx(11));
   const bodyLineHeight = Math.round(previewPx(18.15));
   const requestedLayout = scene.popupLayout ?? "image-top";
-  const layout = !titleValue && !bodyValue && hasVisualInput ? "image-top" : requestedLayout;
+  const layout = !hasText && hasVisualInput ? "image-top" : requestedLayout;
   const colors = {
     travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
     sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
@@ -341,10 +367,10 @@ const createPopup = async (scene, index) => {
   const placeholder = split
     ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
-  const quoteMark = layout === "quote"
+  const quoteMark = hasText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
-  const statRow = layout === "stats"
+  const statRow = hasText && layout === "stats"
     ? `<text x="${contentX}" y="${Math.round(previewPx(19))}" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(8))}" letter-spacing="2" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${Math.round(previewPx(25))}" text-anchor="end" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(17))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
     : "";
   const svg = Buffer.from(`
@@ -451,12 +477,66 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
-  let filter =
-    `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-    `zoompan=z='${zoomExpression}':` +
-    `x='iw*${centerX}*(1-1/zoom)':` +
-    `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
+    ? String(value)
+    : fallback;
+  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
+  const legacyText = String(scene.overlayText ?? "").trim();
+  const textOverlays = Array.isArray(scene.textOverlays) && scene.textOverlays.length > 0
+    ? scene.textOverlays
+    : legacyText
+      ? [{
+          text: legacyText,
+          size: scene.overlayTextSize,
+          style: scene.overlayTextStyle,
+          color: scene.overlayTextColor,
+          opacity: 100,
+          font: scene.overlayTextFont,
+          strokeWidth: scene.overlayTextStrokeWidth,
+          strokeColor: scene.overlayTextStrokeColor,
+          borderWidth: scene.overlayTextBorderWidth,
+          borderColor: scene.overlayTextBorderColor,
+          borderOpacity: 100,
+          borderFill: "#14202e",
+          x: scene.overlayTextX,
+          y: scene.overlayTextY,
+        }]
+      : [];
+  const overlayTextFilter = textOverlays
+    .filter((overlay) => String(overlay.text ?? "").trim())
+    .map((overlay) => {
+      const text = String(overlay.text ?? "").trim();
+      const color = normalizeColor(overlay.color, "#ffffff").replace("#", "0x");
+      const strokeColor = normalizeColor(overlay.strokeColor, "#000000").replace("#", "0x");
+      const borderColor = normalizeColor(overlay.borderColor, "#ffffff").replace("#", "0x");
+      const borderFill = normalizeColor(overlay.borderFill, "#14202e").replace("#", "0x");
+      const font = fontOptions.includes(String(overlay.font)) ? String(overlay.font) : "Arial";
+      const textOpacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
+      const borderOpacity = clamp(Number(overlay.borderOpacity ?? 100) / 100, 0, 1).toFixed(3);
+      const size = Math.round(previewPx(clamp(Number(overlay.size ?? 24), 8, 120)));
+      const strokeWidth = Math.round(previewPx(clamp(Number(overlay.strokeWidth ?? 0), 0, 12)));
+      const borderWidth = Math.round(previewPx(clamp(Number(overlay.borderWidth ?? 0), 0, 12)));
+      const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
+      const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+      const position = `x='w*${x}-text_w/2':y='h*${y}-text_h/2'`;
+      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${textOpacity}:${position}`;
+      const fillBox = `,drawtext=${common}:fontcolor=${color}@${textOpacity}:box=1:boxcolor=${borderFill}@${borderOpacity}:boxborderw=0`;
+      const borderBox = borderWidth > 0
+        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${borderOpacity}:boxborderw=${borderWidth}`
+        : "";
+      return `${borderBox}${fillBox}`;
+    })
+    .join("");
+  const backgroundIsVideo = isVideoMedia(sceneBackground);
+  // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
+  const backgroundFilter = backgroundIsVideo
+    ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
+    : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+      `zoompan=z='${zoomExpression}':` +
+      `x='iw*${centerX}*(1-1/zoom)':` +
+      `y='ih*${centerY}*(1-1/zoom)':` +
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
+  let filter = backgroundFilter;
   let composedLabel = "[bg]";
   let popupInputIndex = 1;
   popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
@@ -533,8 +613,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     popupInputIndex += popup.video ? 2 : 1;
   });
   filter += popupRenders.length ? `${composedLabel}copy[composed]` : "[bg]copy[composed]";
-  const backgroundIsVideo = isVideoMedia(sceneBackground);
-  // Keep a one-frame trim marker for the video-background path: d=1,trim=duration.
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
