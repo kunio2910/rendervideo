@@ -19,7 +19,6 @@ import {
   signInWithGoogle,
   signOutFromGoogle,
 } from "./lib/firebase";
-import { loadGoogleSnapshot, saveDataToGoogle } from "./lib/googleSheets";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
@@ -237,7 +236,6 @@ const assetReference = (value: string) => {
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
 const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
-const LOCAL_PENDING_SAVE_KEY = "kito-video-studio-pending-save";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
@@ -732,7 +730,7 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
           <h1>Không thể hiển thị khu vực biên soạn</h1>
           <p>
             Dữ liệu cảnh hiện tại không hợp lệ hoặc chưa tải xong.
-            Hãy tải lại để lấy lại dữ liệu từ Google Sheet.
+            Hãy đăng nhập lại để tải dữ liệu từ Firestore.
           </p>
           <button type="button" className="button primary" onClick={() => window.location.reload()}>
             Tải lại dữ liệu
@@ -1261,31 +1259,6 @@ function Home() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!googleUser || !hydrated) return;
-    let cancelled = false;
-
-    void loadWorkspaceFromFirestore()
-      .then((workspace) => {
-        if (cancelled || !workspace || !applyStoredProject(workspace)) return;
-        lastSavedProjectSnapshot.current = JSON.stringify(workspace);
-        setSaveStatus("saved");
-        setLastSavedAt(new Date());
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const reason = error instanceof Error
-          ? error.message.replace(/\s+/g, " ").slice(0, 180)
-          : "Không xác định được nguyên nhân";
-        setToast(`Không tải được Firestore: ${reason}`);
-        window.setTimeout(() => setToast(""), 3600);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [googleUser, hydrated]);
-
   const handleGoogleSignIn = async () => {
     setGoogleAuthBusy(true);
     try {
@@ -1668,132 +1641,48 @@ function Home() {
   };
 
   useEffect(() => {
+    if (!googleAuthReady) return;
     let cancelled = false;
 
     const restoreProject = async () => {
-      let restoredLocally = false;
-      let cloudLoaded = false;
-      let cloudFailed = false;
-      let localValue = "";
-      let localData: unknown = null;
-      let pendingSaveData: unknown = null;
-      let pendingSaveAt = 0;
-      const localSavedAt = Number(window.localStorage.getItem(LOCAL_SAVED_AT_KEY) || 0);
-
-      const retryPendingSave = (data: unknown) => {
-        if (!data) return;
-        void saveDataToGoogle(data)
-          .then((result) => {
-            if (isRecord(result) && result.acknowledged === true) {
-              window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-            }
-          })
-          .catch(() => {
-            // Keep the pending payload for the next load or online event.
-          });
-      };
-
-      try {
-        localValue = window.localStorage.getItem(LOCAL_STORAGE_KEY) || "";
-        if (localValue) {
-          const parsedLocalData = JSON.parse(localValue);
-          if (isBundledSampleWorkspace(parsedLocalData)) {
-            window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-            window.localStorage.removeItem(LOCAL_SAVED_AT_KEY);
-          } else {
-            localData = parsedLocalData;
-          }
-        }
-      } catch {
-        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-        window.localStorage.removeItem(LOCAL_SAVED_AT_KEY);
-        localValue = "";
-      }
-
-      try {
-        const pendingValue = window.localStorage.getItem(LOCAL_PENDING_SAVE_KEY);
-        if (pendingValue) {
-          const pending = JSON.parse(pendingValue);
-          if (isRecord(pending) && pending.data) {
-            pendingSaveData = pending.data;
-            pendingSaveAt = Number(pending.savedAt) || 0;
-          } else {
-            window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-          }
-        }
-      } catch {
-        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-      }
-
-      try {
-        const cloudSnapshot = await loadGoogleSnapshot();
-        const cloudData = cloudSnapshot.data;
-        const cloudSavedAt = Date.parse(cloudSnapshot.updatedAt);
-        const localMatchesCloud = Boolean(
-          localData
-          && cloudData
-          && JSON.stringify(localData) === JSON.stringify(cloudData),
-        );
-        if (localMatchesCloud || (
-          pendingSaveData
-          && pendingSaveAt > 0
-          && Number.isFinite(cloudSavedAt)
-          && cloudSavedAt >= pendingSaveAt
-        )) {
-          window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-        }
-        const localIsNewer = Boolean(
-          localData
-          && !localMatchesCloud
-          && localSavedAt > 0
-          && (!Number.isFinite(cloudSavedAt) || localSavedAt > cloudSavedAt),
-        );
-
-        if (!cancelled && localIsNewer && applyStoredProject(localData)) {
-          restorePreferredActiveProject(localData);
-          restoredLocally = true;
-          lastSavedProjectSnapshot.current = localValue;
-          setSaveStatus("offline");
-          setLastSavedAt(new Date(localSavedAt));
-          retryPendingSave(pendingSaveData);
-        } else if (!cancelled && cloudData && applyStoredProject(cloudData)) {
-          restorePreferredActiveProject(cloudData);
-          cloudLoaded = true;
-          lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
-          setSaveStatus("saved");
-          setLastSavedAt(new Date());
-        }
-      } catch {
-        cloudFailed = true;
-      }
-
-      if (cloudLoaded) {
-        if (!cancelled) setHydrated(true);
+      if (!googleUser) {
+        setSaveStatus("error");
+        setHydrated(true);
         return;
       }
 
-      if (!restoredLocally && localData && localValue) {
-        restoredLocally = applyStoredProject(localData);
-        if (restoredLocally) {
-          restorePreferredActiveProject(localData);
-          lastSavedProjectSnapshot.current = localValue;
-          setSaveStatus("offline");
-          if (localSavedAt > 0) setLastSavedAt(new Date(localSavedAt));
-          retryPendingSave(pendingSaveData);
-        }
-      }
+      try {
+        const firestoreData = await loadWorkspaceFromFirestore();
+        if (cancelled) return;
 
-      if (!cancelled && !restoredLocally) {
-        setSaveStatus(cloudFailed ? "error" : "saved");
+        if (firestoreData && applyStoredProject(firestoreData)) {
+          restorePreferredActiveProject(firestoreData);
+          lastSavedProjectSnapshot.current = JSON.stringify(firestoreData);
+          setSaveStatus("saved");
+          setLastSavedAt(new Date());
+        } else {
+          setSaveStatus("error");
+          setToast("Firestore chưa có workspace cho tài khoản này");
+          window.setTimeout(() => setToast(""), 3600);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const reason = error instanceof Error
+          ? error.message.replace(/\s+/g, " ").slice(0, 180)
+          : "Không xác định được nguyên nhân";
+        setSaveStatus("error");
+        setToast(`Không tải được Firestore: ${reason}`);
+        window.setTimeout(() => setToast(""), 3600);
+      } finally {
+        if (!cancelled) setHydrated(true);
       }
-      if (!cancelled) setHydrated(true);
     };
 
-    restoreProject();
+    void restoreProject();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [googleAuthReady, googleUser]);
 
   useEffect(() => {
     const nextUrls = Object.fromEntries(
@@ -1804,31 +1693,6 @@ function Home() {
       Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url));
     };
   }, [localRenderFiles]);
-
-  useEffect(() => {
-    const retryPendingSaveWhenOnline = () => {
-      try {
-        const pendingValue = window.localStorage.getItem(LOCAL_PENDING_SAVE_KEY);
-        if (!pendingValue) return;
-        const pending = JSON.parse(pendingValue);
-        if (!isRecord(pending) || !pending.data) return;
-        void saveDataToGoogle(pending.data)
-          .then((result) => {
-            if (isRecord(result) && result.acknowledged === true) {
-              window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-            }
-          })
-          .catch(() => {
-            // Keep the payload for the next online event or page load.
-          });
-      } catch {
-        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-      }
-    };
-
-    window.addEventListener("online", retryPendingSaveWhenOnline);
-    return () => window.removeEventListener("online", retryPendingSaveWhenOnline);
-  }, []);
 
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
@@ -1900,6 +1764,13 @@ function Home() {
   }, []);
 
   const saveProjectNow = async () => {
+    if (!googleUser) {
+      setSaveStatus("error");
+      setToast("Hãy đăng nhập Google để lưu dữ liệu lên Firestore");
+      window.setTimeout(() => setToast(""), 3200);
+      return;
+    }
+
     const currentSnapshot = JSON.stringify(storedProject);
     const savedAt = Date.now();
     window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
@@ -1908,68 +1779,22 @@ function Home() {
       currentSnapshot,
     );
     window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
-    window.localStorage.setItem(
-      LOCAL_PENDING_SAVE_KEY,
-      JSON.stringify({ savedAt, data: storedProject }),
-    );
     setSaveStatus("saving");
-    let firestoreSaveFailed = false;
-    let firestoreSaveError = "";
     try {
-      if (googleUser) {
-        try {
-          await saveWorkspaceToFirestore(storedProject);
-        } catch (error) {
-          firestoreSaveFailed = true;
-          firestoreSaveError = error instanceof Error
-            ? error.message.replace(/\s+/g, " ").slice(0, 180)
-            : "Không xác định được nguyên nhân";
-        }
-      }
-      const saveResult = await saveDataToGoogle(storedProject);
-      if (isRecord(saveResult) && saveResult.acknowledged === true) {
-        window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-      }
+      await saveWorkspaceToFirestore(storedProject);
       const now = new Date();
-      setSaveStatus(firestoreSaveFailed ? "error" : "saved");
+      lastSavedProjectSnapshot.current = currentSnapshot;
+      setSaveStatus("saved");
       setLastSavedAt(now);
-      setToast(
-        firestoreSaveFailed
-          ? `Đã lưu Google Sheet · Firestore lỗi: ${firestoreSaveError}`
-          : googleUser
-            ? "Đã lưu Google Sheet + Firestore"
-            : isRecord(saveResult) && saveResult.queued === true
-              ? "Đã gửi dữ liệu lên Google Sheet · Đang xác nhận đồng bộ"
-              : "Đã lưu dự án lên Google Sheet",
-      );
+      setToast("Đã lưu dữ liệu lên Firestore");
 
-      if (isRecord(saveResult) && saveResult.queued === true) {
-        const verifyQueuedSave = async () => {
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 900 * (attempt + 1));
-            });
-            try {
-              const snapshot = await loadGoogleSnapshot();
-              if (JSON.stringify(snapshot.data) === currentSnapshot) {
-                window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
-                return;
-              }
-            } catch {
-              // The pending payload remains available for the next retry.
-            }
-          }
-        };
-        void verifyQueuedSave();
-      }
     } catch (error) {
-      setSaveStatus("offline");
+      setSaveStatus("error");
       const reason = error instanceof Error
         ? error.message.replace(/\s+/g, " ").slice(0, 180)
         : "Không xác định được nguyên nhân";
-      setToast(`Đã lưu trên thiết bị · Google Sheet lỗi: ${reason}`);
+      setToast(`Firestore lỗi: ${reason}`);
     }
-    lastSavedProjectSnapshot.current = currentSnapshot;
     window.setTimeout(() => setToast(""), 2800);
   };
 
@@ -3667,7 +3492,7 @@ function Home() {
           <button
             className="button save-button"
             onClick={saveProjectNow}
-            disabled={saveStatus === "loading" || saveStatus === "saving"}
+            disabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
           >
             ☁ Lưu
           </button>
@@ -5321,7 +5146,7 @@ function Home() {
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
               onSave={() => void saveProjectNow()}
-              saveDisabled={saveStatus === "loading" || saveStatus === "saving"}
+              saveDisabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
               saveLabel={saveStatus === "saving" ? "Đang lưu" : "Lưu"}
             />
           )}
