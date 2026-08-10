@@ -178,6 +178,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /resolveVideo/);
   assert.match(renderer, /resolveBackground/);
   assert.match(renderer, /backgroundIsVideo/);
+  assert.match(renderer, /backgroundIsVideo\s*\n\s*\? `\[0:v\]scale=\$\{outputWidth\}:\$\{outputHeight\}:force_original_aspect_ratio=increase,crop=\$\{outputWidth\}:\$\{outputHeight\}/);
+  assert.doesNotMatch(renderer, /backgroundIsVideo\s*\n\s*\? `\[0:v\]scale=\$\{outputWidth \* 2\}:\$\{outputHeight \* 2\}/);
   assert.match(renderer, /-stream_loop/);
   assert.match(renderer, /d=1,trim=duration/);
   assert.match(renderer, /popup\.video/);
