@@ -99,7 +99,12 @@ const popupEntriesForScene = (scene) => {
     popupIndex: 0,
   }];
 };
-const isVideoMedia = (value) => /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/i.test(String(value ?? "").trim());
+const isVideoMedia = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
+    || /\/video\/upload\//.test(normalized)
+    || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
 // Legacy scene fields remain supported: scene.popupLayout, scene.popupX, scene.popupY.
 const audioVolume = (value, fallback) => {
   const numeric = Number(value);
@@ -252,7 +257,6 @@ const resolveImage = async (value, fallbackName, required = false) => {
   if (!local && required) throw new Error(`Không tìm thấy ảnh background: ${value}`);
   return local;
 };
-const resolveBackground = resolveImage;
 
 const resolveVoice = async (scene, index) => {
   const value = String(scene.voiceFile ?? "").trim();
@@ -301,6 +305,11 @@ const resolveVideo = async (value, fallbackName, required = false) => {
   if (!local && required) throw new Error(`KhÃ´ng tÃ¬m tháº¥y video popup: ${value}`);
   return local;
 };
+
+const resolveBackground = async (value, fallbackName, required = false) =>
+  isVideoMedia(value)
+    ? resolveVideo(value, `${fallbackName}.mp4`, required)
+    : resolveImage(value, fallbackName, required);
 
 const createPopup = async (scene, index) => {
   const titleValue = String(scene.title ?? "").trim();
@@ -463,33 +472,64 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
-  const overlayText = String(scene.overlayText ?? "").trim();
-  const overlayTextColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextColor ?? ""))
-    ? String(scene.overlayTextColor)
-    : "#ffffff";
-  const overlayTextFont = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(String(scene.overlayTextFont ?? ""))
-    ? String(scene.overlayTextFont)
-    : "Arial";
-  const overlayTextSize = Math.round(previewPx(clamp(Number(scene.overlayTextSize ?? 24), 8, 120)));
-  const overlayTextStrokeWidth = Math.round(previewPx(clamp(Number(scene.overlayTextStrokeWidth ?? 0), 0, 12)));
-  const overlayTextStrokeColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextStrokeColor ?? ""))
-    ? String(scene.overlayTextStrokeColor)
-    : "#000000";
-  const overlayTextBorderWidth = Math.round(previewPx(clamp(Number(scene.overlayTextBorderWidth ?? 0), 0, 12)));
-  const overlayTextBorderColor = /^#[0-9a-f]{6}$/i.test(String(scene.overlayTextBorderColor ?? ""))
-    ? String(scene.overlayTextBorderColor)
-    : "#ffffff";
-  const overlayTextX = clamp(Number(scene.overlayTextX ?? 50) / 100, 0, 1);
-  const overlayTextY = clamp(Number(scene.overlayTextY ?? 18) / 100, 0, 1);
-  const overlayTextFilter = overlayText
-    ? `,drawtext=font='${escapeDrawtext(overlayTextFont)}':text='${escapeDrawtext(overlayText)}':fontcolor=${overlayTextColor}:fontsize=${overlayTextSize}:borderw=${overlayTextStrokeWidth}:bordercolor=${overlayTextStrokeColor}:box=1:boxcolor=black@0.28:boxborderw=${overlayTextBorderWidth}:boxbordercolor=${overlayTextBorderColor}:x='w*${overlayTextX}-text_w/2':y='h*${overlayTextY}-text_h/2'`
-    : "";
-  let filter =
-    `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-    `zoompan=z='${zoomExpression}':` +
-    `x='iw*${centerX}*(1-1/zoom)':` +
-    `y='ih*${centerY}*(1-1/zoom)':` +
-    `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
+    ? String(value)
+    : fallback;
+  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
+  const legacyText = String(scene.overlayText ?? "").trim();
+  const textOverlays = Array.isArray(scene.textOverlays) && scene.textOverlays.length > 0
+    ? scene.textOverlays
+    : legacyText
+      ? [{
+          text: legacyText,
+          size: scene.overlayTextSize,
+          style: scene.overlayTextStyle,
+          color: scene.overlayTextColor,
+          opacity: 100,
+          font: scene.overlayTextFont,
+          strokeWidth: scene.overlayTextStrokeWidth,
+          strokeColor: scene.overlayTextStrokeColor,
+          borderWidth: scene.overlayTextBorderWidth,
+          borderColor: scene.overlayTextBorderColor,
+          borderFill: "#14202e",
+          x: scene.overlayTextX,
+          y: scene.overlayTextY,
+        }]
+      : [];
+  const overlayTextFilter = textOverlays
+    .filter((overlay) => String(overlay.text ?? "").trim())
+    .map((overlay) => {
+      const text = String(overlay.text ?? "").trim();
+      const color = normalizeColor(overlay.color, "#ffffff").replace("#", "0x");
+      const strokeColor = normalizeColor(overlay.strokeColor, "#000000").replace("#", "0x");
+      const borderColor = normalizeColor(overlay.borderColor, "#ffffff").replace("#", "0x");
+      const borderFill = normalizeColor(overlay.borderFill, "#14202e").replace("#", "0x");
+      const font = fontOptions.includes(String(overlay.font)) ? String(overlay.font) : "Arial";
+      const opacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
+      const size = Math.round(previewPx(clamp(Number(overlay.size ?? 24), 8, 120)));
+      const strokeWidth = Math.round(previewPx(clamp(Number(overlay.strokeWidth ?? 0), 0, 12)));
+      const borderWidth = Math.round(previewPx(clamp(Number(overlay.borderWidth ?? 0), 0, 12)));
+      const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
+      const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+      const position = `x='w*${x}-text_w/2':y='h*${y}-text_h/2'`;
+      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${opacity}:${position}`;
+      const fillBox = `,drawtext=${common}:fontcolor=${color}@${opacity}:box=1:boxcolor=${borderFill}@${opacity}:boxborderw=0`;
+      const borderBox = borderWidth > 0
+        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${opacity}:boxborderw=${borderWidth}`
+        : "";
+      return `${borderBox}${fillBox}`;
+    })
+    .join("");
+  const backgroundIsVideo = isVideoMedia(sceneBackground);
+  // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
+  const backgroundFilter = backgroundIsVideo
+    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
+    : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+      `zoompan=z='${zoomExpression}':` +
+      `x='iw*${centerX}*(1-1/zoom)':` +
+      `y='ih*${centerY}*(1-1/zoom)':` +
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
+  let filter = backgroundFilter;
   let composedLabel = "[bg]";
   let popupInputIndex = 1;
   popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
@@ -566,8 +606,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     popupInputIndex += popup.video ? 2 : 1;
   });
   filter += popupRenders.length ? `${composedLabel}copy[composed]` : "[bg]copy[composed]";
-  const backgroundIsVideo = isVideoMedia(sceneBackground);
-  // Keep a one-frame trim marker for the video-background path: d=1,trim=duration.
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),

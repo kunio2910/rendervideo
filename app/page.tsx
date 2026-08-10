@@ -11,6 +11,25 @@ import {
 } from "react";
 import { loadDataFromGoogle, saveDataToGoogle } from "./lib/googleSheets";
 
+type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
+
+type TextOverlay = {
+  id: string;
+  text: string;
+  size: number;
+  style: "normal" | "bold" | "italic" | "bold-italic";
+  color: string;
+  opacity: number;
+  font: OverlayTextFont;
+  strokeWidth: number;
+  strokeColor: string;
+  borderWidth: number;
+  borderColor: string;
+  borderFill: string;
+  x: number;
+  y: number;
+};
+
 type Scene = {
   id: string;
   number: number;
@@ -44,6 +63,7 @@ type Scene = {
   overlayTextBorderColor: string;
   overlayTextX: number;
   overlayTextY: number;
+  textOverlays: TextOverlay[];
   popupDuration: number;
   voiceFile: string;
   voiceVolume: number;
@@ -86,8 +106,6 @@ type PopupConfig = {
   visible: boolean;
   imageVisible: boolean;
 };
-
-type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
@@ -151,6 +169,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextBorderColor: "#ffffff",
   overlayTextX: 50,
   overlayTextY: 18,
+  textOverlays: [],
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -205,6 +224,7 @@ const assetReference = (value: string) => {
 };
 
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
+const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
@@ -380,6 +400,59 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const defaultTextOverlay = (
+  id: string,
+  overrides: Partial<TextOverlay> = {},
+): TextOverlay => ({
+  id,
+  text: "",
+  size: 24,
+  style: "normal",
+  color: "#ffffff",
+  opacity: 100,
+  font: "Arial",
+  strokeWidth: 0,
+  strokeColor: "#000000",
+  borderWidth: 0,
+  borderColor: "#ffffff",
+  borderFill: "#14202e",
+  x: 50,
+  y: 18,
+  ...overrides,
+});
+
+const normalizeTextOverlay = (
+  value: unknown,
+  id: string,
+  fallback: Partial<TextOverlay> = {},
+): TextOverlay => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultTextOverlay(id, fallback);
+  const style = String(raw.style ?? raw.overlayTextStyle ?? base.style);
+  const font = String(raw.font ?? raw.overlayTextFont ?? base.font);
+  return {
+    ...base,
+    id: String(raw.id ?? base.id),
+    text: String(raw.text ?? raw.overlayText ?? base.text),
+    size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
+    style: ["normal", "bold", "italic", "bold-italic"].includes(style)
+      ? style as TextOverlay["style"]
+      : base.style,
+    color: normalizeHexColor(raw.color ?? raw.overlayTextColor, base.color),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    font: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(font)
+      ? font as OverlayTextFont
+      : base.font,
+    strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth ?? raw.overlayTextStrokeWidth, base.strokeWidth)),
+    strokeColor: normalizeHexColor(raw.strokeColor ?? raw.overlayTextStrokeColor, base.strokeColor),
+    borderWidth: Math.min(12, positiveNumber(raw.borderWidth ?? raw.overlayTextBorderWidth, base.borderWidth)),
+    borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
+    borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
+    x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
+    y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
+  };
+};
+
 const clampVolume = (value: unknown, fallback = 100) => {
   const numeric = Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
@@ -466,6 +539,20 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popupVisible: popup.visible,
 });
 
+const textOverlaySceneFields = (overlay: TextOverlay) => ({
+  overlayText: overlay.text,
+  overlayTextSize: overlay.size,
+  overlayTextStyle: overlay.style,
+  overlayTextColor: overlay.color,
+  overlayTextFont: overlay.font,
+  overlayTextStrokeWidth: overlay.strokeWidth,
+  overlayTextStrokeColor: overlay.strokeColor,
+  overlayTextBorderWidth: overlay.borderWidth,
+  overlayTextBorderColor: overlay.borderColor,
+  overlayTextX: overlay.x,
+  overlayTextY: overlay.y,
+});
+
 const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
   const validItems = (Array.isArray(items) ? items : []).filter(isRecord) as Scene[];
@@ -525,6 +612,30 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
         })
       : [popupConfigFromScene(item, `${id}-popup-1`)];
     const firstPopup = popups[0];
+    const rawTextOverlays = (item as Scene & { textOverlays?: unknown }).textOverlays;
+    const legacyText = String((item as Scene & { overlayText?: unknown }).overlayText ?? "");
+    const textOverlays = Array.isArray(rawTextOverlays) && rawTextOverlays.some(isRecord)
+      ? rawTextOverlays.filter(isRecord).map((rawText, textIndex) => normalizeTextOverlay(
+          rawText,
+          String((rawText as { id?: unknown }).id ?? `${id}-text-${textIndex + 1}`),
+        ))
+      : legacyText.trim()
+        ? [normalizeTextOverlay({
+            id: `${id}-text-1`,
+            text: legacyText,
+            size: (item as Scene & { overlayTextSize?: unknown }).overlayTextSize,
+            style: (item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle,
+            color: (item as Scene & { overlayTextColor?: unknown }).overlayTextColor,
+            font: (item as Scene & { overlayTextFont?: unknown }).overlayTextFont,
+            strokeWidth: (item as Scene & { overlayTextStrokeWidth?: unknown }).overlayTextStrokeWidth,
+            strokeColor: (item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor,
+            borderWidth: (item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth,
+            borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
+            x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
+            y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
+          }, `${id}-text-1`)]
+        : [];
+    const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${id}-text-1`);
     return {
       ...item,
       id,
@@ -540,23 +651,18 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
-      overlayText: String((item as Scene & { overlayText?: unknown }).overlayText ?? ""),
-      overlayTextSize: Math.min(120, Math.max(8, positiveNumber((item as Scene & { overlayTextSize?: unknown }).overlayTextSize, 24, 8))),
-      overlayTextStyle: ["normal", "bold", "italic", "bold-italic"].includes(String((item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle))
-        ? (String((item as Scene & { overlayTextStyle?: unknown }).overlayTextStyle) as Scene["overlayTextStyle"])
-        : "normal",
-      overlayTextColor: /^#[0-9a-f]{6}$/i.test(String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor ?? ""))
-        ? String((item as Scene & { overlayTextColor?: unknown }).overlayTextColor)
-        : "#ffffff",
-      overlayTextFont: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(String((item as Scene & { overlayTextFont?: unknown }).overlayTextFont))
-        ? (String((item as Scene & { overlayTextFont?: unknown }).overlayTextFont) as OverlayTextFont)
-        : "Arial",
-      overlayTextStrokeWidth: Math.min(12, positiveNumber((item as Scene & { overlayTextStrokeWidth?: unknown }).overlayTextStrokeWidth, 0)),
-      overlayTextStrokeColor: normalizeHexColor((item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor, "#000000"),
-      overlayTextBorderWidth: Math.min(12, positiveNumber((item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth, 0)),
-      overlayTextBorderColor: normalizeHexColor((item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor, "#ffffff"),
-      overlayTextX: clampPercent((item as Scene & { overlayTextX?: unknown }).overlayTextX, 50),
-      overlayTextY: clampPercent((item as Scene & { overlayTextY?: unknown }).overlayTextY, 18),
+      overlayText: firstTextOverlay.text,
+      overlayTextSize: firstTextOverlay.size,
+      overlayTextStyle: firstTextOverlay.style,
+      overlayTextColor: firstTextOverlay.color,
+      overlayTextFont: firstTextOverlay.font,
+      overlayTextStrokeWidth: firstTextOverlay.strokeWidth,
+      overlayTextStrokeColor: firstTextOverlay.strokeColor,
+      overlayTextBorderWidth: firstTextOverlay.borderWidth,
+      overlayTextBorderColor: firstTextOverlay.borderColor,
+      overlayTextX: firstTextOverlay.x,
+      overlayTextY: firstTextOverlay.y,
+      textOverlays,
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -945,9 +1051,10 @@ function SettingsWorkspace({
                     );
                   })}
                 </div>
+              </section>
 
                 {selectedScene && (
-                  <section className="settings-selected-scene" aria-labelledby="selected-scene-heading">
+                  <section className="settings-card settings-selected-scene settings-selected-scene-panel" aria-labelledby="selected-scene-heading">
                     <div className="settings-selected-scene-heading">
                       <div>
                         <span className="settings-section-label">CẢNH ĐANG CHỌN · {String(selectedScene.number).padStart(2, "0")}</span>
@@ -1016,11 +1123,10 @@ function SettingsWorkspace({
                   </section>
                 )}
 
-                <div className="settings-note">
+                <div className="settings-note settings-clip-note">
                   <span>i</span>
                   <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
                 </div>
-              </section>
             </div>
           </div>
         </div>
@@ -1033,6 +1139,7 @@ function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedPopupId, setSelectedPopupId] = useState("");
+  const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1119,6 +1226,9 @@ function Home() {
     initialScenes[0];
   const scenePopups = useMemo(() => scenePopupList(scene), [scene]);
   const activePopup = scenePopups.find((item) => item.id === selectedPopupId) ?? scenePopups[0];
+  const sceneTextOverlays = scene.textOverlays ?? [];
+  const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
+    ?? sceneTextOverlays[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
@@ -1136,6 +1246,8 @@ function Home() {
     if (!nextScene) return;
     setSelectedId(nextScene.id);
     setSelectedSceneIds([nextScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(nextScene.start);
     setPlaying(false);
   };
@@ -1331,6 +1443,8 @@ function Home() {
     setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
     setSelectedId(restoredScenes[0]?.id ?? "");
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
     setPlayTime(restoredScenes[0]?.start ?? 0);
     setPlaying(false);
@@ -1390,6 +1504,14 @@ function Home() {
     return true;
   };
 
+  const restorePreferredActiveProject = (data: unknown) => {
+    if (!isRecord(data) || data.version !== 2 || !Array.isArray(data.projects)) return;
+    const preferredId = window.localStorage.getItem(LOCAL_ACTIVE_PROJECT_KEY);
+    if (!preferredId) return;
+    const preferred = (data.projects as ProjectSnapshot[]).find((item) => item.id === preferredId);
+    if (preferred) openProject(preferred);
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1401,6 +1523,7 @@ function Home() {
       try {
         const cloudData = await loadDataFromGoogle();
         if (!cancelled && cloudData && applyStoredProject(cloudData)) {
+          restorePreferredActiveProject(cloudData);
           cloudLoaded = true;
           lastSavedProjectSnapshot.current = JSON.stringify(cloudData);
           setSaveStatus("saved");
@@ -1423,6 +1546,7 @@ function Home() {
             window.localStorage.removeItem(LOCAL_STORAGE_KEY);
           } else {
             restoredLocally = applyStoredProject(localData);
+            if (restoredLocally) restorePreferredActiveProject(localData);
           }
           if (restoredLocally) {
             lastSavedProjectSnapshot.current = localValue;
@@ -1526,6 +1650,7 @@ function Home() {
 
   const saveProjectNow = async () => {
     const currentSnapshot = JSON.stringify(storedProject);
+    window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
     window.localStorage.setItem(
       LOCAL_STORAGE_KEY,
       currentSnapshot,
@@ -1680,6 +1805,7 @@ function Home() {
       setSelectedSceneIds([item.id]);
       setSelectedId(item.id);
       setSelectedPopupId("");
+      setSelectedTextOverlayId("");
       setPlayTime(item.start);
       return;
     }
@@ -1696,6 +1822,7 @@ function Home() {
     setSelectedSceneIds(nextIds);
     setSelectedId(primary.id);
     setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(primary.start);
   };
 
@@ -1706,6 +1833,8 @@ function Home() {
     if (item) {
       setSelectedId(item.id);
       setSelectedSceneIds([item.id]);
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
       setPlayTime(item.start);
     }
     setPlaying(false);
@@ -1885,6 +2014,30 @@ function Home() {
         ...item,
         popups: nextPopups,
         ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updateTextOverlay = <K extends keyof TextOverlay>(key: K, value: TextOverlay[K]) => {
+    if (!hydrated || !activeTextOverlay) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const overlayIndex = Math.max(
+      0,
+      sceneTextOverlays.findIndex((item) => item.id === activeTextOverlay.id),
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const overlays = item.textOverlays ?? [];
+      const current = overlays[overlayIndex];
+      if (!current) return item;
+      const nextOverlay = { ...current, [key]: value } as TextOverlay;
+      const nextOverlays = overlays.map((overlay, index) => index === overlayIndex ? nextOverlay : overlay);
+      return {
+        ...item,
+        textOverlays: nextOverlays,
+        ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlay) : {}),
       };
     }));
   };
@@ -2136,6 +2289,8 @@ function Home() {
     if (project.id !== projectId) openProject(project);
     setSelectedId(selectedScene.id);
     setSelectedSceneIds([selectedScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(selectedScene.start);
     setActiveStudioTab("compose");
   };
@@ -2177,6 +2332,7 @@ function Home() {
       overlayTextBorderColor: "#ffffff",
       overlayTextX: 50,
       overlayTextY: 18,
+      textOverlays: [],
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -2197,6 +2353,8 @@ function Home() {
     setProjectDuration((duration) => Math.max(duration, next.end));
     setSelectedId(next.id);
     setSelectedSceneIds([next.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
   };
 
   const duplicateScene = (source = scene) => {
@@ -2222,6 +2380,7 @@ function Home() {
     setSelectedId(copied.id);
     setSelectedSceneIds([copied.id]);
     setSelectedPopupId("");
+    setSelectedTextOverlayId("");
     setPlayTime(copied.start);
     setToast("Đã nhân bản cảnh");
     window.setTimeout(() => setToast(""), 2200);
@@ -2247,6 +2406,44 @@ function Home() {
     setSelectedPopupId(nextPopup.id);
     setEditorSections((items) => ({ ...items, popup: true }));
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const addTextOverlay = () => {
+    if (!scene) return;
+    const currentOverlays = scene.textOverlays ?? [];
+    const nextOverlay = defaultTextOverlay(
+      `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
+      { y: Math.min(82, 18 + currentOverlays.length * 8) },
+    );
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const nextOverlays = [...(item.textOverlays ?? []), nextOverlay];
+      return {
+        ...item,
+        textOverlays: nextOverlays,
+        ...(nextOverlays.length === 1 ? textOverlaySceneFields(nextOverlay) : {}),
+      };
+    }));
+    setSelectedTextOverlayId(nextOverlay.id);
+    setEditorSections((items) => ({ ...items, text: true }));
+    setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const deleteTextOverlay = (overlayId = activeTextOverlay?.id) => {
+    if (!scene || !overlayId) return;
+    const currentOverlays = scene.textOverlays ?? [];
+    const overlayIndex = currentOverlays.findIndex((overlay) => overlay.id === overlayId);
+    if (overlayIndex < 0) return;
+    if (!window.confirm(`Xóa chữ ${overlayIndex + 1}?`)) return;
+    const remaining = currentOverlays.filter((overlay) => overlay.id !== overlayId);
+    const firstOverlay = remaining[0] ?? defaultTextOverlay(`${scene.id}-text-1`);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, textOverlays: remaining, ...textOverlaySceneFields(firstOverlay) }
+      : item));
+    setSelectedTextOverlayId(remaining[Math.min(overlayIndex, remaining.length - 1)]?.id ?? "");
+    setToast(`Đã xóa chữ ${overlayIndex + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
 
@@ -2410,8 +2607,14 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startTextOverlayDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const startTextOverlayDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    overlayId = activeTextOverlay?.id,
+  ) => {
     if (playing) return;
+    const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
+    const draggedOverlay = sceneTextOverlays[overlayIndex];
+    if (!draggedOverlay) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -2420,20 +2623,27 @@ function Home() {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const startX = event.clientX;
     const startY = event.clientY;
-    const baseX = clampPercent(scene.overlayTextX, 50);
-    const baseY = clampPercent(scene.overlayTextY, 18);
+    const baseX = clampPercent(draggedOverlay.x, 50);
+    const baseY = clampPercent(draggedOverlay.y, 18);
+    setSelectedTextOverlayId(draggedOverlay.id);
     setDraggingTextOverlay(true);
 
     const updatePosition = (clientX: number, clientY: number) => {
       const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
       const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
-      setScenes((items) => items.map((item) => item.id === selectedId
-        ? {
-            ...item,
-            overlayTextX: Number(nextX.toFixed(1)),
-            overlayTextY: Number(nextY.toFixed(1)),
-          }
-        : item));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== selectedId) return item;
+        const overlays = item.textOverlays ?? [];
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, x: Number(nextX.toFixed(1)), y: Number(nextY.toFixed(1)) }
+          : overlay);
+        const nextOverlay = nextOverlays[overlayIndex];
+        return {
+          ...item,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 && nextOverlay ? textOverlaySceneFields(nextOverlay) : {}),
+        };
+      }));
     };
     updatePosition(event.clientX, event.clientY);
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
@@ -2614,6 +2824,7 @@ function Home() {
             overlayTextBorderColor: item.overlayTextBorderColor,
             overlayTextX: item.overlayTextX,
             overlayTextY: item.overlayTextY,
+            textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             sceneVisible: item.sceneVisible !== false,
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
@@ -3429,31 +3640,34 @@ function Home() {
                 />
               )
             )}
-            {sceneIsVisibleInPlayback && scene.overlayText.trim() && (
+            {sceneIsVisibleInPlayback && sceneTextOverlays.map((overlay) => overlay.text.trim() ? (
               <div
-                className={`map-text-overlay ${draggingTextOverlay ? "is-dragging" : ""}`}
+                key={overlay.id}
+                className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
-                  left: `${scene.overlayTextX}%`,
-                  top: `${scene.overlayTextY}%`,
-                  color: scene.overlayTextColor,
-                  fontSize: `${scene.overlayTextSize}px`,
-                  fontFamily: scene.overlayTextFont,
-                  fontWeight: scene.overlayTextStyle.includes("bold") ? 700 : 400,
-                  fontStyle: scene.overlayTextStyle.includes("italic") ? "italic" : "normal",
-                  WebkitTextStroke: scene.overlayTextStrokeWidth > 0
-                    ? `${scene.overlayTextStrokeWidth}px ${scene.overlayTextStrokeColor}`
+                  left: `${overlay.x}%`,
+                  top: `${overlay.y}%`,
+                  color: overlay.color,
+                  opacity: overlay.opacity / 100,
+                  fontSize: `${overlay.size}px`,
+                  fontFamily: overlay.font,
+                  fontWeight: overlay.style.includes("bold") ? 700 : 400,
+                  fontStyle: overlay.style.includes("italic") ? "italic" : "normal",
+                  WebkitTextStroke: overlay.strokeWidth > 0
+                    ? `${overlay.strokeWidth}px ${overlay.strokeColor}`
                     : undefined,
-                  ["--text-border-width" as string]: `${scene.overlayTextBorderWidth}px`,
-                  ["--text-border-color" as string]: scene.overlayTextBorderColor,
+                  ["--text-border-width" as string]: `${overlay.borderWidth}px`,
+                  ["--text-border-color" as string]: overlay.borderColor,
+                  ["--text-border-fill" as string]: overlay.borderFill,
                 }}
                 role="button"
                 tabIndex={0}
                 aria-label="Chữ viết trên bản đồ. Kéo để di chuyển."
-                onPointerDown={startTextOverlayDrag}
+                onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
               >
-                {scene.overlayText}
+                {overlay.text}
               </div>
-            )}
+            ) : null)}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
@@ -3747,10 +3961,31 @@ function Home() {
                 <label className="field">
                   <span>Nội dung chữ viết</span>
                   <textarea
-                    value={scene.overlayText}
+                    value={activeTextOverlay?.text ?? ""}
                     placeholder="Nhập chữ hiển thị trên bản đồ..."
-                    onChange={(event) => updateScene("overlayText", event.target.value)}
+                    onChange={(event) => updateTextOverlay("text", event.target.value)}
                   />
+                  <div className="text-overlay-manager">
+                    <div className="text-overlay-list-heading">
+                      <span>Danh sách chữ trên bản đồ</span>
+                      <button type="button" className="button primary text-overlay-add" onClick={addTextOverlay}>＋ Thêm chữ</button>
+                    </div>
+                    {sceneTextOverlays.length > 0 ? (
+                      <div className="text-overlay-list">
+                        {sceneTextOverlays.map((overlay, index) => (
+                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""}`}>
+                            <button type="button" className="text-overlay-select" onClick={() => setSelectedTextOverlayId(overlay.id)}>
+                              <span>{String(index + 1).padStart(2, "0")}</span>
+                              <strong>{overlay.text.trim() || `Chữ ${index + 1}`}</strong>
+                            </button>
+                            <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-overlay-empty">Chưa có chữ. Bấm “Thêm chữ” để tạo một lớp mới.</div>
+                    )}
+                  </div>
                   <small>Kéo trực tiếp dòng chữ trên khung bản đồ để di chuyển vị trí.</small>
                 </label>
                 <div className="field-row">
@@ -3762,8 +3997,8 @@ function Home() {
                         min="8"
                         max="120"
                         step="1"
-                        value={scene.overlayTextSize}
-                        onChange={(event) => updateScene("overlayTextSize", Math.min(120, Math.max(8, Number(event.target.value) || 24)))}
+                        value={activeTextOverlay?.size ?? 24}
+                        onChange={(event) => updateTextOverlay("size", Math.min(120, Math.max(8, Number(event.target.value) || 24)))}
                       />
                       <b>px</b>
                     </div>
@@ -3771,8 +4006,8 @@ function Home() {
                   <label className="field">
                     <span>Kiểu chữ</span>
                     <select
-                      value={scene.overlayTextStyle}
-                      onChange={(event) => updateScene("overlayTextStyle", event.target.value as Scene["overlayTextStyle"])}
+                      value={activeTextOverlay?.style ?? "normal"}
+                      onChange={(event) => updateTextOverlay("style", event.target.value as TextOverlay["style"])}
                     >
                       <option value="normal">Thường</option>
                       <option value="bold">Đậm</option>
@@ -3780,13 +4015,29 @@ function Home() {
                       <option value="bold-italic">Đậm + nghiêng</option>
                     </select>
                   </label>
-                </div>
-                <div className="field-row">
+                 </div>
+                 <div className="field-row">
+                   <label className="field">
+                     <span>Độ trong suốt</span>
+                     <div className="number-with-unit">
+                       <input
+                         type="number"
+                         min="0"
+                         max="100"
+                         step="1"
+                         value={activeTextOverlay?.opacity ?? 100}
+                         onChange={(event) => updateTextOverlay("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                       />
+                       <b>%</b>
+                     </div>
+                   </label>
+                 </div>
+                 <div className="field-row">
                   <label className="field">
                     <span>Font chữ</span>
                     <select
-                      value={scene.overlayTextFont}
-                      onChange={(event) => updateScene("overlayTextFont", event.target.value as OverlayTextFont)}
+                      value={activeTextOverlay?.font ?? "Arial"}
+                      onChange={(event) => updateTextOverlay("font", event.target.value as OverlayTextFont)}
                     >
                       <option value="Arial">Arial</option>
                       <option value="Verdana">Verdana</option>
@@ -3802,18 +4053,18 @@ function Home() {
                       <input
                         className="text-color-picker"
                         type="color"
-                        value={normalizeHexColor(scene.overlayTextColor, "#ffffff")}
-                        onChange={(event) => updateScene("overlayTextColor", event.target.value)}
+                        value={normalizeHexColor(activeTextOverlay?.color ?? "#ffffff", "#ffffff")}
+                        onChange={(event) => updateTextOverlay("color", event.target.value)}
                       />
                       <input
                         className="text-color-code"
                         type="text"
                         inputMode="text"
                         maxLength={7}
-                        value={scene.overlayTextColor}
+                        value={activeTextOverlay?.color ?? "#ffffff"}
                         placeholder="#FFFFFF"
-                        onChange={(event) => updateScene("overlayTextColor", event.target.value)}
-                        onBlur={(event) => updateScene("overlayTextColor", normalizeHexColor(event.target.value, "#ffffff"))}
+                        onChange={(event) => updateTextOverlay("color", event.target.value)}
+                        onBlur={(event) => updateTextOverlay("color", normalizeHexColor(event.target.value, "#ffffff"))}
                       />
                     </div>
                   </label>
@@ -3827,8 +4078,8 @@ function Home() {
                         min="0"
                         max="12"
                         step="1"
-                        value={scene.overlayTextStrokeWidth}
-                        onChange={(event) => updateScene("overlayTextStrokeWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                        value={activeTextOverlay?.strokeWidth ?? 0}
+                        onChange={(event) => updateTextOverlay("strokeWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
                       />
                       <b>px</b>
                     </div>
@@ -3838,8 +4089,8 @@ function Home() {
                     <input
                       className="text-color-picker"
                       type="color"
-                      value={normalizeHexColor(scene.overlayTextStrokeColor, "#000000")}
-                      onChange={(event) => updateScene("overlayTextStrokeColor", event.target.value)}
+                      value={normalizeHexColor(activeTextOverlay?.strokeColor ?? "#000000", "#000000")}
+                      onChange={(event) => updateTextOverlay("strokeColor", event.target.value)}
                     />
                   </label>
                 </div>
@@ -3852,8 +4103,8 @@ function Home() {
                         min="0"
                         max="12"
                         step="1"
-                        value={scene.overlayTextBorderWidth}
-                        onChange={(event) => updateScene("overlayTextBorderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                        value={activeTextOverlay?.borderWidth ?? 0}
+                        onChange={(event) => updateTextOverlay("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
                       />
                       <b>px</b>
                     </div>
@@ -3863,14 +4114,37 @@ function Home() {
                     <input
                       className="text-color-picker"
                       type="color"
-                      value={normalizeHexColor(scene.overlayTextBorderColor, "#ffffff")}
-                      onChange={(event) => updateScene("overlayTextBorderColor", event.target.value)}
+                      value={normalizeHexColor(activeTextOverlay?.borderColor ?? "#ffffff", "#ffffff")}
+                      onChange={(event) => updateTextOverlay("borderColor", event.target.value)}
                     />
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field color-field">
+                    <span>Màu nền border</span>
+                    <div className="color-input-row">
+                      <input
+                        className="text-color-picker"
+                        type="color"
+                        value={normalizeHexColor(activeTextOverlay?.borderFill ?? "#14202e", "#14202e")}
+                        onChange={(event) => updateTextOverlay("borderFill", event.target.value)}
+                      />
+                      <input
+                        className="text-color-code"
+                        type="text"
+                        inputMode="text"
+                        maxLength={7}
+                        value={activeTextOverlay?.borderFill ?? "#14202e"}
+                        placeholder="#14202E"
+                        onChange={(event) => updateTextOverlay("borderFill", event.target.value)}
+                        onBlur={(event) => updateTextOverlay("borderFill", normalizeHexColor(event.target.value, "#14202e"))}
+                      />
+                    </div>
                   </label>
                 </div>
                 <div className="field text-position-readout">
                   <span>Vị trí hiện tại</span>
-                  <b>X {Math.round(scene.overlayTextX)}% · Y {Math.round(scene.overlayTextY)}%</b>
+                    <b>X {Math.round(activeTextOverlay?.x ?? 50)}% · Y {Math.round(activeTextOverlay?.y ?? 18)}%</b>
                 </div>
               </div>
             </details>
@@ -4396,6 +4670,7 @@ function Home() {
                     setSelectedId(item.id);
                     setSelectedSceneIds([item.id]);
                     setSelectedPopupId("");
+                    setSelectedTextOverlayId("");
                     setPlayTime(item.start);
                     setPlaying(false);
                   }}
