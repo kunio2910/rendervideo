@@ -7,14 +7,14 @@ file này trước rồi mới xem chi tiết mã nguồn.
 ## 1. Mục đích dự án
 
 Kito Video Studio là công cụ biên soạn clip dọc 9:16 dựa trên bản đồ hành trình.
-Người dùng tạo nhiều cảnh, đặt tâm zoom camera, soạn popup, gắn ảnh và âm thanh,
-xem thử timeline rồi xuất JSON để renderer tạo video cuối cùng.
+Người dùng tạo nhiều cảnh, soạn popup, gắn ảnh và âm thanh, xem thử timeline rồi
+xuất JSON để renderer tạo video cuối cùng.
 
 Các địa chỉ đang sử dụng:
 
 - GitHub: <https://github.com/kunio2910/rendervideo>
-- GitHub Pages: <https://kunio2910.github.io/rendervideo/>
-- Production: <https://kito-video-studio.w9tty64sgh.chatgpt.site>
+- GitHub Pages chính: <https://kunio2910.github.io/rendervideo/>
+- Sites production phụ: <https://kito-video-studio.ductran8351.chatgpt.site>
 
 ## 2. Công nghệ và file quan trọng
 
@@ -49,44 +49,18 @@ Website gửi JSON cùng file media bằng multipart form. Mỗi tác vụ có t
 riêng trong `work/local-render-jobs/`; script render dùng FFmpeg để tạo từng
 cảnh, ghép lời thuyết minh, trộn nhạc nền rồi nối thành video cuối.
 
-Renderer FFmpeg đã hỗ trợ vòng tròn tại tâm zoom:
+Renderer FFmpeg dựng background theo tỷ lệ dọc 9:16 và áp dụng zoom bản đồ theo
+từng cảnh; popup, thuyết minh và nhạc nền là các lớp còn lại trong video.
 
-- Đọc `zoomMarkerEnabled` để bật/tắt vòng tròn theo từng cảnh; giá trị mặc định
-  là `true` để tương thích với JSON cũ.
-- Đọc `centerX` và `centerY` để đặt vòng tròn đúng vị trí trên video.
-- Đọc `zoomMarkerSize` để xác định kích thước.
-- Đọc `zoomMarkerDuration` để xác định chu kỳ animation.
-- `zoomMarkerEffect: "glow"`: phát sáng và co giãn nhẹ.
-- `zoomMarkerEffect: "blink"`: nhấp nháy theo chu kỳ.
-- `zoomMarkerEffect: "soft-fade"`: mờ dần rồi hiện lại.
-- `zoomMarkerEffect: "none"`: không tạo lớp vòng tròn.
-
-Lớp vòng tròn được tạo dưới dạng PNG trong suốt, dùng màu vàng cam và không có
-đường outline. File trung gian có tên `zoom-marker-<số-cảnh>.png` trong thư mục
-`render/` của phiên render.
-
-### Đồng bộ tọa độ zoom giữa preview và FFmpeg
+### Đồng bộ preview và FFmpeg
 
 Khung preview bản đồ được khóa đúng tỷ lệ `9:16` bằng `aspect-ratio`. Chiều rộng
 có thể thay đổi theo màn hình nhưng chiều cao luôn được tính tự động, vì vậy vùng
 crop của `object-fit: cover` tương ứng với video `1080x1920`.
 
-Preview dùng CSS `transform-origin: centerX centerY`. Renderer FFmpeg phải giữ
-điểm này ở cùng vị trí trên màn hình thay vì tự đưa nó về giữa khung. Công thức
-`zoompan` đang dùng:
-
-```text
-x = iw * centerX * (1 - 1 / zoom)
-y = ih * centerY * (1 - 1 / zoom)
-```
-
-Trong đó `centerX` và `centerY` đã được đổi từ phần trăm sang khoảng `0..1`.
-Công thức này bảo đảm:
-
-- Ở mức zoom `1x`, ảnh không tự pan.
-- Khi zoom tăng, cột mốc nằm dưới vòng tròn không bị trượt.
-- Các tâm zoom gần mép vẫn giữ đúng vị trí phần trăm trên video.
-- Preview và video render sử dụng cùng mô hình biến đổi.
+Preview và renderer dùng cùng cách crop background `object-fit: cover` và cùng
+công thức zoom theo `centerX`, `centerY`, `zoom`, `zoomStart`, `zoomEnd`,
+`zoomInDuration`, `zoomOutDuration`.
 
 ### Vị trí lưu file sau khi render
 
@@ -179,14 +153,16 @@ dự án thay đổi, thư mục `.local-renderer/` bị xóa hoặc FFmpeg bị
 ### Xem trước bản đồ
 
 - Preview theo tỷ lệ dọc 9:16.
+- Nút `Xem thử` và thời gian cảnh nằm phía trên tiêu đề preview, được căn giữa.
+- Bản đồ preview có kích thước lớn hơn trên desktop nhưng vẫn giữ đúng tỷ lệ 9:16.
 - Ô `Background` nằm ngay dưới bản đồ nhận URL ảnh dùng cho preview.
 - Nút con mắt cạnh ô Background cho phép ẩn/hiện ảnh bản đồ.
 - `Background chủ đề` trong Biên soạn chỉ là tên/metadata; nó không thay đổi
   ảnh preview.
-- Lăn chuột trên bản đồ để zoom; thao tác này không cuộn trang.
-- Kéo vòng tròn tâm zoom để thay đổi `centerX` và `centerY`.
-- Khi zoom camera bật, vòng tròn tâm zoom riêng có thể kéo trực tiếp trên bản đồ;
-  tắt zoom sẽ ẩn vòng tròn này.
+- Mục **Hiệu ứng** có zoom bản đồ theo từng cảnh: thời gian bắt đầu, tỉ lệ zoom,
+  thời gian tới tỉ lệ đó và khoảng thời gian zoom về.
+- Vòng tròn trên bản đồ là tay nắm chọn tâm zoom; kéo thả để cập nhật `centerX`
+  và `centerY`. Tay nắm chỉ hiện trong preview, không xuất hiện trong video.
 - Có thể kéo góc popup để tăng/giảm chiều rộng và chiều cao.
 - Có nút ẩn/hiện popup.
 
@@ -200,13 +176,11 @@ Các thông tin chính:
 - URL ảnh popup.
 - Giọng đọc và file âm thanh thuyết minh.
 - Nhạc nền cấp dự án.
-- Mức zoom, thời gian zoom vào và thời gian thu camera về.
-- Thời gian bắt đầu hiệu ứng zoom (`zoomStart`).
+- Âm lượng nhạc nền theo phần trăm (`backgroundMusicVolume`).
+- Âm lượng thuyết minh theo từng cảnh (`voiceVolume`).
 - Thời gian popup.
 - Thời gian bắt đầu xuất hiện popup (`popupStart`).
 - Hiệu ứng mở/đóng popup.
-- Trong mục **Hiệu ứng**, bật/tắt vòng tròn cột mốc và từng hiệu ứng phát sáng,
-  nhấp nháy hoặc làm mờ độc lập.
 
 Các hiệu ứng popup đang có:
 
@@ -224,10 +198,9 @@ Các hiệu ứng popup đang có:
 - Chiều cao mặc định: 245 px.
 - Giới hạn kéo: 220–520 px.
 - Các hàng và clip tự co giãn theo chiều cao timeline.
-- Các hàng gồm Camera, Popup, Thuyết minh và Nhạc nền.
-- Kéo mép trái/phải của clip Camera để đổi điểm bắt đầu/kết thúc; biên cảnh kế
-  bên được dịch theo và mỗi cảnh luôn giữ tối thiểu 0,1 giây.
-- Popup nằm trong một panel riêng với Zoom camera. Có thể kéo toàn bộ thanh
+- Các hàng gồm Popup, Thuyết minh và Nhạc nền; zoom bản đồ được áp dụng theo
+  thông số của từng cảnh, không tạo thêm một lớp timeline riêng.
+- Popup nằm trong một panel riêng. Có thể kéo toàn bộ thanh
   Popup để đổi thời điểm xuất hiện, hoặc kéo hai mép để đổi thời lượng.
 - Bấm một event sẽ:
   1. Chọn đúng cảnh.
@@ -242,12 +215,10 @@ Khi bấm `Xem thử`:
 
 1. Timeline chạy lại từ giây 0.
 2. Cảnh đang phát được tự động chọn.
-3. Camera giữ ở 1× đến `zoomStart`, sau đó zoom tới `zoom` trong `zoomInDuration`.
-4. Camera giữ mức zoom rồi thu về trong `zoomOutDuration`.
-5. Popup xuất hiện sau khi zoom vào và tồn tại trong `popupDuration`.
-6. Hiệu ứng mở/đóng lấy từ `popupIn` và `popupOut`.
-7. Nếu có file âm thanh hợp lệ, thuyết minh của cảnh sẽ được phát.
-8. Khi chạy hết toàn bộ clip, preview tự tạm dừng và quay về cảnh đầu tiên.
+3. Popup xuất hiện theo `popupStart` và tồn tại trong `popupDuration`.
+4. Hiệu ứng mở/đóng lấy từ `popupIn` và `popupOut`.
+5. Nếu có file âm thanh hợp lệ, thuyết minh của cảnh sẽ được phát.
+6. Khi chạy hết toàn bộ clip, preview tự tạm dừng và quay về cảnh đầu tiên.
 
 Phím tắt trong preview/timeline:
 
@@ -298,7 +269,7 @@ Mỗi dự án có:
 - `background`: tên/metadata background chủ đề.
 - `previewBackground`: URL ảnh hiển thị trong bản đồ.
 - `backgroundVisible`.
-- `backgroundMusic`.
+- `backgroundMusic`, `backgroundMusicVolume` (phần trăm âm lượng nhạc nền).
 - `editorSections`, `timelineVisible`.
 - `scenes`.
 
@@ -306,14 +277,11 @@ Mỗi cảnh có các nhóm dữ liệu:
 
 - Nội dung: `title`, `location`, `reference`, `popup`, `narration`.
 - Timeline: `start`, `end`.
-- Camera: `zoom`, `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
-- Camera: `zoomStart` — thời gian bắt đầu hiệu ứng zoom trong cảnh.
-- Camera: `zoomEnabled`.
-- Vòng tròn cột mốc: `zoomMarkerEnabled`, `zoomMarkerEffects`,
-  `zoomMarkerDuration`, `zoomMarkerSize`.
+- Zoom bản đồ: `zoomEnabled`, `zoomStart`, `zoomEnd`, `zoom`,
+  `zoomInDuration`, `zoomOutDuration`, `centerX`, `centerY`.
 - Popup: `popupStart`, `popupDuration`, `popupIn`, `popupOut`, `popupWidth`,
   `popupHeight`, `popupVisible`.
-- Media: `image`, `voiceFile`, `voice`.
+- Media: `image`, `voiceFile`, `voice`, `voiceVolume` (phần trăm âm lượng thuyết minh).
 
 ## 7. JSON xuất ra
 
@@ -328,12 +296,14 @@ Ví dụ rút gọn:
   "backgroundUrl": "https://example.com/map.png",
   "backgroundVisible": true,
   "backgroundMusic": "nhac-nen.mp3",
+  "backgroundMusicVolume": 18,
   "scenes": [
     {
       "milestone": 1,
       "title": "Samuel xức dầu",
       "start": 0,
       "zoomStart": 0,
+      "zoomEnd": 5,
       "zoomInDuration": 1,
       "popupStart": 1,
       "popupDuration": 3,
@@ -347,6 +317,7 @@ Ví dụ rút gọn:
       "image": "samuel.jpg",
       "narration": "Lời thuyết minh",
       "voiceFile": "milestone-1.mp3",
+      "voiceVolume": 95,
       "popupIn": "fade-slide-up",
       "popupOut": "fade-slide-down",
       "popupWidth": 90,
@@ -426,11 +397,11 @@ npm run build:pages
 Sau mỗi thay đổi quan trọng:
 
 1. Build production.
-2. Build GitHub Pages.
+2. Build GitHub Pages bằng `npm run build:pages`.
 3. Kiểm tra `git diff --check`.
-4. Commit mã nguồn và tài nguyên build cần thiết.
-5. Push nhánh `main` lên GitHub.
-6. Lưu một phiên bản Sites mới và triển khai production.
+4. Commit mã nguồn và bundle GitHub Pages.
+5. Push nhánh `main` lên GitHub; GitHub Pages sẽ tự cập nhật URL chính.
+6. Chỉ triển khai Sites khi cần kiểm tra bản phụ.
 7. Nếu trình duyệt còn cache cũ, dùng `Ctrl + F5`.
 
 ## 10. Những điểm cần chú ý khi phát triển tiếp
@@ -458,3 +429,4 @@ Sau mỗi thay đổi quan trọng:
 - Commit chức năng gần nhất: `fc95102`.
 - `source/` và `scripts/render-video.mjs` đang là nội dung cục bộ chưa được
   theo dõi trong Git.
+- Scene visibility: `sceneVisible=false` keeps the scene in JSON for re-enabling, while preview, timeline, preflight assets, and FFmpeg skip it. The renderer compacts visible scenes so hidden scenes do not leave empty output time.
