@@ -80,7 +80,7 @@ type Scene = {
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
-  popupLayout?: "image-top" | "split" | "quote" | "stats";
+  popupLayout?: "image-top" | "split" | "quote" | "stats" | "image-only" | "content-only";
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
   popupTextEffect?: "none" | "fade" | "rise" | "pop";
   popupVideo?: string;
@@ -613,7 +613,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               out: String(rawPopup.out ?? rawPopup.popupOut ?? fallback.out),
               width: clampPercent(rawPopup.width ?? rawPopup.popupWidth, fallback.width),
               height: positiveNumber(rawPopup.height ?? rawPopup.popupHeight, fallback.height, 170),
-              layout: ["image-top", "split", "quote", "stats"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
+              layout: ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
                 ? (rawPopup.layout ?? rawPopup.popupLayout) as Scene["popupLayout"]
                 : fallback.layout,
               theme: ["travel", "sunset", "ocean", "minimal"].includes(String(rawPopup.theme ?? rawPopup.popupTheme))
@@ -1386,7 +1386,13 @@ function Home() {
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
-  const imagePreviewSource = imageEnabled ? assetPreviewSource(activePopup?.image ?? "") : "";
+  const activePopupMediaValue = activePopup
+    ? activePopup.video.trim() || activePopup.image.trim()
+    : "";
+  const popupMediaIsVideo = isVideoMedia(activePopupMediaValue);
+  const popupMediaPreviewSource = activePopupMediaValue && (popupMediaIsVideo || imageEnabled)
+    ? assetPreviewSource(activePopupMediaValue)
+    : "";
   const legacyBackgroundPreview = previewBackground.trim() || background.trim();
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
@@ -2134,6 +2140,35 @@ function Home() {
       const current = popups[popupIndex];
       if (!current) return item;
       const nextPopup = { ...current, [key]: value } as PopupConfig;
+      const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updatePopupMedia = (value: string) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const popupIndex = Math.max(
+      0,
+      scenePopups.findIndex((item) => item.id === selectedPopupId),
+    );
+    const isVideo = isVideoMedia(value);
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const popups = scenePopupList(item);
+      const current = popups[popupIndex];
+      if (!current) return item;
+      const nextPopup = {
+        ...current,
+        image: isVideo ? "" : value,
+        video: isVideo ? value : "",
+      };
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
         ...item,
@@ -3828,21 +3863,23 @@ function Home() {
               const popupVideoSource = assetPreviewSource(popup.video);
               const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
                 || Boolean(popup.video.trim());
-               const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
-               const popupMediaOnly = popupHasMedia && !popupHasText;
-               const popupEmptyFrame = !popupHasMedia && !popupHasText;
-               const popupLayout = popupMediaOnly ? "image-top" : popup.layout ?? "image-top";
+              const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
+              const popupLayout = popup.layout ?? "image-top";
+              const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
+              const popupShowText = popupLayout !== "image-only" && popupHasText;
+              const popupMediaOnly = popupShowMedia && !popupShowText;
+              const popupEmptyFrame = !popupShowMedia && !popupShowText;
               return (
                 <article
                   key={popup.id}
-                   className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
+                  className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                     height: popupMediaOnly ? "auto" : `min(${popup.height ?? 255}px, 88%)`,
+                    height: popupMediaOnly ? "auto" : `min(${popup.height ?? 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
                     right: "auto",
@@ -3851,7 +3888,7 @@ function Home() {
                   }}
                   onPointerDown={startPopupDrag}
                 >
-                  {popupHasMedia && (
+                  {popupShowMedia && (
                     <div className="photo-placeholder">
                       {popupVideoSource ? (
                         <video
@@ -3874,7 +3911,7 @@ function Home() {
                       )}
                     </div>
                   )}
-                   {popupHasText && <div className="card-content">
+                  {popupShowText && <div className="card-content">
                      {popupLayout === "stats" && (
                       <div className="popup-stat-row">
                         <span>{scene.location || "HÀNH TRÌNH"}</span>
@@ -4589,6 +4626,8 @@ function Home() {
                     onChange={(event) => updatePopup("layout", event.target.value as Scene["popupLayout"])}
                   >
                     <option value="image-top">Ảnh trên · Cơ bản</option>
+                    <option value="image-only">Chỉ có ảnh</option>
+                    <option value="content-only">Chỉ có nội dung</option>
                     <option value="split">Ảnh trái · Nội dung phải</option>
                     <option value="quote">Trích dẫn nổi bật</option>
                     <option value="stats">Thông tin địa điểm</option>
@@ -4620,29 +4659,30 @@ function Home() {
                 </label>
               </div>
               <label className="field popup-image-field">
-                <span>Ảnh popup riêng</span>
-                <input
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
-                  value={activePopup?.image ?? ""}
-                  onChange={(event) => updatePopup("image", event.target.value)}
-                />
-                {imagePreviewSource && (
-                  <div className="image-url-preview">
-                    <img src={imagePreviewSource} alt="Xem trước ảnh popup" />
-                    <span>Ảnh này chỉ dùng cho popup đang chọn.</span>
-                  </div>
-                )}
-              </label>
-              <label className="field popup-video-field">
-                <span>Video ngắn trong popup (URL hoặc tên file)</span>
+                <span>Ảnh / video popup riêng</span>
                 <input
                   type="text"
-                  value={activePopup?.video ?? ""}
-                  placeholder="https://.../popup.mp4 hoặc popup.mp4"
-                  onChange={(event) => updatePopup("video", event.target.value)}
+                  inputMode="url"
+                  placeholder="https://example.com/image.jpg hoặc https://example.com/video.mp4"
+                  value={activePopupMediaValue}
+                  onChange={(event) => updatePopupMedia(event.target.value)}
                 />
-                <small>Kéo trực tiếp popup trên khung xem trước để đổi vị trí.</small>
+                {popupMediaPreviewSource && (
+                  <div className="image-url-preview">
+                    {popupMediaIsVideo ? (
+                      <video
+                        src={popupMediaPreviewSource}
+                        muted
+                        loop
+                        playsInline
+                        controls
+                      />
+                    ) : (
+                      <img src={popupMediaPreviewSource} alt="Xem trước ảnh popup" />
+                    )}
+                    <span>Ảnh hoặc video này chỉ dùng cho popup đang chọn.</span>
+                  </div>
+                )}
               </label>
               <label className="field">
                 <span>Thời gian bắt đầu xuất hiện popup</span>

@@ -326,7 +326,12 @@ const createPopup = async (scene, index) => {
   if (!titleValue && !bodyValue && !hasVisualInput) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const hasText = Boolean(titleValue || bodyValue);
-  const height = !hasText && hasVisualInput
+  const requestedLayout = scene.popupLayout ?? "image-top";
+  const imageOnly = requestedLayout === "image-only";
+  const contentOnly = requestedLayout === "content-only";
+  const showVisual = !contentOnly && hasVisualInput;
+  const showText = !imageOnly && hasText;
+  const height = !showText && showVisual
     ? Math.round(previewPx(115))
     : popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
@@ -335,17 +340,22 @@ const createPopup = async (scene, index) => {
   const titleFontSize = Math.round(previewPx(15));
   const bodyFontSize = Math.round(previewPx(11));
   const bodyLineHeight = Math.round(previewPx(18.15));
-  const requestedLayout = scene.popupLayout ?? "image-top";
-  const layout = !hasText && hasVisualInput ? "image-top" : requestedLayout;
+  const layout = imageOnly
+    ? "image-top"
+    : contentOnly
+      ? "content-only"
+      : !hasText && hasVisualInput ? "image-top" : requestedLayout;
   const colors = {
     travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
     sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
     ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
     minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
   }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
-  const image = imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
-  const video = layout === "quote" || !videoValue ? null : await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`);
-  const hasVisual = Boolean((imageVisible && imageValue) || videoValue);
+  const image = showVisual && imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
+  const video = showVisual && layout !== "quote" && videoValue
+    ? await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`)
+    : null;
+  const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
   const imageWidth = split ? Math.round(width * 0.42) : width;
   const imageHeight = layout === "quote" ? 0 : split ? height : hasVisual ? Math.round(previewPx(115)) : 0;
@@ -357,7 +367,7 @@ const createPopup = async (scene, index) => {
   const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
   const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
   const maxBodyLines = Math.max(1, Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1);
-  const bodyLines = wrap(scene.body ?? scene.popup ?? "", maxCharacters).slice(0, maxBodyLines);
+  const bodyLines = wrap(showText ? scene.body ?? scene.popup ?? "" : "", maxCharacters).slice(0, maxBodyLines);
   const bodyText = bodyLines.map((line, lineIndex) =>
     `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
   ).join("");
@@ -367,10 +377,10 @@ const createPopup = async (scene, index) => {
   const placeholder = split
     ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
-  const quoteMark = hasText && layout === "quote"
+  const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
-  const statRow = hasText && layout === "stats"
+  const statRow = showText && layout === "stats"
     ? `<text x="${contentX}" y="${Math.round(previewPx(19))}" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(8))}" letter-spacing="2" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${Math.round(previewPx(25))}" text-anchor="end" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(17))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
     : "";
   const svg = Buffer.from(`
@@ -382,7 +392,7 @@ const createPopup = async (scene, index) => {
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>
       ${hasVisual && !image && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
-      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(String(scene.title ?? "").toUpperCase())}</text>
+      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
       <g font-family="Arial">${bodyText}</g>
     </svg>
   `);
