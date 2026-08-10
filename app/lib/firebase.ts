@@ -93,21 +93,63 @@ const workspaceReference = async () => {
   );
 };
 
+const serializableWorkspace = (data: unknown) =>
+  JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+
+const workspacePayload = (data: unknown) => ({
+  data: serializableWorkspace(data),
+  version: 1,
+  clientUpdatedAt: Date.now(),
+  updatedAt: serverTimestamp(),
+});
+
 export async function saveWorkspaceToFirestore(data: unknown) {
   const workspaceRef = await workspaceReference();
-  const serializableData = JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
 
-  await setDoc(workspaceRef, {
-    data: serializableData,
-    version: 1,
-    clientUpdatedAt: Date.now(),
-    updatedAt: serverTimestamp(),
-  });
+  await setDoc(workspaceRef, workspacePayload(data));
 
   return {
     success: true,
     acknowledged: true,
     userId: (await requireGoogleUser()).uid,
+  };
+}
+
+export async function importWorkspaceSnapshotToFirestore(data: unknown) {
+  const user = await requireGoogleUser();
+  const database = getFirestoreDb();
+  const workspaceRef = doc(
+    database,
+    "users",
+    user.uid,
+    "workspaces",
+    FIRESTORE_WORKSPACE_ID,
+  );
+  const existingSnapshot = await getDoc(workspaceRef);
+  let backupId = "";
+
+  if (existingSnapshot.exists()) {
+    backupId = `before-excel-import-${Date.now()}`;
+    await setDoc(
+      doc(database, "users", user.uid, "workspaceBackups", backupId),
+      {
+        source: "RenderVideo Storage.xlsx",
+        createdAt: serverTimestamp(),
+        data: existingSnapshot.data().data ?? existingSnapshot.data(),
+      },
+    );
+  }
+
+  await setDoc(workspaceRef, {
+    ...workspacePayload(data),
+    source: "RenderVideo Storage.xlsx",
+  });
+
+  return {
+    success: true,
+    acknowledged: true,
+    userId: user.uid,
+    backupId,
   };
 }
 

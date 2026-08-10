@@ -10,8 +10,12 @@ import {
   useState,
 } from "react";
 import type { User as FirebaseUser } from "firebase/auth";
+import * as XLSX from "xlsx";
 import {
+  importWorkspaceSnapshotToFirestore,
+  loadWorkspaceFromFirestore,
   observeGoogleUser,
+  saveWorkspaceToFirestore,
   signInWithGoogle,
   signOutFromGoogle,
 } from "./lib/firebase";
@@ -1189,6 +1193,7 @@ function Home() {
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
   const [googleAuthBusy, setGoogleAuthBusy] = useState(false);
+  const [firestoreImportBusy, setFirestoreImportBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
     "loading" | "saved" | "saving" | "unsaved" | "offline" | "error"
@@ -1256,6 +1261,26 @@ function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!googleUser || !hydrated) return;
+    let cancelled = false;
+
+    void loadWorkspaceFromFirestore()
+      .then((workspace) => {
+        if (cancelled || !workspace || !applyStoredProject(workspace)) return;
+        lastSavedProjectSnapshot.current = JSON.stringify(workspace);
+        setSaveStatus("saved");
+        setLastSavedAt(new Date());
+      })
+      .catch(() => {
+        // Firestore can be empty before the first migration or blocked by rules.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googleUser, hydrated]);
+
   const handleGoogleSignIn = async () => {
     setGoogleAuthBusy(true);
     try {
@@ -1285,6 +1310,57 @@ function Home() {
     } finally {
       setGoogleAuthBusy(false);
       window.setTimeout(() => setToast(""), 2800);
+    }
+  };
+
+  const handleExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    setFirestoreImportBusy(true);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const worksheet = workbook.Sheets.Storage ?? workbook.Sheets[workbook.SheetNames[0]];
+      if (!worksheet) throw new Error("File Excel không có sheet dữ liệu.");
+
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+        header: 1,
+        raw: true,
+        defval: "",
+      });
+      const dataRow = rows.find((row) =>
+        String(row[0] ?? "").trim() === "render-video-default"
+        && String(row[1] ?? "").trim(),
+      );
+      const rawJson = String(dataRow?.[1] ?? "").trim();
+      if (!rawJson) throw new Error("Không tìm thấy dữ liệu workspace trong file Excel.");
+
+      const workspace = JSON.parse(rawJson) as unknown;
+      if (!isRecord(workspace) || workspace.version !== 2 || !Array.isArray(workspace.projects)) {
+        throw new Error("Dữ liệu workspace trong Excel không đúng định dạng Kito.");
+      }
+
+      const result = await importWorkspaceSnapshotToFirestore(workspace);
+      if (!applyStoredProject(workspace)) {
+        throw new Error("Đã ghi Firestore nhưng không thể mở workspace từ file Excel.");
+      }
+      lastSavedProjectSnapshot.current = JSON.stringify(workspace);
+      setSaveStatus("saved");
+      setLastSavedAt(new Date());
+      setToast(
+        result.backupId
+          ? "Đã nhập Excel vào Firestore · Bản hiện tại đã được sao lưu"
+          : "Đã nhập Excel vào Firestore",
+      );
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/\s+/g, " ").slice(0, 180)
+        : "Không thể nhập dữ liệu Excel";
+      setToast(`Nhập Excel lỗi: ${reason}`);
+    } finally {
+      setFirestoreImportBusy(false);
+      window.setTimeout(() => setToast(""), 3600);
     }
   };
 
@@ -1832,7 +1908,15 @@ function Home() {
       JSON.stringify({ savedAt, data: storedProject }),
     );
     setSaveStatus("saving");
+    let firestoreSaveFailed = false;
     try {
+      if (googleUser) {
+        try {
+          await saveWorkspaceToFirestore(storedProject);
+        } catch {
+          firestoreSaveFailed = true;
+        }
+      }
       const saveResult = await saveDataToGoogle(storedProject);
       if (isRecord(saveResult) && saveResult.acknowledged === true) {
         window.localStorage.removeItem(LOCAL_PENDING_SAVE_KEY);
@@ -1841,9 +1925,13 @@ function Home() {
       setSaveStatus("saved");
       setLastSavedAt(now);
       setToast(
-        isRecord(saveResult) && saveResult.queued === true
-          ? "Đã gửi dữ liệu lên Google Sheet · Đang xác nhận đồng bộ"
-          : "Đã lưu dự án lên Google Sheet",
+        firestoreSaveFailed
+          ? "Đã lưu Google Sheet · Firestore lỗi"
+          : googleUser
+            ? "Đã lưu Google Sheet + Firestore"
+            : isRecord(saveResult) && saveResult.queued === true
+              ? "Đã gửi dữ liệu lên Google Sheet · Đang xác nhận đồng bộ"
+              : "Đã lưu dự án lên Google Sheet",
       );
 
       if (isRecord(saveResult) && saveResult.queued === true) {
@@ -3513,19 +3601,33 @@ function Home() {
             {theme === "light" ? "☾ Tối" : "☀ Sáng"}
           </button>
           {googleUser ? (
-            <div className="google-account" title={googleUser.email ?? "Tài khoản Google"}>
-              <span className="google-account-name">
-                {googleUser.displayName || googleUser.email || "Google"}
-              </span>
-              <button
-                type="button"
-                className="button google-signin-button"
-                onClick={() => void handleGoogleSignOut()}
-                disabled={googleAuthBusy}
+            <>
+              <div className="google-account" title={googleUser.email ?? "Tài khoản Google"}>
+                <span className="google-account-name">
+                  {googleUser.displayName || googleUser.email || "Google"}
+                </span>
+                <button
+                  type="button"
+                  className="button google-signin-button"
+                  onClick={() => void handleGoogleSignOut()}
+                  disabled={googleAuthBusy || firestoreImportBusy}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+              <label
+                className="button firestore-import-button"
+                title="Sao lưu bản Firestore hiện tại rồi nhập file RenderVideo Storage.xlsx"
               >
-                Đăng xuất
-              </button>
-            </div>
+                {firestoreImportBusy ? "Đang nhập…" : "Nhập Excel"}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleExcelImport}
+                  disabled={googleAuthBusy || firestoreImportBusy}
+                />
+              </label>
+            </>
           ) : (
             <button
               type="button"
