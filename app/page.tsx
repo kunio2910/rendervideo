@@ -1246,8 +1246,8 @@ function SettingsWorkspace({
                               aria-label={`Đổi tên clip ${project.title || "chưa đặt tên"}`}
                               onClick={(event) => event.stopPropagation()}
                               onChange={(event) => setEditingClipTitle(event.target.value)}
-                              onBlur={commitClipRename}
                               onKeyDown={(event) => {
+                                event.stopPropagation();
                                 if (event.key === "Enter") {
                                   event.preventDefault();
                                   commitClipRename();
@@ -1257,6 +1257,7 @@ function SettingsWorkspace({
                                   cancelClipRename();
                                 }
                               }}
+                              onKeyUp={(event) => event.stopPropagation()}
                             />
                           ) : (
                             <strong
@@ -1298,6 +1299,7 @@ function SettingsWorkspace({
                   </div>
                   <div className="settings-action-buttons">
                     <button type="button" className="button settings-add-clip-action" onClick={onAddClip}>＋ Thêm clip</button>
+                    <button type="button" className="button ghost" onClick={() => startClipRename(selectedClip)}>✎ Đổi tên clip</button>
                     <button type="button" className="button ghost" onClick={handleDuplicateClip}>⧉ Nhân bản clip</button>
                     <button type="button" className="button settings-danger-button" onClick={handleDeleteClip}>⌫ Xóa clip</button>
                   </div>
