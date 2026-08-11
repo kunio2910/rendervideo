@@ -89,6 +89,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /snapDragPosition/);
   assert.match(page, /preview-ruler-toggle/);
   assert.match(page, /preview-alignment-guides/);
+  assert.match(page, /previewFullscreen/);
+  assert.match(page, /togglePreviewFullscreen/);
+  assert.match(page, /preview-fullscreen-panel/);
+  assert.match(page, /normalizeTimelineHeight/);
+  assert.match(page, /timelineHeight/);
+  assert.match(page, /setTimelineHeight\(normalizeTimelineHeight/);
   assert.match(page, /data-popup-id=\{popup\.id\}/);
   assert.match(page, /draggedPopupBounds/);
   assert.match(page, /height: `min\(\$\{popup\.height \?\? 255\}px, 88%\)`/);
@@ -180,6 +186,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /subtitle-overlay\.is-dragging/);
   assert.match(css, /preview-ruler-toggle/);
   assert.match(css, /preview-alignment-guides/);
+  assert.match(css, /preview-fullscreen::before/);
+  assert.match(css, /preview-fullscreen-panel/);
   assert.match(css, /data-theme="dark".*field > span/s);
   assert.match(css, /data-theme="dark"\]\s+\.button\.ghost/);
   assert.match(css, /subtitle-add-button:hover/);

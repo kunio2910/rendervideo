@@ -443,6 +443,7 @@ const reflowSceneTimeline = (items: Scene[]) => {
 type StoredProject = {
   version: 1;
   projectDuration: number;
+  timelineHeight?: number;
   aspectRatio?: AspectRatio;
   renderResolution?: RenderResolution;
   imageEnabled: boolean;
@@ -526,6 +527,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const clampPercent = (value: unknown, fallback = 50) => {
   const numeric = value === null || value === undefined ? Number.NaN : Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const normalizeTimelineHeight = (value: unknown, fallback = 245) => {
+  const numeric = Number(value);
+  return Math.min(520, Math.max(220, Number.isFinite(numeric) ? Math.round(numeric) : fallback));
 };
 
 const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
@@ -1536,6 +1542,7 @@ function Home() {
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -1895,6 +1902,7 @@ function Home() {
       id: projectId,
       title: projectTitle,
       projectDuration,
+      timelineHeight,
       aspectRatio,
       renderResolution,
       imageEnabled,
@@ -1912,6 +1920,7 @@ function Home() {
       projectId,
       projectTitle,
       projectDuration,
+      timelineHeight,
       aspectRatio,
       renderResolution,
       imageEnabled,
@@ -1942,6 +1951,7 @@ function Home() {
     setProjectId(project.id);
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
+    setTimelineHeight(normalizeTimelineHeight(project.timelineHeight));
     const nextAspectRatio = normalizeAspectRatio(project.aspectRatio);
     setAspectRatio(nextAspectRatio);
     setRenderResolution(normalizeRenderResolution(project.renderResolution, nextAspectRatio));
@@ -1985,6 +1995,7 @@ function Home() {
     if (data.version === 2 && Array.isArray(data.projects) && data.projects.length > 0) {
       const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
         ...project,
+        timelineHeight: normalizeTimelineHeight(project.timelineHeight),
         aspectRatio: normalizeAspectRatio(project.aspectRatio),
         renderResolution: normalizeRenderResolution(
           project.renderResolution,
@@ -2005,6 +2016,7 @@ function Home() {
         id: "google-sheet-project",
         title: "Dự án mới",
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
+        timelineHeight: normalizeTimelineHeight(data.timelineHeight),
         aspectRatio: normalizeAspectRatio(data.aspectRatio),
         renderResolution: normalizeRenderResolution(
           data.renderResolution,
@@ -2091,6 +2103,20 @@ function Home() {
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!previewFullscreen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewFullscreen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewFullscreen]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -3492,6 +3518,8 @@ function Home() {
     if (!next) setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
   };
 
+  const togglePreviewFullscreen = () => setPreviewFullscreen((current) => !current);
+
   const copySelectedScene = () => {
     if (!scene) return;
     setClipboardScene({
@@ -3913,13 +3941,9 @@ function Home() {
   const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
-    const startHeight = timelineHeight;
+    const startHeight = normalizeTimelineHeight(timelineHeight);
     const move = (moveEvent: PointerEvent) => {
-      const nextHeight = Math.min(
-        520,
-        Math.max(220, startHeight + startY - moveEvent.clientY),
-      );
-      setTimelineHeight(Math.round(nextHeight));
+      setTimelineHeight(normalizeTimelineHeight(startHeight + startY - moveEvent.clientY));
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -4502,7 +4526,7 @@ function Home() {
 
   return (
     <main
-      className="studio-shell"
+      className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
       data-studio-tab={activeStudioTab}
       data-theme={theme}
       style={{ ["--timeline-height" as string]: `${timelineHeight}px` }}
@@ -4823,7 +4847,7 @@ function Home() {
           </div>
         </aside>
 
-        <section className="preview-panel">
+        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
           <div className="preview-control-panel">
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
@@ -4869,6 +4893,22 @@ function Home() {
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M4 5h16v14H4z" />
                   <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={`preview-fullscreen-toggle ${previewFullscreen ? "active" : ""}`}
+                aria-label={previewFullscreen ? "Thu nhỏ khu vực xem trước" : "Phóng to khu vực xem trước"}
+                aria-pressed={previewFullscreen}
+                title={previewFullscreen ? "Thu nhỏ khu vực xem trước (Esc)" : "Phóng to khu vực xem trước"}
+                onClick={togglePreviewFullscreen}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {previewFullscreen ? (
+                    <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                  ) : (
+                    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                  )}
                 </svg>
               </button>
               <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>

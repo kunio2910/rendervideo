@@ -6271,6 +6271,38 @@ body {
   transition: .18s ease;
 }
 
+.preview-fullscreen-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-height: 29px;
+  padding: 0;
+  border: 1px solid #d8cfc1;
+  border-radius: 6px;
+  background: #f4eee1;
+  color: #8a5620;
+  cursor: pointer;
+  transition: .18s ease;
+}
+
+.preview-fullscreen-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.preview-fullscreen-toggle:hover,
+.preview-fullscreen-toggle.active {
+  border-color: #c67a2e;
+  background: #c67a2e;
+  color: #fff8ec;
+  box-shadow: 0 3px 8px rgba(198, 122, 46, .24);
+}
+
 .preview-ruler-toggle svg {
   width: 16px;
   height: 16px;
@@ -6307,6 +6339,19 @@ body {
 }
 
 .studio-shell[data-theme="dark"] .preview-ruler-toggle.active {
+  border-color: #dda13e;
+  background: #6e4b12;
+  color: #ffe4a6;
+}
+
+.studio-shell[data-theme="dark"] .preview-fullscreen-toggle {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #c8d8e9;
+}
+
+.studio-shell[data-theme="dark"] .preview-fullscreen-toggle:hover,
+.studio-shell[data-theme="dark"] .preview-fullscreen-toggle.active {
   border-color: #dda13e;
   background: #6e4b12;
   color: #ffe4a6;
@@ -6366,7 +6411,7 @@ body {
 
 @media (max-width: 560px) {
   .preview-control-bar {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
   }
 
   .preview-ruler-toggle {
@@ -6375,5 +6420,78 @@ body {
 
   .preview-control-bar .time-pill {
     grid-column: 1 / -1;
+  }
+}
+
+/* Focus mode for a clearer map preview without changing project data. */
+.studio-shell.preview-fullscreen::before {
+  position: fixed;
+  z-index: 900;
+  inset: 0;
+  content: "";
+  background: rgba(7, 12, 18, .78);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.studio-shell.preview-fullscreen .preview-fullscreen-panel {
+  position: fixed;
+  z-index: 901;
+  inset: 18px;
+  width: auto;
+  height: auto;
+  max-height: calc(100vh - 36px);
+  min-height: 0;
+  padding: 20px 24px 24px;
+  overflow: auto;
+  border: 1px solid #d8cfc1;
+  border-radius: 18px;
+  background: #fbf8f1;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
+}
+
+.studio-shell.preview-fullscreen .preview-fullscreen-panel .preview-control-panel {
+  width: min(100%, 820px);
+}
+
+.studio-shell.preview-fullscreen .preview-fullscreen-panel .preview-navigation {
+  width: min(100%, 820px);
+}
+
+.studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-portrait {
+  width: auto !important;
+  height: min(84vh, 960px) !important;
+  aspect-ratio: 9 / 16;
+}
+
+.studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-landscape {
+  width: auto !important;
+  height: min(50vw, calc(100vh - 190px), 720px) !important;
+  aspect-ratio: 16 / 9;
+}
+
+.studio-shell[data-theme="dark"].preview-fullscreen::before {
+  background: rgba(0, 0, 0, .84);
+}
+
+.studio-shell[data-theme="dark"].preview-fullscreen .preview-fullscreen-panel {
+  border-color: #405269;
+  background: #0d141d;
+}
+
+@media (max-width: 760px) {
+  .studio-shell.preview-fullscreen .preview-fullscreen-panel {
+    inset: 10px;
+    max-height: calc(100vh - 20px);
+    padding: 14px 12px 18px;
+    border-radius: 14px;
+  }
+
+  .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-portrait {
+    height: min(76vh, 720px) !important;
+  }
+
+  .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-landscape {
+    height: min(48vw, calc(100vh - 190px), 520px) !important;
   }
 }
