@@ -6252,3 +6252,128 @@ body {
   box-shadow: none;
   transform: none;
 }
+
+.preview-control-bar {
+  grid-template-columns: minmax(145px, 1fr) 126px auto auto;
+}
+
+.preview-ruler-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-height: 29px;
+  padding: 0;
+  border: 1px solid #d8cfc1;
+  border-radius: 6px;
+  background: #f4eee1;
+  color: #8a5620;
+  cursor: pointer;
+  transition: .18s ease;
+}
+
+.preview-ruler-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.preview-ruler-toggle:hover {
+  border-color: #c67a2e;
+  background: #fff4df;
+  color: #8a5620;
+}
+
+.preview-ruler-toggle.active {
+  border-color: #c67a2e;
+  background: #c67a2e;
+  color: #fff8ec;
+  box-shadow: 0 3px 8px rgba(198, 122, 46, .24);
+}
+
+.studio-shell[data-theme="dark"] .preview-ruler-toggle {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #c8d8e9;
+}
+
+.studio-shell[data-theme="dark"] .preview-ruler-toggle:hover {
+  border-color: #d8a14b;
+  background: #26384d;
+  color: #fff6df;
+}
+
+.studio-shell[data-theme="dark"] .preview-ruler-toggle.active {
+  border-color: #dda13e;
+  background: #6e4b12;
+  color: #ffe4a6;
+}
+
+.phone-preview.ruler-enabled {
+  outline: 2px solid rgba(221, 161, 62, .48);
+  outline-offset: 3px;
+}
+
+.preview-alignment-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.alignment-guide {
+  position: absolute;
+  display: block;
+  border-color: rgba(221, 161, 62, .92);
+  border-style: dashed;
+  filter: drop-shadow(0 0 2px rgba(25, 18, 8, .55));
+}
+
+.alignment-guide-vertical {
+  top: 0;
+  bottom: 0;
+  border-left-width: 1px;
+}
+
+.alignment-guide-horizontal {
+  right: 0;
+  left: 0;
+  border-top-width: 1px;
+}
+
+.alignment-guide b {
+  position: absolute;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #dda13e;
+  color: #251b0c;
+  font: 700 8px var(--font-mono);
+  white-space: nowrap;
+}
+
+.alignment-guide-vertical b {
+  top: 6px;
+  left: 4px;
+}
+
+.alignment-guide-horizontal b {
+  top: 4px;
+  left: 6px;
+}
+
+@media (max-width: 560px) {
+  .preview-control-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .preview-ruler-toggle {
+    justify-self: end;
+  }
+
+  .preview-control-bar .time-pill {
+    grid-column: 1 / -1;
+  }
+}

@@ -84,6 +84,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
   assert.match(page, /startPopupDrag/);
+  assert.match(page, /rulerEnabled/);
+  assert.match(page, /toggleRuler/);
+  assert.match(page, /snapDragPosition/);
+  assert.match(page, /preview-ruler-toggle/);
+  assert.match(page, /preview-alignment-guides/);
   assert.match(page, /data-popup-id=\{popup\.id\}/);
   assert.match(page, /draggedPopupBounds/);
   assert.match(page, /height: `min\(\$\{popup\.height \?\? 255\}px, 88%\)`/);
@@ -173,6 +178,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /subtitle-style-editor/);
   assert.match(css, /subtitle-align-steps/);
   assert.match(css, /subtitle-overlay\.is-dragging/);
+  assert.match(css, /preview-ruler-toggle/);
+  assert.match(css, /preview-alignment-guides/);
   assert.match(css, /data-theme="dark".*field > span/s);
   assert.match(css, /data-theme="dark"\]\s+\.button\.ghost/);
   assert.match(css, /subtitle-add-button:hover/);

@@ -81,6 +81,16 @@ type MapDecoration = {
   visible: boolean;
 };
 
+type AlignmentGuides = {
+  vertical: number | null;
+  horizontal: number | null;
+};
+
+type SnapMode = "center" | "box";
+
+const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
+const ALIGNMENT_SNAP_THRESHOLD = 1.6;
+
 type Scene = {
   id: string;
   number: number;
@@ -1524,6 +1534,8 @@ function Home() {
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
+  const [rulerEnabled, setRulerEnabled] = useState(false);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -3474,6 +3486,12 @@ function Home() {
     }));
   };
 
+  const toggleRuler = () => {
+    const next = !rulerEnabled;
+    setRulerEnabled(next);
+    if (!next) setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+  };
+
   const copySelectedScene = () => {
     if (!scene) return;
     setClipboardScene({
@@ -3550,6 +3568,99 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const getAlignmentPoints = (
+    preview: HTMLElement,
+    bounds: DOMRect,
+    target: HTMLElement,
+    mode: SnapMode,
+  ) => {
+    const x = [50];
+    const y = [50];
+    if (mode === "box") {
+      x.push(0, 100);
+      y.push(0, 100);
+    }
+    const elements = preview.querySelectorAll<HTMLElement>(
+      "[data-popup-id], .map-text-overlay, .map-decoration, .subtitle-overlay",
+    );
+    elements.forEach((element) => {
+      if (element === target) return;
+      const elementBounds = element.getBoundingClientRect();
+      if (elementBounds.width <= 0 || elementBounds.height <= 0) return;
+      const left = ((elementBounds.left - bounds.left) / bounds.width) * 100;
+      const right = ((elementBounds.right - bounds.left) / bounds.width) * 100;
+      const top = ((elementBounds.top - bounds.top) / bounds.height) * 100;
+      const bottom = ((elementBounds.bottom - bounds.top) / bounds.height) * 100;
+      x.push(left, (left + right) / 2, right);
+      y.push(top, (top + bottom) / 2, bottom);
+    });
+    return {
+      x: x.filter((value) => Number.isFinite(value)),
+      y: y.filter((value) => Number.isFinite(value)),
+    };
+  };
+
+  const snapAxis = (
+    rawValue: number,
+    sizePercent: number,
+    points: number[],
+    mode: SnapMode,
+  ) => {
+    const safeSize = mode === "box" ? Math.min(100, Math.max(0, sizePercent)) : 0;
+    const anchors = mode === "box" ? [0, safeSize / 2, safeSize] : [0];
+    let nearest: { value: number; offset: number; distance: number } | null = null;
+    anchors.forEach((offset) => {
+      const anchorValue = rawValue + offset;
+      points.forEach((point) => {
+        const distance = Math.abs(anchorValue - point);
+        if (!nearest || distance < nearest.distance) {
+          nearest = { value: point, offset, distance };
+        }
+      });
+    });
+    const maxValue = mode === "box" ? 100 - safeSize : 100;
+    const clampedRawValue = Math.min(maxValue, Math.max(0, rawValue));
+    if (!nearest || nearest.distance > ALIGNMENT_SNAP_THRESHOLD) {
+      return { value: clampedRawValue, guide: null };
+    }
+    const snappedValue = Math.min(maxValue, Math.max(0, nearest.value - nearest.offset));
+    return { value: snappedValue, guide: Math.min(100, Math.max(0, nearest.value)) };
+  };
+
+  const snapDragPosition = ({
+    preview,
+    bounds,
+    target,
+    rawX,
+    rawY,
+    mode,
+    sizeX = 0,
+    sizeY = 0,
+  }: {
+    preview: HTMLElement;
+    bounds: DOMRect;
+    target: HTMLElement;
+    rawX: number;
+    rawY: number;
+    mode: SnapMode;
+    sizeX?: number;
+    sizeY?: number;
+  }) => {
+    const clampedRawX = Math.min(100, Math.max(0, rawX));
+    const clampedRawY = Math.min(100, Math.max(0, rawY));
+    if (!rulerEnabled) {
+      return { x: clampedRawX, y: clampedRawY, guides: EMPTY_ALIGNMENT_GUIDES };
+    }
+    const points = getAlignmentPoints(preview, bounds, target, mode);
+    const x = snapAxis(clampedRawX, sizeX, points.x, mode);
+    const y = snapAxis(clampedRawY, sizeY, points.y, mode);
+    return {
+      x: Number(x.value.toFixed(1)),
+      y: Number(y.value.toFixed(1)),
+      guides: { vertical: x.guide, horizontal: y.guide },
+    };
+  };
+
   const startPopupDrag = (event: React.PointerEvent<HTMLElement>, popupId = activePopup?.id) => {
     if (playing || (event.target as HTMLElement).closest(".popup-resize-handle")) return;
     event.preventDefault();
@@ -3564,20 +3675,30 @@ function Home() {
       ? Array.from(preview.querySelectorAll<HTMLElement>("[data-popup-id]"))
         .find((element) => element.dataset.popupId === popupId)
       : null;
-    const draggedPopupBounds = draggedPopupElement?.getBoundingClientRect();
+    const draggedElement = draggedPopupElement ?? event.currentTarget;
+    const draggedPopupBounds = draggedElement.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
     const baseX = clampPercent(draggedPopup.x, 5);
     const baseY = clampPercent(draggedPopup.y, 55);
-    const popupWidth = draggedPopupBounds?.width ?? (bounds.width * Number(draggedPopup.width ?? 90)) / 100;
-    const popupHeight = draggedPopupBounds?.height ?? Number(draggedPopup.height ?? 255);
-    const maxX = Math.max(0, 100 - (popupWidth / bounds.width) * 100);
-    const maxY = Math.max(0, 100 - (popupHeight / bounds.height) * 100);
+    const popupWidth = draggedPopupBounds.width || (bounds.width * Number(draggedPopup.width ?? 90)) / 100;
+    const popupHeight = draggedPopupBounds.height || Number(draggedPopup.height ?? 255);
+    const popupWidthPercent = (popupWidth / bounds.width) * 100;
+    const popupHeightPercent = (popupHeight / bounds.height) * 100;
     const updatePosition = (clientX: number, clientY: number) => {
-      const nextX = Math.min(maxX, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
-      const nextY = Math.min(maxY, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
-      updatePopup("x", Number(nextX.toFixed(1)), popupId);
-      updatePopup("y", Number(nextY.toFixed(1)), popupId);
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "box",
+        sizeX: popupWidthPercent,
+        sizeY: popupHeightPercent,
+      });
+      setAlignmentGuides(position.guides);
+      updatePopup("x", position.x, popupId);
+      updatePopup("y", position.y, popupId);
     };
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
@@ -3635,6 +3756,7 @@ function Home() {
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedElement = event.currentTarget;
     const startX = event.clientX;
     const startY = event.clientY;
     const baseX = clampPercent(draggedOverlay.x, 50);
@@ -3643,8 +3765,17 @@ function Home() {
     setDraggingTextOverlay(true);
 
     const updatePosition = (clientX: number, clientY: number) => {
-      const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
-      const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "center",
+      });
+      setAlignmentGuides(position.guides);
+      const nextX = position.x;
+      const nextY = position.y;
       setScenes((items) => items.map((item) => {
         if (item.id !== selectedId) return item;
         const overlays = item.textOverlays ?? [];
@@ -3679,6 +3810,7 @@ function Home() {
     const bounds = preview.getBoundingClientRect();
     const subtitleBounds = event.currentTarget.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedElement = event.currentTarget;
     const startX = event.clientX;
     const startY = event.clientY;
     const baseX = clampPercent(subtitleStyle.x, 50);
@@ -3692,8 +3824,17 @@ function Home() {
     setDraggingSubtitle(true);
 
     const updatePosition = (clientX: number, clientY: number) => {
-      const nextX = Math.min(maxX, Math.max(minX, baseX + ((clientX - startX) / bounds.width) * 100));
-      const nextY = Math.min(maxY, Math.max(minY, baseY + ((clientY - startY) / bounds.height) * 100));
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "center",
+      });
+      setAlignmentGuides(position.guides);
+      const nextX = Math.min(maxX, Math.max(minX, position.x));
+      const nextY = Math.min(maxY, Math.max(minY, position.y));
       setScenes((items) => items.map((item) => item.id === selectedId
         ? {
             ...item,
@@ -3730,6 +3871,7 @@ function Home() {
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedElement = event.currentTarget;
     const startX = event.clientX;
     const startY = event.clientY;
     const baseX = clampPercent(draggedDecoration.x, 50);
@@ -3737,8 +3879,17 @@ function Home() {
     setSelectedDecorationId(draggedDecoration.id);
     setDraggingMapDecoration(true);
     const updatePosition = (clientX: number, clientY: number) => {
-      const nextX = Math.min(100, Math.max(0, baseX + ((clientX - startX) / bounds.width) * 100));
-      const nextY = Math.min(100, Math.max(0, baseY + ((clientY - startY) / bounds.height) * 100));
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "center",
+      });
+      setAlignmentGuides(position.guides);
+      const nextX = position.x;
+      const nextY = position.y;
       setScenes((items) => items.map((item) => item.id === selectedId
         ? {
             ...item,
@@ -4707,6 +4858,19 @@ function Home() {
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
               </button>
+              <button
+                type="button"
+                className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
+                aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                aria-pressed={rulerEnabled}
+                title={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                onClick={toggleRuler}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 5h16v14H4z" />
+                  <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
+                </svg>
+              </button>
               <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
             </div>
             <div
@@ -4722,7 +4886,7 @@ function Home() {
             </div>
           </div>
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""}`}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""}`}
             style={{ transform: `scale(${previewZoom / 100})` }}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
@@ -4964,6 +5128,22 @@ function Home() {
                 </article>
               );
             })}
+            {rulerEnabled && (
+              <div className="preview-alignment-guides" aria-hidden="true">
+                <span
+                  className="alignment-guide alignment-guide-vertical"
+                  style={{ left: `${alignmentGuides.vertical ?? 50}%` }}
+                >
+                  <b>{Math.round(alignmentGuides.vertical ?? 50)}%</b>
+                </span>
+                <span
+                  className="alignment-guide alignment-guide-horizontal"
+                  style={{ top: `${alignmentGuides.horizontal ?? 50}%` }}
+                >
+                  <b>{Math.round(alignmentGuides.horizontal ?? 50)}%</b>
+                </span>
+              </div>
+            )}
           </div>
           <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
             <button
