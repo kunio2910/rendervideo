@@ -535,7 +535,7 @@ const createTextOverlay = async (overlay, index) => {
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
   await sharp(svg).png().toFile(filename);
-  return { path: filename };
+  return { path: filename, width, height };
 };
 
 const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
@@ -845,7 +845,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
   const subtitleInputIndex = popupInputIndex;
-  subtitleRenders.forEach(({ scene: subtitle, style }, subtitleIndex) => {
+  subtitleRenders.forEach(({ scene: subtitle, style, rendered: renderedOverlay }, subtitleIndex) => {
     const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
     const subtitleEnd = Math.min(
       duration,
@@ -855,7 +855,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const inputIndex = subtitleInputIndex + subtitleIndex;
     const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
     const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
-    const animation = ["none", "fade", "pop", "slide-up"].includes(String(style?.animation))
+    const animation = ["none", "fade", "pop", "slide-up", "typewriter"].includes(String(style?.animation))
       ? String(style.animation)
       : "fade";
     const animationDuration = clamp(Number(style?.animationDuration ?? 0.25), 0.05, 1);
@@ -865,13 +865,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     } else if (animation === "pop") {
       const progress = `min(1,max(0,(t-${subtitleStart})/${animationDuration}))`;
       filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
+    } else if (animation === "typewriter") {
+      const progress = `min(1,max(0,(T-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${progress}),alpha(X,Y),0)'[${subtitleInputLabel}];`;
     } else {
       filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
     }
     const slideOffset = animation === "slide-up"
       ? `+main_h*0.03*(1-min(1,max(0,(t-${subtitleStart})/${animationDuration})))`
       : "";
-    filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='main_w*${subtitleX}-overlay_w/2':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
+    const renderedWidth = Number(renderedOverlay?.width);
+    const fixedSubtitleLeft = animation === "typewriter" && Number.isFinite(renderedWidth)
+      ? `main_w*${subtitleX}-${renderedWidth / 2}`
+      : `main_w*${subtitleX}-overlay_w/2`;
+    filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
   });
   popupInputIndex += subtitleRenders.length;
