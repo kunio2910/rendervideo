@@ -538,6 +538,33 @@ const createTextOverlay = async (overlay, index) => {
   return { path: filename };
 };
 
+const createSubtitleOverlay = async (cue, index) => {
+  const text = String(cue?.text ?? "").trim();
+  if (!text || cue?.visible === false) return null;
+  const lines = text
+    .split(/\r?\n/)
+    .flatMap((line) => wrap(line, 36))
+    .slice(0, 2)
+    .join("\n");
+  return createTextOverlay({
+    text: lines,
+    visible: true,
+    size: 22,
+    style: "bold",
+    color: "#ffffff",
+    opacity: 100,
+    font: "Arial",
+    strokeWidth: 1,
+    strokeColor: "#000000",
+    borderWidth: 0,
+    borderColor: "#ffffff",
+    borderOpacity: 88,
+    borderFill: "#0b1220",
+    x: 50,
+    y: 83,
+  }, index);
+};
+
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
 await sharp({
   create: {
@@ -666,6 +693,24 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createTextOverlay(overlay, index * 100 + textIndex);
     if (rendered) textOverlayRenders.push({ scene: overlay, rendered });
   }
+  const subtitleCues = scene.subtitleEnabled !== false && Array.isArray(scene.subtitles)
+    ? scene.subtitles.filter((cue) => {
+        const text = String(cue?.text ?? "").trim();
+        const start = Number(cue?.start);
+        const end = Number(cue?.end);
+        return cue?.visible !== false
+          && text
+          && Number.isFinite(start)
+          && Number.isFinite(end)
+          && end > start;
+      })
+    : [];
+  const subtitleRenders = [];
+  for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
+    const subtitle = subtitleCues[subtitleIndex];
+    const rendered = await createSubtitleOverlay(subtitle, index * 100 + 50 + subtitleIndex);
+    if (rendered) subtitleRenders.push({ scene: subtitle, rendered });
+  }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
@@ -793,7 +838,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = composedOutput;
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
-  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length)
+  const subtitleInputIndex = popupInputIndex;
+  subtitleRenders.forEach(({ scene: subtitle }, subtitleIndex) => {
+    const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
+    const subtitleEnd = Math.min(
+      duration,
+      Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+    );
+    const subtitleOutput = `[subtitled${subtitleIndex}]`;
+    const inputIndex = subtitleInputIndex + subtitleIndex;
+    filter += `${composedLabel}[${inputIndex}:v]overlay=x='main_w/2-overlay_w/2':y='main_h*0.83-overlay_h/2':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
+    composedLabel = subtitleOutput;
+  });
+  popupInputIndex += subtitleRenders.length;
+  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length || subtitleRenders.length)
     ? `${composedLabel}copy[composed]`
     : "[bg]copy[composed]";
   const args = [
@@ -812,6 +870,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       args.push("-stream_loop", "-1", "-i", popup.video);
       args.push("-loop", "1", "-i", popup.borderPath);
     }
+  });
+  subtitleRenders.forEach(({ rendered: subtitle }) => {
+    args.push("-loop", "1", "-i", subtitle.path);
   });
   const audioInputIndex = popupInputIndex;
   if (voice) {
