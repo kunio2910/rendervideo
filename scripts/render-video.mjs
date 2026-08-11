@@ -746,6 +746,16 @@ for (let index = 0; index < scenes.length; index += 1) {
       `x='iw*${centerX}*(1-1/zoom)':` +
       `y='ih*${centerY}*(1-1/zoom)':` +
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  const popupInputCount = popupRenders.reduce(
+    (total, { rendered: popup }) => total + (popup.video ? (popup.borderPath ? 3 : 2) : 1),
+    0,
+  );
+  const snowInputIndex = 1
+    + textOverlayRenders.length
+    + decorationRenders.length
+    + popupInputCount
+    + subtitleRenders.length;
+  const snowInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
   const sceneEffects = normalizeSceneEffects(scene.effects);
@@ -765,7 +775,11 @@ for (let index = 0; index < scenes.length; index += 1) {
       const drift = ((snowIndex * 19) % 31) - 15;
       const fallSpeed = Math.round(previewPx(34 + ((snowIndex * 17) % 48)) * sceneEffects.snowSpeed);
       const snowLabel = `snow${snowIndex}`;
-      filter += `${composedLabel}drawbox=x='mod(${xSeed}+t*${drift},iw)':y='mod(${ySeed}+t*${fallSpeed},ih)':w=${snowSize}:h=${snowSize}:color=white@${snowOpacity}:t=fill[${snowLabel}];`;
+      snowInputSpecs.push({ size: snowSize, opacity: snowOpacity });
+      filter += `${composedLabel}[${snowInputIndex + snowIndex}:v]overlay=` +
+        `x='mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)':` +
+        `y='mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)':` +
+        `shortest=1[${snowLabel}];`;
       composedLabel = `[${snowLabel}]`;
     }
   }
@@ -944,7 +958,15 @@ for (let index = 0; index < scenes.length; index += 1) {
   subtitleRenders.forEach(({ rendered: subtitle }) => {
     args.push("-loop", "1", "-i", subtitle.path);
   });
-  const audioInputIndex = popupInputIndex;
+  snowInputSpecs.forEach(({ size, opacity }) => {
+    args.push(
+      "-f",
+      "lavfi",
+      "-i",
+      `color=c=white@${opacity}:s=${size}x${size}:r=${fps}:d=${duration},format=rgba`,
+    );
+  });
+  const audioInputIndex = popupInputIndex + snowInputSpecs.length;
   if (voice) {
     args.push("-i", voice);
   } else {
