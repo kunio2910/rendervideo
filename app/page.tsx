@@ -469,6 +469,7 @@ type EditorSectionClipboard =
     }
   | {
       section: "audio";
+      narration: string;
       voice: string;
       voiceFile: string;
       voiceVolume: number;
@@ -805,7 +806,6 @@ const scenePopupList = (scene: Scene): PopupConfig[] => {
 const popupSceneFields = (popup: PopupConfig) => ({
   title: popup.title,
   popup: popup.body,
-  narration: popup.narration,
   image: popup.image,
   popupVideo: popup.video,
   popupStart: popup.start,
@@ -2560,6 +2560,7 @@ function Home() {
         : section === "audio"
           ? {
               section,
+              narration: scene.narration ?? "",
               voice: scene.voice ?? "",
               voiceFile: scene.voiceFile ?? "",
               voiceVolume: clampVolume(scene.voiceVolume, 95),
@@ -2621,6 +2622,7 @@ function Home() {
         case "audio":
           return {
             ...item,
+            narration: data.narration,
             voice: data.voice,
             voiceFile: data.voiceFile,
             voiceVolume: data.voiceVolume,
@@ -3187,7 +3189,7 @@ function Home() {
 
   const generateSubtitlesFromNarration = async () => {
     if (!scene) return;
-    const narration = String(activePopup?.narration || scene.narration || "").trim();
+    const narration = String(scene.narration || "").trim();
     const selectedAudio = audioFiles[scene.id]
       ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(scene.voiceFile));
     if (!narration) {
@@ -3805,7 +3807,7 @@ function Home() {
             id: popup.id,
             title: popup.title,
             body: popup.body,
-            narration: narrationEnabled ? popup.narration : "",
+            narration: popup.narration,
             start: popup.start,
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
@@ -3873,7 +3875,7 @@ function Home() {
             ...(sceneBackground ? { background: sceneBackground } : {}),
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
-            narration: narrationEnabled ? firstPopup.narration : "",
+            narration: narrationEnabled ? item.narration : "",
             ...(voiceFile ? { voiceFile } : {}),
             voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
             popupIn: firstPopup.in,
@@ -5476,6 +5478,16 @@ function Home() {
                 </div>
               </div>
               <small>Để trống nếu clip không có nhạc nền.</small>
+            </label>
+            <label className="field narration-field" id="editor-narration">
+              <span>Lời thuyết minh dùng để tạo phụ đề</span>
+              <textarea
+                rows={4}
+                value={scene.narration}
+                placeholder="Nhập nguyên văn nội dung của file audio…"
+                onChange={(event) => updateScene("narration", event.target.value)}
+              />
+              <small>Nội dung này được dùng để Whisper/fallback tạo timestamp phụ đề. Có thể khác với lời thuyết minh ghi chú trong Popup.</small>
             </label>
             <label className="field audio-field" id="editor-audio">
               <span>File âm thanh thuyết minh</span>
