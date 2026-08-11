@@ -507,20 +507,33 @@ const createTextOverlay = async (overlay, index) => {
   const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
   const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
   const borderFill = decorationColor(overlay?.borderFill, "#14202e");
-  const lines = text.split(/\r?\n/);
   const paddingX = Math.round(previewPx(9));
   const paddingY = Math.round(previewPx(5));
   const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
+  const requestedBoxWidth = Number(overlay?.boxWidth);
+  const boxWidth = Number.isFinite(requestedBoxWidth)
+    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, 0.4, 1))
+    : null;
+  const maxChars = boxWidth
+    ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
+    : null;
+  const lines = text
+    .split(/\r?\n/)
+    .flatMap((line) => maxChars ? (line ? wrap(line, maxChars) : [""]) : [line]);
   const longestLine = Math.max(1, ...lines.map((line) => line.length));
-  const width = Math.max(
+  const intrinsicWidth = Math.max(
     Math.round(previewPx(32)),
     Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
   );
+  const width = boxWidth ?? intrinsicWidth;
   const height = Math.max(
     Math.round(previewPx(24)),
     Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
   );
-  const radius = Math.min(Math.round(previewPx(6)), Math.floor(Math.min(width, height) / 2));
+  const radius = Math.min(
+    Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
+    Math.floor(Math.min(width, height) / 2),
+  );
   const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
   const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
   const textNodes = lines.map((line, lineIndex) => {
@@ -535,7 +548,32 @@ const createTextOverlay = async (overlay, index) => {
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
   await sharp(svg).png().toFile(filename);
-  return { path: filename };
+  return { path: filename, width, height };
+};
+
+const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
+  const text = String(cue?.text ?? "").trim();
+  if (!text || cue?.visible === false) return null;
+  const styleSize = clamp(Number(subtitleStyle.size ?? 22), 8, 120);
+  return createTextOverlay({
+    text,
+    visible: true,
+    size: styleSize,
+    style: subtitleStyle.style ?? "bold",
+    color: subtitleStyle.color ?? "#ffffff",
+    opacity: subtitleStyle.opacity ?? 100,
+    font: subtitleStyle.font ?? "Arial",
+    strokeWidth: subtitleStyle.strokeWidth ?? 1,
+    strokeColor: subtitleStyle.strokeColor ?? "#000000",
+    borderWidth: subtitleStyle.borderWidth ?? 1,
+    borderColor: subtitleStyle.borderColor ?? "#ffffff",
+    borderOpacity: subtitleStyle.borderOpacity ?? 88,
+    borderFill: subtitleStyle.borderFill ?? "#0b1220",
+    borderRadius: subtitleStyle.borderRadius ?? 8,
+    x: subtitleStyle.x ?? 50,
+    y: subtitleStyle.y ?? 83,
+    boxWidth: subtitleStyle.boxWidth ?? 84,
+  }, index);
 };
 
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
@@ -666,6 +704,28 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createTextOverlay(overlay, index * 100 + textIndex);
     if (rendered) textOverlayRenders.push({ scene: overlay, rendered });
   }
+  const subtitleCues = scene.subtitleEnabled !== false && Array.isArray(scene.subtitles)
+    ? scene.subtitles.filter((cue) => {
+        const text = String(cue?.text ?? "").trim();
+        const start = Number(cue?.start);
+        const end = Number(cue?.end);
+        return cue?.visible !== false
+          && text
+          && Number.isFinite(start)
+          && Number.isFinite(end)
+          && end > start;
+      })
+    : [];
+  const subtitleRenders = [];
+  for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
+    const subtitle = subtitleCues[subtitleIndex];
+    const rendered = await createSubtitleOverlay(
+      subtitle,
+      index * 100 + 50 + subtitleIndex,
+      scene.subtitleStyle ?? {},
+    );
+    if (rendered) subtitleRenders.push({ scene: subtitle, rendered, style: scene.subtitleStyle ?? {} });
+  }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
@@ -793,7 +853,45 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = composedOutput;
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
-  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length)
+  const subtitleInputIndex = popupInputIndex;
+  subtitleRenders.forEach(({ scene: subtitle, style, rendered: renderedOverlay }, subtitleIndex) => {
+    const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
+    const subtitleEnd = Math.min(
+      duration,
+      Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+    );
+    const subtitleOutput = `[subtitled${subtitleIndex}]`;
+    const inputIndex = subtitleInputIndex + subtitleIndex;
+    const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
+    const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
+    const animation = ["none", "fade", "pop", "slide-up", "typewriter"].includes(String(style?.animation))
+      ? String(style.animation)
+      : "fade";
+    const animationDuration = clamp(Number(style?.animationDuration ?? 0.25), 0.05, 1);
+    const subtitleInputLabel = `subtitleInput${subtitleIndex}`;
+    if (animation === "fade") {
+      filter += `[${inputIndex}:v]format=rgba,fade=t=in:st=${subtitleStart}:d=${animationDuration}:alpha=1[${subtitleInputLabel}];`;
+    } else if (animation === "pop") {
+      const progress = `min(1,max(0,(t-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
+    } else if (animation === "typewriter") {
+      const progress = `min(1,max(0,(T-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${progress}),alpha(X,Y),0)'[${subtitleInputLabel}];`;
+    } else {
+      filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
+    }
+    const slideOffset = animation === "slide-up"
+      ? `+main_h*0.03*(1-min(1,max(0,(t-${subtitleStart})/${animationDuration})))`
+      : "";
+    const renderedWidth = Number(renderedOverlay?.width);
+    const fixedSubtitleLeft = animation === "typewriter" && Number.isFinite(renderedWidth)
+      ? `main_w*${subtitleX}-${renderedWidth / 2}`
+      : `main_w*${subtitleX}-overlay_w/2`;
+    filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
+    composedLabel = subtitleOutput;
+  });
+  popupInputIndex += subtitleRenders.length;
+  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length || subtitleRenders.length)
     ? `${composedLabel}copy[composed]`
     : "[bg]copy[composed]";
   const args = [
@@ -812,6 +910,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       args.push("-stream_loop", "-1", "-i", popup.video);
       args.push("-loop", "1", "-i", popup.borderPath);
     }
+  });
+  subtitleRenders.forEach(({ rendered: subtitle }) => {
+    args.push("-loop", "1", "-i", subtitle.path);
   });
   const audioInputIndex = popupInputIndex;
   if (voice) {

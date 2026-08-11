@@ -10,6 +10,34 @@
       "end": 2,
       "backgroundVisible": true,
       "background": "",
+      "subtitleEnabled": true,
+      "subtitleStyle": {
+        "size": 22,
+        "style": "bold",
+        "color": "#ffffff",
+        "opacity": 100,
+        "font": "Arial",
+        "strokeWidth": 1,
+        "strokeColor": "#000000",
+        "borderWidth": 1,
+        "borderColor": "#ffffff",
+        "borderOpacity": 88,
+        "borderFill": "#0b1220",
+        "x": 50,
+        "y": 82,
+        "boxWidth": 84,
+        "animation": "none",
+        "animationDuration": 0.25
+      },
+      "subtitles": [
+        {
+          "id": "subtitle-width",
+          "text": "Phụ đề có thể điều chỉnh chiều rộng khung hiển thị",
+          "start": 0,
+          "end": 2,
+          "visible": true
+        }
+      ],
       "textOverlays": [
         {
           "id": "text-border",
