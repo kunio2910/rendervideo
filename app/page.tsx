@@ -87,6 +87,7 @@ type AlignmentGuides = {
 };
 
 type SnapMode = "center" | "box";
+type RulerStyle = "center" | "grid" | "all";
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
@@ -444,6 +445,8 @@ type StoredProject = {
   version: 1;
   projectDuration: number;
   timelineHeight?: number;
+  rulerEnabled?: boolean;
+  rulerStyle?: RulerStyle;
   aspectRatio?: AspectRatio;
   renderResolution?: RenderResolution;
   imageEnabled: boolean;
@@ -533,6 +536,9 @@ const normalizeTimelineHeight = (value: unknown, fallback = 245) => {
   const numeric = Number(value);
   return Math.min(520, Math.max(220, Number.isFinite(numeric) ? Math.round(numeric) : fallback));
 };
+
+const normalizeRulerStyle = (value: unknown): RulerStyle =>
+  value === "grid" || value === "all" ? value : "center";
 
 const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   const numeric = Number(value);
@@ -1541,6 +1547,7 @@ function Home() {
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [rulerEnabled, setRulerEnabled] = useState(false);
+  const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -1903,6 +1910,8 @@ function Home() {
       title: projectTitle,
       projectDuration,
       timelineHeight,
+      rulerEnabled,
+      rulerStyle,
       aspectRatio,
       renderResolution,
       imageEnabled,
@@ -1921,6 +1930,8 @@ function Home() {
       projectTitle,
       projectDuration,
       timelineHeight,
+      rulerEnabled,
+      rulerStyle,
       aspectRatio,
       renderResolution,
       imageEnabled,
@@ -1952,6 +1963,9 @@ function Home() {
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
     setTimelineHeight(normalizeTimelineHeight(project.timelineHeight));
+    setRulerEnabled(project.rulerEnabled === true);
+    setRulerStyle(normalizeRulerStyle(project.rulerStyle));
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
     const nextAspectRatio = normalizeAspectRatio(project.aspectRatio);
     setAspectRatio(nextAspectRatio);
     setRenderResolution(normalizeRenderResolution(project.renderResolution, nextAspectRatio));
@@ -1996,6 +2010,8 @@ function Home() {
       const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
         ...project,
         timelineHeight: normalizeTimelineHeight(project.timelineHeight),
+        rulerEnabled: project.rulerEnabled === true,
+        rulerStyle: normalizeRulerStyle(project.rulerStyle),
         aspectRatio: normalizeAspectRatio(project.aspectRatio),
         renderResolution: normalizeRenderResolution(
           project.renderResolution,
@@ -2017,6 +2033,8 @@ function Home() {
         title: "Dự án mới",
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         timelineHeight: normalizeTimelineHeight(data.timelineHeight),
+        rulerEnabled: data.rulerEnabled === true,
+        rulerStyle: normalizeRulerStyle(data.rulerStyle),
         aspectRatio: normalizeAspectRatio(data.aspectRatio),
         renderResolution: normalizeRenderResolution(
           data.renderResolution,
@@ -4883,19 +4901,51 @@ function Home() {
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
               </button>
-              <button
-                type="button"
-                className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
-                aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
-                aria-pressed={rulerEnabled}
-                title={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
-                onClick={toggleRuler}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 5h16v14H4z" />
-                  <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
-                </svg>
-              </button>
+              <div className="preview-ruler-control">
+                <button
+                  type="button"
+                  className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
+                  aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                  aria-pressed={rulerEnabled}
+                  aria-expanded={rulerEnabled}
+                  title={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                  onClick={toggleRuler}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16v14H4z" />
+                    <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
+                  </svg>
+                </button>
+                {rulerEnabled && (
+                  <div className="preview-ruler-style-popover" role="group" aria-label="Kiểu thước căn chỉnh">
+                    <span>Kiểu thước</span>
+                    <button
+                      type="button"
+                      className={rulerStyle === "center" ? "active" : ""}
+                      aria-pressed={rulerStyle === "center"}
+                      onClick={() => setRulerStyle("center")}
+                    >
+                      Canh giữa
+                    </button>
+                    <button
+                      type="button"
+                      className={rulerStyle === "grid" ? "active" : ""}
+                      aria-pressed={rulerStyle === "grid"}
+                      onClick={() => setRulerStyle("grid")}
+                    >
+                      Kẻ ô
+                    </button>
+                    <button
+                      type="button"
+                      className={rulerStyle === "all" ? "active" : ""}
+                      aria-pressed={rulerStyle === "all"}
+                      onClick={() => setRulerStyle("all")}
+                    >
+                      Tất cả
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 className={`preview-fullscreen-toggle ${previewFullscreen ? "active" : ""}`}
@@ -5169,19 +5219,36 @@ function Home() {
               );
             })}
             {rulerEnabled && (
-              <div className="preview-alignment-guides" aria-hidden="true">
-                <span
-                  className="alignment-guide alignment-guide-vertical"
-                  style={{ left: `${alignmentGuides.vertical ?? 50}%` }}
-                >
-                  <b>{Math.round(alignmentGuides.vertical ?? 50)}%</b>
-                </span>
-                <span
-                  className="alignment-guide alignment-guide-horizontal"
-                  style={{ top: `${alignmentGuides.horizontal ?? 50}%` }}
-                >
-                  <b>{Math.round(alignmentGuides.horizontal ?? 50)}%</b>
-                </span>
+              <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
+                {(rulerStyle === "grid" || rulerStyle === "all") && (
+                  <span className="preview-ruler-grid" />
+                )}
+                {(rulerStyle === "center" || rulerStyle === "all") && (
+                  <>
+                    <span className="alignment-guide alignment-guide-vertical alignment-guide-center" style={{ left: "50%" }}>
+                      <b>50%</b>
+                    </span>
+                    <span className="alignment-guide alignment-guide-horizontal alignment-guide-center" style={{ top: "50%" }}>
+                      <b>50%</b>
+                    </span>
+                  </>
+                )}
+                {rulerStyle === "all" && alignmentGuides.vertical !== null && Math.abs(alignmentGuides.vertical - 50) > 0.1 && (
+                  <span
+                    className="alignment-guide alignment-guide-vertical alignment-guide-snap"
+                    style={{ left: `${alignmentGuides.vertical}%` }}
+                  >
+                    <b>{Math.round(alignmentGuides.vertical)}%</b>
+                  </span>
+                )}
+                {rulerStyle === "all" && alignmentGuides.horizontal !== null && Math.abs(alignmentGuides.horizontal - 50) > 0.1 && (
+                  <span
+                    className="alignment-guide alignment-guide-horizontal alignment-guide-snap"
+                    style={{ top: `${alignmentGuides.horizontal}%` }}
+                  >
+                    <b>{Math.round(alignmentGuides.horizontal)}%</b>
+                  </span>
+                )}
               </div>
             )}
           </div>

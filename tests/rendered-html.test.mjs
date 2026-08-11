@@ -85,7 +85,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /background-media-preview/);
   assert.match(page, /startPopupDrag/);
   assert.match(page, /rulerEnabled/);
+  assert.match(page, /type RulerStyle = "center" \| "grid" \| "all"/);
+  assert.match(page, /rulerStyle/);
+  assert.match(page, /normalizeRulerStyle/);
   assert.match(page, /toggleRuler/);
+  assert.match(page, /preview-ruler-style-popover/);
   assert.match(page, /snapDragPosition/);
   assert.match(page, /preview-ruler-toggle/);
   assert.match(page, /preview-alignment-guides/);
@@ -185,6 +189,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /subtitle-align-steps/);
   assert.match(css, /subtitle-overlay\.is-dragging/);
   assert.match(css, /preview-ruler-toggle/);
+  assert.match(css, /preview-ruler-style-popover/);
+  assert.match(css, /preview-ruler-grid/);
   assert.match(css, /preview-alignment-guides/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
