@@ -40,7 +40,7 @@ type TextOverlay = {
   y: number;
 };
 
-type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up";
+type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
 type SubtitleStyle = Omit<TextOverlay, "id" | "text" | "visible"> & {
   animation: SubtitleAnimation;
@@ -582,7 +582,7 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
     borderFill: normalizeHexColor(raw.borderFill, base.borderFill),
     x: clampPercent(raw.x, base.x),
     y: clampPercent(raw.y, base.y),
-    animation: ["none", "fade", "pop", "slide-up"].includes(animation)
+    animation: ["none", "fade", "pop", "slide-up", "typewriter"].includes(animation)
       ? animation as SubtitleAnimation
       : base.animation,
     animationDuration: Math.min(1, Math.max(0.05, positiveNumber(raw.animationDuration, base.animationDuration, 0.05))),
@@ -1806,6 +1806,9 @@ function Home() {
   const subtitleAnimationOpacity = subtitleStyle.animation === "fade"
     ? subtitleAnimationProgress
     : 1;
+  const subtitleAnimationClipPath = subtitleStyle.animation === "typewriter"
+    ? `inset(0 ${Math.max(0, 100 - subtitleAnimationProgress * 100)}% 0 0)`
+    : "none";
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -4762,6 +4765,7 @@ function Home() {
                   borderColor: colorWithAlpha(subtitleStyle.borderColor, subtitleStyle.borderOpacity / 100, "#ffffff"),
                   background: colorWithAlpha(subtitleStyle.borderFill, subtitleStyle.borderOpacity / 100, "#0b1220"),
                   opacity: subtitleAnimationOpacity,
+                  clipPath: subtitleAnimationClipPath,
                   textShadow: subtitleStyle.strokeWidth > 0
                     ? `0 0 ${Math.max(1, subtitleStyle.strokeWidth)}px ${subtitleStyle.strokeColor}`
                     : "none",
@@ -5599,6 +5603,7 @@ function Home() {
                       <option value="fade">Fade in</option>
                       <option value="pop">Pop</option>
                       <option value="slide-up">Trượt lên</option>
+                      <option value="typewriter">Hiện dần trái → phải</option>
                     </select>
                   </label>
                 </div>
