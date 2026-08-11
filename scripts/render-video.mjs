@@ -566,13 +566,13 @@ const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
     strokeWidth: subtitleStyle.strokeWidth ?? 1,
     strokeColor: subtitleStyle.strokeColor ?? "#000000",
     borderWidth: subtitleStyle.borderWidth ?? 1,
-    borderColor: subtitleStyle.borderColor ?? "#ffffff",
-    borderOpacity: subtitleStyle.borderOpacity ?? 88,
-    borderFill: subtitleStyle.borderFill ?? "#0b1220",
-    borderRadius: subtitleStyle.borderRadius ?? 8,
-    x: subtitleStyle.x ?? 50,
-    y: subtitleStyle.y ?? 83,
-    boxWidth: subtitleStyle.boxWidth ?? 84,
+  borderColor: subtitleStyle.borderColor ?? "#ffffff",
+  borderOpacity: subtitleStyle.borderOpacity ?? 88,
+  borderFill: subtitleStyle.borderFill ?? "#0b1220",
+  borderRadius: subtitleStyle.borderRadius ?? 8,
+  x: subtitleStyle.x ?? 50,
+  y: subtitleStyle.y ?? 83,
+  boxWidth: subtitleStyle.boxWidth ?? 84,
   }, index);
 };
 
