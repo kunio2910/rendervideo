@@ -75,6 +75,15 @@ const normalizeSceneEffects = (value) => {
     lightFlickerEnabled: raw.lightFlickerEnabled === true,
     lightFlickerIntensity: clamp(Number(raw.lightFlickerIntensity ?? 45) || 45, 0, 100),
     lightFlickerSpeed: clamp(Number(raw.lightFlickerSpeed ?? 1) || 1, 0.2, 3),
+    rainEnabled: raw.rainEnabled === true,
+    rainIntensity: clamp(Number(raw.rainIntensity ?? 55) || 55, 0, 100),
+    rainSpeed: clamp(Number(raw.rainSpeed ?? 1) || 1, 0.2, 3),
+    thunderEnabled: raw.thunderEnabled === true,
+    thunderIntensity: clamp(Number(raw.thunderIntensity ?? 55) || 55, 0, 100),
+    thunderSpeed: clamp(Number(raw.thunderSpeed ?? 1) || 1, 0.2, 3),
+    cloudEnabled: raw.cloudEnabled === true,
+    cloudIntensity: clamp(Number(raw.cloudIntensity ?? 50) || 50, 0, 100),
+    cloudSpeed: clamp(Number(raw.cloudSpeed ?? 1) || 1, 0.2, 3),
   };
 };
 const popupPixelHeight = (scene) => Math.min(
@@ -750,20 +759,68 @@ for (let index = 0; index < scenes.length; index += 1) {
     (total, { rendered: popup }) => total + (popup.video ? (popup.borderPath ? 3 : 2) : 1),
     0,
   );
-  const snowInputIndex = 1
+  const weatherInputIndex = 1
     + textOverlayRenders.length
     + decorationRenders.length
     + popupInputCount
     + subtitleRenders.length;
-  const snowInputSpecs = [];
+  const weatherInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
   const sceneEffects = normalizeSceneEffects(scene.effects);
+  const addWeatherOverlay = ({ source, x, y, label }) => {
+    const inputIndex = weatherInputIndex + weatherInputSpecs.length;
+    weatherInputSpecs.push(source);
+    filter += `${composedLabel}[${inputIndex}:v]overlay=` +
+      `x='${x}':y='${y}':shortest=1[${label}];`;
+    composedLabel = `[${label}]`;
+  };
   if (sceneEffects.lightFlickerEnabled && sceneEffects.lightFlickerIntensity > 0) {
     const lightAmplitude = (0.025 + (sceneEffects.lightFlickerIntensity / 100) * 0.17).toFixed(4);
     const lightFrequency = (2 * Math.PI * (0.55 + sceneEffects.lightFlickerSpeed * 0.8)).toFixed(5);
     filter += `${composedLabel}eq=brightness='${lightAmplitude}*sin(t*${lightFrequency})':eval=frame[lightened];`;
     composedLabel = "[lightened]";
+  }
+  if (sceneEffects.thunderEnabled && sceneEffects.thunderIntensity > 0) {
+    const flashAmplitude = (0.08 + (sceneEffects.thunderIntensity / 100) * 0.28).toFixed(4);
+    const flashFrequency = (0.75 + sceneEffects.thunderSpeed * 0.65).toFixed(4);
+    filter += `${composedLabel}eq=brightness='${flashAmplitude}*if(lt(mod(t*${flashFrequency},1),0.08),1,if(lt(mod(t*${flashFrequency},1),0.16),0.24,0))':eval=frame[thundered];`;
+    composedLabel = "[thundered]";
+  }
+  if (sceneEffects.cloudEnabled && sceneEffects.cloudIntensity > 0) {
+    const cloudCount = Math.round(3 + sceneEffects.cloudIntensity / 25);
+    const cloudOpacity = (0.08 + (sceneEffects.cloudIntensity / 100) * 0.32).toFixed(3);
+    for (let cloudIndex = 0; cloudIndex < cloudCount; cloudIndex += 1) {
+      const cloudWidth = Math.max(12, Math.round(outputWidth * (0.22 + ((cloudIndex * 19) % 28) / 100)));
+      const cloudHeight = Math.max(10, Math.round(outputHeight * (0.018 + (cloudIndex % 3) * 0.006)));
+      const xSeed = Math.round(outputWidth * (-0.25 + ((cloudIndex * 23) % 110) / 100));
+      const ySeed = Math.round(outputHeight * (0.12 + ((cloudIndex * 17) % 45) / 100));
+      const cloudSpeed = Math.max(1, Math.round(previewPx(16 + ((cloudIndex * 11) % 14)) * sceneEffects.cloudSpeed));
+      addWeatherOverlay({
+        source: `color=c=white@${cloudOpacity}:s=${cloudWidth}x${cloudHeight}:r=${fps}:d=${duration},format=rgba,boxblur=2:1`,
+        x: `mod(${xSeed}+t*${cloudSpeed}+main_w*2,main_w+overlay_w)-overlay_w`,
+        y: String(ySeed),
+        label: `cloud${cloudIndex}`,
+      });
+    }
+  }
+  if (sceneEffects.rainEnabled && sceneEffects.rainIntensity > 0) {
+    const rainCount = Math.round(10 + sceneEffects.rainIntensity * 0.16);
+    const rainOpacity = (0.22 + (sceneEffects.rainIntensity / 100) * 0.62).toFixed(3);
+    for (let rainIndex = 0; rainIndex < rainCount; rainIndex += 1) {
+      const dropWidth = Math.max(1, Math.round(previewPx(1 + (rainIndex % 2))));
+      const dropHeight = Math.max(6, Math.round(previewPx(14 + ((rainIndex * 11) % 18))));
+      const xSeed = Math.round(outputWidth * ((rainIndex * 29) % 100) / 100);
+      const ySeed = Math.round(outputHeight * (((rainIndex * 17) % 100) / 100) - dropHeight);
+      const drift = -Math.round(previewPx(18 + ((rainIndex * 7) % 37)));
+      const fallSpeed = Math.max(1, Math.round(previewPx(250 + ((rainIndex * 13) % 140)) * sceneEffects.rainSpeed));
+      addWeatherOverlay({
+        source: `color=c=white@${rainOpacity}:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba`,
+        x: `mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)`,
+        y: `mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)`,
+        label: `rain${rainIndex}`,
+      });
+    }
   }
   if (sceneEffects.snowEnabled && sceneEffects.snowIntensity > 0) {
     const snowCount = Math.round(8 + sceneEffects.snowIntensity * 0.2);
@@ -775,12 +832,12 @@ for (let index = 0; index < scenes.length; index += 1) {
       const drift = ((snowIndex * 19) % 31) - 15;
       const fallSpeed = Math.round(previewPx(34 + ((snowIndex * 17) % 48)) * sceneEffects.snowSpeed);
       const snowLabel = `snow${snowIndex}`;
-      snowInputSpecs.push({ size: snowSize, opacity: snowOpacity });
-      filter += `${composedLabel}[${snowInputIndex + snowIndex}:v]overlay=` +
-        `x='mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)':` +
-        `y='mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)':` +
-        `shortest=1[${snowLabel}];`;
-      composedLabel = `[${snowLabel}]`;
+      addWeatherOverlay({
+        source: `color=c=white@${snowOpacity}:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba`,
+        x: `mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)`,
+        y: `mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)`,
+        label: snowLabel,
+      });
     }
   }
   textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
@@ -958,15 +1015,10 @@ for (let index = 0; index < scenes.length; index += 1) {
   subtitleRenders.forEach(({ rendered: subtitle }) => {
     args.push("-loop", "1", "-i", subtitle.path);
   });
-  snowInputSpecs.forEach(({ size, opacity }) => {
-    args.push(
-      "-f",
-      "lavfi",
-      "-i",
-      `color=c=white@${opacity}:s=${size}x${size}:r=${fps}:d=${duration},format=rgba`,
-    );
+  weatherInputSpecs.forEach((source) => {
+    args.push("-f", "lavfi", "-i", source);
   });
-  const audioInputIndex = popupInputIndex + snowInputSpecs.length;
+  const audioInputIndex = popupInputIndex + weatherInputSpecs.length;
   if (voice) {
     args.push("-i", voice);
   } else {

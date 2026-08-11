@@ -160,6 +160,15 @@ type SceneEffects = {
   lightFlickerEnabled: boolean;
   lightFlickerIntensity: number;
   lightFlickerSpeed: number;
+  rainEnabled: boolean;
+  rainIntensity: number;
+  rainSpeed: number;
+  thunderEnabled: boolean;
+  thunderIntensity: number;
+  thunderSpeed: number;
+  cloudEnabled: boolean;
+  cloudIntensity: number;
+  cloudSpeed: number;
 };
 
 const defaultSceneEffects = (): SceneEffects => ({
@@ -169,6 +178,15 @@ const defaultSceneEffects = (): SceneEffects => ({
   lightFlickerEnabled: false,
   lightFlickerIntensity: 45,
   lightFlickerSpeed: 1,
+  rainEnabled: false,
+  rainIntensity: 55,
+  rainSpeed: 1,
+  thunderEnabled: false,
+  thunderIntensity: 55,
+  thunderSpeed: 1,
+  cloudEnabled: false,
+  cloudIntensity: 50,
+  cloudSpeed: 1,
 });
 
 const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
@@ -177,6 +195,25 @@ const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
   duration: 5.5 + ((index * 17) % 45) / 10,
   delay: -((index * 23) % 80) / 10,
   drift: -24 + ((index * 19) % 49),
+}));
+
+const RAIN_DROP_SEEDS = Array.from({ length: 32 }, (_, index) => ({
+  x: (index * 29) % 100,
+  length: 14 + ((index * 11) % 18),
+  width: 1 + (index % 2),
+  duration: 1.2 + ((index * 13) % 14) / 10,
+  delay: -((index * 17) % 35) / 10,
+  drift: -18 + ((index * 7) % 37),
+}));
+
+const CLOUD_SEEDS = Array.from({ length: 7 }, (_, index) => ({
+  x: -18 + ((index * 23) % 112),
+  y: 12 + ((index * 17) % 43),
+  width: 24 + ((index * 19) % 28),
+  height: 8 + ((index * 7) % 8),
+  duration: 18 + ((index * 11) % 14),
+  delay: -((index * 13) % 28),
+  drift: 118 + ((index * 17) % 45),
 }));
 
 type PopupConfig = {
@@ -803,6 +840,15 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
     lightFlickerEnabled: raw.lightFlickerEnabled === true,
     lightFlickerIntensity: Math.min(100, Math.max(0, positiveNumber(raw.lightFlickerIntensity, 45))),
     lightFlickerSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.lightFlickerSpeed, 1, 0.2))),
+    rainEnabled: raw.rainEnabled === true,
+    rainIntensity: Math.min(100, Math.max(0, positiveNumber(raw.rainIntensity, 55))),
+    rainSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.rainSpeed, 1, 0.2))),
+    thunderEnabled: raw.thunderEnabled === true,
+    thunderIntensity: Math.min(100, Math.max(0, positiveNumber(raw.thunderIntensity, 55))),
+    thunderSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.thunderSpeed, 1, 0.2))),
+    cloudEnabled: raw.cloudEnabled === true,
+    cloudIntensity: Math.min(100, Math.max(0, positiveNumber(raw.cloudIntensity, 50))),
+    cloudSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.cloudSpeed, 1, 0.2))),
   };
 };
 
@@ -5103,6 +5149,59 @@ function Home() {
                 ))}
               </div>
             )}
+            {sceneIsVisibleInPlayback && sceneEffects.cloudEnabled && (
+              <div
+                className="scene-effect-layer cloud-effect"
+                aria-hidden="true"
+                style={{ ["--cloud-intensity" as string]: `${sceneEffects.cloudIntensity / 100}` }}
+              >
+                {CLOUD_SEEDS.map((cloud, index) => (
+                  <i
+                    key={`cloud-${index}`}
+                    style={{
+                      left: `${cloud.x}%`,
+                      top: `${cloud.y}%`,
+                      width: `${cloud.width}%`,
+                      height: `${cloud.height}px`,
+                      animationDuration: `${cloud.duration / sceneEffects.cloudSpeed}s`,
+                      animationDelay: `${cloud.delay}s`,
+                      ["--cloud-drift" as string]: `${cloud.drift}%`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {sceneIsVisibleInPlayback && sceneEffects.rainEnabled && (
+              <div
+                className="scene-effect-layer rain-effect"
+                aria-hidden="true"
+                style={{ ["--rain-intensity" as string]: `${sceneEffects.rainIntensity / 100}` }}
+              >
+                {RAIN_DROP_SEEDS.map((drop, index) => (
+                  <i
+                    key={`raindrop-${index}`}
+                    style={{
+                      left: `${drop.x}%`,
+                      width: `${drop.width}px`,
+                      height: `${drop.length}px`,
+                      animationDuration: `${drop.duration / sceneEffects.rainSpeed}s`,
+                      animationDelay: `${drop.delay}s`,
+                      ["--rain-drift" as string]: `${drop.drift}px`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {sceneIsVisibleInPlayback && sceneEffects.thunderEnabled && (
+              <div
+                className="scene-effect-layer thunder-effect"
+                aria-hidden="true"
+                style={{
+                  ["--thunder-opacity" as string]: `${(sceneEffects.thunderIntensity / 100) * 0.78}`,
+                  ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / sceneEffects.thunderSpeed)}s`,
+                }}
+              />
+            )}
             {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => overlay.text.trim() ? (
               <div
                 key={overlay.id}
@@ -6394,8 +6493,152 @@ function Home() {
                         </label>
                       </div>
                     </div>
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Mưa</strong>
+                        <span>Hạt mưa rơi chéo trên bản đồ</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.rainEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("rainEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật mưa</span>
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sceneEffects.rainIntensity}
+                              disabled={!sceneEffects.rainEnabled}
+                              onChange={(event) => updateSceneEffects("rainIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.2"
+                              max="3"
+                              step="0.1"
+                              value={sceneEffects.rainSpeed}
+                              disabled={!sceneEffects.rainEnabled}
+                              onChange={(event) => updateSceneEffects("rainSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Sấm chớp</strong>
+                        <span>Ánh chớp lóe theo nhịp bất chợt</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.thunderEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("thunderEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật sấm chớp</span>
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sceneEffects.thunderIntensity}
+                              disabled={!sceneEffects.thunderEnabled}
+                              onChange={(event) => updateSceneEffects("thunderIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.2"
+                              max="3"
+                              step="0.1"
+                              value={sceneEffects.thunderSpeed}
+                              disabled={!sceneEffects.thunderEnabled}
+                              onChange={(event) => updateSceneEffects("thunderSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Đám mây</strong>
+                        <span>Mây trôi nhẹ phủ lên nền bản đồ</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.cloudEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("cloudEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật đám mây</span>
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sceneEffects.cloudIntensity}
+                              disabled={!sceneEffects.cloudEnabled}
+                              onChange={(event) => updateSceneEffects("cloudIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.2"
+                              max="3"
+                              step="0.1"
+                              value={sceneEffects.cloudSpeed}
+                              disabled={!sceneEffects.cloudEnabled}
+                              onChange={(event) => updateSceneEffects("cloudSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
                   </div>
-                  <small className="zoom-settings-help">Hai hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
+                  <small className="zoom-settings-help">Các hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
                 </div>
               </div>
             </details>

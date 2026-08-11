@@ -6658,6 +6658,72 @@ body {
   animation-delay: 0s;
 }
 
+.cloud-effect {
+  z-index: 1;
+  opacity: var(--cloud-intensity, .5);
+  mix-blend-mode: screen;
+}
+
+.cloud-effect i {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  background: rgba(224, 236, 248, .48);
+  box-shadow: 18px 4px 0 rgba(224, 236, 248, .34), -18px 6px 0 rgba(224, 236, 248, .28);
+  filter: blur(5px);
+  animation: scene-cloud-drift 22s linear infinite;
+}
+
+.rain-effect {
+  z-index: 3;
+  opacity: var(--rain-intensity, .55);
+}
+
+.rain-effect i {
+  position: absolute;
+  top: -12%;
+  display: block;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(225, 242, 255, 0), rgba(202, 229, 255, .95));
+  box-shadow: 0 0 3px rgba(209, 236, 255, .55);
+  transform: rotate(14deg);
+  animation: scene-rainfall 1.8s linear infinite;
+}
+
+.thunder-effect {
+  z-index: 2;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 58% 18%, rgba(225, 242, 255, .92), transparent 48%),
+    rgba(214, 233, 255, .35);
+  mix-blend-mode: screen;
+  animation: scene-thunder var(--thunder-speed, 2.4s) ease-in-out infinite;
+}
+
+@keyframes scene-cloud-drift {
+  0% { transform: translate3d(-45%, 0, 0); opacity: 0; }
+  10% { opacity: .9; }
+  90% { opacity: .9; }
+  100% { transform: translate3d(var(--cloud-drift, 140%), 0, 0); opacity: 0; }
+}
+
+@keyframes scene-rainfall {
+  0% { top: -12%; transform: translate3d(0, 0, 0) rotate(14deg); opacity: 0; }
+  10% { opacity: .9; }
+  90% { opacity: .9; }
+  100% { top: 110%; transform: translate3d(var(--rain-drift, 0px), 0, 0) rotate(14deg); opacity: 0; }
+}
+
+@keyframes scene-thunder {
+  0%, 31%, 100% { opacity: 0; }
+  33% { opacity: calc(var(--thunder-opacity, .45) * .72); }
+  35% { opacity: calc(var(--thunder-opacity, .45) * .15); }
+  37% { opacity: calc(var(--thunder-opacity, .45) * .9); }
+  40%, 68% { opacity: 0; }
+  70% { opacity: calc(var(--thunder-opacity, .45) * .48); }
+  72% { opacity: 0; }
+}
+
 @keyframes scene-snowfall {
   0% { top: -8%; transform: translate3d(0, 0, 0); opacity: 0; }
   10% { opacity: .92; }
