@@ -40,6 +40,14 @@ type TextOverlay = {
   y: number;
 };
 
+type SubtitleCue = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  visible: boolean;
+};
+
 type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect";
 type MapDecorationAnimation = "none" | "fade" | "pop" | "float" | "pulse" | "spin";
 
@@ -100,6 +108,8 @@ type Scene = {
   overlayTextY: number;
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
+  subtitleEnabled: boolean;
+  subtitles: SubtitleCue[];
   popupDuration: number;
   voiceFile: string;
   voiceVolume: number;
@@ -209,6 +219,8 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextY: 18,
   textOverlays: [],
   mapDecorations: [],
+  subtitleEnabled: true,
+  subtitles: [],
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
@@ -514,6 +526,45 @@ const defaultTextOverlay = (
   ...overrides,
 });
 
+const defaultSubtitleCue = (
+  id: string,
+  overrides: Partial<SubtitleCue> = {},
+): SubtitleCue => ({
+  id,
+  text: "",
+  start: 0,
+  end: 3,
+  visible: true,
+  ...overrides,
+});
+
+const normalizeSubtitleCue = (
+  value: unknown,
+  id: string,
+  sceneDuration: number,
+): SubtitleCue => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultSubtitleCue(id);
+  const safeDuration = Math.max(0.1, sceneDuration);
+  const maxStart = Math.max(0, safeDuration - 0.1);
+  const start = Math.min(
+    maxStart,
+    Math.max(0, positiveNumber(raw.start, base.start)),
+  );
+  const end = Math.min(
+    safeDuration,
+    Math.max(start + 0.1, positiveNumber(raw.end, Math.min(safeDuration, start + 3), 0.1)),
+  );
+  return {
+    ...base,
+    id: String(raw.id ?? id),
+    text: String(raw.text ?? ""),
+    start,
+    end,
+    visible: raw.visible !== false,
+  };
+};
+
 const defaultMapDecoration = (
   id: string,
   type: MapDecorationType,
@@ -810,9 +861,17 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     const rawDecorations = (item as Scene & { mapDecorations?: unknown }).mapDecorations;
     const mapDecorations = Array.isArray(rawDecorations)
       ? rawDecorations.filter(isRecord).map((rawDecoration, decorationIndex) => normalizeMapDecoration(
-          rawDecoration,
-          String((rawDecoration as { id?: unknown }).id ?? `${id}-decoration-${decorationIndex + 1}`),
-        ))
+        rawDecoration,
+        String((rawDecoration as { id?: unknown }).id ?? `${id}-decoration-${decorationIndex + 1}`),
+      ))
+      : [];
+    const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
+    const subtitles = Array.isArray(rawSubtitles)
+      ? rawSubtitles.filter(isRecord).map((rawSubtitle, subtitleIndex) => normalizeSubtitleCue(
+        rawSubtitle,
+        String((rawSubtitle as { id?: unknown }).id ?? `${id}-subtitle-${subtitleIndex + 1}`),
+        sceneDuration,
+      ))
       : [];
     const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${id}-text-1`);
     return {
@@ -843,6 +902,8 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       overlayTextX: firstTextOverlay.x,
       overlayTextY: firstTextOverlay.y,
       textOverlays,
+      subtitleEnabled: item.subtitleEnabled !== false,
+      subtitles,
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -1642,6 +1703,19 @@ function Home() {
         })
       : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
     : [];
+  const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
+    ? (scene.subtitles ?? []).find((subtitle) => {
+        const start = Math.min(sceneDuration, Math.max(0, Number(subtitle.start) || 0));
+        const end = Math.min(
+          sceneDuration,
+          Math.max(start + 0.1, Number(subtitle.end) || start + 0.1),
+        );
+        return subtitle.visible !== false
+          && subtitle.text.trim()
+          && sceneLocalTime >= start
+          && sceneLocalTime < end;
+      })
+    : null;
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -2156,7 +2230,7 @@ function Home() {
 
   const openTimelineEditor = (
     item: Scene | null,
-    targetId: "editor-popup" | "editor-audio" | "editor-music",
+    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle",
   ) => {
     if (item) {
       setSelectedId(item.id);
@@ -2872,6 +2946,8 @@ function Home() {
       overlayTextY: 18,
       textOverlays: [],
       mapDecorations: [],
+      subtitleEnabled: true,
+      subtitles: [],
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
@@ -2914,6 +2990,10 @@ function Home() {
       mapDecorations: (source.mapDecorations ?? []).map((decoration, index) => ({
         ...decoration,
         id: `${copiedId}-decoration-${index + 1}`,
+      })),
+      subtitles: (source.subtitles ?? []).map((subtitle, index) => ({
+        ...subtitle,
+        id: `${copiedId}-subtitle-${index + 1}`,
       })),
     };
     const nextScenes = [...scenes];
@@ -2973,6 +3053,80 @@ function Home() {
     setEditorSections((items) => ({ ...items, text: true }));
     setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const addSubtitleCue = () => {
+    if (!scene) return;
+    const currentSubtitles = scene.subtitles ?? [];
+    const lastSubtitle = currentSubtitles.at(-1);
+    const start = Math.min(
+      Math.max(0, sceneDuration - 0.1),
+      lastSubtitle ? Math.max(0, Number(lastSubtitle.end) || 0) : 0,
+    );
+    const end = Math.min(sceneDuration, Math.max(start + 0.1, start + Math.min(3, sceneDuration)));
+    const nextSubtitle = defaultSubtitleCue(
+      `${scene.id}-subtitle-${currentSubtitles.length + 1}-${Date.now().toString(36)}`,
+      { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)) },
+    );
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, subtitleEnabled: true, subtitles: [...(item.subtitles ?? []), nextSubtitle] }
+      : item));
+    setEditorSections((items) => ({ ...items, audio: true }));
+    setPlayTime(Number((scene.start + start).toFixed(2)));
+    setPlaying(false);
+    setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const updateSubtitleCue = (subtitleId: string, patch: Partial<SubtitleCue>) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const duration = Math.max(0.1, item.end - item.start);
+      const subtitles = (item.subtitles ?? []).map((subtitle) => {
+        if (subtitle.id !== subtitleId) return subtitle;
+        const next = { ...subtitle, ...patch };
+        const start = Math.min(
+          Math.max(0, duration - 0.1),
+          Math.max(0, Number(next.start) || 0),
+        );
+        const end = Math.min(
+          duration,
+          Math.max(start + 0.1, Number(next.end) || start + 0.1),
+        );
+        return {
+          ...next,
+          text: String(next.text ?? ""),
+          start: Number(start.toFixed(2)),
+          end: Number(end.toFixed(2)),
+        };
+      });
+      return { ...item, subtitles };
+    }));
+  };
+
+  const deleteSubtitleCue = (subtitleId: string) => {
+    if (!scene) return;
+    const currentSubtitles = scene.subtitles ?? [];
+    const subtitleIndex = currentSubtitles.findIndex((subtitle) => subtitle.id === subtitleId);
+    if (subtitleIndex < 0) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, subtitles: (item.subtitles ?? []).filter((subtitle) => subtitle.id !== subtitleId) }
+      : item));
+    setToast(`Đã xóa phụ đề ${subtitleIndex + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const toggleSubtitleCueVisibility = (subtitleId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          subtitles: (item.subtitles ?? []).map((subtitle) => subtitle.id === subtitleId
+            ? { ...subtitle, visible: !subtitle.visible }
+            : subtitle),
+        }
+      : item));
   };
 
   const mapDecorationTypeLabel = (type: MapDecorationType) => ({
@@ -3537,6 +3691,14 @@ function Home() {
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
             })),
+            subtitleEnabled: item.subtitleEnabled !== false,
+            subtitles: (item.subtitles ?? []).map((subtitle) => ({
+              id: subtitle.id,
+              text: subtitle.text,
+              start: subtitle.start,
+              end: subtitle.end,
+              visible: subtitle.visible !== false,
+            })),
             sceneVisible: item.sceneVisible !== false,
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
@@ -3852,6 +4014,7 @@ function Home() {
         `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}, âm lượng ${item.voiceVolume}%.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
+        `- Phụ đề: ${item.subtitleEnabled !== false && item.subtitles?.length ? item.subtitles.filter((subtitle) => subtitle.visible !== false && subtitle.text.trim()).map((subtitle) => `"${subtitle.text}" (${subtitle.start}s-${subtitle.end}s)`).join("; ") : "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, đạt ${item.zoom}x trong ${item.zoomInDuration}s, kết thúc ở ${item.zoomEnd}s, zoom về trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
@@ -4414,6 +4577,11 @@ function Home() {
                 </div>
               );
             })}
+            {activeSubtitle && (
+              <div className="subtitle-overlay" role="status" aria-live="polite">
+                {activeSubtitle.text}
+              </div>
+            )}
             {playing && sceneIsVisibleInPlayback && (
               <div className="playback-live">
                 <i /> ĐANG PHÁT
@@ -5169,6 +5337,94 @@ function Home() {
               )}
               <small>Nhập tên file hoặc URL. URL âm thanh sẽ được tự tải khi render và dùng lại nếu nhiều cảnh trùng URL/tên file.</small>
             </label>
+            <div className="subtitle-editor" id="editor-subtitle">
+              <div className="subtitle-editor-heading">
+                <div>
+                  <strong>Phụ đề thủ công</strong>
+                  <small>Nhập từng câu và đặt mốc thời gian trong cảnh.</small>
+                </div>
+                <button type="button" className="button primary subtitle-add-button" onClick={addSubtitleCue}>
+                  ＋ Thêm câu
+                </button>
+              </div>
+              <label className="zoom-effect-toggle">
+                <input
+                  type="checkbox"
+                  checked={scene.subtitleEnabled !== false}
+                  disabled={!hydrated}
+                  onChange={(event) => updateScene("subtitleEnabled", event.target.checked)}
+                />
+                <span aria-hidden="true" />
+                <span>Hiện phụ đề trong bản xem trước và video</span>
+              </label>
+              {(scene.subtitles ?? []).length > 0 ? (
+                <div className="subtitle-editor-list">
+                  {(scene.subtitles ?? []).map((subtitle, index) => (
+                    <div key={subtitle.id} className={`subtitle-editor-item ${subtitle.visible === false ? "is-hidden" : ""}`}>
+                      <div className="subtitle-editor-item-heading">
+                        <strong>Câu {index + 1}</strong>
+                        <div>
+                          <button
+                            type="button"
+                            className="subtitle-visibility-button"
+                            onClick={() => toggleSubtitleCueVisibility(subtitle.id)}
+                            title={subtitle.visible === false ? "Hiện câu phụ đề" : "Ẩn câu phụ đề"}
+                          >
+                            {subtitle.visible === false ? "Hiện" : "Ẩn"}
+                          </button>
+                          <button
+                            type="button"
+                            className="subtitle-delete-button"
+                            onClick={() => deleteSubtitleCue(subtitle.id)}
+                            aria-label={`Xóa câu phụ đề ${index + 1}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={subtitle.text}
+                        placeholder="Nhập nội dung phụ đề..."
+                        onChange={(event) => updateSubtitleCue(subtitle.id, { text: event.target.value })}
+                      />
+                      <div className="field-row subtitle-timing-fields">
+                        <label className="field">
+                          <span>Bắt đầu</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max={Math.max(0, sceneDuration - 0.1)}
+                              step="0.1"
+                              value={subtitle.start}
+                              onChange={(event) => updateSubtitleCue(subtitle.id, { start: Number(event.target.value) })}
+                            />
+                            <b>s</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Kết thúc</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.1"
+                              max={sceneDuration}
+                              step="0.1"
+                              value={subtitle.end}
+                              onChange={(event) => updateSubtitleCue(subtitle.id, { end: Number(event.target.value) })}
+                            />
+                            <b>s</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-overlay-empty">Chưa có câu phụ đề. Bấm “Thêm câu” để tạo cue đầu tiên.</div>
+              )}
+            </div>
               </div>
             </details>
             <details
@@ -5732,6 +5988,44 @@ function Home() {
                 </span>
                 </Fragment>
               ))}
+            </div>
+          </div>
+          <div className="track subtitle-track">
+            <strong>Phụ đề</strong>
+            <div className="track-content grid">
+              {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
+                .filter(({ subtitle }) => subtitle.visible !== false && subtitle.text.trim())
+                .map(({ item, subtitle }) => {
+                  const sceneLength = Math.max(0.1, item.end - item.start);
+                  const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
+                  const subtitleEnd = Math.min(
+                    sceneLength,
+                    Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+                  );
+                  const subtitleGlobalStart = item.start + subtitleStart;
+                  const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);
+                  return (
+                    <button
+                      key={`${item.id}-${subtitle.id}`}
+                      type="button"
+                      className="clip subtitle-clip"
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        setSelectedSceneIds([item.id]);
+                        setPlaying(false);
+                        openTimelineEditor(item, "editor-subtitle");
+                        setPlayTime(Number(subtitleGlobalStart.toFixed(2)));
+                      }}
+                      style={{
+                        left: timelinePercent(subtitleGlobalStart),
+                        width: timelinePercent(subtitleDuration),
+                      }}
+                      title={`Phụ đề: ${formatTime(subtitleGlobalStart)} – ${formatTime(subtitleGlobalStart + subtitleDuration)}`}
+                    >
+                      <span className="timeline-clip-label">{subtitle.text}</span>
+                    </button>
+                  );
+                })}
             </div>
           </div>
           <div
