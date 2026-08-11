@@ -66,6 +66,17 @@ const previewScale = Math.min(
 );
 const previewPx = (value) => value * previewScale;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const normalizeSceneEffects = (value) => {
+  const raw = value && typeof value === "object" ? value : {};
+  return {
+    snowEnabled: raw.snowEnabled === true,
+    snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
+    snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
+    lightFlickerEnabled: raw.lightFlickerEnabled === true,
+    lightFlickerIntensity: clamp(Number(raw.lightFlickerIntensity ?? 45) || 45, 0, 100),
+    lightFlickerSpeed: clamp(Number(raw.lightFlickerSpeed ?? 1) || 1, 0.2, 3),
+  };
+};
 const popupPixelHeight = (scene) => Math.min(
   Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440))),
   Math.round(outputHeight * 0.88),
@@ -737,6 +748,27 @@ for (let index = 0; index < scenes.length; index += 1) {
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
+  const sceneEffects = normalizeSceneEffects(scene.effects);
+  if (sceneEffects.lightFlickerEnabled && sceneEffects.lightFlickerIntensity > 0) {
+    const lightAmplitude = (0.012 + (sceneEffects.lightFlickerIntensity / 100) * 0.075).toFixed(4);
+    const lightFrequency = (2 * Math.PI * (0.55 + sceneEffects.lightFlickerSpeed * 0.8)).toFixed(5);
+    filter += `${composedLabel}eq=brightness='${lightAmplitude}*sin(t*${lightFrequency})':eval=frame[lightened];`;
+    composedLabel = "[lightened]";
+  }
+  if (sceneEffects.snowEnabled && sceneEffects.snowIntensity > 0) {
+    const snowCount = Math.round(8 + sceneEffects.snowIntensity * 0.2);
+    const snowOpacity = (0.12 + (sceneEffects.snowIntensity / 100) * 0.68).toFixed(3);
+    for (let snowIndex = 0; snowIndex < snowCount; snowIndex += 1) {
+      const snowSize = Math.max(1, Math.round(previewPx(1.4 + (snowIndex % 4) * 0.65)));
+      const xSeed = Math.round(outputWidth * ((snowIndex * 37) % 100) / 100);
+      const ySeed = Math.round(outputHeight * ((snowIndex * 23) % 100) / 100);
+      const drift = ((snowIndex * 19) % 31) - 15;
+      const fallSpeed = Math.round(previewPx(34 + ((snowIndex * 17) % 48)) * sceneEffects.snowSpeed);
+      const snowLabel = `snow${snowIndex}`;
+      filter += `${composedLabel}drawbox=x='mod(${xSeed}+t*${drift},iw)':y='mod(${ySeed}+t*${fallSpeed},ih)':w=${snowSize}:h=${snowSize}:color=white@${snowOpacity}:t=fill[${snowLabel}];`;
+      composedLabel = `[${snowLabel}]`;
+    }
+  }
   textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);

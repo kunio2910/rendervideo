@@ -110,6 +110,14 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /zoomOutDuration/);
   assert.match(page, /centerX/);
   assert.match(page, /centerY/);
+  assert.match(page, /SceneEffects/);
+  assert.match(page, /normalizeSceneEffects/);
+  assert.match(page, /updateSceneEffects/);
+  assert.match(page, /snowEnabled/);
+  assert.match(page, /lightFlickerEnabled/);
+  assert.match(page, /scene-effect-layer/);
+  assert.match(page, /scene-visual-effects/);
+  assert.match(page, /effects: \{ \.\.\.normalizeSceneEffects/);
   assert.match(page, /renderDuration = Math\.max\(projectDuration, totalDuration\)/);
   assert.match(page, /type AspectRatio = "9:16" \| "16:9"/);
   assert.match(page, /aspectRatio/);
@@ -199,6 +207,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /subtitle-add-button:hover/);
   assert.match(css, /\.map-decoration/);
   assert.match(css, /preflight-card/);
+  assert.match(css, /scene-snowfall/);
+  assert.match(css, /scene-light-flicker/);
+  assert.match(css, /scene-visual-effect-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });
@@ -240,6 +251,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /zoompan/);
   assert.match(renderer, /scene\.zoom/);
   assert.match(renderer, /scene\.zoomEnd/);
+  assert.match(renderer, /normalizeSceneEffects/);
+  assert.match(renderer, /drawbox/);
+  assert.match(renderer, /lightened/);
   assert.match(renderer, /backgroundMusicVolume/);
   assert.match(renderer, /scene\.voiceVolume/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);

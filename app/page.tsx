@@ -114,6 +114,7 @@ type Scene = {
   centerX: number;
   centerY: number;
   zoomEnabled: boolean;
+  effects: SceneEffects;
   overlayText: string;
   overlayTextSize: number;
   overlayTextStyle: "normal" | "bold" | "italic" | "bold-italic";
@@ -151,6 +152,32 @@ type Scene = {
   sceneVisible: boolean;
   status: "Nháp" | "Đã duyệt";
 };
+
+type SceneEffects = {
+  snowEnabled: boolean;
+  snowIntensity: number;
+  snowSpeed: number;
+  lightFlickerEnabled: boolean;
+  lightFlickerIntensity: number;
+  lightFlickerSpeed: number;
+};
+
+const defaultSceneEffects = (): SceneEffects => ({
+  snowEnabled: false,
+  snowIntensity: 55,
+  snowSpeed: 1,
+  lightFlickerEnabled: false,
+  lightFlickerIntensity: 45,
+  lightFlickerSpeed: 1,
+});
+
+const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
+  x: (index * 37) % 100,
+  size: 2 + ((index * 5) % 5),
+  duration: 5.5 + ((index * 17) % 45) / 10,
+  delay: -((index * 23) % 80) / 10,
+  drift: -24 + ((index * 19) % 49),
+}));
 
 type PopupConfig = {
   id: string;
@@ -248,6 +275,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   centerX: 50,
   centerY: 50,
   zoomEnabled: true,
+  effects: defaultSceneEffects(),
   overlayText: "",
   overlayTextSize: 24,
   overlayTextStyle: "normal",
@@ -502,6 +530,7 @@ type EditorSectionClipboard =
       zoom: number;
       centerX: number;
       centerY: number;
+      effects: SceneEffects;
     }
   | {
       section: "popup";
@@ -765,6 +794,18 @@ const clampVolume = (value: unknown, fallback = 100) => {
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
 };
 
+const normalizeSceneEffects = (value: unknown): SceneEffects => {
+  const raw = isRecord(value) ? value : {};
+  return {
+    snowEnabled: raw.snowEnabled === true,
+    snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
+    snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
+    lightFlickerEnabled: raw.lightFlickerEnabled === true,
+    lightFlickerIntensity: Math.min(100, Math.max(0, positiveNumber(raw.lightFlickerIntensity, 45))),
+    lightFlickerSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.lightFlickerSpeed, 1, 0.2))),
+  };
+};
+
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
 ): EditorSectionState => ({
@@ -978,6 +1019,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
+      effects: normalizeSceneEffects(item.effects),
       overlayText: firstTextOverlay.text,
       overlayTextSize: firstTextOverlay.size,
       overlayTextStyle: firstTextOverlay.style,
@@ -1685,6 +1727,7 @@ function Home() {
     visibleScenes[0] ??
     scenes[0] ??
     initialScenes[0];
+  const sceneEffects = normalizeSceneEffects(scene.effects);
   const scenePopups = useMemo(() => scenePopupList(scene), [scene]);
   const activePopup = scenePopups.find((item) => item.id === selectedPopupId) ?? scenePopups[0];
   const sceneTextOverlays = scene.textOverlays ?? [];
@@ -2560,6 +2603,16 @@ function Home() {
     );
   };
 
+  const updateSceneEffects = <K extends keyof SceneEffects>(key: K, value: SceneEffects[K]) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) => items.map((item) => targetIds.has(item.id)
+      ? { ...item, effects: { ...item.effects, [key]: value } }
+      : item));
+  };
+
   const updatePopup = <K extends keyof PopupConfig>(
     key: K,
     value: PopupConfig[K],
@@ -2652,6 +2705,7 @@ function Home() {
                 zoom: Number(scene.zoom ?? 1.25),
                 centerX: Number(scene.centerX ?? 50),
                 centerY: Number(scene.centerY ?? 50),
+                effects: { ...scene.effects },
               }
             : section === "popup"
               ? {
@@ -2712,6 +2766,7 @@ function Home() {
             zoom: data.zoom,
             centerX: data.centerX,
             centerY: data.centerY,
+            effects: { ...data.effects },
           };
         case "popup": {
           const popups = data.popups.map((popup, index) => ({
@@ -4110,6 +4165,7 @@ function Home() {
             centerX: item.centerX,
             centerY: item.centerY,
             zoomEnabled: item.zoomEnabled,
+            effects: { ...normalizeSceneEffects(item.effects) },
             overlayText: item.overlayText,
             overlayTextSize: item.overlayTextSize,
             overlayTextStyle: item.overlayTextStyle,
@@ -5015,6 +5071,37 @@ function Home() {
                   }}
                 />
               )
+            )}
+            {sceneIsVisibleInPlayback && sceneEffects.lightFlickerEnabled && (
+              <div
+                className="scene-effect-layer light-flicker-effect"
+                aria-hidden="true"
+                style={{
+                  ["--light-flicker-opacity" as string]: `${(sceneEffects.lightFlickerIntensity / 100) * 0.42}`,
+                  ["--light-flicker-speed" as string]: `${Math.max(0.2, 2.8 / sceneEffects.lightFlickerSpeed)}s`,
+                }}
+              />
+            )}
+            {sceneIsVisibleInPlayback && sceneEffects.snowEnabled && (
+              <div
+                className="scene-effect-layer snow-effect"
+                aria-hidden="true"
+                style={{ ["--snow-intensity" as string]: `${sceneEffects.snowIntensity / 100}` }}
+              >
+                {SNOWFLAKE_SEEDS.map((flake, index) => (
+                  <i
+                    key={`snowflake-${index}`}
+                    style={{
+                      left: `${flake.x}%`,
+                      width: `${flake.size}px`,
+                      height: `${flake.size}px`,
+                      animationDuration: `${flake.duration / sceneEffects.snowSpeed}s`,
+                      animationDelay: `${flake.delay}s`,
+                      ["--snow-drift" as string]: `${flake.drift}px`,
+                    }}
+                  />
+                ))}
+              </div>
             )}
             {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => overlay.text.trim() ? (
               <div
@@ -6210,6 +6297,105 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                  <div className="scene-visual-effects">
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Tuyết rơi</strong>
+                        <span>Hạt tuyết phủ trên bản đồ</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.snowEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("snowEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật tuyết rơi</span>
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sceneEffects.snowIntensity}
+                              disabled={!sceneEffects.snowEnabled}
+                              onChange={(event) => updateSceneEffects("snowIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.2"
+                              max="3"
+                              step="0.1"
+                              value={sceneEffects.snowSpeed}
+                              disabled={!sceneEffects.snowEnabled}
+                              onChange={(event) => updateSceneEffects("snowSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Ánh sáng nhấp nháy</strong>
+                        <span>Quầng sáng thay đổi theo nhịp</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.lightFlickerEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("lightFlickerEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật ánh sáng nhấp nháy</span>
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sceneEffects.lightFlickerIntensity}
+                              disabled={!sceneEffects.lightFlickerEnabled}
+                              onChange={(event) => updateSceneEffects("lightFlickerIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.2"
+                              max="3"
+                              step="0.1"
+                              value={sceneEffects.lightFlickerSpeed}
+                              disabled={!sceneEffects.lightFlickerEnabled}
+                              onChange={(event) => updateSceneEffects("lightFlickerSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <small className="zoom-settings-help">Hai hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
                 </div>
               </div>
             </details>

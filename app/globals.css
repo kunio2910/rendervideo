@@ -6578,6 +6578,100 @@ body {
   background: rgba(13, 20, 29, .9);
 }
 
+.scene-visual-effects {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.scene-visual-effect-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #eadfce;
+  border-radius: 9px;
+  background: #fffaf1;
+}
+
+.scene-visual-effect-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.scene-visual-effect-heading strong {
+  color: #4b3822;
+  font-size: 11px;
+}
+
+.scene-visual-effect-heading span {
+  color: #9a876f;
+  font-size: 9px;
+}
+
+.scene-visual-effect-card .field-row {
+  margin: 0;
+}
+
+.studio-shell[data-theme="dark"] .scene-visual-effect-card {
+  border-color: #344457;
+  background: #111b27;
+}
+
+.studio-shell[data-theme="dark"] .scene-visual-effect-heading strong {
+  color: #f4e7d1;
+}
+
+.studio-shell[data-theme="dark"] .scene-visual-effect-heading span {
+  color: #9eafc2;
+}
+
+.scene-effect-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.light-flicker-effect {
+  z-index: 2;
+  opacity: var(--light-flicker-opacity, .18);
+  background:
+    radial-gradient(circle at 24% 21%, rgba(255, 242, 174, .9), transparent 32%),
+    radial-gradient(circle at 78% 68%, rgba(255, 190, 91, .5), transparent 42%);
+  mix-blend-mode: screen;
+  animation: scene-light-flicker var(--light-flicker-speed, 2s) ease-in-out infinite;
+}
+
+.snow-effect {
+  z-index: 3;
+  opacity: var(--snow-intensity, .55);
+}
+
+.snow-effect i {
+  position: absolute;
+  top: -8%;
+  display: block;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 0 5px rgba(255, 255, 255, .82);
+  animation: scene-snowfall 7s linear infinite;
+  animation-delay: 0s;
+}
+
+@keyframes scene-snowfall {
+  0% { transform: translate3d(0, -12%, 0); opacity: 0; }
+  10% { opacity: .92; }
+  90% { opacity: .92; }
+  100% { transform: translate3d(var(--snow-drift, 0px), 116%, 0); opacity: 0; }
+}
+
+@keyframes scene-light-flicker {
+  0%, 100% { opacity: var(--light-flicker-opacity, .18); transform: scale(1); filter: brightness(.86); }
+  24% { opacity: calc(var(--light-flicker-opacity, .18) * .62); transform: scale(1.02); filter: brightness(1.02); }
+  45% { opacity: var(--light-flicker-opacity, .18); transform: scale(1.05); filter: brightness(1.16); }
+  68% { opacity: calc(var(--light-flicker-opacity, .18) * .7); transform: scale(1.01); filter: brightness(.94); }
+}
+
 @media (max-width: 760px) {
   .studio-shell.preview-fullscreen .preview-fullscreen-panel {
     inset: 10px;
