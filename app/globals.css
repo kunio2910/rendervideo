@@ -6314,7 +6314,8 @@ body {
 
 .preview-ruler-style-popover {
   position: absolute;
-  top: calc(100% + 8px);
+  top: auto;
+  bottom: calc(100% + 8px);
   right: 0;
   z-index: 100;
   display: grid;
@@ -6526,8 +6527,8 @@ body {
   z-index: 900;
   inset: 0;
   content: "";
-  background: rgba(7, 12, 18, .64);
-  backdrop-filter: blur(3px);
+  background: rgba(7, 12, 18, .44);
+  backdrop-filter: blur(2px);
   pointer-events: auto;
 }
 
@@ -6569,7 +6570,7 @@ body {
 }
 
 .studio-shell[data-theme="dark"].preview-fullscreen::before {
-  background: rgba(0, 0, 0, .72);
+  background: rgba(0, 0, 0, .54);
 }
 
 .studio-shell[data-theme="dark"].preview-fullscreen .preview-fullscreen-panel {
