@@ -174,6 +174,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /subtitle-align-steps/);
   assert.match(css, /subtitle-overlay\.is-dragging/);
   assert.match(css, /data-theme="dark".*field > span/s);
+  assert.match(css, /data-theme="dark"\]\s+\.button\.ghost/);
+  assert.match(css, /subtitle-add-button:hover/);
   assert.match(css, /\.map-decoration/);
   assert.match(css, /preflight-card/);
   assert.match(notes, /không tự động ghi/);

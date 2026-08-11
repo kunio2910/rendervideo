@@ -6227,3 +6227,28 @@ body {
   border-color: #344457;
   background: #1a2633;
 }
+
+.studio-shell[data-theme="dark"] .button.ghost,
+.studio-shell[data-theme="dark"] .subtitle-add-button {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #d8e4f0;
+}
+
+.studio-shell[data-theme="dark"] .button.ghost:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .subtitle-add-button:hover:not(:disabled) {
+  border-color: #d8a14b;
+  background: #26384d;
+  color: #fff6df;
+}
+
+.studio-shell[data-theme="dark"] .button.ghost:disabled,
+.studio-shell[data-theme="dark"] .subtitle-add-button:disabled {
+  cursor: not-allowed;
+  border-color: #384b61;
+  background: #202d3d;
+  color: #91a2b6;
+  opacity: 1;
+  box-shadow: none;
+  transform: none;
+}
