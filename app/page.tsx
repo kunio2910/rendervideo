@@ -4874,6 +4874,7 @@ function Home() {
                   16:9
                 </button>
               </div>
+              <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
               <button
                 className="button ghost preview-play-button"
                 disabled={!hydrated}
@@ -4911,7 +4912,6 @@ function Home() {
                   )}
                 </svg>
               </button>
-              <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
             </div>
             <div
               className="preview-panel-progress"
