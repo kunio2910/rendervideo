@@ -255,6 +255,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /normalizeSceneEffects/);
   assert.match(renderer, /drawbox/);
   assert.match(renderer, /lightened/);
+  assert.match(renderer, /filter \+= `\$\{composedLabel\}copy\[composed\]`/);
   assert.match(renderer, /backgroundMusicVolume/);
   assert.match(renderer, /scene\.voiceVolume/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);

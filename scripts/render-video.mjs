@@ -923,9 +923,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = subtitleOutput;
   });
   popupInputIndex += subtitleRenders.length;
-  filter += (popupRenders.length || decorationRenders.length || textOverlayRenders.length || subtitleRenders.length)
-    ? `${composedLabel}copy[composed]`
-    : "[bg]copy[composed]";
+  filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
