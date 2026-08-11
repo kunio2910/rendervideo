@@ -40,6 +40,13 @@ type TextOverlay = {
   y: number;
 };
 
+type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up";
+
+type SubtitleStyle = Omit<TextOverlay, "id" | "text" | "visible"> & {
+  animation: SubtitleAnimation;
+  animationDuration: number;
+};
+
 type SubtitleCue = {
   id: string;
   text: string;
@@ -109,6 +116,7 @@ type Scene = {
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
   subtitleEnabled: boolean;
+  subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
   popupDuration: number;
   voiceFile: string;
@@ -184,6 +192,27 @@ const normalizeRenderResolution = (
     : defaultResolutionFor(aspectRatio);
 };
 
+const defaultSubtitleStyle = (
+  overrides: Partial<SubtitleStyle> = {},
+): SubtitleStyle => ({
+  size: 22,
+  style: "bold",
+  color: "#ffffff",
+  opacity: 100,
+  font: "Arial",
+  strokeWidth: 1,
+  strokeColor: "#000000",
+  borderWidth: 1,
+  borderColor: "#ffffff",
+  borderOpacity: 88,
+  borderFill: "#0b1220",
+  x: 50,
+  y: 83,
+  animation: "fade",
+  animationDuration: 0.25,
+  ...overrides,
+});
+
 const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   id,
   number,
@@ -220,6 +249,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   textOverlays: [],
   mapDecorations: [],
   subtitleEnabled: true,
+  subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
   popupDuration: 3,
   popupStart: 0.5,
@@ -525,6 +555,38 @@ const defaultTextOverlay = (
   y: 18,
   ...overrides,
 });
+
+const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultSubtitleStyle();
+  const style = String(raw.style ?? base.style);
+  const font = String(raw.font ?? base.font);
+  const animation = String(raw.animation ?? base.animation);
+  return {
+    ...base,
+    size: Math.min(120, Math.max(8, positiveNumber(raw.size, base.size, 8))),
+    style: ["normal", "bold", "italic", "bold-italic"].includes(style)
+      ? style as SubtitleStyle["style"]
+      : base.style,
+    color: normalizeHexColor(raw.color, base.color),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    font: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(font)
+      ? font as OverlayTextFont
+      : base.font,
+    strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth, base.strokeWidth)),
+    strokeColor: normalizeHexColor(raw.strokeColor, base.strokeColor),
+    borderWidth: Math.min(12, positiveNumber(raw.borderWidth, base.borderWidth)),
+    borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
+    borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity, base.borderOpacity))),
+    borderFill: normalizeHexColor(raw.borderFill, base.borderFill),
+    x: clampPercent(raw.x, base.x),
+    y: clampPercent(raw.y, base.y),
+    animation: ["none", "fade", "pop", "slide-up"].includes(animation)
+      ? animation as SubtitleAnimation
+      : base.animation,
+    animationDuration: Math.min(1, Math.max(0.05, positiveNumber(raw.animationDuration, base.animationDuration, 0.05))),
+  };
+};
 
 const defaultSubtitleCue = (
   id: string,
@@ -866,6 +928,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ))
       : [];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
+    const rawSubtitleStyle = (item as Scene & { subtitleStyle?: unknown }).subtitleStyle;
     const subtitles = Array.isArray(rawSubtitles)
       ? rawSubtitles.filter(isRecord).map((rawSubtitle, subtitleIndex) => normalizeSubtitleCue(
         rawSubtitle,
@@ -903,6 +966,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       overlayTextY: firstTextOverlay.y,
       textOverlays,
       subtitleEnabled: item.subtitleEnabled !== false,
+      subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
@@ -1424,6 +1488,12 @@ function Home() {
   const [jsonPreviewCleared, setJsonPreviewCleared] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
+  const [audioFiles, setAudioFiles] = useState<Record<string, File>>({});
+  const [subtitleAlignState, setSubtitleAlignState] = useState<{
+    status: "idle" | "running" | "success" | "error";
+    sceneId: string;
+    message: string;
+  }>({ status: "idle", sceneId: "", message: "" });
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
@@ -1716,6 +1786,26 @@ function Home() {
           && sceneLocalTime < end;
       })
     : null;
+  const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
+  const subtitleAnimationProgress = activeSubtitle
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          (sceneLocalTime - Number(activeSubtitle.start || 0))
+            / Math.max(0.05, subtitleStyle.animationDuration),
+        ),
+      )
+    : 1;
+  const subtitleAnimationScale = subtitleStyle.animation === "pop"
+    ? 0.92 + subtitleAnimationProgress * 0.08
+    : 1;
+  const subtitleAnimationOffset = subtitleStyle.animation === "slide-up"
+    ? (1 - subtitleAnimationProgress) * 3
+    : 0;
+  const subtitleAnimationOpacity = subtitleStyle.animation === "fade"
+    ? subtitleAnimationProgress
+    : 1;
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -2947,6 +3037,7 @@ function Home() {
       textOverlays: [],
       mapDecorations: [],
       subtitleEnabled: true,
+      subtitleStyle: defaultSubtitleStyle(),
       subtitles: [],
       popupDuration: 2,
       popupStart: 0.5,
@@ -3076,6 +3167,80 @@ function Home() {
     setPlaying(false);
     setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const updateSubtitleStyle = <K extends keyof SubtitleStyle>(
+    key: K,
+    value: SubtitleStyle[K],
+  ) => {
+    if (!hydrated || !scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          subtitleStyle: {
+            ...normalizeSubtitleStyle(item.subtitleStyle),
+            [key]: value,
+          },
+        }
+      : item));
+  };
+
+  const generateSubtitlesFromNarration = async () => {
+    if (!scene) return;
+    const narration = String(activePopup?.narration || scene.narration || "").trim();
+    const selectedAudio = audioFiles[scene.id]
+      ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(scene.voiceFile));
+    if (!narration) {
+      setToast("Hãy nhập Lời thuyết minh trước khi tạo phụ đề");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+    if (!selectedAudio && !isRemoteUrl(scene.voiceFile)) {
+      setToast("Hãy chọn file audio cho cảnh trước khi tạo phụ đề");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+    const targetSceneId = scene.id;
+    const targetDuration = Math.max(0.1, scene.end - scene.start);
+    setSubtitleAlignState({ status: "running", sceneId: targetSceneId, message: "Đang nghe audio và tạo timestamp…" });
+    try {
+      const form = new FormData();
+      form.append("text", narration);
+      form.append("duration", String(targetDuration));
+      if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
+      else form.append("audioUrl", scene.voiceFile.trim());
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể tạo timestamp phụ đề");
+      const generated = Array.isArray(result.cues) ? result.cues : [];
+      if (!generated.length) throw new Error("Không nhận được cue phụ đề từ audio");
+      const subtitles = generated.map((cue: Partial<SubtitleCue>, index: number) => normalizeSubtitleCue(
+        {
+          ...cue,
+          id: `${targetSceneId}-subtitle-${index + 1}-${Date.now().toString(36)}`,
+        },
+        `${targetSceneId}-subtitle-${index + 1}`,
+        targetDuration,
+      ));
+      setScenes((items) => items.map((item) => item.id === targetSceneId
+        ? { ...item, subtitleEnabled: true, subtitles }
+        : item));
+      const engineMessage = result.engine === "whisper"
+        ? "Whisper đã tạo timestamp"
+        : "đã tạo timestamp theo nhịp nói dự phòng";
+      const message = `Đã tạo ${subtitles.length} cue; ${engineMessage}. Hãy phát và rà soát lại.`;
+      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo phụ đề";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    }
   };
 
   const updateSubtitleCue = (subtitleId: string, patch: Partial<SubtitleCue>) => {
@@ -3690,9 +3855,10 @@ function Home() {
               ...(decoration.type === "sticker" && decoration.asset.trim()
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
-            })),
-            subtitleEnabled: item.subtitleEnabled !== false,
-            subtitles: (item.subtitles ?? []).map((subtitle) => ({
+             })),
+             subtitleEnabled: item.subtitleEnabled !== false,
+             subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
+             subtitles: (item.subtitles ?? []).map((subtitle) => ({
               id: subtitle.id,
               text: subtitle.text,
               start: subtitle.start,
@@ -4578,7 +4744,28 @@ function Home() {
               );
             })}
             {activeSubtitle && (
-              <div className="subtitle-overlay" role="status" aria-live="polite">
+              <div
+                className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation}`}
+                role="status"
+                aria-live="polite"
+                style={{
+                  left: `${subtitleStyle.x}%`,
+                  top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
+                  color: colorWithAlpha(subtitleStyle.color, (subtitleStyle.opacity / 100) * subtitleAnimationOpacity, "#ffffff"),
+                  fontFamily: subtitleStyle.font,
+                  fontSize: `clamp(11px, ${Math.max(1, subtitleStyle.size / 10)}vw, ${Math.max(12, subtitleStyle.size)}px)`,
+                  fontStyle: subtitleStyle.style.includes("italic") ? "italic" : "normal",
+                  fontWeight: subtitleStyle.style.includes("bold") ? 750 : 400,
+                  borderWidth: `${subtitleStyle.borderWidth}px`,
+                  borderColor: colorWithAlpha(subtitleStyle.borderColor, subtitleStyle.borderOpacity / 100, "#ffffff"),
+                  background: colorWithAlpha(subtitleStyle.borderFill, subtitleStyle.borderOpacity / 100, "#0b1220"),
+                  opacity: subtitleAnimationOpacity,
+                  textShadow: subtitleStyle.strokeWidth > 0
+                    ? `0 0 ${Math.max(1, subtitleStyle.strokeWidth)}px ${subtitleStyle.strokeColor}`
+                    : "none",
+                  transform: `translate(-50%, -50%) scale(${subtitleAnimationScale})`,
+                }}
+              >
                 {activeSubtitle.text}
               </div>
             )}
@@ -5309,6 +5496,8 @@ function Home() {
                       const file = event.target.files?.[0];
                       if (!file) return;
                       updateScene("voiceFile", `audio/${file.name}`);
+                      setAudioFiles((items) => ({ ...items, [scene.id]: file }));
+                      void addAssetsToLibrary([file]);
                       setAudioPreview((items) => {
                         if (items[scene.id]) URL.revokeObjectURL(items[scene.id]);
                         return { ...items, [scene.id]: URL.createObjectURL(file) };
@@ -5340,12 +5529,100 @@ function Home() {
             <div className="subtitle-editor" id="editor-subtitle">
               <div className="subtitle-editor-heading">
                 <div>
-                  <strong>Phụ đề thủ công</strong>
-                  <small>Nhập từng câu và đặt mốc thời gian trong cảnh.</small>
+                  <strong>Phụ đề · rà soát timestamp</strong>
+                  <small>Nhập lời thuyết minh + audio, hệ thống tự tạo cue để bạn kiểm tra và chỉnh lại.</small>
                 </div>
-                <button type="button" className="button primary subtitle-add-button" onClick={addSubtitleCue}>
-                  ＋ Thêm câu
-                </button>
+                <div className="subtitle-editor-actions">
+                  <button
+                    type="button"
+                    className="button primary subtitle-generate-button"
+                    onClick={() => void generateSubtitlesFromNarration()}
+                    disabled={subtitleAlignState.status === "running"}
+                  >
+                    {subtitleAlignState.status === "running" && subtitleAlignState.sceneId === scene.id
+                      ? "Đang tạo…"
+                      : "✦ Tạo từ lời thuyết minh"}
+                  </button>
+                  <button type="button" className="button subtitle-add-button" onClick={addSubtitleCue}>
+                    ＋ Thêm câu
+                  </button>
+                </div>
+              </div>
+              <div className="subtitle-align-steps">
+                <span>1. Nhập <b>Lời thuyết minh</b></span>
+                <span>2. Chọn <b>file audio</b></span>
+                <span>3. Bấm <b>Tạo từ lời thuyết minh</b></span>
+                <span>4. Phát từng cue để rà soát</span>
+              </div>
+              {subtitleAlignState.sceneId === scene.id && subtitleAlignState.message && (
+                <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
+                  {subtitleAlignState.message}
+                </p>
+              )}
+              <div className="subtitle-style-editor">
+                <div className="subtitle-style-heading">
+                  <strong>Tùy chỉnh chữ xuất hiện</strong>
+                  <small>Áp dụng cho toàn bộ cue trong cảnh.</small>
+                </div>
+                <div className="field-row subtitle-style-fields">
+                  <label className="field">
+                    <span>Font</span>
+                    <select value={subtitleStyle.font} onChange={(event) => updateSubtitleStyle("font", event.target.value as OverlayTextFont)}>
+                      {(["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"] as OverlayTextFont[]).map((font) => <option key={font} value={font}>{font}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Kiểu chữ</span>
+                    <select value={subtitleStyle.style} onChange={(event) => updateSubtitleStyle("style", event.target.value as SubtitleStyle["style"])}>
+                      <option value="normal">Thường</option>
+                      <option value="bold">Đậm</option>
+                      <option value="italic">Nghiêng</option>
+                      <option value="bold-italic">Đậm + nghiêng</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Style xuất hiện</span>
+                    <select value={subtitleStyle.animation} onChange={(event) => updateSubtitleStyle("animation", event.target.value as SubtitleAnimation)}>
+                      <option value="none">Không hiệu ứng</option>
+                      <option value="fade">Fade in</option>
+                      <option value="pop">Pop</option>
+                      <option value="slide-up">Trượt lên</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="field-row subtitle-style-fields">
+                  <label className="field">
+                    <span>Màu chữ</span>
+                    <input type="color" value={subtitleStyle.color} onChange={(event) => updateSubtitleStyle("color", event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Cỡ chữ</span>
+                    <div className="number-with-unit"><input type="number" min="8" max="120" value={subtitleStyle.size} onChange={(event) => updateSubtitleStyle("size", Number(event.target.value))} /><b>px</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Tốc độ xuất hiện</span>
+                    <div className="number-with-unit"><input type="number" min="0.05" max="1" step="0.05" value={subtitleStyle.animationDuration} onChange={(event) => updateSubtitleStyle("animationDuration", Number(event.target.value))} /><b>s</b></div>
+                  </label>
+                </div>
+                <div className="subtitle-border-heading"><strong>Border / nền phụ đề</strong><small>Điều chỉnh viền, màu viền, độ trong suốt và nền.</small></div>
+                <div className="field-row subtitle-style-fields">
+                  <label className="field">
+                    <span>Độ dày border</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={subtitleStyle.borderWidth} onChange={(event) => updateSubtitleStyle("borderWidth", Number(event.target.value))} /><b>px</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Màu border</span>
+                    <input type="color" value={subtitleStyle.borderColor} onChange={(event) => updateSubtitleStyle("borderColor", event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Màu nền</span>
+                    <input type="color" value={subtitleStyle.borderFill} onChange={(event) => updateSubtitleStyle("borderFill", event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Độ trong suốt nền</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="5" value={subtitleStyle.borderOpacity} onChange={(event) => updateSubtitleStyle("borderOpacity", Number(event.target.value))} /><b>%</b></div>
+                  </label>
+                </div>
               </div>
               <label className="zoom-effect-toggle">
                 <input
