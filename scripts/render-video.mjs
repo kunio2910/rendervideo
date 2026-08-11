@@ -538,30 +538,32 @@ const createTextOverlay = async (overlay, index) => {
   return { path: filename };
 };
 
-const createSubtitleOverlay = async (cue, index) => {
+const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
   const text = String(cue?.text ?? "").trim();
   if (!text || cue?.visible === false) return null;
+  const styleSize = clamp(Number(subtitleStyle.size ?? 22), 8, 120);
+  const charsPerLine = Math.max(12, Math.floor(26 * 22 / styleSize));
   const lines = text
     .split(/\r?\n/)
-    .flatMap((line) => wrap(line, 36))
+    .flatMap((line) => wrap(line, charsPerLine))
     .slice(0, 2)
     .join("\n");
   return createTextOverlay({
     text: lines,
     visible: true,
-    size: 22,
-    style: "bold",
-    color: "#ffffff",
-    opacity: 100,
-    font: "Arial",
-    strokeWidth: 1,
-    strokeColor: "#000000",
-    borderWidth: 0,
-    borderColor: "#ffffff",
-    borderOpacity: 88,
-    borderFill: "#0b1220",
-    x: 50,
-    y: 83,
+    size: styleSize,
+    style: subtitleStyle.style ?? "bold",
+    color: subtitleStyle.color ?? "#ffffff",
+    opacity: subtitleStyle.opacity ?? 100,
+    font: subtitleStyle.font ?? "Arial",
+    strokeWidth: subtitleStyle.strokeWidth ?? 1,
+    strokeColor: subtitleStyle.strokeColor ?? "#000000",
+    borderWidth: subtitleStyle.borderWidth ?? 1,
+    borderColor: subtitleStyle.borderColor ?? "#ffffff",
+    borderOpacity: subtitleStyle.borderOpacity ?? 88,
+    borderFill: subtitleStyle.borderFill ?? "#0b1220",
+    x: subtitleStyle.x ?? 50,
+    y: subtitleStyle.y ?? 83,
   }, index);
 };
 
@@ -708,8 +710,12 @@ for (let index = 0; index < scenes.length; index += 1) {
   const subtitleRenders = [];
   for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
     const subtitle = subtitleCues[subtitleIndex];
-    const rendered = await createSubtitleOverlay(subtitle, index * 100 + 50 + subtitleIndex);
-    if (rendered) subtitleRenders.push({ scene: subtitle, rendered });
+    const rendered = await createSubtitleOverlay(
+      subtitle,
+      index * 100 + 50 + subtitleIndex,
+      scene.subtitleStyle ?? {},
+    );
+    if (rendered) subtitleRenders.push({ scene: subtitle, rendered, style: scene.subtitleStyle ?? {} });
   }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
@@ -839,7 +845,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
   const subtitleInputIndex = popupInputIndex;
-  subtitleRenders.forEach(({ scene: subtitle }, subtitleIndex) => {
+  subtitleRenders.forEach(({ scene: subtitle, style }, subtitleIndex) => {
     const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
     const subtitleEnd = Math.min(
       duration,
@@ -847,7 +853,25 @@ for (let index = 0; index < scenes.length; index += 1) {
     );
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
     const inputIndex = subtitleInputIndex + subtitleIndex;
-    filter += `${composedLabel}[${inputIndex}:v]overlay=x='main_w/2-overlay_w/2':y='main_h*0.83-overlay_h/2':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
+    const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
+    const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
+    const animation = ["none", "fade", "pop", "slide-up"].includes(String(style?.animation))
+      ? String(style.animation)
+      : "fade";
+    const animationDuration = clamp(Number(style?.animationDuration ?? 0.25), 0.05, 1);
+    const subtitleInputLabel = `subtitleInput${subtitleIndex}`;
+    if (animation === "fade") {
+      filter += `[${inputIndex}:v]format=rgba,fade=t=in:st=${subtitleStart}:d=${animationDuration}:alpha=1[${subtitleInputLabel}];`;
+    } else if (animation === "pop") {
+      const progress = `min(1,max(0,(t-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
+    } else {
+      filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
+    }
+    const slideOffset = animation === "slide-up"
+      ? `+main_h*0.03*(1-min(1,max(0,(t-${subtitleStart})/${animationDuration})))`
+      : "";
+    filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='main_w*${subtitleX}-overlay_w/2':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
   });
   popupInputIndex += subtitleRenders.length;
