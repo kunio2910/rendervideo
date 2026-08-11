@@ -1523,6 +1523,7 @@ function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
+  const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -3301,6 +3302,19 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const deleteAllSubtitleCues = () => {
+    if (!scene || !(scene.subtitles ?? []).length) return;
+    const count = scene.subtitles?.length ?? 0;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, subtitles: [] }
+      : item));
+    setSubtitleAlignState((current) => current.sceneId === scene.id
+      ? { status: "idle", sceneId: "", message: "" }
+      : current);
+    setToast(`Đã xóa ${count} phụ đề trong cảnh`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const toggleSubtitleCueVisibility = (subtitleId: string) => {
     if (!scene) return;
     setScenes((items) => items.map((item) => item.id === scene.id
@@ -3649,6 +3663,52 @@ function Home() {
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
       setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (playing || !scene || !activeSubtitle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const subtitleBounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(subtitleStyle.x, 50);
+    const baseY = clampPercent(subtitleStyle.y, 83);
+    const halfWidthPercent = (subtitleBounds.width / bounds.width) * 50;
+    const halfHeightPercent = (subtitleBounds.height / bounds.height) * 50;
+    const minX = Math.min(50, Math.max(0, halfWidthPercent));
+    const maxX = Math.max(50, Math.min(100, 100 - halfWidthPercent));
+    const minY = Math.min(50, Math.max(0, halfHeightPercent));
+    const maxY = Math.max(50, Math.min(100, 100 - halfHeightPercent));
+    setDraggingSubtitle(true);
+
+    const updatePosition = (clientX: number, clientY: number) => {
+      const nextX = Math.min(maxX, Math.max(minX, baseX + ((clientX - startX) / bounds.width) * 100));
+      const nextY = Math.min(maxY, Math.max(minY, baseY + ((clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === selectedId
+        ? {
+            ...item,
+            subtitleStyle: {
+              ...normalizeSubtitleStyle(item.subtitleStyle),
+              x: Number(nextX.toFixed(1)),
+              y: Number(nextY.toFixed(1)),
+            },
+          }
+        : item));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingSubtitle(false);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
     };
@@ -4764,9 +4824,12 @@ function Home() {
             })}
             {activeSubtitle && (
               <div
-                className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation}`}
+                className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
                 role="status"
                 aria-live="polite"
+                aria-label="Phụ đề trên bản đồ. Kéo để di chuyển khung chữ."
+                title="Kéo để di chuyển khung chữ phụ đề"
+                onPointerDown={startSubtitleDrag}
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
@@ -5579,6 +5642,15 @@ function Home() {
                   </button>
                   <button type="button" className="button subtitle-add-button" onClick={addSubtitleCue}>
                     ＋ Thêm câu
+                  </button>
+                  <button
+                    type="button"
+                    className="button subtitle-delete-all-button settings-danger-button"
+                    onClick={deleteAllSubtitleCues}
+                    disabled={(scene.subtitles ?? []).length === 0}
+                    title="Xóa nhanh tất cả phụ đề của cảnh hiện tại"
+                  >
+                    ⌫ Xóa tất cả
                   </button>
                 </div>
               </div>

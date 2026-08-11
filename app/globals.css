@@ -6165,3 +6165,65 @@ body {
   color: #ffe2a1;
   border-color: #8d6d36;
 }
+
+.subtitle-overlay {
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.subtitle-overlay.is-dragging {
+  cursor: grabbing;
+  outline: 2px dashed rgba(221, 161, 62, .82);
+  outline-offset: 3px;
+}
+
+.subtitle-overlay.is-playing {
+  pointer-events: none;
+  cursor: default;
+}
+
+.subtitle-delete-all-button {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.studio-shell[data-theme="dark"] {
+  --studio-muted: #a9b8ca;
+}
+
+.studio-shell[data-theme="dark"] .brand p,
+.studio-shell[data-theme="dark"] .field > span,
+.studio-shell[data-theme="dark"] .field > small,
+.studio-shell[data-theme="dark"] .timeline-heading span,
+.studio-shell[data-theme="dark"] .ruler-scale i,
+.studio-shell[data-theme="dark"] .track > strong,
+.studio-shell[data-theme="dark"] .scene-meta small,
+.studio-shell[data-theme="dark"] .local-render-note,
+.studio-shell[data-theme="dark"] .preflight-summary span {
+  color: #a9b8ca;
+}
+
+.studio-shell[data-theme="dark"] .drag-dots {
+  color: #c0ccda;
+  opacity: .62;
+}
+
+.studio-shell[data-theme="dark"] .field input::placeholder,
+.studio-shell[data-theme="dark"] .field textarea::placeholder {
+  color: #8495aa;
+  opacity: 1;
+}
+
+.studio-shell[data-theme="dark"] .file-picker {
+  color: #a9caff;
+}
+
+.studio-shell[data-theme="dark"] .subtitle-delete-all-button:disabled {
+  color: #718197;
+  border-color: #344457;
+  background: #1a2633;
+}
