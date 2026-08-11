@@ -1209,11 +1209,20 @@ function SettingsWorkspace({
                       ...project.scenes.map((item) => item.end),
                     );
                     return (
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         key={project.id}
                         className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""}`}
                         onClick={() => selectClip(project)}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            selectClip(project);
+                          }
+                        }}
+                        aria-pressed={project.id === selectedClip.id}
                       >
                         {(() => {
                           const projectFirstScene = project.scenes[0];
@@ -1276,7 +1285,7 @@ function SettingsWorkspace({
                         <span className={`settings-clip-status ${project.id === activeProjectId ? "open" : ""}`}>
                           {project.id === activeProjectId ? "Đang mở" : "Đã lưu"}
                         </span>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
