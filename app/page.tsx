@@ -5077,7 +5077,7 @@ function Home() {
                 className="scene-effect-layer light-flicker-effect"
                 aria-hidden="true"
                 style={{
-                  ["--light-flicker-opacity" as string]: `${(sceneEffects.lightFlickerIntensity / 100) * 0.42}`,
+                  ["--light-flicker-opacity" as string]: `${(sceneEffects.lightFlickerIntensity / 100) * 0.68}`,
                   ["--light-flicker-speed" as string]: `${Math.max(0.2, 2.8 / sceneEffects.lightFlickerSpeed)}s`,
                 }}
               />

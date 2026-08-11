@@ -6634,7 +6634,7 @@ body {
 
 .light-flicker-effect {
   z-index: 2;
-  opacity: var(--light-flicker-opacity, .18);
+  opacity: var(--light-flicker-opacity, .26);
   background:
     radial-gradient(circle at 24% 21%, rgba(255, 242, 174, .9), transparent 32%),
     radial-gradient(circle at 78% 68%, rgba(255, 190, 91, .5), transparent 42%);
@@ -6659,17 +6659,17 @@ body {
 }
 
 @keyframes scene-snowfall {
-  0% { transform: translate3d(0, -12%, 0); opacity: 0; }
+  0% { top: -8%; transform: translate3d(0, 0, 0); opacity: 0; }
   10% { opacity: .92; }
   90% { opacity: .92; }
-  100% { transform: translate3d(var(--snow-drift, 0px), 116%, 0); opacity: 0; }
+  100% { top: 108%; transform: translate3d(var(--snow-drift, 0px), 0, 0); opacity: 0; }
 }
 
 @keyframes scene-light-flicker {
-  0%, 100% { opacity: var(--light-flicker-opacity, .18); transform: scale(1); filter: brightness(.86); }
-  24% { opacity: calc(var(--light-flicker-opacity, .18) * .62); transform: scale(1.02); filter: brightness(1.02); }
-  45% { opacity: var(--light-flicker-opacity, .18); transform: scale(1.05); filter: brightness(1.16); }
-  68% { opacity: calc(var(--light-flicker-opacity, .18) * .7); transform: scale(1.01); filter: brightness(.94); }
+  0%, 100% { opacity: var(--light-flicker-opacity, .26); transform: scale(1); filter: brightness(.86); }
+  24% { opacity: calc(var(--light-flicker-opacity, .26) * .62); transform: scale(1.02); filter: brightness(1.02); }
+  45% { opacity: var(--light-flicker-opacity, .26); transform: scale(1.05); filter: brightness(1.16); }
+  68% { opacity: calc(var(--light-flicker-opacity, .26) * .7); transform: scale(1.01); filter: brightness(.94); }
 }
 
 @media (max-width: 760px) {

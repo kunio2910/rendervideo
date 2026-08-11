@@ -208,6 +208,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /\.map-decoration/);
   assert.match(css, /preflight-card/);
   assert.match(css, /scene-snowfall/);
+  assert.match(css, /100% \{ top: 108%/);
   assert.match(css, /scene-light-flicker/);
   assert.match(css, /scene-visual-effect-card/);
   assert.match(notes, /không tự động ghi/);

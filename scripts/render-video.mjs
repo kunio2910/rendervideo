@@ -750,7 +750,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   let composedLabel = "[bg]";
   const sceneEffects = normalizeSceneEffects(scene.effects);
   if (sceneEffects.lightFlickerEnabled && sceneEffects.lightFlickerIntensity > 0) {
-    const lightAmplitude = (0.012 + (sceneEffects.lightFlickerIntensity / 100) * 0.075).toFixed(4);
+    const lightAmplitude = (0.025 + (sceneEffects.lightFlickerIntensity / 100) * 0.17).toFixed(4);
     const lightFrequency = (2 * Math.PI * (0.55 + sceneEffects.lightFlickerSpeed * 0.8)).toFixed(5);
     filter += `${composedLabel}eq=brightness='${lightAmplitude}*sin(t*${lightFrequency})':eval=frame[lightened];`;
     composedLabel = "[lightened]";
