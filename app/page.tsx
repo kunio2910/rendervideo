@@ -6396,6 +6396,7 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -6639,7 +6640,6 @@ function Home() {
                     </div>
                   </div>
                   <small className="zoom-settings-help">Các hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
-                </div>
               </div>
             </details>
             <details
