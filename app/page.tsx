@@ -6303,8 +6303,8 @@ function Home() {
                 <span>05</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
               </summary>
               <div className="editor-accordion-content">
-                <div className="zoom-settings-card">
-                  <div className="motion-settings-title">
+                <div className="zoom-settings-card scene-visual-effect-card scene-zoom-effect-card" aria-label="Hiệu ứng zoom bản đồ">
+                  <div className="motion-settings-title scene-visual-effect-heading">
                     <strong>Zoom bản đồ</strong>
                     <span>Kéo vòng tròn trên bản đồ để chọn tâm zoom</span>
                   </div>
