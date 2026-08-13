@@ -162,6 +162,7 @@ type Scene = {
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
   popupTextEffect?: "none" | "fade" | "rise" | "pop";
   popupVideo?: string;
+  popupTransparentMedia?: boolean;
   popupX?: number;
   popupY?: number;
   popupVisible?: boolean;
@@ -241,6 +242,7 @@ type PopupConfig = {
   narration: string;
   image: string;
   video: string;
+  transparentMedia: boolean;
   start: number;
   duration: number;
   in: string;
@@ -394,6 +396,12 @@ const isVideoMedia = (value: string) => {
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
+const isTransparentMedia = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
 };
 
 const assetReference = (value: string) => {
@@ -896,6 +904,7 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   narration: "",
   image: "",
   video: "",
+  transparentMedia: false,
   start: 0.5,
   duration: 3,
   in: "fade-slide-up",
@@ -920,6 +929,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     narration: String(scene.narration ?? ""),
     image: String(scene.image ?? ""),
     video: String(scene.popupVideo ?? ""),
+    transparentMedia: scene.popupTransparentMedia === true,
     start: positiveNumber(scene.popupStart, 0.5),
     duration: positiveNumber(scene.popupDuration, 3, 0.1),
     in: scene.popupIn ?? "fade-slide-up",
@@ -946,6 +956,7 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popup: popup.body,
   image: popup.image,
   popupVideo: popup.video,
+  popupTransparentMedia: popup.transparentMedia,
   popupStart: popup.start,
   popupDuration: popup.duration,
   popupIn: popup.in,
@@ -1010,6 +1021,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
+              transparentMedia: rawPopup.transparentMedia === true || rawPopup.popupTransparentMedia === true || fallback.transparentMedia,
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
               duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
@@ -2740,6 +2752,7 @@ function Home() {
         ...current,
         image: isVideo ? "" : value,
         video: isVideo ? value : "",
+        transparentMedia: isTransparentMedia(value),
       };
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
@@ -4217,6 +4230,7 @@ function Home() {
             start: popup.start,
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
+            transparentMedia: popup.transparentMedia === true,
             ...(imageEnabled && popup.image.trim() ? { image: assetReference(popup.image) } : {}),
             ...(popup.video.trim() ? { video: assetReference(popup.video) } : {}),
             in: popup.in,
@@ -4297,6 +4311,7 @@ function Home() {
             popupX: firstPopup.x,
             popupY: firstPopup.y,
             popupVisible: firstPopup.visible,
+            popupTransparentMedia: firstPopup.transparentMedia === true,
             popups: popupPayloads,
           };
         }),
@@ -5471,12 +5486,13 @@ function Home() {
               const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
               const popupShowText = popupLayout !== "image-only" && popupHasText;
               const popupMediaOnly = popupShowMedia && !popupShowText;
+              const popupTransparentMedia = popup.transparentMedia === true && popupShowMedia;
               const popupEmptyFrame = !popupShowMedia && !popupShowText;
               return (
                 <article
                   key={popup.id}
                   data-popup-id={popup.id}
-                  className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
+                  className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupTransparentMedia ? "popup-transparent-media" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
@@ -5497,7 +5513,7 @@ function Home() {
                     <div className="photo-placeholder">
                       {popupVideoSource ? (
                         <video
-                          className="popup-video"
+                          className={`popup-video ${popupTransparentMedia ? "popup-transparent-media-asset" : ""}`}
                           src={popupVideoSource}
                           muted
                           autoPlay
@@ -5505,7 +5521,7 @@ function Home() {
                           playsInline
                         />
                       ) : popupImageSource ? (
-                        <img src={popupImageSource} alt={`Ảnh minh họa ${popup.title || scene.sceneName}`} />
+                        <img className={popupTransparentMedia ? "popup-transparent-media-asset" : ""} src={popupImageSource} alt={`Ảnh minh họa ${popup.title || scene.sceneName}`} />
                       ) : (
                         <>
                           <div className="sun" />
@@ -7014,6 +7030,15 @@ function Home() {
                   value={activePopupMediaValue}
                   onChange={(event) => updatePopupMedia(event.target.value)}
                 />
+                <label className="popup-transparent-toggle">
+                  <input
+                    type="checkbox"
+                    checked={activePopup?.transparentMedia === true}
+                    onChange={(event) => updatePopup("transparentMedia", event.target.checked)}
+                  />
+                  <span />
+                  Giữ nền trong suốt cho ảnh / video popup
+                </label>
                 {popupMediaPreviewSource && (
                   <div className="image-url-preview">
                     {popupMediaIsVideo ? (

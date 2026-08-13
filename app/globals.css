@@ -4947,6 +4947,35 @@ body {
 }
 .popup-stat-row b { font-size: 18px; letter-spacing: 0; }
 .popup-video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.preview-card.popup-transparent-media.popup-media-only {
+  background: transparent !important;
+  box-shadow: none;
+}
+.preview-card.popup-transparent-media .photo-placeholder { background: transparent; }
+.preview-card.popup-transparent-media .popup-transparent-media-asset { object-fit: contain; }
+.preview-card.popup-transparent-media:not(.popup-media-only) .card-content {
+  background: var(--popup-bg);
+  border-radius: 10px;
+}
+.popup-transparent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+.popup-transparent-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.popup-transparent-toggle span {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-bg);
+}
+.popup-transparent-toggle input:checked + span { border-color: var(--blue); background: var(--blue); box-shadow: inset 0 0 0 3px var(--panel-bg); }
 .preview-card.popup-empty-frame {
   min-height: 110px;
   border-style: dashed;
