@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { alignSubtitles } from "./align-subtitles.mjs";
 
 const root = process.cwd();
 const host = "127.0.0.1";
@@ -12,6 +13,7 @@ const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const jobs = new Map();
 let activeJobId = null;
+let activeSubtitleAlignment = false;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,6 +127,59 @@ const server = http.createServer(async (request, response) => {
         ? "Dịch vụ render cục bộ đã sẵn sàng"
         : "Chưa tìm thấy FFmpeg. Hãy chạy npm run render:setup",
     });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/align-subtitles") {
+    if (activeSubtitleAlignment) {
+      sendJson(response, 409, { error: "Đang có một phiên tạo phụ đề khác. Vui lòng chờ hoàn tất." });
+      return;
+    }
+    activeSubtitleAlignment = true;
+    const alignmentId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const alignmentRoot = path.join(jobsRoot, "subtitle-align", alignmentId);
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const form = await webRequest.formData();
+      const text = String(form.get("text") || "").trim();
+      if (!text) throw new Error("Thiếu Lời thuyết minh để tạo phụ đề");
+      const audioValue = form.get("audio");
+      const audioUrl = String(form.get("audioUrl") || "").trim();
+      if (typeof audioValue === "string" && !audioUrl) throw new Error("File audio không hợp lệ");
+      await fs.mkdir(alignmentRoot, { recursive: true });
+      let audioPath = "";
+      if (audioValue && typeof audioValue !== "string" && typeof audioValue.arrayBuffer === "function") {
+        audioPath = path.join(alignmentRoot, safeName(audioValue.name || "voice-audio"));
+        await fs.writeFile(audioPath, Buffer.from(await audioValue.arrayBuffer()));
+      } else if (audioUrl) {
+        const parsed = new URL(audioUrl);
+        if (!/^https?:$/.test(parsed.protocol)) throw new Error("URL audio phải dùng http hoặc https");
+        const remote = await fetch(parsed);
+        if (!remote.ok) throw new Error(`Không tải được audio (${remote.status})`);
+        const extension = path.extname(parsed.pathname) || ".audio";
+        audioPath = path.join(alignmentRoot, `remote-audio${extension}`);
+        await fs.writeFile(audioPath, Buffer.from(await remote.arrayBuffer()));
+      } else {
+        throw new Error("Chưa có file audio để đồng bộ phụ đề");
+      }
+      const result = await alignSubtitles({
+        text,
+        audioPath,
+        workDir: alignmentRoot,
+        requestedDuration: Number(form.get("duration") || 0),
+      });
+      sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Không thể tạo timestamp phụ đề" });
+    } finally {
+      activeSubtitleAlignment = false;
+      await fs.rm(alignmentRoot, { recursive: true, force: true });
+    }
     return;
   }
 

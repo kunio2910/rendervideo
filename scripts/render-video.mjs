@@ -66,6 +66,26 @@ const previewScale = Math.min(
 );
 const previewPx = (value) => value * previewScale;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const normalizeSceneEffects = (value) => {
+  const raw = value && typeof value === "object" ? value : {};
+  return {
+    snowEnabled: raw.snowEnabled === true,
+    snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
+    snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
+    lightFlickerEnabled: raw.lightFlickerEnabled === true,
+    lightFlickerIntensity: clamp(Number(raw.lightFlickerIntensity ?? 45) || 45, 0, 100),
+    lightFlickerSpeed: clamp(Number(raw.lightFlickerSpeed ?? 1) || 1, 0.2, 3),
+    rainEnabled: raw.rainEnabled === true,
+    rainIntensity: clamp(Number(raw.rainIntensity ?? 55) || 55, 0, 100),
+    rainSpeed: clamp(Number(raw.rainSpeed ?? 1) || 1, 0.2, 3),
+    thunderEnabled: raw.thunderEnabled === true,
+    thunderIntensity: clamp(Number(raw.thunderIntensity ?? 55) || 55, 0, 100),
+    thunderSpeed: clamp(Number(raw.thunderSpeed ?? 1) || 1, 0.2, 3),
+    cloudEnabled: raw.cloudEnabled === true,
+    cloudIntensity: clamp(Number(raw.cloudIntensity ?? 50) || 50, 0, 100),
+    cloudSpeed: clamp(Number(raw.cloudSpeed ?? 1) || 1, 0.2, 3),
+  };
+};
 const popupPixelHeight = (scene) => Math.min(
   Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440))),
   Math.round(outputHeight * 0.88),
@@ -86,6 +106,7 @@ const popupEntriesForScene = (scene) => {
       popupOut: popup.out ?? popup.popupOut ?? "fade-slide-down",
       popupWidth: popup.width ?? popup.popupWidth ?? 90,
       popupHeight: popup.height ?? popup.popupHeight ?? 255,
+      popupBorderWidth: popup.borderWidth ?? popup.popupBorderWidth ?? scene.popupBorderWidth ?? 1,
       popupLayout: popup.layout ?? popup.popupLayout ?? "image-top",
       popupTheme: popup.theme ?? popup.popupTheme ?? "travel",
       popupTextEffect: popup.textEffect ?? popup.popupTextEffect ?? "none",
@@ -101,6 +122,7 @@ const popupEntriesForScene = (scene) => {
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
+    popupBorderWidth: Number(scene.popupBorderWidth ?? 1),
     popupIndex: 0,
   }];
 };
@@ -109,6 +131,13 @@ const isVideoMedia = (value) => {
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
+const animatedAssetType = (value, fallback = "gif") => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
+  if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
+  return fallback;
 };
 // Legacy scene fields remain supported: scene.popupLayout, scene.popupX, scene.popupY.
 const audioVolume = (value, fallback) => {
@@ -323,32 +352,48 @@ const createPopup = async (scene, index) => {
   const imageVisible = scene.imageVisible !== false && Boolean(imageValue);
   const videoValue = String(scene.popupVideo ?? "").trim();
   const hasVisualInput = Boolean((imageVisible && imageValue) || videoValue);
-  if (!titleValue && !bodyValue && !hasVisualInput) return null;
-  const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
+  const requestedLayout = scene.popupLayout ?? "image-top";
+  const imageOnly = requestedLayout === "image-only";
+  const contentOnly = requestedLayout === "content-only";
   const hasText = Boolean(titleValue || bodyValue);
-  const height = !hasText && hasVisualInput
-    ? Math.round(previewPx(115))
-    : popupPixelHeight(scene);
+  const showVisual = !contentOnly && hasVisualInput;
+  const showText = !imageOnly && hasText;
+  if (!showText && !showVisual) return null;
+  const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
+  const height = popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
-  const borderWidth = Math.max(1, Math.round(previewPx(1)));
+  const borderWidth = Math.max(0, Math.round(previewPx(clamp(Number(scene.popupBorderWidth ?? 1), 0, 12))));
   const paddingX = Math.round(previewPx(15));
   const titleFontSize = Math.round(previewPx(15));
   const bodyFontSize = Math.round(previewPx(11));
   const bodyLineHeight = Math.round(previewPx(18.15));
-  const requestedLayout = scene.popupLayout ?? "image-top";
-  const layout = !hasText && hasVisualInput ? "image-top" : requestedLayout;
+  const layout = imageOnly
+    ? "image-top"
+    : contentOnly
+      ? "content-only"
+      : !hasText && hasVisualInput ? "image-top" : requestedLayout;
   const colors = {
     travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
     sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
     ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
     minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
   }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
-  const image = imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
-  const video = layout === "quote" || !videoValue ? null : await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`);
-  const hasVisual = Boolean((imageVisible && imageValue) || videoValue);
+  const image = showVisual && imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
+  const video = showVisual && layout !== "quote" && videoValue
+    ? await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`)
+    : null;
+  const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
   const imageWidth = split ? Math.round(width * 0.42) : width;
-  const imageHeight = layout === "quote" ? 0 : split ? height : hasVisual ? Math.round(previewPx(115)) : 0;
+  const imageHeight = layout === "quote"
+    ? 0
+    : split
+      ? height
+      : hasVisual
+        ? imageOnly
+          ? height
+          : Math.round(previewPx(115))
+        : 0;
   const contentX = split ? imageWidth + paddingX : paddingX;
   const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
   const titleY = layout === "quote"
@@ -357,7 +402,7 @@ const createPopup = async (scene, index) => {
   const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
   const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
   const maxBodyLines = Math.max(1, Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1);
-  const bodyLines = wrap(scene.body ?? scene.popup ?? "", maxCharacters).slice(0, maxBodyLines);
+  const bodyLines = wrap(showText ? scene.body ?? scene.popup ?? "" : "", maxCharacters).slice(0, maxBodyLines);
   const bodyText = bodyLines.map((line, lineIndex) =>
     `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
   ).join("");
@@ -367,10 +412,10 @@ const createPopup = async (scene, index) => {
   const placeholder = split
     ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
-  const quoteMark = hasText && layout === "quote"
+  const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
-  const statRow = hasText && layout === "stats"
+  const statRow = showText && layout === "stats"
     ? `<text x="${contentX}" y="${Math.round(previewPx(19))}" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(8))}" letter-spacing="2" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${Math.round(previewPx(25))}" text-anchor="end" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(17))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
     : "";
   const svg = Buffer.from(`
@@ -382,7 +427,7 @@ const createPopup = async (scene, index) => {
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>
       ${hasVisual && !image && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
-      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(String(scene.title ?? "").toUpperCase())}</text>
+      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
       <g font-family="Arial">${bodyText}</g>
     </svg>
   `);
@@ -397,7 +442,173 @@ const createPopup = async (scene, index) => {
   composites.push({ input: border, top: 0, left: 0 });
   const filename = path.join(renderDir, `popup-${index + 1}.png`);
   await base.composite(composites).png().toFile(filename);
-  return { path: filename, video, videoWidth: imageWidth, videoHeight: imageHeight };
+  const borderFilename = path.join(renderDir, `popup-${index + 1}-border.png`);
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite([{ input: border, top: 0, left: 0 }]).png().toFile(borderFilename);
+  return {
+    path: filename,
+    borderPath: borderFilename,
+    video,
+    videoWidth: imageWidth,
+    videoHeight: imageHeight,
+  };
+};
+
+const decorationColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
+  ? String(value)
+  : fallback;
+
+const decorationGlyph = (decoration) => {
+  if (decoration.type === "effect") {
+    return {
+      sparkles: "✦",
+      ring: "◉",
+      confetti: "✺",
+      glow: "✧",
+    }[decoration.effect] ?? "✦";
+  }
+  return String(decoration.symbol ?? "✦").trim() || "✦";
+};
+
+const createMapDecoration = async (decoration, index) => {
+  const type = ["text-3d", "sticker", "icon", "effect", "animated-sticker"].includes(String(decoration?.type))
+    ? String(decoration.type)
+    : "text-3d";
+  const asset = String(decoration?.asset ?? "").trim();
+  if (type === "animated-sticker") {
+    const kind = animatedAssetType(asset, String(decoration?.assetType ?? "gif"));
+    const media = kind === "webm"
+      ? await resolveVideo(asset, `decoration-${index + 1}.webm`)
+      : await resolveImage(asset, `decoration-${index + 1}.${kind}`);
+    if (!media) return null;
+    return { path: media, animated: true, mediaType: kind };
+  }
+  if (type === "sticker") {
+    const image = await resolveImage(asset, `decoration-${index + 1}-sticker`);
+    if (!image) return null;
+    const filename = path.join(renderDir, `decoration-${index + 1}.png`);
+    await sharp(image)
+      .resize({ width: Math.round(previewPx(180)), height: Math.round(previewPx(180)), fit: "inside" })
+      .png()
+      .toFile(filename);
+    return { path: filename };
+  }
+  const size = Math.round(previewPx(clamp(Number(decoration?.size ?? (type === "text-3d" ? 48 : 64)), 14, 120)));
+  const depth = Math.round(previewPx(clamp(Number(decoration?.depth ?? 5), 0, 16)));
+  const color = decorationColor(decoration?.color, "#ffd166");
+  const accentColor = decorationColor(decoration?.accentColor, "#7c3aed");
+  const text = type === "text-3d" ? String(decoration?.text ?? "").trim() : decorationGlyph({
+    ...decoration,
+    type,
+  });
+  if (!text) return null;
+  const fontSize = type === "text-3d" ? size : Math.round(size * 1.05);
+  const width = type === "text-3d"
+    ? Math.max(Math.round(previewPx(50)), Math.ceil(text.length * fontSize * 0.62 + depth + previewPx(18)))
+    : Math.max(Math.round(previewPx(44)), Math.ceil(fontSize + depth * 2));
+  const height = Math.max(Math.round(previewPx(44)), fontSize + depth + Math.round(previewPx(18)));
+  const layers = Array.from({ length: depth }, (_, layerIndex) => {
+    const offset = depth - layerIndex;
+    return `<text x="${width / 2 + offset}" y="${height / 2 + fontSize * 0.35 + offset}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="${fontSize}" fill="${accentColor}">${escapeXml(text)}</text>`;
+  }).join("");
+  const svg = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      ${layers}
+      <text x="${width / 2}" y="${height / 2 + fontSize * 0.35}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="${fontSize}" fill="${color}">${escapeXml(text)}</text>
+    </svg>
+  `);
+  const filename = path.join(renderDir, `decoration-${index + 1}.png`);
+  await sharp(svg).png().toFile(filename);
+  return { path: filename };
+};
+
+const createTextOverlay = async (overlay, index) => {
+  const text = String(overlay?.text ?? "").trim();
+  if (!text || overlay?.visible === false) return null;
+  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
+  const font = fontOptions.includes(String(overlay?.font)) ? String(overlay.font) : "Arial";
+  const size = Math.round(previewPx(clamp(Number(overlay?.size ?? 24), 8, 120)));
+  const strokeWidth = Math.round(previewPx(clamp(Number(overlay?.strokeWidth ?? 0), 0, 12)));
+  const borderWidth = Math.round(previewPx(clamp(Number(overlay?.borderWidth ?? 0), 0, 12)));
+  const textOpacity = clamp(Number(overlay?.opacity ?? 100) / 100, 0, 1);
+  const borderOpacity = clamp(Number(overlay?.borderOpacity ?? 100) / 100, 0, 1);
+  const color = decorationColor(overlay?.color, "#ffffff");
+  const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
+  const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
+  const borderFill = decorationColor(overlay?.borderFill, "#14202e");
+  const paddingX = Math.round(previewPx(9));
+  const paddingY = Math.round(previewPx(5));
+  const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
+  const requestedBoxWidth = Number(overlay?.boxWidth);
+  const boxWidth = Number.isFinite(requestedBoxWidth)
+    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, 0.4, 1))
+    : null;
+  const maxChars = boxWidth
+    ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
+    : null;
+  const lines = text
+    .split(/\r?\n/)
+    .flatMap((line) => maxChars ? (line ? wrap(line, maxChars) : [""]) : [line]);
+  const longestLine = Math.max(1, ...lines.map((line) => line.length));
+  const intrinsicWidth = Math.max(
+    Math.round(previewPx(32)),
+    Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
+  );
+  const width = boxWidth ?? intrinsicWidth;
+  const height = Math.max(
+    Math.round(previewPx(24)),
+    Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
+  );
+  const radius = Math.min(
+    Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
+    Math.floor(Math.min(width, height) / 2),
+  );
+  const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
+  const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  const textNodes = lines.map((line, lineIndex) => {
+    const y = paddingY + size * 0.86 + lineIndex * lineHeight;
+    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
+  }).join("");
+  const svg = Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
+      ${textNodes}
+    </svg>
+  `);
+  const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
+  await sharp(svg).png().toFile(filename);
+  return { path: filename, width, height };
+};
+
+const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
+  const text = String(cue?.text ?? "").trim();
+  if (!text || cue?.visible === false) return null;
+  const styleSize = clamp(Number(subtitleStyle.size ?? 22), 8, 120);
+  return createTextOverlay({
+    text,
+    visible: true,
+    size: styleSize,
+    style: subtitleStyle.style ?? "bold",
+    color: subtitleStyle.color ?? "#ffffff",
+    opacity: subtitleStyle.opacity ?? 100,
+    font: subtitleStyle.font ?? "Arial",
+    strokeWidth: subtitleStyle.strokeWidth ?? 1,
+    strokeColor: subtitleStyle.strokeColor ?? "#000000",
+    borderWidth: subtitleStyle.borderWidth ?? 1,
+  borderColor: subtitleStyle.borderColor ?? "#ffffff",
+  borderOpacity: subtitleStyle.borderOpacity ?? 88,
+  borderFill: subtitleStyle.borderFill ?? "#0b1220",
+  borderRadius: subtitleStyle.borderRadius ?? 8,
+  x: subtitleStyle.x ?? 50,
+  y: subtitleStyle.y ?? 83,
+  boxWidth: subtitleStyle.boxWidth ?? 84,
+  }, index);
 };
 
 const hiddenBackgroundPath = path.join(renderDir, "hidden-background.png");
@@ -438,13 +649,39 @@ for (let index = 0; index < scenes.length; index += 1) {
       const body = String(popupScene.body ?? "").trim();
       const image = popupScene.imageVisible !== false && String(popupScene.image ?? "").trim();
       const video = String(popupScene.popupVideo ?? "").trim();
-      return Boolean(title || body || image || video);
+      const layout = popupScene.popupLayout ?? "image-top";
+      const hasText = Boolean(title || body);
+      const hasMedia = Boolean(image || video);
+      return layout === "image-only"
+        ? hasMedia
+        : layout === "content-only"
+          ? hasText
+          : hasText || hasMedia;
     });
   const popupRenders = [];
   for (let popupIndex = 0; popupIndex < popupScenes.length; popupIndex += 1) {
     const popupScene = popupScenes[popupIndex];
     const rendered = await createPopup(popupScene, index * 100 + popupIndex);
     if (rendered) popupRenders.push({ scene: popupScene, rendered });
+  }
+  const decorationScenes = Array.isArray(scene.mapDecorations)
+    ? scene.mapDecorations.filter((decoration) => {
+        if (!decoration || decoration.visible === false) return false;
+        const type = String(decoration.type ?? "text-3d");
+        return type === "sticker"
+          ? Boolean(String(decoration.asset ?? "").trim())
+          : type === "animated-sticker"
+            ? Boolean(String(decoration.asset ?? "").trim())
+          : type === "text-3d"
+            ? Boolean(String(decoration.text ?? "").trim())
+            : Boolean(String(decoration.symbol ?? "").trim() || String(decoration.effect ?? "").trim());
+      })
+    : [];
+  const decorationRenders = [];
+  for (let decorationIndex = 0; decorationIndex < decorationScenes.length; decorationIndex += 1) {
+    const decoration = decorationScenes[decorationIndex];
+    const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
+    if (rendered) decorationRenders.push({ scene: decoration, rendered });
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
@@ -477,10 +714,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     `if(lt(on,${zoomInEnd}),1+(${targetZoom}-1)*(on-${zoomStartFrames})/${zoomInFrames},` +
     `if(lt(on,${zoomOutStart}),${targetZoom},` +
     `if(lt(on,${zoomEndFrames}),${targetZoom}-(${targetZoom}-1)*(on-${zoomOutStart})/${zoomOutSpan},1))))`;
-  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value ?? ""))
-    ? String(value)
-    : fallback;
-  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
   const legacyText = String(scene.overlayText ?? "").trim();
   const textOverlays = Array.isArray(scene.textOverlays) && scene.textOverlays.length > 0
     ? scene.textOverlays
@@ -502,43 +735,166 @@ for (let index = 0; index < scenes.length; index += 1) {
           y: scene.overlayTextY,
         }]
       : [];
-  const overlayTextFilter = textOverlays
-    .filter((overlay) => String(overlay.text ?? "").trim())
-    .map((overlay) => {
-      const text = String(overlay.text ?? "").trim();
-      const color = normalizeColor(overlay.color, "#ffffff").replace("#", "0x");
-      const strokeColor = normalizeColor(overlay.strokeColor, "#000000").replace("#", "0x");
-      const borderColor = normalizeColor(overlay.borderColor, "#ffffff").replace("#", "0x");
-      const borderFill = normalizeColor(overlay.borderFill, "#14202e").replace("#", "0x");
-      const font = fontOptions.includes(String(overlay.font)) ? String(overlay.font) : "Arial";
-      const textOpacity = clamp(Number(overlay.opacity ?? 100) / 100, 0, 1).toFixed(3);
-      const borderOpacity = clamp(Number(overlay.borderOpacity ?? 100) / 100, 0, 1).toFixed(3);
-      const size = Math.round(previewPx(clamp(Number(overlay.size ?? 24), 8, 120)));
-      const strokeWidth = Math.round(previewPx(clamp(Number(overlay.strokeWidth ?? 0), 0, 12)));
-      const borderWidth = Math.round(previewPx(clamp(Number(overlay.borderWidth ?? 0), 0, 12)));
-      const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
-      const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
-      const position = `x='w*${x}-text_w/2':y='h*${y}-text_h/2'`;
-      const common = `font='${escapeDrawtext(font)}':text='${escapeDrawtext(text)}':fontsize=${size}:borderw=${strokeWidth}:bordercolor=${strokeColor}@${textOpacity}:${position}`;
-      const fillBox = `,drawtext=${common}:fontcolor=${color}@${textOpacity}:box=1:boxcolor=${borderFill}@${borderOpacity}:boxborderw=0`;
-      const borderBox = borderWidth > 0
-        ? `,drawtext=${common}:fontcolor=${color}@0:box=1:boxcolor=${borderColor}@${borderOpacity}:boxborderw=${borderWidth}`
-        : "";
-      return `${borderBox}${fillBox}`;
-    })
-    .join("");
+  const textOverlayRenders = [];
+  for (let textIndex = 0; textIndex < textOverlays.length; textIndex += 1) {
+    const overlay = textOverlays[textIndex];
+    const rendered = await createTextOverlay(overlay, index * 100 + textIndex);
+    if (rendered) textOverlayRenders.push({ scene: overlay, rendered });
+  }
+  const subtitleCues = scene.subtitleEnabled !== false && Array.isArray(scene.subtitles)
+    ? scene.subtitles.filter((cue) => {
+        const text = String(cue?.text ?? "").trim();
+        const start = Number(cue?.start);
+        const end = Number(cue?.end);
+        return cue?.visible !== false
+          && text
+          && Number.isFinite(start)
+          && Number.isFinite(end)
+          && end > start;
+      })
+    : [];
+  const subtitleRenders = [];
+  for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
+    const subtitle = subtitleCues[subtitleIndex];
+    const rendered = await createSubtitleOverlay(
+      subtitle,
+      index * 100 + 50 + subtitleIndex,
+      scene.subtitleStyle ?? {},
+    );
+    if (rendered) subtitleRenders.push({ scene: subtitle, rendered, style: scene.subtitleStyle ?? {} });
+  }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
-    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1${overlayTextFilter}[bg];`
+    ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
     : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
       `zoompan=z='${zoomExpression}':` +
       `x='iw*${centerX}*(1-1/zoom)':` +
       `y='ih*${centerY}*(1-1/zoom)':` +
-      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1${overlayTextFilter}[bg];`;
+      `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
+  const popupInputCount = popupRenders.reduce(
+    (total, { rendered: popup }) => total + (popup.video ? (popup.borderPath ? 3 : 2) : 1),
+    0,
+  );
+  const weatherInputIndex = 1
+    + textOverlayRenders.length
+    + decorationRenders.length
+    + popupInputCount
+    + subtitleRenders.length;
+  const weatherInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
-  let popupInputIndex = 1;
+  const sceneEffects = normalizeSceneEffects(scene.effects);
+  const addWeatherOverlay = ({ source, x, y, label }) => {
+    const inputIndex = weatherInputIndex + weatherInputSpecs.length;
+    weatherInputSpecs.push(source);
+    filter += `${composedLabel}[${inputIndex}:v]overlay=` +
+      `x='${x}':y='${y}':shortest=1[${label}];`;
+    composedLabel = `[${label}]`;
+  };
+  if (sceneEffects.lightFlickerEnabled && sceneEffects.lightFlickerIntensity > 0) {
+    const lightAmplitude = (0.025 + (sceneEffects.lightFlickerIntensity / 100) * 0.17).toFixed(4);
+    const lightFrequency = (2 * Math.PI * (0.55 + sceneEffects.lightFlickerSpeed * 0.8)).toFixed(5);
+    filter += `${composedLabel}eq=brightness='${lightAmplitude}*sin(t*${lightFrequency})':eval=frame[lightened];`;
+    composedLabel = "[lightened]";
+  }
+  if (sceneEffects.thunderEnabled && sceneEffects.thunderIntensity > 0) {
+    const flashAmplitude = (0.08 + (sceneEffects.thunderIntensity / 100) * 0.28).toFixed(4);
+    const flashFrequency = (0.75 + sceneEffects.thunderSpeed * 0.65).toFixed(4);
+    filter += `${composedLabel}eq=brightness='${flashAmplitude}*if(lt(mod(t*${flashFrequency},1),0.08),1,if(lt(mod(t*${flashFrequency},1),0.16),0.24,0))':eval=frame[thundered];`;
+    composedLabel = "[thundered]";
+  }
+  if (sceneEffects.cloudEnabled && sceneEffects.cloudIntensity > 0) {
+    const cloudCount = Math.round(3 + sceneEffects.cloudIntensity / 25);
+    const cloudOpacity = (0.08 + (sceneEffects.cloudIntensity / 100) * 0.32).toFixed(3);
+    for (let cloudIndex = 0; cloudIndex < cloudCount; cloudIndex += 1) {
+      const cloudWidth = Math.max(12, Math.round(outputWidth * (0.22 + ((cloudIndex * 19) % 28) / 100)));
+      const cloudHeight = Math.max(10, Math.round(outputHeight * (0.018 + (cloudIndex % 3) * 0.006)));
+      const xSeed = Math.round(outputWidth * (-0.25 + ((cloudIndex * 23) % 110) / 100));
+      const ySeed = Math.round(outputHeight * (0.12 + ((cloudIndex * 17) % 45) / 100));
+      const cloudSpeed = Math.max(1, Math.round(previewPx(16 + ((cloudIndex * 11) % 14)) * sceneEffects.cloudSpeed));
+      addWeatherOverlay({
+        source: `color=c=white@${cloudOpacity}:s=${cloudWidth}x${cloudHeight}:r=${fps}:d=${duration},format=rgba,boxblur=2:1`,
+        x: `mod(${xSeed}+t*${cloudSpeed}+main_w*2,main_w+overlay_w)-overlay_w`,
+        y: String(ySeed),
+        label: `cloud${cloudIndex}`,
+      });
+    }
+  }
+  if (sceneEffects.rainEnabled && sceneEffects.rainIntensity > 0) {
+    const rainCount = Math.round(10 + sceneEffects.rainIntensity * 0.16);
+    const rainOpacity = (0.22 + (sceneEffects.rainIntensity / 100) * 0.62).toFixed(3);
+    for (let rainIndex = 0; rainIndex < rainCount; rainIndex += 1) {
+      const dropWidth = Math.max(1, Math.round(previewPx(1 + (rainIndex % 2))));
+      const dropHeight = Math.max(6, Math.round(previewPx(14 + ((rainIndex * 11) % 18))));
+      const xSeed = Math.round(outputWidth * ((rainIndex * 29) % 100) / 100);
+      const ySeed = Math.round(outputHeight * (((rainIndex * 17) % 100) / 100) - dropHeight);
+      const drift = -Math.round(previewPx(18 + ((rainIndex * 7) % 37)));
+      const fallSpeed = Math.max(1, Math.round(previewPx(250 + ((rainIndex * 13) % 140)) * sceneEffects.rainSpeed));
+      addWeatherOverlay({
+        source: `color=c=white@${rainOpacity}:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba`,
+        x: `mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)`,
+        y: `mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)`,
+        label: `rain${rainIndex}`,
+      });
+    }
+  }
+  if (sceneEffects.snowEnabled && sceneEffects.snowIntensity > 0) {
+    const snowCount = Math.round(8 + sceneEffects.snowIntensity * 0.2);
+    const snowOpacity = (0.12 + (sceneEffects.snowIntensity / 100) * 0.68).toFixed(3);
+    for (let snowIndex = 0; snowIndex < snowCount; snowIndex += 1) {
+      const snowSize = Math.max(1, Math.round(previewPx(1.4 + (snowIndex % 4) * 0.65)));
+      const xSeed = Math.round(outputWidth * ((snowIndex * 37) % 100) / 100);
+      const ySeed = Math.round(outputHeight * ((snowIndex * 23) % 100) / 100);
+      const drift = ((snowIndex * 19) % 31) - 15;
+      const fallSpeed = Math.round(previewPx(34 + ((snowIndex * 17) % 48)) * sceneEffects.snowSpeed);
+      const snowLabel = `snow${snowIndex}`;
+      addWeatherOverlay({
+        source: `color=c=white@${snowOpacity}:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba`,
+        x: `mod(${xSeed}+t*${drift}+main_w*10,main_w-overlay_w)`,
+        y: `mod(${ySeed}+t*${fallSpeed}+main_h*10,main_h-overlay_h)`,
+        label: snowLabel,
+      });
+    }
+  }
+  textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
+    const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
+    const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const outputLabel = `texted${textIndex}`;
+    filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    composedLabel = `[${outputLabel}]`;
+  });
+  let popupInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
+  decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
+    const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
+    const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
+    const decorationEnd = Math.min(duration, decorationStart + decorationDuration);
+    const animation = String(decoration.animation ?? "none");
+    const popDuration = Math.min(0.45, Math.max(0.1, decorationEnd - decorationStart));
+    const popScale = animation === "pop"
+      ? `if(lt(t,${decorationStart}),0.72,if(lt(t,${decorationStart + popDuration}),0.72+0.28*(t-${decorationStart})/${popDuration},1))`
+      : animation === "pulse"
+        ? `1+0.08*sin((t-${decorationStart})*5)`
+        : "1";
+    const baseScale = clamp(Number(decoration.scale ?? 1), 0.1, 3);
+    const floatDistance = animation === "float" ? Math.round(previewPx(10)) : 0;
+    const baseRotation = clamp(Number(decoration.rotate ?? 0), -180, 180) * Math.PI / 180;
+    const rotation = animation === "spin"
+      ? `${baseRotation}+(t-${decorationStart})*0.9`
+      : String(baseRotation);
+    const fadeIn = animation === "fade"
+      ? `fade=t=in:st=${decorationStart}:d=${popDuration}:alpha=1,fade=t=out:st=${Math.max(decorationStart, decorationEnd - popDuration)}:d=${popDuration}:alpha=1,`
+      : "";
+    const inputLabel = `decorationInput${decorationIndex}`;
+    const outputLabel = `decorated${decorationIndex}`;
+    const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
+    const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
+    const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
+    const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
+    filter += `[${decorationInputIndex}:v]${animatedFilter}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
+    composedLabel = `[${outputLabel}]`;
+  });
   popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
     const popupStart = Math.min(duration, Math.max(0, Number(popupScene.popupStart ?? 0)));
     const popupEnd = Math.min(duration, popupStart + Number(popupScene.popupDuration ?? duration));
@@ -598,30 +954,93 @@ for (let index = 0; index < scenes.length; index += 1) {
           ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
           : centerYExpression;
     const videoInputIndex = popup.video ? popupInputIndex + 1 : null;
+    const borderInputIndex = popup.video && popup.borderPath ? popupInputIndex + 2 : null;
     const videoLabel = `popupVideo${popupIndex}`;
     const baseLabel = `popupBase${popupIndex}`;
+    const borderLabel = `popupBorder${popupIndex}`;
+    const borderedLabel = `popupBordered${popupIndex}`;
     const popLabel = `pop${popupIndex}`;
     const composedOutput = `[composed${popupIndex}]`;
     if (popup.video) {
       filter += `[${videoInputIndex}:v]scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
+      if (borderInputIndex !== null) {
+        filter += `[${borderInputIndex}:v]format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
+      }
     }
-    filter += `${popup.video ? `[${baseLabel}]` : `[${popupInputIndex}:v]`}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
+    filter += `${popup.video ? `[${borderInputIndex !== null ? borderedLabel : baseLabel}]` : `[${popupInputIndex}:v]`}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
     if (popupIn === "flip" || popupOut === "flip") filter += `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`;
     filter += `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[${popLabel}];`;
     filter += `${composedLabel}[${popLabel}]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'${composedOutput};`;
     composedLabel = composedOutput;
-    popupInputIndex += popup.video ? 2 : 1;
+    popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
   });
-  filter += popupRenders.length ? `${composedLabel}copy[composed]` : "[bg]copy[composed]";
+  const subtitleInputIndex = popupInputIndex;
+  subtitleRenders.forEach(({ scene: subtitle, style, rendered: renderedOverlay }, subtitleIndex) => {
+    const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
+    const subtitleEnd = Math.min(
+      duration,
+      Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+    );
+    const subtitleOutput = `[subtitled${subtitleIndex}]`;
+    const inputIndex = subtitleInputIndex + subtitleIndex;
+    const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
+    const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
+    const animation = ["none", "fade", "pop", "slide-up", "typewriter"].includes(String(style?.animation))
+      ? String(style.animation)
+      : "fade";
+    const animationDuration = clamp(Number(style?.animationDuration ?? 0.25), 0.05, 1);
+    const subtitleInputLabel = `subtitleInput${subtitleIndex}`;
+    if (animation === "fade") {
+      filter += `[${inputIndex}:v]format=rgba,fade=t=in:st=${subtitleStart}:d=${animationDuration}:alpha=1[${subtitleInputLabel}];`;
+    } else if (animation === "pop") {
+      const progress = `min(1,max(0,(t-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
+    } else if (animation === "typewriter") {
+      const progress = `min(1,max(0,(T-${subtitleStart})/${animationDuration}))`;
+      filter += `[${inputIndex}:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${progress}),alpha(X,Y),0)'[${subtitleInputLabel}];`;
+    } else {
+      filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
+    }
+    const slideOffset = animation === "slide-up"
+      ? `+main_h*0.03*(1-min(1,max(0,(t-${subtitleStart})/${animationDuration})))`
+      : "";
+    const renderedWidth = Number(renderedOverlay?.width);
+    const fixedSubtitleLeft = animation === "typewriter" && Number.isFinite(renderedWidth)
+      ? `main_w*${subtitleX}-${renderedWidth / 2}`
+      : `main_w*${subtitleX}-overlay_w/2`;
+    filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
+    composedLabel = subtitleOutput;
+  });
+  popupInputIndex += subtitleRenders.length;
+  filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
     ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
   ];
+  textOverlayRenders.forEach(({ rendered: overlay }) => {
+    args.push("-loop", "1", "-i", overlay.path);
+  });
+  decorationRenders.forEach(({ rendered: decoration }) => {
+    if (decoration.animated) {
+      args.push("-stream_loop", "-1", "-i", decoration.path);
+    } else {
+      args.push("-loop", "1", "-i", decoration.path);
+    }
+  });
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
-    if (popup.video) args.push("-stream_loop", "-1", "-i", popup.video);
+    if (popup.video) {
+      args.push("-stream_loop", "-1", "-i", popup.video);
+      args.push("-loop", "1", "-i", popup.borderPath);
+    }
   });
-  const audioInputIndex = popupInputIndex;
+  subtitleRenders.forEach(({ rendered: subtitle }) => {
+    args.push("-loop", "1", "-i", subtitle.path);
+  });
+  weatherInputSpecs.forEach((source) => {
+    args.push("-f", "lavfi", "-i", source);
+  });
+  const audioInputIndex = popupInputIndex + weatherInputSpecs.length;
   if (voice) {
     args.push("-i", voice);
   } else {
