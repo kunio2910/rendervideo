@@ -560,8 +560,8 @@ const createSceneImage = async (image, index) => {
   const url = String(image?.url ?? image?.asset ?? "").trim();
   if (!url || image?.visible === false) return null;
   const shape = String(image?.shape ?? "rectangle");
-  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.04, 0.96);
-  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.04, 0.96);
+  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.01, 0.96);
+  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.01, 0.96);
   const widthRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedWidth;
   const heightRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedHeight;
   const width = Math.max(16, Math.round(outputWidth * widthRatio));

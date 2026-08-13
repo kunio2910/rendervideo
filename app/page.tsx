@@ -732,8 +732,8 @@ const normalizeSceneImage = (
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
-    width: Math.min(96, Math.max(4, positiveNumber(raw.width, base.width, 4))),
-    height: Math.min(96, Math.max(4, positiveNumber(raw.height, base.height, 4))),
+    width: Math.min(96, Math.max(1, positiveNumber(raw.width, base.width, 1))),
+    height: Math.min(96, Math.max(1, positiveNumber(raw.height, base.height, 1))),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
@@ -3912,8 +3912,8 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     setDraggingSceneImage(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(96, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
-      const nextHeight = Math.min(96, Math.max(4, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      const nextWidth = Math.min(96, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(96, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
@@ -6151,11 +6151,11 @@ function Home() {
                       <div className="field-row">
                         <label className="field">
                           <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.width} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                         <label className="field">
                           <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.height} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">

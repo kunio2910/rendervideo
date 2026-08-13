@@ -80,6 +80,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /addMapDecoration/);
   assert.match(page, /startMapDecorationDrag/);
   assert.match(page, /map-decoration-manager/);
+  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.width\}/);
+  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.height\}/);
+  assert.match(page, /event\.currentTarget\.select\(\)/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
@@ -287,6 +290,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /createTextOverlay/);
   assert.match(renderer, /createSubtitleOverlay/);
+  assert.match(renderer, /requestedWidth = clamp\(Number\(image\?\.width \?\? 42\) \/ 100, 0\.01, 0\.96\)/);
   assert.match(renderer, /subtitleStyle\.boxWidth/);
   assert.match(renderer, /const borderSvg = borderWidth > 0/);
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
