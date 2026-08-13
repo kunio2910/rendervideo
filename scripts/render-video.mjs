@@ -114,6 +114,7 @@ const popupEntriesForScene = (scene) => {
       popupY: popup.y ?? popup.popupY ?? 55,
       popupVisible: popup.visible !== false,
       imageVisible: popup.imageVisible !== false,
+      popupTransparentMedia: popup.transparentMedia === true || popup.popupTransparentMedia === true || scene.popupTransparentMedia === true,
       popupIndex: index,
     }));
   }
@@ -358,6 +359,8 @@ const createPopup = async (scene, index) => {
   const hasText = Boolean(titleValue || bodyValue);
   const showVisual = !contentOnly && hasVisualInput;
   const showText = !imageOnly && hasText;
+  const transparentMedia = scene.popupTransparentMedia === true && showVisual;
+  const transparentMediaOnly = transparentMedia && !showText;
   if (!showText && !showVisual) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = popupPixelHeight(scene);
@@ -412,6 +415,9 @@ const createPopup = async (scene, index) => {
   const placeholder = split
     ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
+  const cardBackground = transparentMediaOnly
+    ? ""
+    : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>`;
   const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
@@ -424,8 +430,8 @@ const createPopup = async (scene, index) => {
         <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
       </defs>
-      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>
-      ${hasVisual && !image && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
+      ${cardBackground}
+      ${hasVisual && !image && !video && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
       <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
       <g font-family="Arial">${bodyText}</g>
@@ -962,7 +968,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popLabel = `pop${popupIndex}`;
     const composedOutput = `[composed${popupIndex}]`;
     if (popup.video) {
-      filter += `[${videoInputIndex}:v]scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
+      filter += `[${videoInputIndex}:v]format=rgba,scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v]format=rgba[${baseLabel}input];[${baseLabel}input][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
       if (borderInputIndex !== null) {
         filter += `[${borderInputIndex}:v]format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
       }
