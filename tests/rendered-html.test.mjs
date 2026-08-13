@@ -253,6 +253,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /image-url-preview video/);
   assert.match(css, /map-decoration-animated-sticker img,\s*\.map-decoration-animated-sticker video/);
   assert.match(css, /width: min\(220px, 42vw\)/);
+  assert.match(css, /--dark-action-bg: #1b3046/);
+  assert.match(css, /--dark-danger-bg: #40232c/);
+  assert.match(css, /settings-action-buttons \.button\.ghost:hover/);
   assert.match(css, /popup-layout-image-only \.photo-placeholder/);
   assert.match(css, /flex: 1 1 auto/);
   assert.match(css, /editor-section-actions/);

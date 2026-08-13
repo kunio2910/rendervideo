@@ -6851,3 +6851,111 @@ body {
     height: min(48vw, calc(100vh - 190px), 520px) !important;
   }
 }
+
+/* Dark theme action controls: keep compact edit buttons readable at a glance. */
+.studio-shell[data-theme="dark"] {
+  --dark-action-bg: #1b3046;
+  --dark-action-border: #557b9e;
+  --dark-action-ink: #e8f4ff;
+  --dark-action-hover-bg: #2b5273;
+  --dark-danger-bg: #40232c;
+  --dark-danger-border: #a85c60;
+  --dark-danger-ink: #ffb5aa;
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action,
+.studio-shell[data-theme="dark"] .scene-icon-button,
+.studio-shell[data-theme="dark"] .scene-edit-actions button,
+.studio-shell[data-theme="dark"] .scene-image-action,
+.studio-shell[data-theme="dark"] .text-overlay-visibility,
+.studio-shell[data-theme="dark"] .text-overlay-delete,
+.studio-shell[data-theme="dark"] .map-decoration-visibility,
+.studio-shell[data-theme="dark"] .map-decoration-delete,
+.studio-shell[data-theme="dark"] .popup-visibility-button,
+.studio-shell[data-theme="dark"] .popup-delete-button,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button,
+.studio-shell[data-theme="dark"] .subtitle-delete-button {
+  border: 1px solid var(--dark-action-border) !important;
+  background: var(--dark-action-bg) !important;
+  color: var(--dark-action-ink) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .editor-section-action:focus-visible,
+.studio-shell[data-theme="dark"] .scene-icon-button:hover,
+.studio-shell[data-theme="dark"] .scene-icon-button:focus-visible,
+.studio-shell[data-theme="dark"] .scene-edit-actions button:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .scene-edit-actions button:focus-visible,
+.studio-shell[data-theme="dark"] .scene-image-action:hover,
+.studio-shell[data-theme="dark"] .scene-image-action:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-visibility:hover,
+.studio-shell[data-theme="dark"] .text-overlay-visibility:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-visibility:hover,
+.studio-shell[data-theme="dark"] .map-decoration-visibility:focus-visible,
+.studio-shell[data-theme="dark"] .popup-visibility-button:hover,
+.studio-shell[data-theme="dark"] .popup-visibility-button:focus-visible,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button:hover,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button:focus-visible {
+  border-color: #8ecbff !important;
+  background: var(--dark-action-hover-bg) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(111, 190, 255, .2), 0 4px 12px rgba(0, 0, 0, .28);
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action:disabled {
+  border-color: #3d566e !important;
+  background: #172535 !important;
+  color: #8da7bf !important;
+  opacity: 1;
+}
+
+.studio-shell[data-theme="dark"] .scene-delete-icon,
+.studio-shell[data-theme="dark"] .scene-image-action.danger,
+.studio-shell[data-theme="dark"] .text-overlay-delete,
+.studio-shell[data-theme="dark"] .map-decoration-delete,
+.studio-shell[data-theme="dark"] .popup-delete-button,
+.studio-shell[data-theme="dark"] .subtitle-delete-button,
+.studio-shell[data-theme="dark"] .settings-danger-button {
+  border-color: var(--dark-danger-border) !important;
+  background: var(--dark-danger-bg) !important;
+  color: var(--dark-danger-ink) !important;
+}
+
+.studio-shell[data-theme="dark"] .scene-delete-icon:hover,
+.studio-shell[data-theme="dark"] .scene-delete-icon:focus-visible,
+.studio-shell[data-theme="dark"] .scene-image-action.danger:hover,
+.studio-shell[data-theme="dark"] .scene-image-action.danger:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-delete:hover,
+.studio-shell[data-theme="dark"] .text-overlay-delete:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-delete:hover,
+.studio-shell[data-theme="dark"] .map-decoration-delete:focus-visible,
+.studio-shell[data-theme="dark"] .popup-delete-button:hover,
+.studio-shell[data-theme="dark"] .popup-delete-button:focus-visible,
+.studio-shell[data-theme="dark"] .subtitle-delete-button:hover,
+.studio-shell[data-theme="dark"] .subtitle-delete-button:focus-visible,
+.studio-shell[data-theme="dark"] .settings-danger-button:hover {
+  border-color: #ff9a90 !important;
+  background: #63313b !important;
+  color: #fff4f1 !important;
+  box-shadow: 0 0 0 2px rgba(255, 133, 125, .2), 0 4px 12px rgba(0, 0, 0, .28);
+}
+
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost {
+  border-color: var(--dark-action-border) !important;
+  background: var(--dark-action-bg) !important;
+  color: var(--dark-action-ink) !important;
+}
+
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost:hover,
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost:focus-visible {
+  border-color: #8ecbff !important;
+  background: var(--dark-action-hover-bg) !important;
+  color: #ffffff !important;
+}
