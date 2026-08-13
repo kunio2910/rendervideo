@@ -118,7 +118,7 @@ const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: nu
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
 
 const animatedAssetTypeFromValue = (value: string, fallback: AnimatedAssetType = "gif"): AnimatedAssetType => {
-  const normalized = value.trim().toLowerCase();
+  const normalized = safeTrim(value).toLowerCase();
   if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
   if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
   return fallback;
@@ -396,6 +396,8 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
 
 const initialScenes: Scene[] = [createEmptyScene()];
 
+const safeTrim = (value: unknown) => String(value ?? "").trim();
+
 const formatTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 10) / 10);
   const minutes = Math.floor(rounded / 60);
@@ -403,8 +405,8 @@ const formatTime = (value: number) => {
   return `${String(minutes).padStart(2, "0")}:${seconds.padStart(4, "0")}`;
 };
 
-const fileNameOnly = (value: string) => {
-  const trimmed = value.trim();
+const fileNameOnly = (value: unknown) => {
+  const trimmed = safeTrim(value);
   if (!trimmed) return "";
   try {
     if (/^https?:\/\//i.test(trimmed)) {
@@ -414,23 +416,23 @@ const fileNameOnly = (value: string) => {
   return trimmed.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? trimmed;
 };
 
-const isRemoteUrl = (value: string) => /^https?:\/\/.+/i.test(value.trim());
+const isRemoteUrl = (value: unknown) => /^https?:\/\/.+/i.test(safeTrim(value));
 
-const isVideoMedia = (value: string) => {
-  const normalized = value.trim().toLowerCase();
+const isVideoMedia = (value: unknown) => {
+  const normalized = safeTrim(value).toLowerCase();
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
-const isTransparentMedia = (value: string) => {
-  const normalized = value.trim().toLowerCase();
+const isTransparentMedia = (value: unknown) => {
+  const normalized = safeTrim(value).toLowerCase();
   return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
     || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
 };
 
-const assetReference = (value: string) => {
-  const trimmed = value.trim();
+const assetReference = (value: unknown) => {
+  const trimmed = safeTrim(value);
   return isRemoteUrl(trimmed) ? trimmed : fileNameOnly(trimmed);
 };
 
@@ -1174,7 +1176,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
           String((rawText as { id?: unknown }).id ?? `${id}-text-${textIndex + 1}`),
           { name: `Chữ ${textIndex + 1}` },
         ))
-      : legacyText.trim()
+      : safeTrim(legacyText)
         ? [normalizeTextOverlay({
             id: `${id}-text-1`,
             text: legacyText,
@@ -1991,23 +1993,23 @@ function Home() {
     setPlaying(false);
   };
   const popupNarration = activePopup?.narration ?? "";
-  const popupWordCount = popupNarration.trim().split(/\s+/).filter(Boolean).length;
+  const popupWordCount = safeTrim(popupNarration).split(/\s+/).filter(Boolean).length;
   const popupVoiceEstimate = Math.max(1, Math.ceil((popupWordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
-    const trimmed = value.trim();
+    const trimmed = safeTrim(value);
     if (!trimmed) return "";
     return isRemoteUrl(trimmed)
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
   const activePopupMediaValue = activePopup
-    ? activePopup.video.trim() || activePopup.image.trim()
+    ? safeTrim(activePopup.video) || safeTrim(activePopup.image)
     : "";
   const popupMediaIsVideo = isVideoMedia(activePopupMediaValue);
   const popupMediaPreviewSource = activePopupMediaValue && (popupMediaIsVideo || imageEnabled)
     ? assetPreviewSource(activePopupMediaValue)
     : "";
-  const legacyBackgroundPreview = previewBackground.trim() || background.trim();
+  const legacyBackgroundPreview = safeTrim(previewBackground) || safeTrim(background);
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
   const backgroundPreviewSource = assetPreviewSource(backgroundValue);
@@ -2045,10 +2047,10 @@ function Home() {
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
   const popupHasMediaInput = (popup: PopupConfig) =>
-    (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
-    || Boolean(popup.video.trim());
+    (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
+    || Boolean(safeTrim(popup.video));
   const popupHasContent = (popup: PopupConfig) => {
-    const hasText = Boolean(popup.title.trim() || popup.body.trim());
+    const hasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
     const hasMedia = popupHasMediaInput(popup);
     const layout = popup.layout ?? "image-top";
     return layout === "image-only"
@@ -2071,12 +2073,12 @@ function Home() {
     : [];
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
-      ? Boolean(decoration.text.trim())
+      ? Boolean(safeTrim(decoration.text))
       : decoration.type === "animated-sticker"
-        ? Boolean(decoration.asset.trim())
+        ? Boolean(safeTrim(decoration.asset))
       : decoration.type === "sticker"
-        ? Boolean(decoration.asset.trim())
-        : Boolean(decoration.symbol.trim() || decoration.effect);
+        ? Boolean(safeTrim(decoration.asset))
+        : Boolean(safeTrim(decoration.symbol) || decoration.effect);
   const previewDecorationItems = sceneIsVisibleInPlayback
     ? playing
       ? sceneDecorations.filter((decoration) => {
@@ -2095,11 +2097,11 @@ function Home() {
           const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
           const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
           return image.visible !== false
-            && Boolean(image.url.trim())
+            && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
             && sceneLocalTime <= end;
         })
-      : sceneImages.filter((image) => image.visible !== false && Boolean(image.url.trim()))
+      : sceneImages.filter((image) => image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
@@ -2109,7 +2111,7 @@ function Home() {
           Math.max(start + 0.1, Number(subtitle.end) || start + 0.1),
         );
         return subtitle.visible !== false
-          && subtitle.text.trim()
+          && safeTrim(subtitle.text)
           && sceneLocalTime >= start
           && sceneLocalTime < end;
       })
@@ -2636,7 +2638,7 @@ function Home() {
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
-    if (!playing || !backgroundMusic.trim()) return;
+    if (!playing || !safeTrim(backgroundMusic)) return;
     const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -3136,7 +3138,7 @@ function Home() {
   };
 
   const textOverlayLabel = (overlay: TextOverlay, index: number) =>
-    overlay.name.trim() || `Chữ ${index + 1}`;
+    safeTrim(overlay.name) || `Chữ ${index + 1}`;
 
   const beginTextOverlayRename = (overlay: TextOverlay, index: number) => {
     setSelectedTextOverlayId(overlay.id);
@@ -3149,7 +3151,7 @@ function Home() {
     const target = (scene.textOverlays ?? []).find((overlay) => overlay.id === renamingTextOverlayId);
     if (!target) return;
     const targetIndex = (scene.textOverlays ?? []).findIndex((overlay) => overlay.id === target.id);
-    const nextName = renamingTextOverlayName.trim() || textOverlayLabel(target, targetIndex);
+    const nextName = safeTrim(renamingTextOverlayName) || textOverlayLabel(target, targetIndex);
     setScenes((items) => items.map((item) => item.id === scene.id
       ? {
           ...item,
@@ -3643,7 +3645,7 @@ function Home() {
       form.append("text", narration);
       form.append("duration", String(targetDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
-      else form.append("audioUrl", scene.voiceFile.trim());
+      else form.append("audioUrl", safeTrim(scene.voiceFile));
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
         method: "POST",
         body: form,
@@ -3797,7 +3799,7 @@ function Home() {
   };
 
   const mapDecorationLabel = (decoration: MapDecoration, index: number) =>
-    decoration.name.trim() || `${mapDecorationTypeLabel(decoration.type)} ${index + 1}`;
+    safeTrim(decoration.name) || `${mapDecorationTypeLabel(decoration.type)} ${index + 1}`;
 
   const beginMapDecorationRename = (decoration: MapDecoration, index: number) => {
     setSelectedDecorationId(decoration.id);
@@ -3810,7 +3812,7 @@ function Home() {
     const target = (scene.mapDecorations ?? []).find((decoration) => decoration.id === renamingDecorationId);
     if (!target) return;
     const targetIndex = (scene.mapDecorations ?? []).findIndex((decoration) => decoration.id === target.id);
-    const nextName = renamingDecorationName.trim() || mapDecorationLabel(target, targetIndex);
+    const nextName = safeTrim(renamingDecorationName) || mapDecorationLabel(target, targetIndex);
     setScenes((items) => items.map((item) => item.id === scene.id
       ? {
           ...item,
@@ -3856,7 +3858,7 @@ function Home() {
   };
 
   const sceneImageLabel = (image: SceneImage, index: number) =>
-    image.name.trim() || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`;
+    safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`;
 
   const beginSceneImageRename = (image: SceneImage, index: number) => {
     setSelectedSceneImageId(image.id);
@@ -3869,7 +3871,7 @@ function Home() {
     const target = (scene.sceneImages ?? []).find((image) => image.id === renamingSceneImageId);
     if (!target) return;
     const targetIndex = (scene.sceneImages ?? []).findIndex((image) => image.id === target.id);
-    const nextName = renamingSceneImageName.trim() || sceneImageLabel(target, targetIndex);
+    const nextName = safeTrim(renamingSceneImageName) || sceneImageLabel(target, targetIndex);
     setScenes((items) => items.map((item) => item.id === scene.id
       ? {
           ...item,
@@ -4090,7 +4092,7 @@ function Home() {
     const currentPopups = scenePopupList(scene);
     const popupIndex = currentPopups.findIndex((popup) => popup.id === popupId);
     if (popupIndex < 0) return;
-    const popupLabel = currentPopups[popupIndex].title.trim() || `Popup ${popupIndex + 1}`;
+    const popupLabel = safeTrim(currentPopups[popupIndex].title) || `Popup ${popupIndex + 1}`;
     if (!window.confirm(`Xóa ${popupLabel}?`)) return;
     const remaining = currentPopups.filter((popup) => popup.id !== popupId);
     setScenes((items) => items.map((item) => {
@@ -4645,7 +4647,7 @@ function Home() {
 
   const exportPayload = useMemo(
     () => {
-      const renderBackground = previewBackground.trim() || background.trim();
+      const renderBackground = safeTrim(previewBackground) || safeTrim(background);
       return {
         title: projectTitle,
         duration: renderDuration,
@@ -4655,9 +4657,9 @@ function Home() {
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
-        ...(backgroundMusic.trim()
+        ...(safeTrim(backgroundMusic)
           ? {
-              backgroundMusic: backgroundMusic.trim(),
+              backgroundMusic: safeTrim(backgroundMusic),
               backgroundMusicVolume: Math.round(clampVolume(backgroundMusicVolume, 18)),
             }
           : {}),
@@ -4676,8 +4678,8 @@ function Home() {
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
             transparentMedia: popup.transparentMedia === true,
-            ...(imageEnabled && popup.image.trim() ? { image: assetReference(popup.image) } : {}),
-            ...(popup.video.trim() ? { video: assetReference(popup.video) } : {}),
+            ...(imageEnabled && safeTrim(popup.image) ? { image: assetReference(popup.image) } : {}),
+            ...(safeTrim(popup.video) ? { video: assetReference(popup.video) } : {}),
             in: popup.in,
             out: popup.out,
             width: popup.width,
@@ -4720,7 +4722,7 @@ function Home() {
             textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             mapDecorations: (item.mapDecorations ?? []).map((decoration) => ({
               ...decoration,
-              ...(["sticker", "animated-sticker"].includes(decoration.type) && decoration.asset.trim()
+              ...(["sticker", "animated-sticker"].includes(decoration.type) && safeTrim(decoration.asset)
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
              })),
@@ -4757,7 +4759,7 @@ function Home() {
             popupLayout: firstPopup.layout,
             popupTheme: firstPopup.theme,
             popupTextEffect: firstPopup.textEffect,
-            ...(firstPopup.video.trim() ? { popupVideo: assetReference(firstPopup.video) } : {}),
+            ...(safeTrim(firstPopup.video) ? { popupVideo: assetReference(firstPopup.video) } : {}),
             popupX: firstPopup.x,
             popupY: firstPopup.y,
             popupVisible: firstPopup.visible,
@@ -4961,10 +4963,10 @@ function Home() {
     const addSourceCheck = (
       id: string,
       label: string,
-      value: string,
+      value: unknown,
       required: boolean,
     ) => {
-      const source = value.trim();
+      const source = safeTrim(value);
       if (!source) {
         checks.push({
           id,
@@ -4997,7 +4999,7 @@ function Home() {
       }
     };
 
-    const legacyBackground = previewBackground.trim() || background.trim();
+    const legacyBackground = safeTrim(previewBackground) || safeTrim(background);
     if (legacyBackground) {
       addSourceCheck(
         "legacy-background",
@@ -5006,7 +5008,7 @@ function Home() {
         false,
       );
     }
-    if (backgroundMusic.trim()) {
+    if (safeTrim(backgroundMusic)) {
       addSourceCheck("background-music", "Nhạc nền", backgroundMusic, true);
     } else {
       checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
@@ -5021,7 +5023,7 @@ function Home() {
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
       addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
       (item.mapDecorations ?? []).forEach((decoration, decorationIndex) => {
-        if (decoration.visible === false || !decoration.asset.trim()) return;
+        if (decoration.visible === false || !safeTrim(decoration.asset)) return;
         addSourceCheck(
           `scene-${item.id}-decoration-${decorationIndex + 1}`,
           `${mapDecorationTypeLabel(decoration.type)} cảnh ${item.number}`,
@@ -5146,7 +5148,7 @@ function Home() {
         `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}, âm lượng ${item.voiceVolume}%.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
-        `- Phụ đề: ${item.subtitleEnabled !== false && item.subtitles?.length ? item.subtitles.filter((subtitle) => subtitle.visible !== false && subtitle.text.trim()).map((subtitle) => `"${subtitle.text}" (${subtitle.start}s-${subtitle.end}s)`).join("; ") : "Không có"}.`,
+        `- Phụ đề: ${item.subtitleEnabled !== false && item.subtitles?.length ? item.subtitles.filter((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text)).map((subtitle) => `"${subtitle.text}" (${subtitle.start}s-${subtitle.end}s)`).join("; ") : "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, đạt ${item.zoom}x trong ${item.zoomInDuration}s, kết thúc ở ${item.zoomEnd}s, zoom về trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
@@ -5797,7 +5799,7 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => overlay.text.trim() ? (
+            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
                 className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
@@ -5972,9 +5974,9 @@ function Home() {
                 ? assetPreviewSource(popup.image)
                 : "";
               const popupVideoSource = assetPreviewSource(popup.video);
-              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
-                || Boolean(popup.video.trim());
-              const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
+              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
+                || Boolean(safeTrim(popup.video));
+              const popupHasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
               const popupLayout = popup.layout ?? "image-top";
               const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
               const popupShowText = popupLayout !== "image-only" && popupHasText;
@@ -6033,8 +6035,8 @@ function Home() {
                     </div>
                      )}
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
-                    {popup.title.trim() && <h3>{popup.title}</h3>}
-                    {popup.body.trim() && <p>{popup.body}</p>}
+                    {safeTrim(popup.title) && <h3>{popup.title}</h3>}
+                    {safeTrim(popup.body) && <p>{popup.body}</p>}
                    </div>}
                   {popup.id === activePopup?.id && (
                     <button
@@ -8016,7 +8018,7 @@ function Home() {
             <strong>Phụ đề</strong>
             <div className="track-content grid">
               {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
-                .filter(({ subtitle }) => subtitle.visible !== false && subtitle.text.trim())
+                .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
                 .map(({ item, subtitle }) => {
                   const sceneLength = Math.max(0.1, item.end - item.start);
                   const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
