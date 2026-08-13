@@ -65,6 +65,10 @@ const previewScale = Math.min(
   outputHeight / PREVIEW_CANVAS_HEIGHT,
 );
 const previewPx = (value) => value * previewScale;
+const animatedStickerSize = Math.max(1, Math.round(previewPx(220)));
+const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
+  ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+  : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
@@ -981,10 +985,11 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
       const hasImageBorder = Boolean(imageRender.borderPath);
+      const imageFit = image.transparent === true ? "contain" : "cover";
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
-      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
       filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
       if (hasImageBorder) {
@@ -1026,7 +1031,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
     const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
     const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
-    filter += `[${decorationInputIndex}:v]${animatedFilter}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    const animatedStickerFit = decoration.animated
+      ? `${ffmpegMediaFit(animatedStickerSize, animatedStickerSize, "contain")},`
+      : "";
+    filter += `[${decorationInputIndex}:v]${animatedFilter}${animatedStickerFit}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });

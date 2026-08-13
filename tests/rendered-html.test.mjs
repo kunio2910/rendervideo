@@ -251,6 +251,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /popup-theme-ocean/);
   assert.match(css, /popup-text-pop/);
   assert.match(css, /image-url-preview video/);
+  assert.match(css, /map-decoration-animated-sticker img,\s*\.map-decoration-animated-sticker video/);
+  assert.match(css, /width: min\(220px, 42vw\)/);
   assert.match(css, /popup-layout-image-only \.photo-placeholder/);
   assert.match(css, /flex: 1 1 auto/);
   assert.match(css, /editor-section-actions/);
@@ -260,6 +262,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
   assert.match(renderer, /popupPixelHeight/);
   assert.match(renderer, /const height = popupPixelHeight\(scene\)/);
+  assert.match(renderer, /const animatedStickerSize = Math\.max\(1, Math\.round\(previewPx\(220\)\)\)/);
+  assert.match(renderer, /const ffmpegMediaFit = \(width, height, fit = "cover"\)/);
+  assert.match(renderer, /force_original_aspect_ratio=decrease,pad=\$\{width\}:\$\{height\}/);
   assert.match(renderer, /imageOnly\s*\?/);
   assert.match(renderer, /zoompan/);
   assert.match(renderer, /scene\.zoom/);
@@ -294,6 +299,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /subtitleStyle\.boxWidth/);
   assert.match(renderer, /const borderSvg = borderWidth > 0/);
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
+  assert.match(renderer, /const imageFit = image\.transparent === true \? "contain" : "cover"/);
+  assert.match(renderer, /animatedStickerFit/);
   assert.match(renderer, /sceneImageInputIndex \+= hasImageBorder \? 3 : 2/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
