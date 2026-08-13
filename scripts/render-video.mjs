@@ -534,6 +534,77 @@ const createMapDecoration = async (decoration, index) => {
   return { path: filename };
 };
 
+const sceneImageGeometry = (shape, width, height) => {
+  const normalized = ["rectangle", "square", "circle", "triangle", "diamond"].includes(String(shape))
+    ? String(shape)
+    : "rectangle";
+  if (normalized === "circle") {
+    return { clip: `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${Math.max(1, width / 2 - 1)}" ry="${Math.max(1, height / 2 - 1)}"/>`, kind: "ellipse" };
+  }
+  if (normalized === "triangle") {
+    return { clip: `<polygon points="${width / 2},1 ${Math.max(1, width - 1)},${Math.max(1, height - 1)} 1,${Math.max(1, height - 1)}"/>`, kind: "polygon" };
+  }
+  if (normalized === "diamond") {
+    return { clip: `<polygon points="${width / 2},1 ${Math.max(1, width - 1)},${height / 2} ${width / 2},${Math.max(1, height - 1)} 1,${height / 2}"/>`, kind: "polygon" };
+  }
+  return { clip: `<rect x="1" y="1" width="${Math.max(1, width - 2)}" height="${Math.max(1, height - 2)}"/>`, kind: "rect" };
+};
+
+const createSceneImage = async (image, index) => {
+  const url = String(image?.url ?? image?.asset ?? "").trim();
+  if (!url || image?.visible === false) return null;
+  const shape = String(image?.shape ?? "rectangle");
+  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.04, 0.96);
+  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.04, 0.96);
+  const widthRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedWidth;
+  const heightRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedHeight;
+  const width = Math.max(16, Math.round(outputWidth * widthRatio));
+  const height = Math.max(16, Math.round(outputHeight * heightRatio));
+  const geometry = sceneImageGeometry(shape, width, height);
+  const maskSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" fill="black"/><g fill="white">${geometry.clip}</g></svg>`);
+  const alphaMaskSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="white">${geometry.clip}</g></svg>`);
+  const borderWidth = Math.max(0, Math.round(previewPx(Number(image?.borderWidth ?? 0))));
+  const borderColor = decorationColor(image?.borderColor, "#ffffff");
+  const borderSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${Math.max(1, borderWidth)}">${geometry.clip}</g></svg>`);
+  const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  if (mediaType === "video") {
+    const video = await resolveVideo(url, `scene-image-${index + 1}.webm`);
+    if (!video) return null;
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = path.join(renderDir, `scene-image-${index + 1}-border.png`);
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    await sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    return { path: video, animated: true, video: true, maskPath, borderPath, width, height };
+  }
+  const source = await resolveImage(url, `scene-image-${index + 1}`);
+  if (!source) return null;
+  const resized = await sharp(source)
+    .resize(width, height, { fit: "cover" })
+    .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+  const filename = path.join(renderDir, `scene-image-${index + 1}.png`);
+  const border = borderWidth > 0 ? borderSvg : null;
+  const composites = [{ input: resized, top: 0, left: 0 }];
+  if (border) composites.push({ input: border, top: 0, left: 0 });
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite(composites).png().toFile(filename);
+  return { path: filename, width, height };
+};
+
 const createTextOverlay = async (overlay, index) => {
   const text = String(overlay?.text ?? "").trim();
   if (!text || overlay?.visible === false) return null;
@@ -688,6 +759,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const decoration = decorationScenes[decorationIndex];
     const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
     if (rendered) decorationRenders.push({ scene: decoration, rendered });
+  }
+  const sceneImageScenes = Array.isArray(scene.sceneImages)
+    ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
+    : [];
+  const sceneImageRenders = [];
+  for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
+    const image = sceneImageScenes[imageIndex];
+    const rendered = await createSceneImage(image, index * 100 + imageIndex);
+    if (rendered) sceneImageRenders.push({ scene: image, rendered });
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
@@ -870,7 +950,34 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
-  let popupInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
+  let sceneImageInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
+  sceneImageRenders.forEach(({ scene: image, rendered: imageRender }, imageIndex) => {
+    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const imageX = clamp(Number(image.x ?? 50) / 100, 0, 1);
+    const imageY = clamp(Number(image.y ?? 50) / 100, 0, 1);
+    const imageOpacity = clamp(Number(image.opacity ?? 100) / 100, 0, 1);
+    const imageAssetLabel = `sceneImageAsset${imageIndex}`;
+    const imageVideoLabel = `sceneImageVideo${imageIndex}`;
+    const imageAlphaSourceLabel = `sceneImageAlphaSource${imageIndex}`;
+    const imageAlphaLabel = `sceneImageAlpha${imageIndex}`;
+    const imageMaskLabel = `sceneImageMask${imageIndex}`;
+    const imageBorderLabel = `sceneImageBorder${imageIndex}`;
+    const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
+    if (imageRender.animated) {
+      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageAssetLabel}bordered];`;
+      filter += `${composedLabel}[${imageAssetLabel}bordered]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+      sceneImageInputIndex += 3;
+    } else {
+      filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+      sceneImageInputIndex += 1;
+    }
+    composedLabel = `[sceneImageComposed${imageIndex}]`;
+  });
+  let popupInputIndex = sceneImageInputIndex;
   decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
@@ -1031,6 +1138,15 @@ for (let index = 0; index < scenes.length; index += 1) {
       args.push("-stream_loop", "-1", "-i", decoration.path);
     } else {
       args.push("-loop", "1", "-i", decoration.path);
+    }
+  });
+  sceneImageRenders.forEach(({ rendered: image }) => {
+    if (image.animated) {
+      args.push("-stream_loop", "-1", "-i", image.path);
+      args.push("-loop", "1", "-i", image.maskPath);
+      args.push("-loop", "1", "-i", image.borderPath);
+    } else {
+      args.push("-loop", "1", "-i", image.path);
     }
   });
   popupRenders.forEach(({ rendered: popup }) => {

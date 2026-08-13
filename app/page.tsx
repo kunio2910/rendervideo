@@ -83,6 +83,26 @@ type MapDecoration = {
   visible: boolean;
 };
 
+type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond";
+
+type SceneImage = {
+  id: string;
+  url: string;
+  mediaType: "image" | "video";
+  transparent: boolean;
+  shape: SceneImageShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  borderWidth: number;
+  borderColor: string;
+  start: number;
+  duration: number;
+  visible: boolean;
+};
+
 type AlignmentGuides = {
   vertical: number | null;
   horizontal: number | null;
@@ -146,6 +166,7 @@ type Scene = {
   overlayTextY: number;
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
+  sceneImages: SceneImage[];
   subtitleEnabled: boolean;
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
@@ -346,6 +367,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextY: 18,
   textOverlays: [],
   mapDecorations: [],
+  sceneImages: [],
   subtitleEnabled: true,
   subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
@@ -559,6 +581,7 @@ type EditorSectionState = {
   effects: boolean;
   popup: boolean;
   text: boolean;
+  images: boolean;
 };
 
 type EditorSectionKey = keyof EditorSectionState;
@@ -603,6 +626,10 @@ type EditorSectionClipboard =
       section: "text";
       textOverlays: TextOverlay[];
       mapDecorations: MapDecoration[];
+    }
+  | {
+      section: "images";
+      sceneImages: SceneImage[];
     };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -614,6 +641,7 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   effects: true,
   popup: true,
   text: true,
+  images: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -640,6 +668,79 @@ const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
 const normalizeHexColor = (value: unknown, fallback: string) => {
   const color = String(value ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+};
+
+const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> = [
+  { value: "rectangle", label: "Chữ nhật" },
+  { value: "square", label: "Vuông" },
+  { value: "circle", label: "Tròn" },
+  { value: "triangle", label: "Tam giác" },
+  { value: "diamond", label: "Hình thoi" },
+];
+
+const sceneImageClipPath = (shape: SceneImageShape) => ({
+  rectangle: "inset(0)",
+  square: "inset(0)",
+  circle: "circle(50% at 50% 50%)",
+  triangle: "polygon(50% 0%, 100% 100%, 0% 100%)",
+  diamond: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
+}[shape]);
+
+const defaultSceneImage = (
+  id: string,
+  overrides: Partial<SceneImage> = {},
+): SceneImage => ({
+  id,
+  url: "",
+  mediaType: "image",
+  transparent: false,
+  shape: "rectangle",
+  x: 50,
+  y: 50,
+  width: 42,
+  height: 28,
+  opacity: 100,
+  borderWidth: 0,
+  borderColor: "#ffffff",
+  start: 0,
+  duration: 5,
+  visible: true,
+  ...overrides,
+});
+
+const normalizeSceneImage = (
+  value: unknown,
+  id: string,
+  fallback: Partial<SceneImage> = {},
+): SceneImage => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultSceneImage(id, fallback);
+  const rawShape = String(raw.shape ?? base.shape);
+  const shape: SceneImageShape = sceneImageShapeOptions.some((option) => option.value === rawShape)
+    ? rawShape as SceneImageShape
+    : base.shape;
+  const url = String(raw.url ?? raw.asset ?? raw.image ?? raw.video ?? base.url);
+  const mediaType = raw.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  return {
+    ...base,
+    id: String(raw.id ?? base.id),
+    url,
+    mediaType,
+    transparent: typeof raw.transparent === "boolean"
+      ? raw.transparent
+      : raw.transparentMedia === true || isTransparentMedia(url),
+    shape,
+    x: clampPercent(raw.x ?? base.x, base.x),
+    y: clampPercent(raw.y ?? base.y, base.y),
+    width: Math.min(96, Math.max(4, positiveNumber(raw.width, base.width, 4))),
+    height: Math.min(96, Math.max(4, positiveNumber(raw.height, base.height, 4))),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
+    borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
+    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
+    visible: raw.visible !== false,
+  };
 };
 
 const colorWithAlpha = (value: unknown, alpha: number, fallback: string) => {
@@ -895,6 +996,7 @@ const normalizeEditorSections = (
   effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
   popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
   text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
+  images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
 });
 
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
@@ -1075,6 +1177,15 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ? rawDecorations.filter(isRecord).map((rawDecoration, decorationIndex) => normalizeMapDecoration(
         rawDecoration,
         String((rawDecoration as { id?: unknown }).id ?? `${id}-decoration-${decorationIndex + 1}`),
+      ))
+      : [];
+    const rawSceneImages = (item as Scene & { sceneImages?: unknown }).sceneImages
+      ?? (item as Scene & { images?: unknown }).images;
+    const sceneImages = Array.isArray(rawSceneImages)
+      ? rawSceneImages.filter(isRecord).map((rawImage, imageIndex) => normalizeSceneImage(
+        rawImage,
+        String((rawImage as { id?: unknown }).id ?? `${id}-image-${imageIndex + 1}`),
+        { duration: sceneDuration },
       ))
       : [];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
@@ -1608,6 +1719,7 @@ function Home() {
   const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
+  const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1671,6 +1783,7 @@ function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
+  const [draggingSceneImage, setDraggingSceneImage] = useState(false);
   const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [rulerEnabled, setRulerEnabled] = useState(false);
@@ -1820,12 +1933,15 @@ function Home() {
   const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
     ?? sceneTextOverlays[0];
   const sceneDecorations = scene.mapDecorations ?? [];
+  const sceneImages = scene.sceneImages ?? [];
   const animatedEffectAssets = useMemo(
     () => assetLibrary.filter((item) => isAnimatedEffectFile(item.file)),
     [assetLibrary],
   );
   const activeDecoration = sceneDecorations.find((item) => item.id === selectedDecorationId)
     ?? sceneDecorations[0];
+  const activeSceneImage = sceneImages.find((item) => item.id === selectedSceneImageId)
+    ?? sceneImages[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
@@ -1948,6 +2064,18 @@ function Home() {
             && sceneLocalTime <= end;
         })
       : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
+    : [];
+  const previewSceneImageItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneImages.filter((image) => {
+          const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+          const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+          return image.visible !== false
+            && Boolean(image.url.trim())
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneImages.filter((image) => image.visible !== false && Boolean(image.url.trim()))
     : [];
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
@@ -2507,6 +2635,7 @@ function Home() {
       setSelectedId(item.id);
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
       setPlayTime(item.start);
       return;
     }
@@ -2524,6 +2653,7 @@ function Home() {
     setSelectedId(primary.id);
     setSelectedPopupId("");
     setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
     setPlayTime(primary.start);
   };
 
@@ -2536,6 +2666,7 @@ function Home() {
       setSelectedSceneIds([item.id]);
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
       setPlayTime(item.start);
     }
     setPlaying(false);
@@ -2805,11 +2936,16 @@ function Home() {
                   section,
                   popups: scenePopupList(scene).map((popup) => ({ ...popup })),
                 }
-              : {
-                  section,
-                  textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
-                  mapDecorations: (scene.mapDecorations ?? []).map((decoration) => ({ ...decoration })),
-                };
+              : section === "text"
+                ? {
+                    section,
+                    textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
+                    mapDecorations: (scene.mapDecorations ?? []).map((decoration) => ({ ...decoration })),
+                  }
+                : {
+                    section,
+                    sceneImages: (scene.sceneImages ?? []).map((image) => ({ ...image })),
+                  };
     setSectionClipboard((items) => ({ ...items, [section]: data }));
     setToast(`Đã sao chép thông số mục ${section}`);
     window.setTimeout(() => setToast(""), 2200);
@@ -2889,6 +3025,13 @@ function Home() {
             mapDecorations,
             ...textOverlaySceneFields(firstTextOverlay),
           };
+        }
+        case "images": {
+          const sceneImages = data.sceneImages.map((image, index) => ({
+            ...image,
+            id: `${item.id}-image-${String(index + 1).padStart(2, "0")}`,
+          }));
+          return { ...item, sceneImages };
         }
         default:
           return item;
@@ -3172,6 +3315,10 @@ function Home() {
       scenes: source.scenes.map((item, index) => ({
         ...item,
         id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}`,
+        sceneImages: (item.sceneImages ?? []).map((image, imageIndex) => ({
+          ...image,
+          id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-image-${imageIndex + 1}`,
+        })),
       })),
     };
     setProjects((items) => [
@@ -3260,6 +3407,7 @@ function Home() {
       overlayTextY: 18,
       textOverlays: [],
       mapDecorations: [],
+      sceneImages: [],
       subtitleEnabled: true,
       subtitleStyle: defaultSubtitleStyle(),
       subtitles: [],
@@ -3305,6 +3453,10 @@ function Home() {
       mapDecorations: (source.mapDecorations ?? []).map((decoration, index) => ({
         ...decoration,
         id: `${copiedId}-decoration-${index + 1}`,
+      })),
+      sceneImages: (source.sceneImages ?? []).map((image, index) => ({
+        ...image,
+        id: `${copiedId}-image-${index + 1}`,
       })),
       subtitles: (source.subtitles ?? []).map((subtitle, index) => ({
         ...subtitle,
@@ -3610,6 +3762,174 @@ function Home() {
     setSelectedDecorationId(remaining[Math.min(decorationIndex, remaining.length - 1)]?.id ?? "");
     setToast(`Đã xóa ${mapDecorationTypeLabel(currentDecorations[decorationIndex].type)}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const sceneImageLabel = (image: SceneImage, index: number) =>
+    image.url.trim() ? `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}` : `Hình ảnh ${index + 1}`;
+
+  const addSceneImage = () => {
+    if (!scene) return;
+    const currentImages = scene.sceneImages ?? [];
+    const nextImage = defaultSceneImage(
+      `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
+      { duration: Math.min(sceneDuration, 5), y: 50 + Math.min(18, currentImages.length * 5) },
+    );
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
+      : item));
+    setSelectedSceneImageId(nextImage.id);
+    setEditorSections((items) => ({ ...items, images: true }));
+  };
+
+  const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
+    if (!hydrated || !activeSceneImage || !scene) return;
+    const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
+    if (imageIndex < 0) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+            ? { ...image, [key]: value }
+            : image),
+        }
+      : item));
+  };
+
+  const updateSceneImageUrl = (url: string) => {
+    updateSceneImage("url", url);
+    updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("transparent", isTransparentMedia(url));
+  };
+
+  const toggleSceneImageVisibility = (imageId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, visible: !image.visible }
+            : image),
+        }
+      : item));
+  };
+
+  const deleteSceneImage = (imageId = activeSceneImage?.id) => {
+    if (!scene || !imageId) return;
+    const currentImages = scene.sceneImages ?? [];
+    const imageIndex = currentImages.findIndex((image) => image.id === imageId);
+    if (imageIndex < 0) return;
+    const remaining = currentImages.filter((image) => image.id !== imageId);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: remaining }
+      : item));
+    setSelectedSceneImageId(remaining[Math.min(imageIndex, remaining.length - 1)]?.id ?? "");
+  };
+
+  const duplicateSceneImage = (image = activeSceneImage) => {
+    if (!scene || !image) return;
+    const currentImages = scene.sceneImages ?? [];
+    const imageIndex = currentImages.findIndex((item) => item.id === image.id);
+    const copy = {
+      ...image,
+      id: `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
+      x: clampPercent(image.x + 4, image.x),
+      y: clampPercent(image.y + 4, image.y),
+    };
+    const nextImages = [...currentImages];
+    nextImages.splice(imageIndex + 1, 0, copy);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: nextImages }
+      : item));
+    setSelectedSceneImageId(copy.id);
+  };
+
+  const startSceneImageDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    imageId = activeSceneImage?.id,
+  ) => {
+    if (playing || (event.target as HTMLElement).closest(".scene-image-resize-handle")) return;
+    const imageIndex = sceneImages.findIndex((image) => image.id === imageId);
+    const draggedImage = sceneImages[imageIndex];
+    if (!draggedImage || !scene) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedElement = event.currentTarget;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(draggedImage.x, 50);
+    const baseY = clampPercent(draggedImage.y, 50);
+    const widthPercent = Number(draggedImage.width) || 42;
+    const heightPercent = Number(draggedImage.height) || 28;
+    setSelectedSceneImageId(draggedImage.id);
+    setDraggingSceneImage(true);
+    const updatePosition = (clientX: number, clientY: number) => {
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "box",
+        sizeX: widthPercent,
+        sizeY: heightPercent,
+      });
+      setAlignmentGuides(position.guides);
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+              ? { ...image, x: position.x, y: position.y }
+              : image),
+          }
+        : item));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingSceneImage(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startSceneImageResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (playing || !scene || !activeSceneImage) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = activeSceneImage.width;
+    const startHeight = activeSceneImage.height;
+    const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
+    setDraggingSceneImage(true);
+    const move = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(96, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(96, Math.max(4, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+              ? { ...image, width: Number(nextWidth.toFixed(1)), height: Number(nextHeight.toFixed(1)) }
+              : image),
+          }
+        : item));
+    };
+    const stop = () => {
+      setDraggingSceneImage(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
   };
 
   const toggleTextOverlayVisibility = (overlayId: string) => {
@@ -4279,6 +4599,11 @@ function Home() {
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
              })),
+             sceneImages: (item.sceneImages ?? []).map((image) => ({
+              ...image,
+              url: assetReference(image.url),
+              transparent: image.transparent === true,
+             })),
              subtitleEnabled: item.subtitleEnabled !== false,
              subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
              subtitles: (item.subtitles ?? []).map((subtitle) => ({
@@ -4364,6 +4689,7 @@ function Home() {
         item.popupVideo ?? "",
         item.voiceFile ?? "",
         ...(item.mapDecorations ?? []).map((decoration) => decoration.asset ?? ""),
+        ...(item.sceneImages ?? []).map((image) => image.url ?? ""),
         ...(item.popups ?? []).flatMap((popup) => [popup.image, popup.video]),
         ]),
       ]),
@@ -5373,6 +5699,48 @@ function Home() {
                 {overlay.text}
               </div>
             ) : null)}
+            {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
+              const imageSource = assetPreviewSource(image.url);
+              const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+              const squareSize = Math.min(image.width, image.height);
+              const width = image.shape === "square" ? squareSize : image.width;
+              const height = image.shape === "square" ? squareSize : image.height;
+              return (
+                <div
+                  key={image.id}
+                  data-scene-image-id={image.id}
+                  className={`scene-image-overlay scene-image-shape-${image.shape} ${image.transparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
+                  style={{
+                    left: `${image.x}%`,
+                    top: `${image.y}%`,
+                    width: `${width}%`,
+                    height: `${height}%`,
+                    opacity: image.opacity / 100,
+                    clipPath: sceneImageClipPath(image.shape),
+                    border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Hình ảnh trên bản đồ. Kéo để di chuyển."
+                  onPointerDown={(event) => startSceneImageDrag(event, image.id)}
+                >
+                  {imageSource && imageIsVideo
+                    ? <video src={imageSource} autoPlay loop muted playsInline preload="metadata" />
+                    : imageSource
+                      ? <img src={imageSource} alt="" draggable={false} />
+                      : <span>Chưa có media</span>}
+                  {image.id === activeSceneImage?.id && !playing && (
+                    <button
+                      type="button"
+                      className="scene-image-resize-handle"
+                      aria-label="Kéo để thay đổi kích thước hình ảnh"
+                      title="Kéo để tăng hoặc giảm kích thước"
+                      onPointerDown={startSceneImageResize}
+                    />
+                  )}
+                </div>
+              );
+            })}
             {sceneIsVisibleInPlayback && previewDecorationItems.map((decoration) => {
               const stickerSource = decoration.type === "sticker" || decoration.type === "animated-sticker"
                 ? assetPreviewSource(decoration.asset)
@@ -5722,6 +6090,94 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
+              open={editorSections.images}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({ ...items, images: open }));
+              }}
+            >
+              <summary className="editor-group-label">
+                <span>02</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
+              </summary>
+              <div className="editor-accordion-content">
+                <div className="scene-image-manager">
+                  <div className="text-overlay-list-heading">
+                    <span>Hình ảnh / video trên bản đồ</span>
+                    <button type="button" className="button primary text-overlay-add" onClick={addSceneImage}>＋ Thêm hình ảnh</button>
+                  </div>
+                  <small>Nhập URL hình hoặc video. PNG, APNG, GIF và WebM VP9 Alpha có thể giữ nền trong suốt.</small>
+                  {sceneImages.length > 0 ? (
+                    <div className="scene-image-list">
+                      {sceneImages.map((image, index) => (
+                        <div key={image.id} className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""}`}>
+                          <button type="button" className="scene-image-select" onClick={() => setSelectedSceneImageId(image.id)}>
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <strong>{sceneImageLabel(image, index)}</strong>
+                          </button>
+                          <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
+                            {image.visible === false ? "○" : "◉"}
+                          </button>
+                          <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
+                          <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-overlay-empty">Chưa có hình ảnh. Bấm “Thêm hình ảnh” để tạo một lớp trên bản đồ.</div>
+                  )}
+                  {activeSceneImage && (
+                    <div className="scene-image-controls">
+                      <label className="field">
+                        <span>URL hình ảnh hoặc video</span>
+                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                      </label>
+                      <label className="popup-transparent-toggle">
+                        <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
+                        <span />
+                        Giữ nền trong suốt cho lớp media
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Kiểu khung</span>
+                          <select value={activeSceneImage.shape} onChange={(event) => updateSceneImage("shape", event.target.value as SceneImageShape)}>
+                            {sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>Độ mờ (%)</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" value={activeSceneImage.opacity} onChange={(event) => updateSceneImage("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Chiều rộng</span>
+                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.width} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Chiều cao</span>
+                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.height} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Border</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
+                        </label>
+                        <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                      </div>
+                      <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
+                      <small>Kéo trực tiếp lớp trên bản đồ để di chuyển. Kéo nút ở góc lớp để tăng hoặc giảm kích thước.</small>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -5732,7 +6188,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+                <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field">
@@ -5776,7 +6232,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>03</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
+                <span>04</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <label className="field">
@@ -6221,7 +6677,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>04</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
+                <span>05</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
@@ -6535,7 +6991,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>05</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
+                <span>06</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card scene-visual-effect-card scene-zoom-effect-card" aria-label="Hiệu ứng zoom bản đồ">
@@ -6889,7 +7345,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>06</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
+                <span>07</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
               </summary>
               <div className="editor-accordion-content">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
