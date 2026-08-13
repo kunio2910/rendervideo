@@ -575,7 +575,7 @@ button { color: inherit; }
 .scene-image-manager { display: grid; gap: 8px; }
 .scene-image-manager > small { color: var(--muted); font-size: 9px; line-height: 1.45; }
 .scene-image-list { display: grid; gap: 5px; }
-.scene-image-item { display: grid; grid-template-columns: minmax(0, 1fr) 27px 27px 27px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.scene-image-item { display: grid; grid-template-columns: minmax(0, 1fr) 27px 27px 27px 27px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
 .scene-image-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
 .scene-image-item.is-hidden { opacity: .55; }
 .scene-image-select, .scene-image-action { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
@@ -583,8 +583,14 @@ button { color: inherit; }
 .scene-image-select span { color: var(--muted); font: 700 9px var(--font-mono); }
 .scene-image-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .scene-image-action { width: 25px; height: 25px; border-radius: 5px; font-size: 14px; }
+.scene-image-action svg,
+.text-overlay-edit svg,
+.map-decoration-edit svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .scene-image-action:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
 .scene-image-action.danger:hover { background: rgba(193, 77, 62, .12); color: #b54d3f; }
+.layer-name-editor { min-width: 0; display: flex; align-items: center; padding: 3px 5px; }
+.layer-name-input { width: 100%; min-width: 0; min-height: 25px; padding: 4px 7px; border: 1px solid var(--blue); border-radius: 5px; background: var(--panel-bg); color: var(--ink); font: 600 10px var(--font-sans); outline: none; }
+.layer-name-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(35, 137, 255, .16); }
 .scene-image-controls { display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .scene-image-controls .popup-transparent-toggle { margin-top: -2px; }
 .color-input-row {
@@ -608,10 +614,10 @@ button { color: inherit; }
 .text-overlay-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); font-size: 10px; font-weight: 700; }
 .text-overlay-add { min-height: 28px; padding-inline: 9px; font-size: 9px; }
 .text-overlay-list { display: grid; gap: 5px; }
-.text-overlay-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.text-overlay-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
 .text-overlay-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
 .text-overlay-item.is-hidden, .popup-manager-item.is-hidden { opacity: .55; }
-.text-overlay-select, .text-overlay-visibility, .text-overlay-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.text-overlay-select, .text-overlay-edit, .text-overlay-visibility, .text-overlay-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
 .text-overlay-select { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; }
 .text-overlay-select span { color: var(--muted); font: 700 9px var(--font-mono); }
 .text-overlay-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
@@ -623,6 +629,8 @@ button { color: inherit; }
 .popup-visibility-button:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
 .text-overlay-visibility.is-hidden,
 .popup-visibility-button.is-hidden { color: #a46b5d; }
+.text-overlay-edit { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 0; border-radius: 5px; }
+.text-overlay-edit:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
 .text-overlay-delete { width: 25px; height: 25px; border-radius: 5px; color: var(--muted); font-size: 17px; line-height: 1; }
 .text-overlay-delete:hover { background: rgba(193, 77, 62, .12); color: #b54d3f; }
 .text-overlay-empty { padding: 8px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); font-size: 9px; line-height: 1.45; }
@@ -630,10 +638,10 @@ button { color: inherit; }
 .map-decoration-add-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .map-decoration-add { min-height: 26px; padding-inline: 7px; font-size: 8px; }
 .map-decoration-list { display: grid; gap: 5px; }
-.map-decoration-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.map-decoration-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px 28px; gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
 .map-decoration-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
 .map-decoration-item.is-hidden { opacity: .55; }
-.map-decoration-select, .map-decoration-visibility, .map-decoration-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.map-decoration-select, .map-decoration-edit, .map-decoration-visibility, .map-decoration-delete { border: 0; background: transparent; color: var(--ink); cursor: pointer; }
 .map-decoration-select { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; }
 .map-decoration-select span { color: var(--muted); font: 700 9px var(--font-mono); }
 .map-decoration-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
@@ -641,6 +649,8 @@ button { color: inherit; }
 .map-decoration-visibility svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .map-decoration-visibility:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
 .map-decoration-visibility.is-hidden { color: #a46b5d; }
+.map-decoration-edit { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 0; border-radius: 5px; }
+.map-decoration-edit:hover { background: rgba(35, 137, 255, .12); color: var(--blue); }
 .map-decoration-delete { width: 25px; height: 25px; border-radius: 5px; color: var(--muted); font-size: 17px; line-height: 1; }
 .map-decoration-delete:hover { background: rgba(193, 77, 62, .12); color: #b54d3f; }
 .map-decoration-controls { display: grid; gap: 8px; padding-top: 2px; border-top: 1px dashed var(--line); }
@@ -6867,8 +6877,10 @@ body {
 .studio-shell[data-theme="dark"] .scene-icon-button,
 .studio-shell[data-theme="dark"] .scene-edit-actions button,
 .studio-shell[data-theme="dark"] .scene-image-action,
+.studio-shell[data-theme="dark"] .text-overlay-edit,
 .studio-shell[data-theme="dark"] .text-overlay-visibility,
 .studio-shell[data-theme="dark"] .text-overlay-delete,
+.studio-shell[data-theme="dark"] .map-decoration-edit,
 .studio-shell[data-theme="dark"] .map-decoration-visibility,
 .studio-shell[data-theme="dark"] .map-decoration-delete,
 .studio-shell[data-theme="dark"] .popup-visibility-button,
@@ -6895,8 +6907,12 @@ body {
 .studio-shell[data-theme="dark"] .scene-edit-actions button:focus-visible,
 .studio-shell[data-theme="dark"] .scene-image-action:hover,
 .studio-shell[data-theme="dark"] .scene-image-action:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-edit:hover,
+.studio-shell[data-theme="dark"] .text-overlay-edit:focus-visible,
 .studio-shell[data-theme="dark"] .text-overlay-visibility:hover,
 .studio-shell[data-theme="dark"] .text-overlay-visibility:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-edit:hover,
+.studio-shell[data-theme="dark"] .map-decoration-edit:focus-visible,
 .studio-shell[data-theme="dark"] .map-decoration-visibility:hover,
 .studio-shell[data-theme="dark"] .map-decoration-visibility:focus-visible,
 .studio-shell[data-theme="dark"] .popup-visibility-button:hover,
@@ -6958,4 +6974,37 @@ body {
   border-color: #8ecbff !important;
   background: var(--dark-action-hover-bg) !important;
   color: #ffffff !important;
+}
+
+/* Compose layer lists need their labels to remain legible on the dark panel. */
+.studio-shell[data-theme="dark"] .scene-image-manager,
+.studio-shell[data-theme="dark"] .text-overlay-manager,
+.studio-shell[data-theme="dark"] .map-decoration-manager {
+  color: #edf5ff;
+}
+
+.studio-shell[data-theme="dark"] .scene-image-manager > small,
+.studio-shell[data-theme="dark"] .scene-image-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .text-overlay-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .map-decoration-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .scene-image-select span,
+.studio-shell[data-theme="dark"] .text-overlay-select span,
+.studio-shell[data-theme="dark"] .map-decoration-select span,
+.studio-shell[data-theme="dark"] .scene-image-manager .text-overlay-empty,
+.studio-shell[data-theme="dark"] .text-overlay-manager .text-overlay-empty,
+.studio-shell[data-theme="dark"] .map-decoration-manager .text-overlay-empty {
+  color: #a9bfd4 !important;
+}
+
+.studio-shell[data-theme="dark"] .scene-image-select strong,
+.studio-shell[data-theme="dark"] .text-overlay-select strong,
+.studio-shell[data-theme="dark"] .map-decoration-select strong {
+  color: #f3f8ff !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .35);
+}
+
+.studio-shell[data-theme="dark"] .layer-name-input {
+  border-color: #76b8ec;
+  background: #122235;
+  color: #f5f9ff;
 }

@@ -80,6 +80,15 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /addMapDecoration/);
   assert.match(page, /startMapDecorationDrag/);
   assert.match(page, /map-decoration-manager/);
+  assert.match(page, /name: string/);
+  assert.match(page, /beginSceneImageRename/);
+  assert.match(page, /finishTextOverlayRename/);
+  assert.match(page, /className="scene-image-action scene-image-edit"/);
+  assert.match(page, /className="text-overlay-edit"/);
+  assert.match(page, /className="map-decoration-edit"/);
+  assert.match(page, /layer-name-input/);
+  assert.match(css, /Compose layer lists need their labels to remain legible/);
+  assert.match(css, /scene-image-select strong/);
   assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.width\}/);
   assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.height\}/);
   assert.match(page, /event\.currentTarget\.select\(\)/);
