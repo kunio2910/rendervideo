@@ -134,6 +134,12 @@ const isVideoMedia = (value) => {
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
+const isAnimatedImageMedia = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /\.(gif|apng)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:gif|apng)/.test(normalized);
+};
+
 const animatedAssetType = (value, fallback = "gif") => {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
@@ -567,9 +573,14 @@ const createSceneImage = async (image, index) => {
   const borderColor = decorationColor(image?.borderColor, "#ffffff");
   const borderSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${Math.max(1, borderWidth)}">${geometry.clip}</g></svg>`);
   const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
-  if (mediaType === "video") {
-    const video = await resolveVideo(url, `scene-image-${index + 1}.webm`);
-    if (!video) return null;
+  const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
+  if (mediaType === "video" || animatedImage) {
+    // GIF/APNG must stay as animated inputs. Sharp would otherwise decode only
+    // the first frame, which made the render differ from the browser preview.
+    const animatedMedia = mediaType === "video"
+      ? await resolveVideo(url, `scene-image-${index + 1}.webm`)
+      : await resolveImage(url, `scene-image-${index + 1}.${animatedAssetType(url)}`);
+    if (!animatedMedia) return null;
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = path.join(renderDir, `scene-image-${index + 1}-border.png`);
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -581,7 +592,7 @@ const createSceneImage = async (image, index) => {
         background: { r: 0, g: 0, b: 0, alpha: 0 },
       },
     }).composite([{ input: borderSvg }]).png().toFile(borderPath);
-    return { path: video, animated: true, video: true, maskPath, borderPath, width, height };
+    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
