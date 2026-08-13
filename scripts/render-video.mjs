@@ -976,7 +976,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
-      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      // Preview mounts the media when its start time is reached, so the
+      // animation begins at frame 0 there. Offset the input timestamps to
+      // reproduce that same behaviour in the final video.
+      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
       filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageAssetLabel}bordered];`;
       filter += `${composedLabel}[${imageAssetLabel}bordered]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
