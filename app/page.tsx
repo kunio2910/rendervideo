@@ -56,7 +56,8 @@ type SubtitleCue = {
   visible: boolean;
 };
 
-type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect";
+type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect" | "animated-sticker";
+type AnimatedAssetType = "gif" | "apng" | "webm";
 type MapDecorationAnimation = "none" | "fade" | "pop" | "float" | "pulse" | "spin";
 
 type MapDecoration = {
@@ -64,6 +65,7 @@ type MapDecoration = {
   type: MapDecorationType;
   text: string;
   asset: string;
+  assetType: "image" | AnimatedAssetType;
   symbol: string;
   effect: "sparkles" | "ring" | "confetti" | "glow";
   x: number;
@@ -81,6 +83,26 @@ type MapDecoration = {
   visible: boolean;
 };
 
+type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond";
+
+type SceneImage = {
+  id: string;
+  url: string;
+  mediaType: "image" | "video";
+  transparent: boolean;
+  shape: SceneImageShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  borderWidth: number;
+  borderColor: string;
+  start: number;
+  duration: number;
+  visible: boolean;
+};
+
 type AlignmentGuides = {
   vertical: number | null;
   horizontal: number | null;
@@ -91,6 +113,22 @@ type RulerStyle = "center" | "grid" | "all";
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
+
+const animatedAssetTypeFromValue = (value: string, fallback: AnimatedAssetType = "gif"): AnimatedAssetType => {
+  const normalized = value.trim().toLowerCase();
+  if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
+  if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
+  return fallback;
+};
+
+const isAnimatedEffectFile = (file: File | { name: string; type?: string }) => {
+  const name = String(file.name ?? "").toLowerCase();
+  const mime = String(file.type ?? "").toLowerCase();
+  return mime === "image/gif"
+    || mime === "image/apng"
+    || mime === "video/webm"
+    || /\.(gif|apng|webm)$/.test(name);
+};
 
 type Scene = {
   id: string;
@@ -128,6 +166,7 @@ type Scene = {
   overlayTextY: number;
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
+  sceneImages: SceneImage[];
   subtitleEnabled: boolean;
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
@@ -144,6 +183,7 @@ type Scene = {
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
   popupTextEffect?: "none" | "fade" | "rise" | "pop";
   popupVideo?: string;
+  popupTransparentMedia?: boolean;
   popupX?: number;
   popupY?: number;
   popupVisible?: boolean;
@@ -223,6 +263,7 @@ type PopupConfig = {
   narration: string;
   image: string;
   video: string;
+  transparentMedia: boolean;
   start: number;
   duration: number;
   in: string;
@@ -326,6 +367,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   overlayTextY: 18,
   textOverlays: [],
   mapDecorations: [],
+  sceneImages: [],
   subtitleEnabled: true,
   subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
@@ -376,6 +418,12 @@ const isVideoMedia = (value: string) => {
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
+const isTransparentMedia = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
 };
 
 const assetReference = (value: string) => {
@@ -533,6 +581,7 @@ type EditorSectionState = {
   effects: boolean;
   popup: boolean;
   text: boolean;
+  images: boolean;
 };
 
 type EditorSectionKey = keyof EditorSectionState;
@@ -577,6 +626,10 @@ type EditorSectionClipboard =
       section: "text";
       textOverlays: TextOverlay[];
       mapDecorations: MapDecoration[];
+    }
+  | {
+      section: "images";
+      sceneImages: SceneImage[];
     };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -588,6 +641,7 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   effects: true,
   popup: true,
   text: true,
+  images: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -614,6 +668,79 @@ const positiveNumber = (value: unknown, fallback: number, minimum = 0) => {
 const normalizeHexColor = (value: unknown, fallback: string) => {
   const color = String(value ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+};
+
+const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> = [
+  { value: "rectangle", label: "Chữ nhật" },
+  { value: "square", label: "Vuông" },
+  { value: "circle", label: "Tròn" },
+  { value: "triangle", label: "Tam giác" },
+  { value: "diamond", label: "Hình thoi" },
+];
+
+const sceneImageClipPath = (shape: SceneImageShape) => ({
+  rectangle: "inset(0)",
+  square: "inset(0)",
+  circle: "circle(50% at 50% 50%)",
+  triangle: "polygon(50% 0%, 100% 100%, 0% 100%)",
+  diamond: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
+}[shape]);
+
+const defaultSceneImage = (
+  id: string,
+  overrides: Partial<SceneImage> = {},
+): SceneImage => ({
+  id,
+  url: "",
+  mediaType: "image",
+  transparent: false,
+  shape: "rectangle",
+  x: 50,
+  y: 50,
+  width: 42,
+  height: 28,
+  opacity: 100,
+  borderWidth: 0,
+  borderColor: "#ffffff",
+  start: 0,
+  duration: 5,
+  visible: true,
+  ...overrides,
+});
+
+const normalizeSceneImage = (
+  value: unknown,
+  id: string,
+  fallback: Partial<SceneImage> = {},
+): SceneImage => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultSceneImage(id, fallback);
+  const rawShape = String(raw.shape ?? base.shape);
+  const shape: SceneImageShape = sceneImageShapeOptions.some((option) => option.value === rawShape)
+    ? rawShape as SceneImageShape
+    : base.shape;
+  const url = String(raw.url ?? raw.asset ?? raw.image ?? raw.video ?? base.url);
+  const mediaType = raw.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  return {
+    ...base,
+    id: String(raw.id ?? base.id),
+    url,
+    mediaType,
+    transparent: typeof raw.transparent === "boolean"
+      ? raw.transparent
+      : raw.transparentMedia === true || isTransparentMedia(url),
+    shape,
+    x: clampPercent(raw.x ?? base.x, base.x),
+    y: clampPercent(raw.y ?? base.y, base.y),
+    width: Math.min(96, Math.max(4, positiveNumber(raw.width, base.width, 4))),
+    height: Math.min(96, Math.max(4, positiveNumber(raw.height, base.height, 4))),
+    opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
+    borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
+    borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
+    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
+    visible: raw.visible !== false,
+  };
 };
 
 const colorWithAlpha = (value: unknown, alpha: number, fallback: string) => {
@@ -728,6 +855,7 @@ const defaultMapDecoration = (
   type,
   text: type === "text-3d" ? "ĐIỂM ĐẾN" : "",
   asset: "",
+  assetType: type === "animated-sticker" ? "gif" : "image",
   symbol: type === "icon" ? "📍" : "✦",
   effect: type === "effect" ? "sparkles" : "sparkles",
   x: 50,
@@ -753,7 +881,7 @@ const normalizeMapDecoration = (
 ): MapDecoration => {
   const raw = isRecord(value) ? value : {};
   const rawType = String(raw.type ?? fallback.type ?? "text-3d");
-  const type: MapDecorationType = ["text-3d", "sticker", "icon", "effect"].includes(rawType)
+  const type: MapDecorationType = ["text-3d", "sticker", "icon", "effect", "animated-sticker"].includes(rawType)
     ? rawType as MapDecorationType
     : "text-3d";
   const rawEffect = String(raw.effect ?? fallback.effect ?? "sparkles");
@@ -765,12 +893,19 @@ const normalizeMapDecoration = (
     ? rawAnimation as MapDecorationAnimation
     : "none";
   const base = defaultMapDecoration(id, type, fallback);
+  const rawAssetType = String(raw.assetType ?? fallback.assetType ?? base.assetType);
+  const assetType = type === "animated-sticker"
+    ? (["gif", "apng", "webm"].includes(rawAssetType)
+      ? rawAssetType as AnimatedAssetType
+      : animatedAssetTypeFromValue(String(raw.asset ?? raw.url ?? "")))
+    : "image";
   return {
     ...base,
     id: String(raw.id ?? base.id),
     type,
     text: String(raw.text ?? base.text),
     asset: String(raw.asset ?? raw.url ?? base.asset),
+    assetType,
     symbol: String(raw.symbol ?? base.symbol),
     effect,
     x: clampPercent(raw.x ?? base.x, base.x),
@@ -861,6 +996,7 @@ const normalizeEditorSections = (
   effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
   popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
   text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
+  images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
 });
 
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
@@ -870,6 +1006,7 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   narration: "",
   image: "",
   video: "",
+  transparentMedia: false,
   start: 0.5,
   duration: 3,
   in: "fade-slide-up",
@@ -894,6 +1031,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     narration: String(scene.narration ?? ""),
     image: String(scene.image ?? ""),
     video: String(scene.popupVideo ?? ""),
+    transparentMedia: scene.popupTransparentMedia === true,
     start: positiveNumber(scene.popupStart, 0.5),
     duration: positiveNumber(scene.popupDuration, 3, 0.1),
     in: scene.popupIn ?? "fade-slide-up",
@@ -920,6 +1058,7 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popup: popup.body,
   image: popup.image,
   popupVideo: popup.video,
+  popupTransparentMedia: popup.transparentMedia,
   popupStart: popup.start,
   popupDuration: popup.duration,
   popupIn: popup.in,
@@ -984,6 +1123,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
+              transparentMedia: rawPopup.transparentMedia === true || rawPopup.popupTransparentMedia === true || fallback.transparentMedia,
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
               duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
@@ -1037,6 +1177,15 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ? rawDecorations.filter(isRecord).map((rawDecoration, decorationIndex) => normalizeMapDecoration(
         rawDecoration,
         String((rawDecoration as { id?: unknown }).id ?? `${id}-decoration-${decorationIndex + 1}`),
+      ))
+      : [];
+    const rawSceneImages = (item as Scene & { sceneImages?: unknown }).sceneImages
+      ?? (item as Scene & { images?: unknown }).images;
+    const sceneImages = Array.isArray(rawSceneImages)
+      ? rawSceneImages.filter(isRecord).map((rawImage, imageIndex) => normalizeSceneImage(
+        rawImage,
+        String((rawImage as { id?: unknown }).id ?? `${id}-image-${imageIndex + 1}`),
+        { duration: sceneDuration },
       ))
       : [];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
@@ -1570,6 +1719,7 @@ function Home() {
   const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
+  const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1633,6 +1783,8 @@ function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
+  const [draggingSceneImage, setDraggingSceneImage] = useState(false);
+  const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
@@ -1653,6 +1805,7 @@ function Home() {
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
+  const animatedEffectFileInput = useRef<HTMLInputElement | null>(null);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
   const historySnapshot = useRef("");
@@ -1780,8 +1933,15 @@ function Home() {
   const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
     ?? sceneTextOverlays[0];
   const sceneDecorations = scene.mapDecorations ?? [];
+  const sceneImages = scene.sceneImages ?? [];
+  const animatedEffectAssets = useMemo(
+    () => assetLibrary.filter((item) => isAnimatedEffectFile(item.file)),
+    [assetLibrary],
+  );
   const activeDecoration = sceneDecorations.find((item) => item.id === selectedDecorationId)
     ?? sceneDecorations[0];
+  const activeSceneImage = sceneImages.find((item) => item.id === selectedSceneImageId)
+    ?? sceneImages[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
@@ -1888,6 +2048,8 @@ function Home() {
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
       ? Boolean(decoration.text.trim())
+      : decoration.type === "animated-sticker"
+        ? Boolean(decoration.asset.trim())
       : decoration.type === "sticker"
         ? Boolean(decoration.asset.trim())
         : Boolean(decoration.symbol.trim() || decoration.effect);
@@ -1902,6 +2064,18 @@ function Home() {
             && sceneLocalTime <= end;
         })
       : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
+    : [];
+  const previewSceneImageItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneImages.filter((image) => {
+          const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+          const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+          return image.visible !== false
+            && Boolean(image.url.trim())
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneImages.filter((image) => image.visible !== false && Boolean(image.url.trim()))
     : [];
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
@@ -2461,6 +2635,7 @@ function Home() {
       setSelectedId(item.id);
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
       setPlayTime(item.start);
       return;
     }
@@ -2478,6 +2653,7 @@ function Home() {
     setSelectedId(primary.id);
     setSelectedPopupId("");
     setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
     setPlayTime(primary.start);
   };
 
@@ -2490,6 +2666,7 @@ function Home() {
       setSelectedSceneIds([item.id]);
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
       setPlayTime(item.start);
     }
     setPlaying(false);
@@ -2706,6 +2883,7 @@ function Home() {
         ...current,
         image: isVideo ? "" : value,
         video: isVideo ? value : "",
+        transparentMedia: isTransparentMedia(value),
       };
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
@@ -2758,11 +2936,16 @@ function Home() {
                   section,
                   popups: scenePopupList(scene).map((popup) => ({ ...popup })),
                 }
-              : {
-                  section,
-                  textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
-                  mapDecorations: (scene.mapDecorations ?? []).map((decoration) => ({ ...decoration })),
-                };
+              : section === "text"
+                ? {
+                    section,
+                    textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
+                    mapDecorations: (scene.mapDecorations ?? []).map((decoration) => ({ ...decoration })),
+                  }
+                : {
+                    section,
+                    sceneImages: (scene.sceneImages ?? []).map((image) => ({ ...image })),
+                  };
     setSectionClipboard((items) => ({ ...items, [section]: data }));
     setToast(`Đã sao chép thông số mục ${section}`);
     window.setTimeout(() => setToast(""), 2200);
@@ -2842,6 +3025,13 @@ function Home() {
             mapDecorations,
             ...textOverlaySceneFields(firstTextOverlay),
           };
+        }
+        case "images": {
+          const sceneImages = data.sceneImages.map((image, index) => ({
+            ...image,
+            id: `${item.id}-image-${String(index + 1).padStart(2, "0")}`,
+          }));
+          return { ...item, sceneImages };
         }
         default:
           return item;
@@ -3125,6 +3315,10 @@ function Home() {
       scenes: source.scenes.map((item, index) => ({
         ...item,
         id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}`,
+        sceneImages: (item.sceneImages ?? []).map((image, imageIndex) => ({
+          ...image,
+          id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-image-${imageIndex + 1}`,
+        })),
       })),
     };
     setProjects((items) => [
@@ -3213,6 +3407,7 @@ function Home() {
       overlayTextY: 18,
       textOverlays: [],
       mapDecorations: [],
+      sceneImages: [],
       subtitleEnabled: true,
       subtitleStyle: defaultSubtitleStyle(),
       subtitles: [],
@@ -3258,6 +3453,10 @@ function Home() {
       mapDecorations: (source.mapDecorations ?? []).map((decoration, index) => ({
         ...decoration,
         id: `${copiedId}-decoration-${index + 1}`,
+      })),
+      sceneImages: (source.sceneImages ?? []).map((image, index) => ({
+        ...image,
+        id: `${copiedId}-image-${index + 1}`,
       })),
       subtitles: (source.subtitles ?? []).map((subtitle, index) => ({
         ...subtitle,
@@ -3485,6 +3684,7 @@ function Home() {
   };
 
   const mapDecorationTypeLabel = (type: MapDecorationType) => ({
+    "animated-sticker": "GIF / WebM / APNG",
     "text-3d": "Chữ 3D",
     sticker: "Sticker",
     icon: "Icon",
@@ -3562,6 +3762,174 @@ function Home() {
     setSelectedDecorationId(remaining[Math.min(decorationIndex, remaining.length - 1)]?.id ?? "");
     setToast(`Đã xóa ${mapDecorationTypeLabel(currentDecorations[decorationIndex].type)}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const sceneImageLabel = (image: SceneImage, index: number) =>
+    image.url.trim() ? `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}` : `Hình ảnh ${index + 1}`;
+
+  const addSceneImage = () => {
+    if (!scene) return;
+    const currentImages = scene.sceneImages ?? [];
+    const nextImage = defaultSceneImage(
+      `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
+      { duration: Math.min(sceneDuration, 5), y: 50 + Math.min(18, currentImages.length * 5) },
+    );
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
+      : item));
+    setSelectedSceneImageId(nextImage.id);
+    setEditorSections((items) => ({ ...items, images: true }));
+  };
+
+  const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
+    if (!hydrated || !activeSceneImage || !scene) return;
+    const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
+    if (imageIndex < 0) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+            ? { ...image, [key]: value }
+            : image),
+        }
+      : item));
+  };
+
+  const updateSceneImageUrl = (url: string) => {
+    updateSceneImage("url", url);
+    updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("transparent", isTransparentMedia(url));
+  };
+
+  const toggleSceneImageVisibility = (imageId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, visible: !image.visible }
+            : image),
+        }
+      : item));
+  };
+
+  const deleteSceneImage = (imageId = activeSceneImage?.id) => {
+    if (!scene || !imageId) return;
+    const currentImages = scene.sceneImages ?? [];
+    const imageIndex = currentImages.findIndex((image) => image.id === imageId);
+    if (imageIndex < 0) return;
+    const remaining = currentImages.filter((image) => image.id !== imageId);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: remaining }
+      : item));
+    setSelectedSceneImageId(remaining[Math.min(imageIndex, remaining.length - 1)]?.id ?? "");
+  };
+
+  const duplicateSceneImage = (image = activeSceneImage) => {
+    if (!scene || !image) return;
+    const currentImages = scene.sceneImages ?? [];
+    const imageIndex = currentImages.findIndex((item) => item.id === image.id);
+    const copy = {
+      ...image,
+      id: `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
+      x: clampPercent(image.x + 4, image.x),
+      y: clampPercent(image.y + 4, image.y),
+    };
+    const nextImages = [...currentImages];
+    nextImages.splice(imageIndex + 1, 0, copy);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, sceneImages: nextImages }
+      : item));
+    setSelectedSceneImageId(copy.id);
+  };
+
+  const startSceneImageDrag = (
+    event: React.PointerEvent<HTMLDivElement>,
+    imageId = activeSceneImage?.id,
+  ) => {
+    if (playing || (event.target as HTMLElement).closest(".scene-image-resize-handle")) return;
+    const imageIndex = sceneImages.findIndex((image) => image.id === imageId);
+    const draggedImage = sceneImages[imageIndex];
+    if (!draggedImage || !scene) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const draggedElement = event.currentTarget;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = clampPercent(draggedImage.x, 50);
+    const baseY = clampPercent(draggedImage.y, 50);
+    const widthPercent = Number(draggedImage.width) || 42;
+    const heightPercent = Number(draggedImage.height) || 28;
+    setSelectedSceneImageId(draggedImage.id);
+    setDraggingSceneImage(true);
+    const updatePosition = (clientX: number, clientY: number) => {
+      const position = snapDragPosition({
+        preview,
+        bounds,
+        target: draggedElement,
+        rawX: baseX + ((clientX - startX) / bounds.width) * 100,
+        rawY: baseY + ((clientY - startY) / bounds.height) * 100,
+        mode: "box",
+        sizeX: widthPercent,
+        sizeY: heightPercent,
+      });
+      setAlignmentGuides(position.guides);
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+              ? { ...image, x: position.x, y: position.y }
+              : image),
+          }
+        : item));
+    };
+    updatePosition(event.clientX, event.clientY);
+    const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      setDraggingSceneImage(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startSceneImageResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (playing || !scene || !activeSceneImage) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = activeSceneImage.width;
+    const startHeight = activeSceneImage.height;
+    const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
+    setDraggingSceneImage(true);
+    const move = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(96, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(96, Math.max(4, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image, index) => index === imageIndex
+              ? { ...image, width: Number(nextWidth.toFixed(1)), height: Number(nextHeight.toFixed(1)) }
+              : image),
+          }
+        : item));
+    };
+    const stop = () => {
+      setDraggingSceneImage(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
   };
 
   const toggleTextOverlayVisibility = (overlayId: string) => {
@@ -4182,6 +4550,7 @@ function Home() {
             start: popup.start,
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
+            transparentMedia: popup.transparentMedia === true,
             ...(imageEnabled && popup.image.trim() ? { image: assetReference(popup.image) } : {}),
             ...(popup.video.trim() ? { video: assetReference(popup.video) } : {}),
             in: popup.in,
@@ -4226,9 +4595,14 @@ function Home() {
             textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             mapDecorations: (item.mapDecorations ?? []).map((decoration) => ({
               ...decoration,
-              ...(decoration.type === "sticker" && decoration.asset.trim()
+              ...(["sticker", "animated-sticker"].includes(decoration.type) && decoration.asset.trim()
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
+             })),
+             sceneImages: (item.sceneImages ?? []).map((image) => ({
+              ...image,
+              url: assetReference(image.url),
+              transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
              subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
@@ -4262,6 +4636,7 @@ function Home() {
             popupX: firstPopup.x,
             popupY: firstPopup.y,
             popupVisible: firstPopup.visible,
+            popupTransparentMedia: firstPopup.transparentMedia === true,
             popups: popupPayloads,
           };
         }),
@@ -4314,6 +4689,7 @@ function Home() {
         item.popupVideo ?? "",
         item.voiceFile ?? "",
         ...(item.mapDecorations ?? []).map((decoration) => decoration.asset ?? ""),
+        ...(item.sceneImages ?? []).map((image) => image.url ?? ""),
         ...(item.popups ?? []).flatMap((popup) => [popup.image, popup.video]),
         ]),
       ]),
@@ -4345,6 +4721,88 @@ function Home() {
     } catch {
       setToast("Đã chọn tài nguyên cho lần render này; chưa lưu được vào thư viện");
       window.setTimeout(() => setToast(""), 2800);
+    }
+  };
+
+  const addAnimatedMapDecoration = (
+    asset: Pick<AssetLibraryItem, "id" | "name" | "type" | "file">,
+    position: { x: number; y: number } = { x: 50, y: 50 },
+  ) => {
+    if (!scene) return;
+    const currentDecorations = scene.mapDecorations ?? [];
+    const assetType = animatedAssetTypeFromValue(
+      asset.name,
+      String(asset.type ?? "").toLowerCase() === "video/webm" ? "webm" : "gif",
+    );
+    const nextDecoration = defaultMapDecoration(
+      `${scene.id}-animated-${currentDecorations.length + 1}-${Date.now().toString(36)}`,
+      "animated-sticker",
+      {
+        asset: asset.name,
+        assetType,
+        x: clampPercent(position.x, 50),
+        y: clampPercent(position.y, 50),
+        scale: 0.8,
+        duration: Math.min(sceneDuration, 5),
+        animation: "none",
+      },
+    );
+    setLocalRenderFiles((files) => files.some((file) => getAssetId(file) === asset.id)
+      ? files
+      : [...files, asset.file]);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
+      : item));
+    setSelectedDecorationId(nextDecoration.id);
+    setEditorSections((items) => ({ ...items, text: true }));
+    setToast(`Đã thêm hiệu ứng ${asset.name}`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const addAnimatedEffectFiles = async (files: File[]) => {
+    const accepted = files.filter(isAnimatedEffectFile);
+    if (!accepted.length) {
+      setToast("Chỉ hỗ trợ file GIF, APNG hoặc WebM VP9 có alpha");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+    await addAssetsToLibrary(accepted);
+    setToast(`Đã thêm ${accepted.length} hiệu ứng vào thư viện`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const handleMapEffectDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setMapEffectDragActive(false);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const position = {
+      x: clampPercent(((event.clientX - bounds.left) / Math.max(1, bounds.width)) * 100, 50),
+      y: clampPercent(((event.clientY - bounds.top) / Math.max(1, bounds.height)) * 100, 50),
+    };
+    const droppedFiles = Array.from(event.dataTransfer.files).filter(isAnimatedEffectFile);
+    if (droppedFiles.length) {
+      const file = droppedFiles[0];
+      await addAssetsToLibrary(droppedFiles);
+      addAnimatedMapDecoration({
+        id: getAssetId(file),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        file,
+      }, position);
+      return;
+    }
+    const libraryId = event.dataTransfer.getData("application/x-kito-effect");
+    const libraryItem = animatedEffectAssets.find((item) => item.id === libraryId);
+    if (libraryItem) addAnimatedMapDecoration(libraryItem, position);
+  };
+
+  const handleMapEffectDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (event.dataTransfer.types.includes("Files") || event.dataTransfer.types.includes("application/x-kito-effect")) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setMapEffectDragActive(true);
     }
   };
 
@@ -4437,6 +4895,15 @@ function Home() {
       );
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
       addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
+      (item.mapDecorations ?? []).forEach((decoration, decorationIndex) => {
+        if (decoration.visible === false || !decoration.asset.trim()) return;
+        addSourceCheck(
+          `scene-${item.id}-decoration-${decorationIndex + 1}`,
+          `${mapDecorationTypeLabel(decoration.type)} cảnh ${item.number}`,
+          decoration.asset,
+          true,
+        );
+      });
     });
 
     try {
@@ -5078,8 +5545,11 @@ function Home() {
             </div>
           </div>
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""}`}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
             style={{ transform: `scale(${previewZoom / 100})` }}
+            onDragOver={handleMapEffectDragOver}
+            onDragLeave={() => setMapEffectDragActive(false)}
+            onDrop={handleMapEffectDrop}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
@@ -5229,11 +5699,58 @@ function Home() {
                 {overlay.text}
               </div>
             ) : null)}
+            {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
+              const imageSource = assetPreviewSource(image.url);
+              const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+              const squareSize = Math.min(image.width, image.height);
+              const width = image.shape === "square" ? squareSize : image.width;
+              const height = image.shape === "square" ? squareSize : image.height;
+              return (
+                <div
+                  key={image.id}
+                  data-scene-image-id={image.id}
+                  className={`scene-image-overlay scene-image-shape-${image.shape} ${image.transparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
+                  style={{
+                    left: `${image.x}%`,
+                    top: `${image.y}%`,
+                    width: `${width}%`,
+                    height: `${height}%`,
+                    opacity: image.opacity / 100,
+                    clipPath: sceneImageClipPath(image.shape),
+                    border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Hình ảnh trên bản đồ. Kéo để di chuyển."
+                  onPointerDown={(event) => startSceneImageDrag(event, image.id)}
+                >
+                  {imageSource && imageIsVideo
+                    ? <video src={imageSource} autoPlay loop muted playsInline preload="metadata" />
+                    : imageSource
+                      ? <img src={imageSource} alt="" draggable={false} />
+                      : <span>Chưa có media</span>}
+                  {image.id === activeSceneImage?.id && !playing && (
+                    <button
+                      type="button"
+                      className="scene-image-resize-handle"
+                      aria-label="Kéo để thay đổi kích thước hình ảnh"
+                      title="Kéo để tăng hoặc giảm kích thước"
+                      onPointerDown={startSceneImageResize}
+                    />
+                  )}
+                </div>
+              );
+            })}
             {sceneIsVisibleInPlayback && previewDecorationItems.map((decoration) => {
-              const stickerSource = decoration.type === "sticker"
+              const stickerSource = decoration.type === "sticker" || decoration.type === "animated-sticker"
                 ? assetPreviewSource(decoration.asset)
                 : "";
-              const decorationContent = decoration.type === "sticker" && stickerSource
+              const animatedVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
+              const decorationContent = decoration.type === "animated-sticker" && stickerSource
+                ? animatedVideo
+                  ? <video src={stickerSource} autoPlay loop muted playsInline preload="metadata" aria-hidden="true" />
+                  : <img src={stickerSource} alt="" draggable={false} />
+                : decoration.type === "sticker" && stickerSource
                 ? <img src={stickerSource} alt="" draggable={false} />
                 : <span className="map-decoration-content">
                     {decoration.type === "text-3d" ? decoration.text : decorationSymbol(decoration)}
@@ -5337,12 +5854,13 @@ function Home() {
               const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
               const popupShowText = popupLayout !== "image-only" && popupHasText;
               const popupMediaOnly = popupShowMedia && !popupShowText;
+              const popupTransparentMedia = popup.transparentMedia === true && popupShowMedia;
               const popupEmptyFrame = !popupShowMedia && !popupShowText;
               return (
                 <article
                   key={popup.id}
                   data-popup-id={popup.id}
-                  className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
+                  className={`preview-card popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"} popup-text-${popup.textEffect ?? "none"} ${popupMediaOnly ? "popup-media-only popup-textless" : ""} ${popupTransparentMedia ? "popup-transparent-media" : ""} ${popupEmptyFrame ? "popup-empty-frame" : ""} ${
                     playing
                       ? `playback-popup popup-${popupPhase} popup-in-${popup.in} popup-out-${popup.out}`
                       : ""
@@ -5363,7 +5881,7 @@ function Home() {
                     <div className="photo-placeholder">
                       {popupVideoSource ? (
                         <video
-                          className="popup-video"
+                          className={`popup-video ${popupTransparentMedia ? "popup-transparent-media-asset" : ""}`}
                           src={popupVideoSource}
                           muted
                           autoPlay
@@ -5371,7 +5889,7 @@ function Home() {
                           playsInline
                         />
                       ) : popupImageSource ? (
-                        <img src={popupImageSource} alt={`Ảnh minh họa ${popup.title || scene.sceneName}`} />
+                        <img className={popupTransparentMedia ? "popup-transparent-media-asset" : ""} src={popupImageSource} alt={`Ảnh minh họa ${popup.title || scene.sceneName}`} />
                       ) : (
                         <>
                           <div className="sun" />
@@ -5572,6 +6090,94 @@ function Home() {
             </details>
             <details
               className="editor-accordion"
+              open={editorSections.images}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSections((items) => ({ ...items, images: open }));
+              }}
+            >
+              <summary className="editor-group-label">
+                <span>02</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
+              </summary>
+              <div className="editor-accordion-content">
+                <div className="scene-image-manager">
+                  <div className="text-overlay-list-heading">
+                    <span>Hình ảnh / video trên bản đồ</span>
+                    <button type="button" className="button primary text-overlay-add" onClick={addSceneImage}>＋ Thêm hình ảnh</button>
+                  </div>
+                  <small>Nhập URL hình hoặc video. PNG, APNG, GIF và WebM VP9 Alpha có thể giữ nền trong suốt.</small>
+                  {sceneImages.length > 0 ? (
+                    <div className="scene-image-list">
+                      {sceneImages.map((image, index) => (
+                        <div key={image.id} className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""}`}>
+                          <button type="button" className="scene-image-select" onClick={() => setSelectedSceneImageId(image.id)}>
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <strong>{sceneImageLabel(image, index)}</strong>
+                          </button>
+                          <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
+                            {image.visible === false ? "○" : "◉"}
+                          </button>
+                          <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
+                          <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-overlay-empty">Chưa có hình ảnh. Bấm “Thêm hình ảnh” để tạo một lớp trên bản đồ.</div>
+                  )}
+                  {activeSceneImage && (
+                    <div className="scene-image-controls">
+                      <label className="field">
+                        <span>URL hình ảnh hoặc video</span>
+                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                      </label>
+                      <label className="popup-transparent-toggle">
+                        <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
+                        <span />
+                        Giữ nền trong suốt cho lớp media
+                      </label>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Kiểu khung</span>
+                          <select value={activeSceneImage.shape} onChange={(event) => updateSceneImage("shape", event.target.value as SceneImageShape)}>
+                            {sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>Độ mờ (%)</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" value={activeSceneImage.opacity} onChange={(event) => updateSceneImage("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Chiều rộng</span>
+                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.width} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Chiều cao</span>
+                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.height} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Border</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
+                        </label>
+                        <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                      </div>
+                      <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
+                      <small>Kéo trực tiếp lớp trên bản đồ để di chuyển. Kéo nút ở góc lớp để tăng hoặc giảm kích thước.</small>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+            <details
+              className="editor-accordion"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -5582,7 +6188,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+                <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field">
@@ -5626,7 +6232,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>03</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
+                <span>04</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <label className="field">
@@ -5856,6 +6462,64 @@ function Home() {
                       <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("effect")}>＋ Hiệu ứng</button>
                     </div>
                   </div>
+                  <div className="map-effect-library">
+                    <div className="map-effect-library-heading">
+                      <span>Thư viện hiệu ứng động</span>
+                      <button
+                        type="button"
+                        className="button secondary map-effect-library-add"
+                        onClick={() => animatedEffectFileInput.current?.click()}
+                      >
+                        ＋ Thêm GIF / WebM / APNG
+                      </button>
+                      <input
+                        ref={animatedEffectFileInput}
+                        type="file"
+                        accept=".gif,.apng,.webm,image/gif,image/apng,video/webm"
+                        multiple
+                        hidden
+                        onChange={(event) => {
+                          void addAnimatedEffectFiles(Array.from(event.target.files ?? []));
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </div>
+                    {animatedEffectAssets.length > 0 ? (
+                      <div className="map-effect-library-list">
+                        {animatedEffectAssets.map((item) => {
+                          const previewSource = assetPreviewSource(item.name);
+                          const itemType = animatedAssetTypeFromValue(item.name, item.type === "video/webm" ? "webm" : "gif");
+                          return (
+                            <button
+                              type="button"
+                              key={item.id}
+                              className="map-effect-library-item"
+                              draggable
+                              title="Kéo hiệu ứng vào bản đồ hoặc bấm để thêm vào tâm bản đồ"
+                              onClick={() => addAnimatedMapDecoration(item)}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "copy";
+                                event.dataTransfer.setData("application/x-kito-effect", item.id);
+                              }}
+                            >
+                              <span className="map-effect-library-preview">
+                                {previewSource && itemType === "webm"
+                                  ? <video src={previewSource} autoPlay loop muted playsInline preload="metadata" aria-hidden="true" />
+                                  : previewSource
+                                    ? <img src={previewSource} alt="" draggable={false} />
+                                    : <span>Chưa có preview</span>}
+                              </span>
+                              <strong>{item.name}</strong>
+                              <span>{itemType}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="map-effect-library-empty">Thêm file GIF, APNG hoặc WebM VP9 có alpha để tạo thư viện hiệu ứng kéo thả.</div>
+                    )}
+                    <div className="map-effect-library-hint">Kéo một thẻ hoặc file từ máy vào bản đồ. Hiệu ứng sẽ được đặt tại vị trí thả và lưu riêng trong cảnh hiện tại.</div>
+                  </div>
                   {sceneDecorations.length > 0 ? (
                     <div className="map-decoration-list">
                       {sceneDecorations.map((decoration, index) => (
@@ -5898,6 +6562,33 @@ function Home() {
                           <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
                           <small>Sticker dùng ảnh PNG/WebP/JPG có nền trong suốt nếu muốn.</small>
                         </label>
+                      )}
+                      {activeDecoration.type === "animated-sticker" && (
+                        <>
+                          <label className="field">
+                            <span>URL hoặc tên file hiệu ứng</span>
+                            <input
+                              type="text"
+                              inputMode="url"
+                              value={activeDecoration.asset}
+                              placeholder="fight.gif / fight.apng / fight.webm"
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                updateMapDecoration("asset", value);
+                                updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
+                              }}
+                            />
+                            <small>Hỗ trợ GIF, APNG và WebM VP9 có alpha. File cục bộ cần được chọn trong thư viện render.</small>
+                          </label>
+                          <label className="field">
+                            <span>Định dạng</span>
+                            <select value={activeDecoration.assetType} onChange={(event) => updateMapDecoration("assetType", event.target.value as MapDecoration["assetType"])}>
+                              <option value="gif">GIF</option>
+                              <option value="apng">APNG</option>
+                              <option value="webm">WebM VP9 alpha</option>
+                            </select>
+                          </label>
+                        </>
                       )}
                       {activeDecoration.type === "icon" && (
                         <label className="field">
@@ -5986,7 +6677,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>04</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
+                <span>05</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field audio-field" id="editor-music">
@@ -6300,11 +6991,11 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>05</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
+                <span>06</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
               </summary>
               <div className="editor-accordion-content">
-                <div className="zoom-settings-card">
-                  <div className="motion-settings-title">
+                <div className="zoom-settings-card scene-visual-effect-card scene-zoom-effect-card" aria-label="Hiệu ứng zoom bản đồ">
+                  <div className="motion-settings-title scene-visual-effect-heading">
                     <strong>Zoom bản đồ</strong>
                     <span>Kéo vòng tròn trên bản đồ để chọn tâm zoom</span>
                   </div>
@@ -6396,6 +7087,7 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -6639,7 +7331,6 @@ function Home() {
                     </div>
                   </div>
                   <small className="zoom-settings-help">Các hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
-                </div>
               </div>
             </details>
             <details
@@ -6654,7 +7345,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>06</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
+                <span>07</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
               </summary>
               <div className="editor-accordion-content">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
@@ -6795,6 +7486,15 @@ function Home() {
                   value={activePopupMediaValue}
                   onChange={(event) => updatePopupMedia(event.target.value)}
                 />
+                <label className="popup-transparent-toggle">
+                  <input
+                    type="checkbox"
+                    checked={activePopup?.transparentMedia === true}
+                    onChange={(event) => updatePopup("transparentMedia", event.target.checked)}
+                  />
+                  <span />
+                  Giữ nền trong suốt cho ảnh / video popup
+                </label>
                 {popupMediaPreviewSource && (
                   <div className="image-url-preview">
                     {popupMediaIsVideo ? (

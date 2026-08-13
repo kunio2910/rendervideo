@@ -288,6 +288,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /createTextOverlay/);
   assert.match(renderer, /createSubtitleOverlay/);
   assert.match(renderer, /subtitleStyle\.boxWidth/);
+  assert.match(renderer, /const borderSvg = borderWidth > 0/);
+  assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
+  assert.match(renderer, /sceneImageInputIndex \+= hasImageBorder \? 3 : 2/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
   assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);

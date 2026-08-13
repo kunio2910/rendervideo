@@ -114,6 +114,7 @@ const popupEntriesForScene = (scene) => {
       popupY: popup.y ?? popup.popupY ?? 55,
       popupVisible: popup.visible !== false,
       imageVisible: popup.imageVisible !== false,
+      popupTransparentMedia: popup.transparentMedia === true || popup.popupTransparentMedia === true || scene.popupTransparentMedia === true,
       popupIndex: index,
     }));
   }
@@ -131,6 +132,19 @@ const isVideoMedia = (value) => {
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
+};
+
+const isAnimatedImageMedia = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /\.(gif|apng)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:gif|apng)/.test(normalized);
+};
+
+const animatedAssetType = (value, fallback = "gif") => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
+  if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
+  return fallback;
 };
 // Legacy scene fields remain supported: scene.popupLayout, scene.popupX, scene.popupY.
 const audioVolume = (value, fallback) => {
@@ -351,6 +365,8 @@ const createPopup = async (scene, index) => {
   const hasText = Boolean(titleValue || bodyValue);
   const showVisual = !contentOnly && hasVisualInput;
   const showText = !imageOnly && hasText;
+  const transparentMedia = scene.popupTransparentMedia === true && showVisual;
+  const transparentMediaOnly = transparentMedia && !showText;
   if (!showText && !showVisual) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
   const height = popupPixelHeight(scene);
@@ -405,6 +421,9 @@ const createPopup = async (scene, index) => {
   const placeholder = split
     ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
+  const cardBackground = transparentMediaOnly
+    ? ""
+    : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>`;
   const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
@@ -417,8 +436,8 @@ const createPopup = async (scene, index) => {
         <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
       </defs>
-      <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>
-      ${hasVisual && !image && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
+      ${cardBackground}
+      ${hasVisual && !image && !video && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
       <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
       <g font-family="Arial">${bodyText}</g>
@@ -470,10 +489,18 @@ const decorationGlyph = (decoration) => {
 };
 
 const createMapDecoration = async (decoration, index) => {
-  const type = ["text-3d", "sticker", "icon", "effect"].includes(String(decoration?.type))
+  const type = ["text-3d", "sticker", "icon", "effect", "animated-sticker"].includes(String(decoration?.type))
     ? String(decoration.type)
     : "text-3d";
   const asset = String(decoration?.asset ?? "").trim();
+  if (type === "animated-sticker") {
+    const kind = animatedAssetType(asset, String(decoration?.assetType ?? "gif"));
+    const media = kind === "webm"
+      ? await resolveVideo(asset, `decoration-${index + 1}.webm`)
+      : await resolveImage(asset, `decoration-${index + 1}.${kind}`);
+    if (!media) return null;
+    return { path: media, animated: true, mediaType: kind };
+  }
   if (type === "sticker") {
     const image = await resolveImage(asset, `decoration-${index + 1}-sticker`);
     if (!image) return null;
@@ -511,6 +538,86 @@ const createMapDecoration = async (decoration, index) => {
   const filename = path.join(renderDir, `decoration-${index + 1}.png`);
   await sharp(svg).png().toFile(filename);
   return { path: filename };
+};
+
+const sceneImageGeometry = (shape, width, height) => {
+  const normalized = ["rectangle", "square", "circle", "triangle", "diamond"].includes(String(shape))
+    ? String(shape)
+    : "rectangle";
+  if (normalized === "circle") {
+    return { clip: `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${Math.max(1, width / 2 - 1)}" ry="${Math.max(1, height / 2 - 1)}"/>`, kind: "ellipse" };
+  }
+  if (normalized === "triangle") {
+    return { clip: `<polygon points="${width / 2},1 ${Math.max(1, width - 1)},${Math.max(1, height - 1)} 1,${Math.max(1, height - 1)}"/>`, kind: "polygon" };
+  }
+  if (normalized === "diamond") {
+    return { clip: `<polygon points="${width / 2},1 ${Math.max(1, width - 1)},${height / 2} ${width / 2},${Math.max(1, height - 1)} 1,${height / 2}"/>`, kind: "polygon" };
+  }
+  return { clip: `<rect x="1" y="1" width="${Math.max(1, width - 2)}" height="${Math.max(1, height - 2)}"/>`, kind: "rect" };
+};
+
+const createSceneImage = async (image, index) => {
+  const url = String(image?.url ?? image?.asset ?? "").trim();
+  if (!url || image?.visible === false) return null;
+  const shape = String(image?.shape ?? "rectangle");
+  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.04, 0.96);
+  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.04, 0.96);
+  const widthRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedWidth;
+  const heightRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedHeight;
+  const width = Math.max(16, Math.round(outputWidth * widthRatio));
+  const height = Math.max(16, Math.round(outputHeight * heightRatio));
+  const geometry = sceneImageGeometry(shape, width, height);
+  const maskSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" fill="black"/><g fill="white">${geometry.clip}</g></svg>`);
+  const alphaMaskSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="white">${geometry.clip}</g></svg>`);
+  const borderWidth = Math.max(0, Math.round(previewPx(Number(image?.borderWidth ?? 0))));
+  const borderColor = decorationColor(image?.borderColor, "#ffffff");
+  const borderSvg = borderWidth > 0
+    ? Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${borderWidth}">${geometry.clip}</g></svg>`)
+    : null;
+  const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
+  if (mediaType === "video" || animatedImage) {
+    // GIF/APNG must stay as animated inputs. Sharp would otherwise decode only
+    // the first frame, which made the render differ from the browser preview.
+    const animatedMedia = mediaType === "video"
+      ? await resolveVideo(url, `scene-image-${index + 1}.webm`)
+      : await resolveImage(url, `scene-image-${index + 1}.${animatedAssetType(url)}`);
+    if (!animatedMedia) return null;
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
+    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
+  }
+  const source = await resolveImage(url, `scene-image-${index + 1}`);
+  if (!source) return null;
+  const resized = await sharp(source)
+    .resize(width, height, { fit: "cover" })
+    .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+  const filename = path.join(renderDir, `scene-image-${index + 1}.png`);
+  const border = borderWidth > 0 ? borderSvg : null;
+  const composites = [{ input: resized, top: 0, left: 0 }];
+  if (border) composites.push({ input: border, top: 0, left: 0 });
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite(composites).png().toFile(filename);
+  return { path: filename, width, height };
 };
 
 const createTextOverlay = async (overlay, index) => {
@@ -655,6 +762,8 @@ for (let index = 0; index < scenes.length; index += 1) {
         const type = String(decoration.type ?? "text-3d");
         return type === "sticker"
           ? Boolean(String(decoration.asset ?? "").trim())
+          : type === "animated-sticker"
+            ? Boolean(String(decoration.asset ?? "").trim())
           : type === "text-3d"
             ? Boolean(String(decoration.text ?? "").trim())
             : Boolean(String(decoration.symbol ?? "").trim() || String(decoration.effect ?? "").trim());
@@ -665,6 +774,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const decoration = decorationScenes[decorationIndex];
     const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
     if (rendered) decorationRenders.push({ scene: decoration, rendered });
+  }
+  const sceneImageScenes = Array.isArray(scene.sceneImages)
+    ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
+    : [];
+  const sceneImageRenders = [];
+  for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
+    const image = sceneImageScenes[imageIndex];
+    const rendered = await createSceneImage(image, index * 100 + imageIndex);
+    if (rendered) sceneImageRenders.push({ scene: image, rendered });
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
@@ -847,7 +965,41 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
-  let popupInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
+  let sceneImageInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
+  sceneImageRenders.forEach(({ scene: image, rendered: imageRender }, imageIndex) => {
+    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const imageX = clamp(Number(image.x ?? 50) / 100, 0, 1);
+    const imageY = clamp(Number(image.y ?? 50) / 100, 0, 1);
+    const imageOpacity = clamp(Number(image.opacity ?? 100) / 100, 0, 1);
+    const imageAssetLabel = `sceneImageAsset${imageIndex}`;
+    const imageVideoLabel = `sceneImageVideo${imageIndex}`;
+    const imageAlphaSourceLabel = `sceneImageAlphaSource${imageIndex}`;
+    const imageAlphaLabel = `sceneImageAlpha${imageIndex}`;
+    const imageMaskLabel = `sceneImageMask${imageIndex}`;
+    const imageBorderLabel = `sceneImageBorder${imageIndex}`;
+    const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
+    if (imageRender.animated) {
+      const hasImageBorder = Boolean(imageRender.borderPath);
+      // Preview mounts the media when its start time is reached, so the
+      // animation begins at frame 0 there. Offset the input timestamps to
+      // reproduce that same behaviour in the final video.
+      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
+      if (hasImageBorder) {
+        filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}];`;
+      }
+      filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+      sceneImageInputIndex += hasImageBorder ? 3 : 2;
+    } else {
+      filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+      sceneImageInputIndex += 1;
+    }
+    composedLabel = `[sceneImageComposed${imageIndex}]`;
+  });
+  let popupInputIndex = sceneImageInputIndex;
   decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
@@ -873,7 +1025,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
     const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
-    filter += `[${decorationInputIndex}:v]format=rgba,${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
+    filter += `[${decorationInputIndex}:v]${animatedFilter}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
@@ -944,7 +1097,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popLabel = `pop${popupIndex}`;
     const composedOutput = `[composed${popupIndex}]`;
     if (popup.video) {
-      filter += `[${videoInputIndex}:v]scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
+      filter += `[${videoInputIndex}:v]format=rgba,scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v]format=rgba[${baseLabel}input];[${baseLabel}input][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
       if (borderInputIndex !== null) {
         filter += `[${borderInputIndex}:v]format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
       }
@@ -1003,7 +1156,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     args.push("-loop", "1", "-i", overlay.path);
   });
   decorationRenders.forEach(({ rendered: decoration }) => {
-    args.push("-loop", "1", "-i", decoration.path);
+    if (decoration.animated) {
+      args.push("-stream_loop", "-1", "-i", decoration.path);
+    } else {
+      args.push("-loop", "1", "-i", decoration.path);
+    }
+  });
+  sceneImageRenders.forEach(({ rendered: image }) => {
+    if (image.animated) {
+      args.push("-stream_loop", "-1", "-i", image.path);
+      args.push("-loop", "1", "-i", image.maskPath);
+      if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
+    } else {
+      args.push("-loop", "1", "-i", image.path);
+    }
   });
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
