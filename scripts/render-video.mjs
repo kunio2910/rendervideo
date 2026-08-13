@@ -132,6 +132,13 @@ const isVideoMedia = (value) => {
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
+
+const animatedAssetType = (value, fallback = "gif") => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
+  if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
+  return fallback;
+};
 // Legacy scene fields remain supported: scene.popupLayout, scene.popupX, scene.popupY.
 const audioVolume = (value, fallback) => {
   const numeric = Number(value);
@@ -470,10 +477,18 @@ const decorationGlyph = (decoration) => {
 };
 
 const createMapDecoration = async (decoration, index) => {
-  const type = ["text-3d", "sticker", "icon", "effect"].includes(String(decoration?.type))
+  const type = ["text-3d", "sticker", "icon", "effect", "animated-sticker"].includes(String(decoration?.type))
     ? String(decoration.type)
     : "text-3d";
   const asset = String(decoration?.asset ?? "").trim();
+  if (type === "animated-sticker") {
+    const kind = animatedAssetType(asset, String(decoration?.assetType ?? "gif"));
+    const media = kind === "webm"
+      ? await resolveVideo(asset, `decoration-${index + 1}.webm`)
+      : await resolveImage(asset, `decoration-${index + 1}.${kind}`);
+    if (!media) return null;
+    return { path: media, animated: true, mediaType: kind };
+  }
   if (type === "sticker") {
     const image = await resolveImage(asset, `decoration-${index + 1}-sticker`);
     if (!image) return null;
@@ -655,6 +670,8 @@ for (let index = 0; index < scenes.length; index += 1) {
         const type = String(decoration.type ?? "text-3d");
         return type === "sticker"
           ? Boolean(String(decoration.asset ?? "").trim())
+          : type === "animated-sticker"
+            ? Boolean(String(decoration.asset ?? "").trim())
           : type === "text-3d"
             ? Boolean(String(decoration.text ?? "").trim())
             : Boolean(String(decoration.symbol ?? "").trim() || String(decoration.effect ?? "").trim());
@@ -873,7 +890,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
     const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
-    filter += `[${decorationInputIndex}:v]format=rgba,${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
+    filter += `[${decorationInputIndex}:v]${animatedFilter}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
@@ -1003,7 +1021,11 @@ for (let index = 0; index < scenes.length; index += 1) {
     args.push("-loop", "1", "-i", overlay.path);
   });
   decorationRenders.forEach(({ rendered: decoration }) => {
-    args.push("-loop", "1", "-i", decoration.path);
+    if (decoration.animated) {
+      args.push("-stream_loop", "-1", "-i", decoration.path);
+    } else {
+      args.push("-loop", "1", "-i", decoration.path);
+    }
   });
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);

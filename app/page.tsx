@@ -56,7 +56,8 @@ type SubtitleCue = {
   visible: boolean;
 };
 
-type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect";
+type MapDecorationType = "text-3d" | "sticker" | "icon" | "effect" | "animated-sticker";
+type AnimatedAssetType = "gif" | "apng" | "webm";
 type MapDecorationAnimation = "none" | "fade" | "pop" | "float" | "pulse" | "spin";
 
 type MapDecoration = {
@@ -64,6 +65,7 @@ type MapDecoration = {
   type: MapDecorationType;
   text: string;
   asset: string;
+  assetType: "image" | AnimatedAssetType;
   symbol: string;
   effect: "sparkles" | "ring" | "confetti" | "glow";
   x: number;
@@ -91,6 +93,22 @@ type RulerStyle = "center" | "grid" | "all";
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
+
+const animatedAssetTypeFromValue = (value: string, fallback: AnimatedAssetType = "gif"): AnimatedAssetType => {
+  const normalized = value.trim().toLowerCase();
+  if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
+  if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
+  return fallback;
+};
+
+const isAnimatedEffectFile = (file: File | { name: string; type?: string }) => {
+  const name = String(file.name ?? "").toLowerCase();
+  const mime = String(file.type ?? "").toLowerCase();
+  return mime === "image/gif"
+    || mime === "image/apng"
+    || mime === "video/webm"
+    || /\.(gif|apng|webm)$/.test(name);
+};
 
 type Scene = {
   id: string;
@@ -728,6 +746,7 @@ const defaultMapDecoration = (
   type,
   text: type === "text-3d" ? "ĐIỂM ĐẾN" : "",
   asset: "",
+  assetType: type === "animated-sticker" ? "gif" : "image",
   symbol: type === "icon" ? "📍" : "✦",
   effect: type === "effect" ? "sparkles" : "sparkles",
   x: 50,
@@ -753,7 +772,7 @@ const normalizeMapDecoration = (
 ): MapDecoration => {
   const raw = isRecord(value) ? value : {};
   const rawType = String(raw.type ?? fallback.type ?? "text-3d");
-  const type: MapDecorationType = ["text-3d", "sticker", "icon", "effect"].includes(rawType)
+  const type: MapDecorationType = ["text-3d", "sticker", "icon", "effect", "animated-sticker"].includes(rawType)
     ? rawType as MapDecorationType
     : "text-3d";
   const rawEffect = String(raw.effect ?? fallback.effect ?? "sparkles");
@@ -765,12 +784,19 @@ const normalizeMapDecoration = (
     ? rawAnimation as MapDecorationAnimation
     : "none";
   const base = defaultMapDecoration(id, type, fallback);
+  const rawAssetType = String(raw.assetType ?? fallback.assetType ?? base.assetType);
+  const assetType = type === "animated-sticker"
+    ? (["gif", "apng", "webm"].includes(rawAssetType)
+      ? rawAssetType as AnimatedAssetType
+      : animatedAssetTypeFromValue(String(raw.asset ?? raw.url ?? "")))
+    : "image";
   return {
     ...base,
     id: String(raw.id ?? base.id),
     type,
     text: String(raw.text ?? base.text),
     asset: String(raw.asset ?? raw.url ?? base.asset),
+    assetType,
     symbol: String(raw.symbol ?? base.symbol),
     effect,
     x: clampPercent(raw.x ?? base.x, base.x),
@@ -1633,6 +1659,7 @@ function Home() {
   const [draggingZoomCenter, setDraggingZoomCenter] = useState(false);
   const [draggingTextOverlay, setDraggingTextOverlay] = useState(false);
   const [draggingMapDecoration, setDraggingMapDecoration] = useState(false);
+  const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
@@ -1653,6 +1680,7 @@ function Home() {
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
+  const animatedEffectFileInput = useRef<HTMLInputElement | null>(null);
   const historyPast = useRef<ProjectSnapshot[]>([]);
   const historyFuture = useRef<ProjectSnapshot[]>([]);
   const historySnapshot = useRef("");
@@ -1780,6 +1808,10 @@ function Home() {
   const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
     ?? sceneTextOverlays[0];
   const sceneDecorations = scene.mapDecorations ?? [];
+  const animatedEffectAssets = useMemo(
+    () => assetLibrary.filter((item) => isAnimatedEffectFile(item.file)),
+    [assetLibrary],
+  );
   const activeDecoration = sceneDecorations.find((item) => item.id === selectedDecorationId)
     ?? sceneDecorations[0];
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
@@ -1888,6 +1920,8 @@ function Home() {
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
       ? Boolean(decoration.text.trim())
+      : decoration.type === "animated-sticker"
+        ? Boolean(decoration.asset.trim())
       : decoration.type === "sticker"
         ? Boolean(decoration.asset.trim())
         : Boolean(decoration.symbol.trim() || decoration.effect);
@@ -3485,6 +3519,7 @@ function Home() {
   };
 
   const mapDecorationTypeLabel = (type: MapDecorationType) => ({
+    "animated-sticker": "GIF / WebM / APNG",
     "text-3d": "Chữ 3D",
     sticker: "Sticker",
     icon: "Icon",
@@ -4226,7 +4261,7 @@ function Home() {
             textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             mapDecorations: (item.mapDecorations ?? []).map((decoration) => ({
               ...decoration,
-              ...(decoration.type === "sticker" && decoration.asset.trim()
+              ...(["sticker", "animated-sticker"].includes(decoration.type) && decoration.asset.trim()
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
              })),
@@ -4348,6 +4383,88 @@ function Home() {
     }
   };
 
+  const addAnimatedMapDecoration = (
+    asset: Pick<AssetLibraryItem, "id" | "name" | "type" | "file">,
+    position: { x: number; y: number } = { x: 50, y: 50 },
+  ) => {
+    if (!scene) return;
+    const currentDecorations = scene.mapDecorations ?? [];
+    const assetType = animatedAssetTypeFromValue(
+      asset.name,
+      String(asset.type ?? "").toLowerCase() === "video/webm" ? "webm" : "gif",
+    );
+    const nextDecoration = defaultMapDecoration(
+      `${scene.id}-animated-${currentDecorations.length + 1}-${Date.now().toString(36)}`,
+      "animated-sticker",
+      {
+        asset: asset.name,
+        assetType,
+        x: clampPercent(position.x, 50),
+        y: clampPercent(position.y, 50),
+        scale: 0.8,
+        duration: Math.min(sceneDuration, 5),
+        animation: "none",
+      },
+    );
+    setLocalRenderFiles((files) => files.some((file) => getAssetId(file) === asset.id)
+      ? files
+      : [...files, asset.file]);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
+      : item));
+    setSelectedDecorationId(nextDecoration.id);
+    setEditorSections((items) => ({ ...items, text: true }));
+    setToast(`Đã thêm hiệu ứng ${asset.name}`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const addAnimatedEffectFiles = async (files: File[]) => {
+    const accepted = files.filter(isAnimatedEffectFile);
+    if (!accepted.length) {
+      setToast("Chỉ hỗ trợ file GIF, APNG hoặc WebM VP9 có alpha");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+    await addAssetsToLibrary(accepted);
+    setToast(`Đã thêm ${accepted.length} hiệu ứng vào thư viện`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const handleMapEffectDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setMapEffectDragActive(false);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const position = {
+      x: clampPercent(((event.clientX - bounds.left) / Math.max(1, bounds.width)) * 100, 50),
+      y: clampPercent(((event.clientY - bounds.top) / Math.max(1, bounds.height)) * 100, 50),
+    };
+    const droppedFiles = Array.from(event.dataTransfer.files).filter(isAnimatedEffectFile);
+    if (droppedFiles.length) {
+      const file = droppedFiles[0];
+      await addAssetsToLibrary(droppedFiles);
+      addAnimatedMapDecoration({
+        id: getAssetId(file),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        file,
+      }, position);
+      return;
+    }
+    const libraryId = event.dataTransfer.getData("application/x-kito-effect");
+    const libraryItem = animatedEffectAssets.find((item) => item.id === libraryId);
+    if (libraryItem) addAnimatedMapDecoration(libraryItem, position);
+  };
+
+  const handleMapEffectDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (event.dataTransfer.types.includes("Files") || event.dataTransfer.types.includes("application/x-kito-effect")) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setMapEffectDragActive(true);
+    }
+  };
+
   const toggleAssetSelection = (item: AssetLibraryItem) => {
     setLocalRenderFiles((files) => files.some((file) => getAssetId(file) === item.id)
       ? files.filter((file) => getAssetId(file) !== item.id)
@@ -4437,6 +4554,15 @@ function Home() {
       );
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
       addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
+      (item.mapDecorations ?? []).forEach((decoration, decorationIndex) => {
+        if (decoration.visible === false || !decoration.asset.trim()) return;
+        addSourceCheck(
+          `scene-${item.id}-decoration-${decorationIndex + 1}`,
+          `${mapDecorationTypeLabel(decoration.type)} cảnh ${item.number}`,
+          decoration.asset,
+          true,
+        );
+      });
     });
 
     try {
@@ -5078,8 +5204,11 @@ function Home() {
             </div>
           </div>
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""}`}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
             style={{ transform: `scale(${previewZoom / 100})` }}
+            onDragOver={handleMapEffectDragOver}
+            onDragLeave={() => setMapEffectDragActive(false)}
+            onDrop={handleMapEffectDrop}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
@@ -5230,10 +5359,15 @@ function Home() {
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewDecorationItems.map((decoration) => {
-              const stickerSource = decoration.type === "sticker"
+              const stickerSource = decoration.type === "sticker" || decoration.type === "animated-sticker"
                 ? assetPreviewSource(decoration.asset)
                 : "";
-              const decorationContent = decoration.type === "sticker" && stickerSource
+              const animatedVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
+              const decorationContent = decoration.type === "animated-sticker" && stickerSource
+                ? animatedVideo
+                  ? <video src={stickerSource} autoPlay loop muted playsInline preload="metadata" aria-hidden="true" />
+                  : <img src={stickerSource} alt="" draggable={false} />
+                : decoration.type === "sticker" && stickerSource
                 ? <img src={stickerSource} alt="" draggable={false} />
                 : <span className="map-decoration-content">
                     {decoration.type === "text-3d" ? decoration.text : decorationSymbol(decoration)}
@@ -5856,6 +5990,64 @@ function Home() {
                       <button type="button" className="button secondary map-decoration-add" onClick={() => addMapDecoration("effect")}>＋ Hiệu ứng</button>
                     </div>
                   </div>
+                  <div className="map-effect-library">
+                    <div className="map-effect-library-heading">
+                      <span>Thư viện hiệu ứng động</span>
+                      <button
+                        type="button"
+                        className="button secondary map-effect-library-add"
+                        onClick={() => animatedEffectFileInput.current?.click()}
+                      >
+                        ＋ Thêm GIF / WebM / APNG
+                      </button>
+                      <input
+                        ref={animatedEffectFileInput}
+                        type="file"
+                        accept=".gif,.apng,.webm,image/gif,image/apng,video/webm"
+                        multiple
+                        hidden
+                        onChange={(event) => {
+                          void addAnimatedEffectFiles(Array.from(event.target.files ?? []));
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </div>
+                    {animatedEffectAssets.length > 0 ? (
+                      <div className="map-effect-library-list">
+                        {animatedEffectAssets.map((item) => {
+                          const previewSource = assetPreviewSource(item.name);
+                          const itemType = animatedAssetTypeFromValue(item.name, item.type === "video/webm" ? "webm" : "gif");
+                          return (
+                            <button
+                              type="button"
+                              key={item.id}
+                              className="map-effect-library-item"
+                              draggable
+                              title="Kéo hiệu ứng vào bản đồ hoặc bấm để thêm vào tâm bản đồ"
+                              onClick={() => addAnimatedMapDecoration(item)}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "copy";
+                                event.dataTransfer.setData("application/x-kito-effect", item.id);
+                              }}
+                            >
+                              <span className="map-effect-library-preview">
+                                {previewSource && itemType === "webm"
+                                  ? <video src={previewSource} autoPlay loop muted playsInline preload="metadata" aria-hidden="true" />
+                                  : previewSource
+                                    ? <img src={previewSource} alt="" draggable={false} />
+                                    : <span>Chưa có preview</span>}
+                              </span>
+                              <strong>{item.name}</strong>
+                              <span>{itemType}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="map-effect-library-empty">Thêm file GIF, APNG hoặc WebM VP9 có alpha để tạo thư viện hiệu ứng kéo thả.</div>
+                    )}
+                    <div className="map-effect-library-hint">Kéo một thẻ hoặc file từ máy vào bản đồ. Hiệu ứng sẽ được đặt tại vị trí thả và lưu riêng trong cảnh hiện tại.</div>
+                  </div>
                   {sceneDecorations.length > 0 ? (
                     <div className="map-decoration-list">
                       {sceneDecorations.map((decoration, index) => (
@@ -5898,6 +6090,33 @@ function Home() {
                           <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
                           <small>Sticker dùng ảnh PNG/WebP/JPG có nền trong suốt nếu muốn.</small>
                         </label>
+                      )}
+                      {activeDecoration.type === "animated-sticker" && (
+                        <>
+                          <label className="field">
+                            <span>URL hoặc tên file hiệu ứng</span>
+                            <input
+                              type="text"
+                              inputMode="url"
+                              value={activeDecoration.asset}
+                              placeholder="fight.gif / fight.apng / fight.webm"
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                updateMapDecoration("asset", value);
+                                updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
+                              }}
+                            />
+                            <small>Hỗ trợ GIF, APNG và WebM VP9 có alpha. File cục bộ cần được chọn trong thư viện render.</small>
+                          </label>
+                          <label className="field">
+                            <span>Định dạng</span>
+                            <select value={activeDecoration.assetType} onChange={(event) => updateMapDecoration("assetType", event.target.value as MapDecoration["assetType"])}>
+                              <option value="gif">GIF</option>
+                              <option value="apng">APNG</option>
+                              <option value="webm">WebM VP9 alpha</option>
+                            </select>
+                          </label>
+                        </>
                       )}
                       {activeDecoration.type === "icon" && (
                         <label className="field">
