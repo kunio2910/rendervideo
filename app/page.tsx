@@ -753,8 +753,8 @@ const normalizeSceneImage = (
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
-    width: Math.min(96, Math.max(1, positiveNumber(raw.width, base.width, 1))),
-    height: Math.min(96, Math.max(1, positiveNumber(raw.height, base.height, 1))),
+    width: Math.min(200, Math.max(1, positiveNumber(raw.width, base.width, 1))),
+    height: Math.min(200, Math.max(1, positiveNumber(raw.height, base.height, 1))),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
@@ -1355,6 +1355,7 @@ type ResourceSpriteNotice = {
 function SettingsResourcePanel() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [delay, setDelay] = useState(180);
+  const [delayInput, setDelayInput] = useState("180");
   const [frameSize, setFrameSize] = useState(576);
   const [assetUrl, setAssetUrl] = useState("");
   const [frameCount, setFrameCount] = useState(0);
@@ -1368,7 +1369,23 @@ function SettingsResourcePanel() {
     setNotice({ status: "idle", message: "" });
   };
 
+  const updateDelayInput = (value: string) => {
+    const nextInput = value.replace(/[^0-9]/g, "");
+    setDelayInput(nextInput);
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (Number.isFinite(numeric)) setDelay(Math.min(1000, Math.max(60, Math.round(numeric))));
+  };
+
+  const commitDelayInput = () => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(delayInput) || 180)));
+    setDelay(nextDelay);
+    setDelayInput(String(nextDelay));
+    return nextDelay;
+  };
+
   const convertResourceSprite = async () => {
+    const committedDelay = commitDelayInput();
     const source = safeTrim(sourceUrl);
     if (!source) {
       setNotice({ status: "error", message: "Hãy nhập URL hình trước." });
@@ -1383,7 +1400,7 @@ function SettingsResourcePanel() {
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceUrl: source, delay, frameSize }),
+        body: JSON.stringify({ sourceUrl: source, delay: committedDelay, frameSize }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
@@ -1404,6 +1421,17 @@ function SettingsResourcePanel() {
         : "Chuyển tài nguyên thất bại.";
       setNotice({ status: "error", message });
     }
+  };
+
+  const clearResourceSprite = () => {
+    if (isProcessing) return;
+    setSourceUrl("");
+    setDelay(180);
+    setDelayInput("180");
+    setFrameSize(576);
+    setAssetUrl("");
+    setFrameCount(0);
+    setNotice({ status: "idle", message: "" });
   };
 
   const downloadResourceSprite = async () => {
@@ -1465,10 +1493,11 @@ function SettingsResourcePanel() {
                 type="number"
                 min="60"
                 max="1000"
-                step="10"
-                value={delay}
+                step="1"
+                value={delayInput}
                 disabled={isProcessing}
-                onChange={(event) => setDelay(Math.min(1000, Math.max(60, Number(event.target.value) || 180)))}
+                onChange={(event) => updateDelayInput(event.target.value)}
+                onBlur={commitDelayInput}
               />
               <b>ms</b>
             </div>
@@ -1499,6 +1528,9 @@ function SettingsResourcePanel() {
               {downloading ? "Đang tải…" : "Download WebP"}
             </button>
           )}
+          <button type="button" className="button ghost" onClick={clearResourceSprite} disabled={isProcessing}>
+            Clear
+          </button>
         </div>
         {notice.message && <small className={`settings-resource-notice ${notice.status}`}>{notice.message}</small>}
       </div>
@@ -1975,6 +2007,7 @@ function Home() {
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
   const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
     imageId: string;
     status: "idle" | "processing" | "success" | "error";
@@ -2153,6 +2186,9 @@ function Home() {
     ?? sceneDecorations[0];
   const activeSceneImage = sceneImages.find((item) => item.id === selectedSceneImageId)
     ?? sceneImages[0];
+  const activeSceneImageSpriteDelayInput = activeSceneImage
+    ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
+    : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
@@ -4109,6 +4145,12 @@ function Home() {
   const updateSceneImageUrl = (url: string) => {
     const imageId = activeSceneImage?.id;
     if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => {
+        if (!(imageId in items)) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
       setSceneImageSpritePreviewUrls((items) => {
         if (!items[imageId]) return items;
         const next = { ...items };
@@ -4123,10 +4165,11 @@ function Home() {
     updateSceneImage("transparent", isTransparentMedia(url));
   };
 
-  const updateSceneImageSpriteDelay = (value: number) => {
+  const updateSceneImageSpriteDelay = (value: string) => {
     const imageId = activeSceneImage?.id;
-    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(value) || 180)));
+    const nextInput = value.replace(/[^0-9]/g, "");
     if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => ({ ...items, [imageId]: nextInput }));
       setSceneImageSpritePreviewUrls((items) => {
         if (!items[imageId]) return items;
         const next = { ...items };
@@ -4135,8 +4178,24 @@ function Home() {
       });
       setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
     }
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (!Number.isFinite(numeric)) return;
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(numeric)));
     updateSceneImage("spriteDelay", nextDelay);
     updateSceneImage("spriteSheet", false);
+  };
+
+  const commitSceneImageSpriteDelay = (imageId: string, value: string) => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(value) || 180)));
+    setSceneImageSpriteDelayDrafts((items) => {
+      const next = { ...items };
+      delete next[imageId];
+      return next;
+    });
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+    return nextDelay;
   };
 
   const prepareSceneImageSprite = async (imageId: string, url: string, explicit = false, requestedDelay = 180) => {
@@ -4312,8 +4371,8 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     setDraggingSceneImage(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(96, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
-      const nextHeight = Math.min(96, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      const nextWidth = Math.min(200, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(200, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
@@ -6613,9 +6672,10 @@ function Home() {
                               min="60"
                               max="1000"
                               step="10"
-                              value={activeSceneImage.spriteDelay}
+                              value={activeSceneImageSpriteDelayInput}
                               disabled={sceneImageSpriteNotice.status === "processing"}
-                              onChange={(event) => updateSceneImageSpriteDelay(Number(event.target.value))}
+                              onChange={(event) => updateSceneImageSpriteDelay(event.target.value)}
+                              onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)}
                             />
                             <b>ms</b>
                           </div>
@@ -6625,7 +6685,10 @@ function Home() {
                           type="button"
                           className="button ghost scene-image-sprite-button"
                           disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
-                          onClick={() => void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, activeSceneImage.spriteDelay)}
+                          onClick={() => {
+                            const delay = commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput);
+                            void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, delay);
+                          }}
                         >
                           {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
                             ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
@@ -6663,11 +6726,11 @@ function Home() {
                       <div className="field-row">
                         <label className="field">
                           <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                         <label className="field">
                           <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">
