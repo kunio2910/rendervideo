@@ -65,6 +65,10 @@ const previewScale = Math.min(
   outputHeight / PREVIEW_CANVAS_HEIGHT,
 );
 const previewPx = (value) => value * previewScale;
+const animatedStickerSize = Math.max(1, Math.round(previewPx(220)));
+const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
+  ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+  : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
@@ -560,8 +564,8 @@ const createSceneImage = async (image, index) => {
   const url = String(image?.url ?? image?.asset ?? "").trim();
   if (!url || image?.visible === false) return null;
   const shape = String(image?.shape ?? "rectangle");
-  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.04, 0.96);
-  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.04, 0.96);
+  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.01, 0.96);
+  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.01, 0.96);
   const widthRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedWidth;
   const heightRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedHeight;
   const width = Math.max(16, Math.round(outputWidth * widthRatio));
@@ -571,7 +575,9 @@ const createSceneImage = async (image, index) => {
   const alphaMaskSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="white">${geometry.clip}</g></svg>`);
   const borderWidth = Math.max(0, Math.round(previewPx(Number(image?.borderWidth ?? 0))));
   const borderColor = decorationColor(image?.borderColor, "#ffffff");
-  const borderSvg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${Math.max(1, borderWidth)}">${geometry.clip}</g></svg>`);
+  const borderSvg = borderWidth > 0
+    ? Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${borderWidth}">${geometry.clip}</g></svg>`)
+    : null;
   const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
   const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
   if (mediaType === "video" || animatedImage) {
@@ -582,16 +588,18 @@ const createSceneImage = async (image, index) => {
       : await resolveImage(url, `scene-image-${index + 1}.${animatedAssetType(url)}`);
     if (!animatedMedia) return null;
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
-    const borderPath = path.join(renderDir, `scene-image-${index + 1}-border.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
-    await sharp({
-      create: {
-        width,
-        height,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      },
-    }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
     return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
@@ -976,14 +984,19 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
+      const hasImageBorder = Boolean(imageRender.borderPath);
+      const imageFit = image.transparent === true ? "contain" : "cover";
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
-      filter += `[${sceneImageInputIndex}:v]format=rgba,scale=${imageRender.width}:${imageRender.height}:force_original_aspect_ratio=increase,crop=${imageRender.width}:${imageRender.height},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
       filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageAssetLabel}bordered];`;
-      filter += `${composedLabel}[${imageAssetLabel}bordered]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += 3;
+      const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
+      if (hasImageBorder) {
+        filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}];`;
+      }
+      filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+      sceneImageInputIndex += hasImageBorder ? 3 : 2;
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
@@ -1018,7 +1031,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
     const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
     const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
-    filter += `[${decorationInputIndex}:v]${animatedFilter}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
+    const animatedStickerFit = decoration.animated
+      ? `${ffmpegMediaFit(animatedStickerSize, animatedStickerSize, "contain")},`
+      : "";
+    filter += `[${decorationInputIndex}:v]${animatedFilter}${animatedStickerFit}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   });
@@ -1158,7 +1174,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     if (image.animated) {
       args.push("-stream_loop", "-1", "-i", image.path);
       args.push("-loop", "1", "-i", image.maskPath);
-      args.push("-loop", "1", "-i", image.borderPath);
+      if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
     } else {
       args.push("-loop", "1", "-i", image.path);
     }

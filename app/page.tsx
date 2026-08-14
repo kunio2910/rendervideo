@@ -23,6 +23,7 @@ type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New R
 
 type TextOverlay = {
   id: string;
+  name: string;
   text: string;
   visible: boolean;
   size: number;
@@ -42,7 +43,7 @@ type TextOverlay = {
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "text" | "visible"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
   boxWidth: number;
   animation: SubtitleAnimation;
   animationDuration: number;
@@ -62,6 +63,7 @@ type MapDecorationAnimation = "none" | "fade" | "pop" | "float" | "pulse" | "spi
 
 type MapDecoration = {
   id: string;
+  name: string;
   type: MapDecorationType;
   text: string;
   asset: string;
@@ -87,6 +89,7 @@ type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond
 
 type SceneImage = {
   id: string;
+  name: string;
   url: string;
   mediaType: "image" | "video";
   transparent: boolean;
@@ -115,7 +118,7 @@ const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: nu
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
 
 const animatedAssetTypeFromValue = (value: string, fallback: AnimatedAssetType = "gif"): AnimatedAssetType => {
-  const normalized = value.trim().toLowerCase();
+  const normalized = safeTrim(value).toLowerCase();
   if (/\.webm(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=webm/.test(normalized)) return "webm";
   if (/\.apng(?:[?#].*)?$/.test(normalized) || /[?&](?:format|fm)=apng/.test(normalized)) return "apng";
   return fallback;
@@ -393,6 +396,8 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
 
 const initialScenes: Scene[] = [createEmptyScene()];
 
+const safeTrim = (value: unknown) => String(value ?? "").trim();
+
 const formatTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 10) / 10);
   const minutes = Math.floor(rounded / 60);
@@ -400,8 +405,8 @@ const formatTime = (value: number) => {
   return `${String(minutes).padStart(2, "0")}:${seconds.padStart(4, "0")}`;
 };
 
-const fileNameOnly = (value: string) => {
-  const trimmed = value.trim();
+const fileNameOnly = (value: unknown) => {
+  const trimmed = safeTrim(value);
   if (!trimmed) return "";
   try {
     if (/^https?:\/\//i.test(trimmed)) {
@@ -411,23 +416,23 @@ const fileNameOnly = (value: string) => {
   return trimmed.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? trimmed;
 };
 
-const isRemoteUrl = (value: string) => /^https?:\/\/.+/i.test(value.trim());
+const isRemoteUrl = (value: unknown) => /^https?:\/\/.+/i.test(safeTrim(value));
 
-const isVideoMedia = (value: string) => {
-  const normalized = value.trim().toLowerCase();
+const isVideoMedia = (value: unknown) => {
+  const normalized = safeTrim(value).toLowerCase();
   return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#].*)?$/.test(normalized)
     || /\/video\/upload\//.test(normalized)
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
-const isTransparentMedia = (value: string) => {
-  const normalized = value.trim().toLowerCase();
+const isTransparentMedia = (value: unknown) => {
+  const normalized = safeTrim(value).toLowerCase();
   return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
     || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
 };
 
-const assetReference = (value: string) => {
-  const trimmed = value.trim();
+const assetReference = (value: unknown) => {
+  const trimmed = safeTrim(value);
   return isRemoteUrl(trimmed) ? trimmed : fileNameOnly(trimmed);
 };
 
@@ -678,6 +683,14 @@ const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> =
   { value: "diamond", label: "Hình thoi" },
 ];
 
+const mapDecorationDefaultName = (type: MapDecorationType) => ({
+  "animated-sticker": "Hiệu ứng động",
+  "text-3d": "Chữ 3D",
+  sticker: "Sticker",
+  icon: "Icon",
+  effect: "Hiệu ứng",
+}[type]);
+
 const sceneImageClipPath = (shape: SceneImageShape) => ({
   rectangle: "inset(0)",
   square: "inset(0)",
@@ -691,6 +704,7 @@ const defaultSceneImage = (
   overrides: Partial<SceneImage> = {},
 ): SceneImage => ({
   id,
+  name: "Hình ảnh",
   url: "",
   mediaType: "image",
   transparent: false,
@@ -724,6 +738,7 @@ const normalizeSceneImage = (
   return {
     ...base,
     id: String(raw.id ?? base.id),
+    name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
     transparent: typeof raw.transparent === "boolean"
@@ -732,8 +747,8 @@ const normalizeSceneImage = (
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
-    width: Math.min(96, Math.max(4, positiveNumber(raw.width, base.width, 4))),
-    height: Math.min(96, Math.max(4, positiveNumber(raw.height, base.height, 4))),
+    width: Math.min(96, Math.max(1, positiveNumber(raw.width, base.width, 1))),
+    height: Math.min(96, Math.max(1, positiveNumber(raw.height, base.height, 1))),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
@@ -756,6 +771,7 @@ const defaultTextOverlay = (
   overrides: Partial<TextOverlay> = {},
 ): TextOverlay => ({
   id,
+  name: "Chữ viết",
   text: "",
   visible: true,
   size: 24,
@@ -852,6 +868,7 @@ const defaultMapDecoration = (
   overrides: Partial<MapDecoration> = {},
 ): MapDecoration => ({
   id,
+  name: mapDecorationDefaultName(type),
   type,
   text: type === "text-3d" ? "ĐIỂM ĐẾN" : "",
   asset: "",
@@ -902,6 +919,7 @@ const normalizeMapDecoration = (
   return {
     ...base,
     id: String(raw.id ?? base.id),
+    name: String(raw.name ?? base.name).trim() || base.name,
     type,
     text: String(raw.text ?? base.text),
     asset: String(raw.asset ?? raw.url ?? base.asset),
@@ -939,6 +957,7 @@ const normalizeTextOverlay = (
   return {
     ...base,
     id: String(raw.id ?? base.id),
+    name: String(raw.name ?? base.name).trim() || base.name,
     text: String(raw.text ?? raw.overlayText ?? base.text),
     visible: raw.visible !== false,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
@@ -1155,8 +1174,9 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ? rawTextOverlays.filter(isRecord).map((rawText, textIndex) => normalizeTextOverlay(
           rawText,
           String((rawText as { id?: unknown }).id ?? `${id}-text-${textIndex + 1}`),
+          { name: `Chữ ${textIndex + 1}` },
         ))
-      : legacyText.trim()
+      : safeTrim(legacyText)
         ? [normalizeTextOverlay({
             id: `${id}-text-1`,
             text: legacyText,
@@ -1170,7 +1190,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
             borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
             x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
             y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
-          }, `${id}-text-1`)]
+          }, `${id}-text-1`, { name: "Chữ 1" })]
         : [];
     const rawDecorations = (item as Scene & { mapDecorations?: unknown }).mapDecorations;
     const mapDecorations = Array.isArray(rawDecorations)
@@ -1185,7 +1205,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ? rawSceneImages.filter(isRecord).map((rawImage, imageIndex) => normalizeSceneImage(
         rawImage,
         String((rawImage as { id?: unknown }).id ?? `${id}-image-${imageIndex + 1}`),
-        { duration: sceneDuration },
+        { duration: sceneDuration, name: `Hình ảnh ${imageIndex + 1}` },
       ))
       : [];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
@@ -1720,6 +1740,12 @@ function Home() {
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
+  const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
+  const [renamingTextOverlayName, setRenamingTextOverlayName] = useState("");
+  const [renamingDecorationId, setRenamingDecorationId] = useState("");
+  const [renamingDecorationName, setRenamingDecorationName] = useState("");
+  const [renamingSceneImageId, setRenamingSceneImageId] = useState("");
+  const [renamingSceneImageName, setRenamingSceneImageName] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -1967,23 +1993,23 @@ function Home() {
     setPlaying(false);
   };
   const popupNarration = activePopup?.narration ?? "";
-  const popupWordCount = popupNarration.trim().split(/\s+/).filter(Boolean).length;
+  const popupWordCount = safeTrim(popupNarration).split(/\s+/).filter(Boolean).length;
   const popupVoiceEstimate = Math.max(1, Math.ceil((popupWordCount / 145) * 60));
   const assetPreviewSource = (value: string) => {
-    const trimmed = value.trim();
+    const trimmed = safeTrim(value);
     if (!trimmed) return "";
     return isRemoteUrl(trimmed)
       ? trimmed
       : assetPreviewUrls[fileNameOnly(trimmed)] ?? "";
   };
   const activePopupMediaValue = activePopup
-    ? activePopup.video.trim() || activePopup.image.trim()
+    ? safeTrim(activePopup.video) || safeTrim(activePopup.image)
     : "";
   const popupMediaIsVideo = isVideoMedia(activePopupMediaValue);
   const popupMediaPreviewSource = activePopupMediaValue && (popupMediaIsVideo || imageEnabled)
     ? assetPreviewSource(activePopupMediaValue)
     : "";
-  const legacyBackgroundPreview = previewBackground.trim() || background.trim();
+  const legacyBackgroundPreview = safeTrim(previewBackground) || safeTrim(background);
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
   const backgroundPreviewSource = assetPreviewSource(backgroundValue);
@@ -2021,10 +2047,10 @@ function Home() {
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
   const popupHasMediaInput = (popup: PopupConfig) =>
-    (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
-    || Boolean(popup.video.trim());
+    (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
+    || Boolean(safeTrim(popup.video));
   const popupHasContent = (popup: PopupConfig) => {
-    const hasText = Boolean(popup.title.trim() || popup.body.trim());
+    const hasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
     const hasMedia = popupHasMediaInput(popup);
     const layout = popup.layout ?? "image-top";
     return layout === "image-only"
@@ -2047,12 +2073,12 @@ function Home() {
     : [];
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
-      ? Boolean(decoration.text.trim())
+      ? Boolean(safeTrim(decoration.text))
       : decoration.type === "animated-sticker"
-        ? Boolean(decoration.asset.trim())
+        ? Boolean(safeTrim(decoration.asset))
       : decoration.type === "sticker"
-        ? Boolean(decoration.asset.trim())
-        : Boolean(decoration.symbol.trim() || decoration.effect);
+        ? Boolean(safeTrim(decoration.asset))
+        : Boolean(safeTrim(decoration.symbol) || decoration.effect);
   const previewDecorationItems = sceneIsVisibleInPlayback
     ? playing
       ? sceneDecorations.filter((decoration) => {
@@ -2071,11 +2097,11 @@ function Home() {
           const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
           const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
           return image.visible !== false
-            && Boolean(image.url.trim())
+            && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
             && sceneLocalTime <= end;
         })
-      : sceneImages.filter((image) => image.visible !== false && Boolean(image.url.trim()))
+      : sceneImages.filter((image) => image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
@@ -2085,7 +2111,7 @@ function Home() {
           Math.max(start + 0.1, Number(subtitle.end) || start + 0.1),
         );
         return subtitle.visible !== false
-          && subtitle.text.trim()
+          && safeTrim(subtitle.text)
           && sceneLocalTime >= start
           && sceneLocalTime < end;
       })
@@ -2612,7 +2638,7 @@ function Home() {
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
-    if (!playing || !backgroundMusic.trim()) return;
+    if (!playing || !safeTrim(backgroundMusic)) return;
     const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -3111,6 +3137,38 @@ function Home() {
     }));
   };
 
+  const textOverlayLabel = (overlay: TextOverlay, index: number) =>
+    safeTrim(overlay.name) || `Chữ ${index + 1}`;
+
+  const beginTextOverlayRename = (overlay: TextOverlay, index: number) => {
+    setSelectedTextOverlayId(overlay.id);
+    setRenamingTextOverlayId(overlay.id);
+    setRenamingTextOverlayName(textOverlayLabel(overlay, index));
+  };
+
+  const finishTextOverlayRename = () => {
+    if (!scene || !renamingTextOverlayId) return;
+    const target = (scene.textOverlays ?? []).find((overlay) => overlay.id === renamingTextOverlayId);
+    if (!target) return;
+    const targetIndex = (scene.textOverlays ?? []).findIndex((overlay) => overlay.id === target.id);
+    const nextName = safeTrim(renamingTextOverlayName) || textOverlayLabel(target, targetIndex);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          textOverlays: (item.textOverlays ?? []).map((overlay) => overlay.id === target.id
+            ? { ...overlay, name: nextName }
+            : overlay),
+        }
+      : item));
+    setRenamingTextOverlayId("");
+    setRenamingTextOverlayName("");
+  };
+
+  const cancelTextOverlayRename = () => {
+    setRenamingTextOverlayId("");
+    setRenamingTextOverlayName("");
+  };
+
   const updateCurrentScene = <K extends keyof Scene>(key: K, value: Scene[K]) => {
     if (!hydrated) return;
     setScenes((items) =>
@@ -3505,7 +3563,10 @@ function Home() {
     const currentOverlays = scene.textOverlays ?? [];
     const nextOverlay = defaultTextOverlay(
       `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
-      { y: Math.min(82, 18 + currentOverlays.length * 8) },
+      {
+        name: `Chữ ${currentOverlays.length + 1}`,
+        y: Math.min(82, 18 + currentOverlays.length * 8),
+      },
     );
     setScenes((items) => items.map((item) => {
       if (item.id !== scene.id) return item;
@@ -3584,7 +3645,7 @@ function Home() {
       form.append("text", narration);
       form.append("duration", String(targetDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
-      else form.append("audioUrl", scene.voiceFile.trim());
+      else form.append("audioUrl", safeTrim(scene.voiceFile));
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
         method: "POST",
         body: form,
@@ -3737,6 +3798,38 @@ function Home() {
     }));
   };
 
+  const mapDecorationLabel = (decoration: MapDecoration, index: number) =>
+    safeTrim(decoration.name) || `${mapDecorationTypeLabel(decoration.type)} ${index + 1}`;
+
+  const beginMapDecorationRename = (decoration: MapDecoration, index: number) => {
+    setSelectedDecorationId(decoration.id);
+    setRenamingDecorationId(decoration.id);
+    setRenamingDecorationName(mapDecorationLabel(decoration, index));
+  };
+
+  const finishMapDecorationRename = () => {
+    if (!scene || !renamingDecorationId) return;
+    const target = (scene.mapDecorations ?? []).find((decoration) => decoration.id === renamingDecorationId);
+    if (!target) return;
+    const targetIndex = (scene.mapDecorations ?? []).findIndex((decoration) => decoration.id === target.id);
+    const nextName = safeTrim(renamingDecorationName) || mapDecorationLabel(target, targetIndex);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          mapDecorations: (item.mapDecorations ?? []).map((decoration) => decoration.id === target.id
+            ? { ...decoration, name: nextName }
+            : decoration),
+        }
+      : item));
+    setRenamingDecorationId("");
+    setRenamingDecorationName("");
+  };
+
+  const cancelMapDecorationRename = () => {
+    setRenamingDecorationId("");
+    setRenamingDecorationName("");
+  };
+
   const toggleMapDecorationVisibility = (decorationId: string) => {
     if (!scene) return;
     setScenes((items) => items.map((item) => item.id === scene.id
@@ -3765,14 +3858,47 @@ function Home() {
   };
 
   const sceneImageLabel = (image: SceneImage, index: number) =>
-    image.url.trim() ? `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}` : `Hình ảnh ${index + 1}`;
+    safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`;
+
+  const beginSceneImageRename = (image: SceneImage, index: number) => {
+    setSelectedSceneImageId(image.id);
+    setRenamingSceneImageId(image.id);
+    setRenamingSceneImageName(sceneImageLabel(image, index));
+  };
+
+  const finishSceneImageRename = () => {
+    if (!scene || !renamingSceneImageId) return;
+    const target = (scene.sceneImages ?? []).find((image) => image.id === renamingSceneImageId);
+    if (!target) return;
+    const targetIndex = (scene.sceneImages ?? []).findIndex((image) => image.id === target.id);
+    const nextName = safeTrim(renamingSceneImageName) || sceneImageLabel(target, targetIndex);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === target.id
+            ? { ...image, name: nextName }
+            : image),
+        }
+      : item));
+    setRenamingSceneImageId("");
+    setRenamingSceneImageName("");
+  };
+
+  const cancelSceneImageRename = () => {
+    setRenamingSceneImageId("");
+    setRenamingSceneImageName("");
+  };
 
   const addSceneImage = () => {
     if (!scene) return;
     const currentImages = scene.sceneImages ?? [];
     const nextImage = defaultSceneImage(
       `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
-      { duration: Math.min(sceneDuration, 5), y: 50 + Math.min(18, currentImages.length * 5) },
+      {
+        name: `Hình ảnh ${currentImages.length + 1}`,
+        duration: Math.min(sceneDuration, 5),
+        y: 50 + Math.min(18, currentImages.length * 5),
+      },
     );
     setScenes((items) => items.map((item) => item.id === scene.id
       ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
@@ -3832,6 +3958,7 @@ function Home() {
     const copy = {
       ...image,
       id: `${scene.id}-image-${currentImages.length + 1}-${Date.now().toString(36)}`,
+      name: `${sceneImageLabel(image, imageIndex)} (bản sao)`,
       x: clampPercent(image.x + 4, image.x),
       y: clampPercent(image.y + 4, image.y),
     };
@@ -3912,8 +4039,8 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     setDraggingSceneImage(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(96, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
-      const nextHeight = Math.min(96, Math.max(4, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      const nextWidth = Math.min(96, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(96, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
@@ -3965,7 +4092,7 @@ function Home() {
     const currentPopups = scenePopupList(scene);
     const popupIndex = currentPopups.findIndex((popup) => popup.id === popupId);
     if (popupIndex < 0) return;
-    const popupLabel = currentPopups[popupIndex].title.trim() || `Popup ${popupIndex + 1}`;
+    const popupLabel = safeTrim(currentPopups[popupIndex].title) || `Popup ${popupIndex + 1}`;
     if (!window.confirm(`Xóa ${popupLabel}?`)) return;
     const remaining = currentPopups.filter((popup) => popup.id !== popupId);
     setScenes((items) => items.map((item) => {
@@ -4520,7 +4647,7 @@ function Home() {
 
   const exportPayload = useMemo(
     () => {
-      const renderBackground = previewBackground.trim() || background.trim();
+      const renderBackground = safeTrim(previewBackground) || safeTrim(background);
       return {
         title: projectTitle,
         duration: renderDuration,
@@ -4530,9 +4657,9 @@ function Home() {
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
-        ...(backgroundMusic.trim()
+        ...(safeTrim(backgroundMusic)
           ? {
-              backgroundMusic: backgroundMusic.trim(),
+              backgroundMusic: safeTrim(backgroundMusic),
               backgroundMusicVolume: Math.round(clampVolume(backgroundMusicVolume, 18)),
             }
           : {}),
@@ -4551,8 +4678,8 @@ function Home() {
             duration: popup.duration,
             imageVisible: imageEnabled && popup.imageVisible !== false,
             transparentMedia: popup.transparentMedia === true,
-            ...(imageEnabled && popup.image.trim() ? { image: assetReference(popup.image) } : {}),
-            ...(popup.video.trim() ? { video: assetReference(popup.video) } : {}),
+            ...(imageEnabled && safeTrim(popup.image) ? { image: assetReference(popup.image) } : {}),
+            ...(safeTrim(popup.video) ? { video: assetReference(popup.video) } : {}),
             in: popup.in,
             out: popup.out,
             width: popup.width,
@@ -4595,7 +4722,7 @@ function Home() {
             textOverlays: item.textOverlays.map((overlay) => ({ ...overlay })),
             mapDecorations: (item.mapDecorations ?? []).map((decoration) => ({
               ...decoration,
-              ...(["sticker", "animated-sticker"].includes(decoration.type) && decoration.asset.trim()
+              ...(["sticker", "animated-sticker"].includes(decoration.type) && safeTrim(decoration.asset)
                 ? { asset: assetReference(decoration.asset) }
                 : {}),
              })),
@@ -4632,7 +4759,7 @@ function Home() {
             popupLayout: firstPopup.layout,
             popupTheme: firstPopup.theme,
             popupTextEffect: firstPopup.textEffect,
-            ...(firstPopup.video.trim() ? { popupVideo: assetReference(firstPopup.video) } : {}),
+            ...(safeTrim(firstPopup.video) ? { popupVideo: assetReference(firstPopup.video) } : {}),
             popupX: firstPopup.x,
             popupY: firstPopup.y,
             popupVisible: firstPopup.visible,
@@ -4836,10 +4963,10 @@ function Home() {
     const addSourceCheck = (
       id: string,
       label: string,
-      value: string,
+      value: unknown,
       required: boolean,
     ) => {
-      const source = value.trim();
+      const source = safeTrim(value);
       if (!source) {
         checks.push({
           id,
@@ -4872,7 +4999,7 @@ function Home() {
       }
     };
 
-    const legacyBackground = previewBackground.trim() || background.trim();
+    const legacyBackground = safeTrim(previewBackground) || safeTrim(background);
     if (legacyBackground) {
       addSourceCheck(
         "legacy-background",
@@ -4881,7 +5008,7 @@ function Home() {
         false,
       );
     }
-    if (backgroundMusic.trim()) {
+    if (safeTrim(backgroundMusic)) {
       addSourceCheck("background-music", "Nhạc nền", backgroundMusic, true);
     } else {
       checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
@@ -4896,7 +5023,7 @@ function Home() {
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
       addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
       (item.mapDecorations ?? []).forEach((decoration, decorationIndex) => {
-        if (decoration.visible === false || !decoration.asset.trim()) return;
+        if (decoration.visible === false || !safeTrim(decoration.asset)) return;
         addSourceCheck(
           `scene-${item.id}-decoration-${decorationIndex + 1}`,
           `${mapDecorationTypeLabel(decoration.type)} cảnh ${item.number}`,
@@ -5021,7 +5148,7 @@ function Home() {
         `- Background cảnh: ${item.background ?? "map.png mặc định"}${item.background ? ` (tên file: ${fileNameOnly(item.background)})` : ""}.`,
         `- File thuyết minh: ${item.voiceFile ?? "Không có"}${item.voiceFile ? ` (tên file: ${fileNameOnly(item.voiceFile)})` : ""}, âm lượng ${item.voiceVolume}%.`,
         `- Lời thuyết minh: ${item.narration || "Không có"}.`,
-        `- Phụ đề: ${item.subtitleEnabled !== false && item.subtitles?.length ? item.subtitles.filter((subtitle) => subtitle.visible !== false && subtitle.text.trim()).map((subtitle) => `"${subtitle.text}" (${subtitle.start}s-${subtitle.end}s)`).join("; ") : "Không có"}.`,
+        `- Phụ đề: ${item.subtitleEnabled !== false && item.subtitles?.length ? item.subtitles.filter((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text)).map((subtitle) => `"${subtitle.text}" (${subtitle.start}s-${subtitle.end}s)`).join("; ") : "Không có"}.`,
         `- Nội dung popup: ${item.body || "Không có"}.`,
         `- Zoom bản đồ: ${item.zoomEnabled ? `bắt đầu sau ${item.zoomStart}s, đạt ${item.zoom}x trong ${item.zoomInDuration}s, kết thúc ở ${item.zoomEnd}s, zoom về trong ${item.zoomOutDuration}s, tâm X=${item.centerX}%, Y=${item.centerY}%` : "tắt"}.`,
         `- Popup: bắt đầu sau ${item.popupStart}s, hiển thị ${item.popupDuration}s, kích thước ${item.popupWidth}% × ${item.popupHeight}px, hiệu ứng mở "${item.popupIn}", hiệu ứng đóng "${item.popupOut}", trạng thái ${item.popupVisible ? "hiện" : "ẩn"}.`,
@@ -5672,7 +5799,7 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => overlay.text.trim() ? (
+            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
                 className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
@@ -5847,9 +5974,9 @@ function Home() {
                 ? assetPreviewSource(popup.image)
                 : "";
               const popupVideoSource = assetPreviewSource(popup.video);
-              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(popup.image.trim()))
-                || Boolean(popup.video.trim());
-              const popupHasText = Boolean(popup.title.trim() || popup.body.trim());
+              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
+                || Boolean(safeTrim(popup.video));
+              const popupHasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
               const popupLayout = popup.layout ?? "image-top";
               const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
               const popupShowText = popupLayout !== "image-only" && popupHasText;
@@ -5908,8 +6035,8 @@ function Home() {
                     </div>
                      )}
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
-                    {popup.title.trim() && <h3>{popup.title}</h3>}
-                    {popup.body.trim() && <p>{popup.body}</p>}
+                    {safeTrim(popup.title) && <h3>{popup.title}</h3>}
+                    {safeTrim(popup.body) && <p>{popup.body}</p>}
                    </div>}
                   {popup.id === activePopup?.id && (
                     <button
@@ -6110,9 +6237,40 @@ function Home() {
                     <div className="scene-image-list">
                       {sceneImages.map((image, index) => (
                         <div key={image.id} className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""}`}>
-                          <button type="button" className="scene-image-select" onClick={() => setSelectedSceneImageId(image.id)}>
-                            <span>{String(index + 1).padStart(2, "0")}</span>
-                            <strong>{sceneImageLabel(image, index)}</strong>
+                          {renamingSceneImageId === image.id ? (
+                            <div className="layer-name-editor">
+                              <input
+                                className="layer-name-input"
+                                type="text"
+                                value={renamingSceneImageName}
+                                autoFocus
+                                aria-label="Tên hình ảnh"
+                                onChange={(event) => setRenamingSceneImageName(event.target.value)}
+                                onBlur={finishSceneImageRename}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") finishSceneImageRename();
+                                  if (event.key === "Escape") cancelSceneImageRename();
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </div>
+                          ) : (
+                            <button type="button" className="scene-image-select" onClick={() => setSelectedSceneImageId(image.id)}>
+                              <span>{String(index + 1).padStart(2, "0")}</span>
+                              <strong>{sceneImageLabel(image, index)}</strong>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="scene-image-action scene-image-edit"
+                            title="Đổi tên"
+                            aria-label={`Đổi tên ${sceneImageLabel(image, index)}`}
+                            onClick={() => beginSceneImageRename(image, index)}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m4 16-.8 4.8L8 20l11-11a2.1 2.1 0 0 0-3-3L5 17" />
+                              <path d="m14 5 5 5" />
+                            </svg>
                           </button>
                           <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
                             {image.visible === false ? "○" : "◉"}
@@ -6151,11 +6309,11 @@ function Home() {
                       <div className="field-row">
                         <label className="field">
                           <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.width} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                         <label className="field">
                           <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="4" max="96" step="1" value={activeSceneImage.height} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">
@@ -6251,9 +6409,40 @@ function Home() {
                       <div className="text-overlay-list">
                         {sceneTextOverlays.map((overlay, index) => (
                           <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""}`}>
-                            <button type="button" className="text-overlay-select" onClick={() => setSelectedTextOverlayId(overlay.id)}>
-                              <span>{String(index + 1).padStart(2, "0")}</span>
-                              <strong>{overlay.text.trim() || `Chữ ${index + 1}`}</strong>
+                            {renamingTextOverlayId === overlay.id ? (
+                              <div className="layer-name-editor">
+                                <input
+                                  className="layer-name-input"
+                                  type="text"
+                                  value={renamingTextOverlayName}
+                                  autoFocus
+                                  aria-label="Tên chữ viết"
+                                  onChange={(event) => setRenamingTextOverlayName(event.target.value)}
+                                  onBlur={finishTextOverlayRename}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") finishTextOverlayRename();
+                                    if (event.key === "Escape") cancelTextOverlayRename();
+                                  }}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                              </div>
+                            ) : (
+                              <button type="button" className="text-overlay-select" onClick={() => setSelectedTextOverlayId(overlay.id)}>
+                                <span>{String(index + 1).padStart(2, "0")}</span>
+                                <strong>{textOverlayLabel(overlay, index)}</strong>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="text-overlay-edit"
+                              title="Đổi tên"
+                              aria-label={`Đổi tên ${textOverlayLabel(overlay, index)}`}
+                              onClick={() => beginTextOverlayRename(overlay, index)}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="m4 16-.8 4.8L8 20l11-11a2.1 2.1 0 0 0-3-3L5 17" />
+                                <path d="m14 5 5 5" />
+                              </svg>
                             </button>
                             <button
                               type="button"
@@ -6524,9 +6713,40 @@ function Home() {
                     <div className="map-decoration-list">
                       {sceneDecorations.map((decoration, index) => (
                         <div key={decoration.id} className={`map-decoration-item ${decoration.id === activeDecoration?.id ? "active" : ""} ${decoration.visible === false ? "is-hidden" : ""}`}>
-                          <button type="button" className="map-decoration-select" onClick={() => setSelectedDecorationId(decoration.id)}>
-                            <span>{String(index + 1).padStart(2, "0")}</span>
-                            <strong>{decoration.type === "text-3d" ? (decoration.text.trim() || "Chữ 3D") : mapDecorationTypeLabel(decoration.type)}</strong>
+                          {renamingDecorationId === decoration.id ? (
+                            <div className="layer-name-editor">
+                              <input
+                                className="layer-name-input"
+                                type="text"
+                                value={renamingDecorationName}
+                                autoFocus
+                                aria-label="Tên trang trí"
+                                onChange={(event) => setRenamingDecorationName(event.target.value)}
+                                onBlur={finishMapDecorationRename}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") finishMapDecorationRename();
+                                  if (event.key === "Escape") cancelMapDecorationRename();
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </div>
+                          ) : (
+                            <button type="button" className="map-decoration-select" onClick={() => setSelectedDecorationId(decoration.id)}>
+                              <span>{String(index + 1).padStart(2, "0")}</span>
+                              <strong>{mapDecorationLabel(decoration, index)}</strong>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="map-decoration-edit"
+                            title="Đổi tên"
+                            aria-label={`Đổi tên ${mapDecorationLabel(decoration, index)}`}
+                            onClick={() => beginMapDecorationRename(decoration, index)}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m4 16-.8 4.8L8 20l11-11a2.1 2.1 0 0 0-3-3L5 17" />
+                              <path d="m14 5 5 5" />
+                            </svg>
                           </button>
                           <button
                             type="button"
@@ -7798,7 +8018,7 @@ function Home() {
             <strong>Phụ đề</strong>
             <div className="track-content grid">
               {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
-                .filter(({ subtitle }) => subtitle.visible !== false && subtitle.text.trim())
+                .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
                 .map(({ item, subtitle }) => {
                   const sceneLength = Math.max(0.1, item.end - item.start);
                   const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
