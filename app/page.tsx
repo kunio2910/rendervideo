@@ -92,6 +92,8 @@ type SceneImage = {
   name: string;
   url: string;
   mediaType: "image" | "video";
+  spriteSheet: boolean;
+  spriteDelay: number;
   transparent: boolean;
   shape: SceneImageShape;
   x: number;
@@ -398,6 +400,13 @@ const initialScenes: Scene[] = [createEmptyScene()];
 
 const safeTrim = (value: unknown) => String(value ?? "").trim();
 
+const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ""));
+  reader.onerror = () => reject(reader.error ?? new Error("Không thể đọc file sprite"));
+  reader.readAsDataURL(file);
+});
+
 const formatTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 10) / 10);
   const minutes = Math.floor(rounded / 60);
@@ -427,8 +436,8 @@ const isVideoMedia = (value: unknown) => {
 
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
-  return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
-    || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
+  return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:png|apng|gif|webp|webm)/.test(normalized);
 };
 
 const assetReference = (value: unknown) => {
@@ -442,7 +451,7 @@ const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
-  status: "idle" | "checking" | "uploading" | "rendering" | "completed" | "failed";
+  status: "idle" | "checking" | "uploading" | "rendering" | "cancelling" | "completed" | "failed";
   progress: number;
   message: string;
   downloadUrl?: string;
@@ -707,6 +716,8 @@ const defaultSceneImage = (
   name: "Hình ảnh",
   url: "",
   mediaType: "image",
+  spriteSheet: false,
+  spriteDelay: 180,
   transparent: false,
   shape: "rectangle",
   x: 50,
@@ -741,14 +752,16 @@ const normalizeSceneImage = (
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
+    spriteSheet: raw.spriteSheet === true,
+    spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
       ? raw.transparent
       : raw.transparentMedia === true || isTransparentMedia(url),
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
-    width: Math.min(96, Math.max(1, positiveNumber(raw.width, base.width, 1))),
-    height: Math.min(96, Math.max(1, positiveNumber(raw.height, base.height, 1))),
+    width: Math.min(200, Math.max(1, positiveNumber(raw.width, base.width, 1))),
+    height: Math.min(200, Math.max(1, positiveNumber(raw.height, base.height, 1))),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
@@ -1341,6 +1354,253 @@ type SettingsWorkspaceProps = {
   saveLabel: string;
 };
 
+type ResourceSpriteNotice = {
+  status: "idle" | "processing" | "success" | "error";
+  message: string;
+};
+
+function SettingsResourcePanel() {
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [delay, setDelay] = useState(180);
+  const [delayInput, setDelayInput] = useState("180");
+  const [frameSize, setFrameSize] = useState(576);
+  const [assetUrl, setAssetUrl] = useState("");
+  const [frameCount, setFrameCount] = useState(0);
+  const [gridLabel, setGridLabel] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const [notice, setNotice] = useState<ResourceSpriteNotice>({ status: "idle", message: "" });
+
+  const updateSourceUrl = (value: string) => {
+    setSourceUrl(value);
+    setSourceFile(null);
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const updateSourceFile = (file: File | null) => {
+    setSourceFile(file);
+    if (file) setSourceUrl("");
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const updateDelayInput = (value: string) => {
+    const nextInput = value.replace(/[^0-9]/g, "");
+    setDelayInput(nextInput);
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (Number.isFinite(numeric)) setDelay(Math.min(1000, Math.max(60, Math.round(numeric))));
+  };
+
+  const commitDelayInput = () => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(delayInput) || 180)));
+    setDelay(nextDelay);
+    setDelayInput(String(nextDelay));
+    return nextDelay;
+  };
+
+  const convertResourceSprite = async () => {
+    const committedDelay = commitDelayInput();
+    const source = safeTrim(sourceUrl);
+    if (!source && !sourceFile) {
+      setNotice({ status: "error", message: "Hãy nhập URL hoặc chọn file sprite trước." });
+      return;
+    }
+    if (source && (!isRemoteUrl(source) || isVideoMedia(source))) {
+      setNotice({ status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setNotice({ status: "processing", message: "Đang chuyển tài nguyên thành hình động…" });
+    try {
+      const sourceData = sourceFile ? await fileToDataUrl(sourceFile) : "";
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(source ? { sourceUrl: source } : {}),
+          ...(sourceFile ? { sourceData, sourceName: sourceFile.name } : {}),
+          delay: committedDelay,
+          frameSize,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error(result?.reason || "Không phát hiện được sprite trong hình này.");
+      }
+      const convertedFrameCount = Number(result.frameCount) || 0;
+      const detectedGrid = Number(result.columns) > 0 && Number(result.rows) > 0
+        ? `${Number(result.columns)}×${Number(result.rows)}`
+        : "";
+      setAssetUrl(String(result.assetUrl));
+      setFrameCount(convertedFrameCount);
+      setGridLabel(detectedGrid);
+      setNotice({
+        status: "success",
+        message: `Đã chuyển thành WebP động${detectedGrid ? ` · tự nhận diện ${detectedGrid}` : ""}${convertedFrameCount ? ` (${convertedFrameCount} frame)` : ""}.`,
+      });
+    } catch (error) {
+      setAssetUrl("");
+      const message = error instanceof Error && error.message
+        ? `Chuyển tài nguyên thất bại: ${error.message}`
+        : "Chuyển tài nguyên thất bại.";
+      setNotice({ status: "error", message });
+    }
+  };
+
+  const clearResourceSprite = () => {
+    if (isProcessing) return;
+    setSourceUrl("");
+    setSourceFile(null);
+    setDelay(180);
+    setDelayInput("180");
+    setFrameSize(576);
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const downloadResourceSprite = async () => {
+    if (!assetUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const downloadAssetUrl = `${assetUrl}${assetUrl.includes("?") ? "&" : "?"}download=1`;
+      const response = await fetch(downloadAssetUrl);
+      if (!response.ok) throw new Error("Không thể tải file WebP về máy.");
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = "kito-sprite-animation.webp";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      setNotice({ status: "success", message: "Đã tải hình động WebP về máy." });
+    } catch (error) {
+      setNotice({
+        status: "error",
+        message: error instanceof Error ? error.message : "Không thể tải file WebP về máy.",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const isProcessing = notice.status === "processing";
+
+  return (
+    <section className="settings-card settings-resource-card" aria-labelledby="settings-resource-heading">
+      <div className="settings-resource-heading">
+        <div>
+          <span className="settings-section-label">CÔNG CỤ TÀI NGUYÊN</span>
+          <h3 id="settings-resource-heading">Tài Nguyên</h3>
+          <p>Chuyển sprite sheet thành WebP động trong suốt để dùng lại khi biên soạn video.</p>
+        </div>
+        <span className="settings-resource-badge">WEBP</span>
+      </div>
+
+      <div className="settings-resource-form">
+        <label className="field settings-resource-url-field">
+          <span>URL hình ảnh</span>
+          <input
+            type="url"
+            inputMode="url"
+            value={sourceUrl}
+            placeholder="https://.../sprite.png"
+            disabled={isProcessing}
+            onChange={(event) => updateSourceUrl(event.target.value)}
+          />
+        </label>
+        <label className="field settings-resource-file-field">
+          <span>Hoặc chọn file sprite từ máy</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/apng"
+            disabled={isProcessing}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              if (file && (file.type.startsWith("video/") || !file.type.startsWith("image/"))) {
+                setNotice({ status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+                event.currentTarget.value = "";
+                return;
+              }
+              updateSourceFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          <small>{sourceFile ? `Đã chọn: ${sourceFile.name}` : "Dùng trực tiếp ảnh sprite sheet 6×5 của bạn, không cần tạo URL."}</small>
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span>Tốc độ (ms/frame)</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="60"
+                max="1000"
+                step="1"
+                value={delayInput}
+                disabled={isProcessing}
+                onChange={(event) => updateDelayInput(event.target.value)}
+                onBlur={commitDelayInput}
+              />
+              <b>ms</b>
+            </div>
+            <small>Giá trị càng lớn thì chuyển động càng chậm.</small>
+          </label>
+          <label className="field">
+            <span>Kích thước frame</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="128"
+                max="1024"
+                step="16"
+                value={frameSize}
+                disabled={isProcessing}
+                onChange={(event) => setFrameSize(Math.min(1024, Math.max(128, Number(event.target.value) || 576)))}
+              />
+              <b>px</b>
+            </div>
+          </label>
+        </div>
+        <div className="settings-resource-actions">
+          <button type="button" className="button primary" onClick={() => void convertResourceSprite()} disabled={isProcessing}>
+            {isProcessing ? "Đang chuyển thành hình động…" : assetUrl ? "Chuyển lại hình động" : "Chuyển sang hình động"}
+          </button>
+          {assetUrl && (
+            <button type="button" className="button ghost" onClick={() => void downloadResourceSprite()} disabled={downloading}>
+              {downloading ? "Đang tải…" : "Download WebP"}
+            </button>
+          )}
+          <button type="button" className="button ghost" onClick={clearResourceSprite} disabled={isProcessing}>
+            Clear
+          </button>
+        </div>
+        {notice.message && <small className={`settings-resource-notice ${notice.status}`}>{notice.message}</small>}
+      </div>
+
+      {assetUrl && (
+        <div className="settings-resource-result">
+          <div className="settings-resource-result-heading">
+            <strong>Hình động đã tạo</strong>
+            <span>{`${gridLabel ? `${gridLabel} · ` : ""}${frameCount ? `${frameCount} frame · ` : ""}${frameSize}px · ${delay}ms`}</span>
+          </div>
+          <div className="settings-resource-preview">
+            <img src={assetUrl} alt="Xem trước hình động WebP" />
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SettingsWorkspace({
   projectItems,
   activeProjectId,
@@ -1726,6 +1986,7 @@ function SettingsWorkspace({
                   <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
                 </div>
             </div>
+            <SettingsResourcePanel />
           </div>
         </div>
       </section>
@@ -1796,6 +2057,13 @@ function Home() {
   }>({ status: "idle", sceneId: "", message: "" });
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
+  const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
+    imageId: string;
+    status: "idle" | "processing" | "success" | "error";
+    message: string;
+  }>({ imageId: "", status: "idle", message: "" });
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -1838,6 +2106,7 @@ function Home() {
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
+  const localRenderJobId = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1968,6 +2237,9 @@ function Home() {
     ?? sceneDecorations[0];
   const activeSceneImage = sceneImages.find((item) => item.id === selectedSceneImageId)
     ?? sceneImages[0];
+  const activeSceneImageSpriteDelayInput = activeSceneImage
+    ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
+    : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
@@ -3922,10 +4194,160 @@ function Home() {
   };
 
   const updateSceneImageUrl = (url: string) => {
+    const imageId = activeSceneImage?.id;
+    if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => {
+        if (!(imageId in items)) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
+    }
     updateSceneImage("url", url);
     updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("spriteSheet", false);
     updateSceneImage("transparent", isTransparentMedia(url));
   };
+
+  const updateSceneImageSpriteDelay = (value: string) => {
+    const imageId = activeSceneImage?.id;
+    const nextInput = value.replace(/[^0-9]/g, "");
+    if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => ({ ...items, [imageId]: nextInput }));
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
+    }
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (!Number.isFinite(numeric)) return;
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(numeric)));
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+  };
+
+  const commitSceneImageSpriteDelay = (imageId: string, value: string) => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(value) || 180)));
+    setSceneImageSpriteDelayDrafts((items) => {
+      const next = { ...items };
+      delete next[imageId];
+      return next;
+    });
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+    return nextDelay;
+  };
+
+  const prepareSceneImageSprite = async (
+    imageId: string,
+    url: string,
+    explicit = false,
+    requestedDelay = 180,
+    sourceFile: File | null = null,
+  ) => {
+    if (!explicit) return;
+    const sourceUrl = safeTrim(url);
+    const delay = Math.min(1000, Math.max(60, Math.round(Number(requestedDelay) || 180)));
+    if (!scene || !imageId) return;
+    if (!sourceUrl && !sourceFile) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Hãy nhập URL hoặc chọn file sprite trước." });
+      return;
+    }
+    if (sourceFile && (sourceFile.type.startsWith("video/") || !sourceFile.type.startsWith("image/"))) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+      return;
+    }
+    if (!sourceFile && (!isRemoteUrl(sourceUrl) || isVideoMedia(sourceUrl))) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setSceneImageSpriteNotice({ imageId, status: "processing", message: "Đang chuyển sprite thành hình động…" });
+    setToast("Đang chuyển sprite thành hình động…");
+    try {
+      const sourceData = sourceFile ? await fileToDataUrl(sourceFile) : "";
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(sourceUrl ? { sourceUrl } : {}),
+          ...(sourceFile ? { sourceData, sourceName: sourceFile.name } : {}),
+          delay,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error("Không phát hiện được sprite trong hình này.");
+      }
+      setSceneImageSpritePreviewUrls((items) => ({ ...items, [imageId]: result.assetUrl }));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+              ? { ...image, spriteSheet: true, spriteDelay: Number(result.delay) || delay, transparent: true }
+              : image),
+          }
+        : item));
+      const detectedGrid = Number(result.columns) > 0 && Number(result.rows) > 0
+        ? ` · ${Number(result.columns)}×${Number(result.rows)}`
+        : "";
+      const frameMessage = Number(result.frameCount) > 0
+        ? ` (${result.frameCount} frame${detectedGrid}${` · ${Number(result.delay) || delay}ms`})`
+        : ` (${detectedGrid.replace(/^ · /, "")}${detectedGrid ? " · " : ""}${Number(result.delay) || delay}ms)`;
+      setSceneImageSpriteNotice({ imageId, status: "success", message: `Đã chuyển thành hình động${frameMessage}.` });
+      setToast(`Đã chuyển sprite thành hình động${frameMessage}`);
+      window.setTimeout(() => setToast(""), 3000);
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? `Chuyển sprite thành hình động thất bại: ${error.message}`
+        : "Chuyển sprite thành hình động thất bại.";
+      setSceneImageSpriteNotice({ imageId, status: "error", message });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+    }
+  };
+
+  const handleSceneImageSpriteFile = async (file: File | null) => {
+    if (!file || !scene || !activeSceneImage) return;
+    if (file.type.startsWith("video/") || !file.type.startsWith("image/")) {
+      setSceneImageSpriteNotice({ imageId: activeSceneImage.id, status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+      return;
+    }
+    const imageId = activeSceneImage.id;
+    const delay = commitSceneImageSpriteDelay(imageId, activeSceneImageSpriteDelayInput);
+    await addAssetsToLibrary([file]);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, url: file.name, mediaType: "image", spriteSheet: false, transparent: true }
+            : image),
+        }
+      : item));
+    await prepareSceneImageSprite(imageId, file.name, true, delay, file);
+  };
+
+  useEffect(() => {
+    const imageId = activeSceneImage?.id;
+    const imageUrl = activeSceneImage?.url;
+    if (!hydrated || !activeSceneImage?.spriteSheet || !imageId || !imageUrl) return;
+    const localSpriteFile = localRenderFiles.find((file) => file.name === imageUrl) ?? null;
+    void prepareSceneImageSprite(imageId, imageUrl, true, activeSceneImage?.spriteDelay, localSpriteFile);
+    // Restore an explicitly converted sprite when switching layers. New URLs
+    // are never processed until the user clicks the conversion button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, activeSceneImage?.id]);
 
   const toggleSceneImageVisibility = (imageId: string) => {
     if (!scene) return;
@@ -4039,8 +4461,8 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     setDraggingSceneImage(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(96, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
-      const nextHeight = Math.min(96, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      const nextWidth = Math.min(200, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(200, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
@@ -4729,6 +5151,8 @@ function Home() {
              sceneImages: (item.sceneImages ?? []).map((image) => ({
               ...image,
               url: assetReference(image.url),
+              spriteSheet: image.spriteSheet === true,
+              spriteDelay: image.spriteDelay,
               transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
@@ -5095,6 +5519,7 @@ function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không thể bắt đầu render");
       const jobId = String(result.jobId);
+      localRenderJobId.current = jobId;
       for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}`);
@@ -5107,10 +5532,29 @@ function Home() {
             message: "Render hoàn tất. Video đã sẵn sàng để tải xuống.",
             downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
           });
+          localRenderJobId.current = "";
+          return;
+        }
+        if (status.status === "cancelled") {
+          localRenderJobId.current = "";
+          setLocalRenderState({
+            status: "idle",
+            progress: 0,
+            message: "Đã dừng render. Sẵn sàng render lại.",
+          });
           return;
         }
         if (status.status === "failed") {
+          localRenderJobId.current = "";
           throw Object.assign(new Error(status.message || "Render thất bại"), { log: status.log });
+        }
+        if (status.status === "cancelling") {
+          setLocalRenderState({
+            status: "cancelling",
+            progress: Number(status.progress) || 0,
+            message: status.message || "Đang dừng render…",
+          });
+          continue;
         }
         setLocalRenderState({
           status: "rendering",
@@ -5119,12 +5563,34 @@ function Home() {
         });
       }
     } catch (error) {
+      localRenderJobId.current = "";
       setLocalRenderState({
         status: "failed",
         progress: 0,
         message: error instanceof Error ? error.message : "Không thể render video",
         log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
       });
+    }
+  };
+
+  const stopLocalRender = async () => {
+    const jobId = localRenderJobId.current;
+    if (!jobId || !["rendering", "cancelling"].includes(localRenderState.status)) return;
+    setLocalRenderState((state) => ({
+      ...state,
+      status: "cancelling",
+      message: "Đang dừng render…",
+    }));
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}/cancel`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Không thể dừng render");
+    } catch (error) {
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "rendering",
+        message: error instanceof Error ? error.message : "Không thể dừng render",
+      }));
     }
   };
 
@@ -5227,6 +5693,7 @@ function Home() {
     checking: "Đang kiểm tra",
     uploading: "Đang tải tài nguyên",
     rendering: "Đang render",
+    cancelling: "Đang dừng",
     completed: "Hoàn tất",
     failed: "Lỗi",
   }[localRenderState.status];
@@ -5827,8 +6294,9 @@ function Home() {
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
-              const imageSource = assetPreviewSource(image.url);
+              const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
               const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+              const imageIsTransparent = image.transparent || Boolean(sceneImageSpritePreviewUrls[image.id]);
               const squareSize = Math.min(image.width, image.height);
               const width = image.shape === "square" ? squareSize : image.width;
               const height = image.shape === "square" ? squareSize : image.height;
@@ -5836,7 +6304,7 @@ function Home() {
                 <div
                   key={image.id}
                   data-scene-image-id={image.id}
-                  className={`scene-image-overlay scene-image-shape-${image.shape} ${image.transparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
+                  className={`scene-image-overlay scene-image-shape-${image.shape} ${imageIsTransparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
                   style={{
                     left: `${image.x}%`,
                     top: `${image.y}%`,
@@ -6285,6 +6753,59 @@ function Home() {
                   )}
                   {activeSceneImage && (
                     <div className="scene-image-controls">
+                      <div className="scene-image-sprite-action-row">
+                        <label className="field scene-image-sprite-speed-field">
+                          <span>Tốc độ chuyển động (ms/frame)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="60"
+                              max="1000"
+                              step="10"
+                              value={activeSceneImageSpriteDelayInput}
+                              disabled={sceneImageSpriteNotice.status === "processing"}
+                              onChange={(event) => updateSceneImageSpriteDelay(event.target.value)}
+                              onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)}
+                            />
+                            <b>ms</b>
+                          </div>
+                          <small>Giá trị lớn hơn sẽ làm chuyển động chậm hơn.</small>
+                        </label>
+                        <button
+                          type="button"
+                          className="button ghost scene-image-sprite-button"
+                          disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
+                          onClick={() => {
+                            const delay = commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput);
+                            void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, delay);
+                          }}
+                        >
+                          {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
+                            ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
+                            : activeSceneImage.spriteSheet
+                              ? "Chuy\u1ec3n l\u1ea1i h\u00ecnh \u0111\u1ed9ng"
+                              : "Chuy\u1ec3n sprite th\u00e0nh h\u00ecnh \u0111\u1ed9ng"}
+                        </button>
+                        {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.message && (
+                          <small className={`scene-image-sprite-notice ${sceneImageSpriteNotice.status}`}>
+                            {sceneImageSpriteNotice.message}
+                          </small>
+                        )}
+                      </div>
+                      <label className="field scene-image-sprite-file-field">
+                        <span>Hoặc chọn file sprite từ máy</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/apng"
+                          disabled={sceneImageSpriteNotice.status === "processing"}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0] ?? null;
+                            void handleSceneImageSpriteFile(file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                        <small>Ảnh sẽ được tự nhận diện lưới cột × hàng và tự thêm vào tài nguyên render.</small>
+                      </label>
                       <label className="field">
                         <span>URL hình ảnh hoặc video</span>
                         <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
@@ -6309,11 +6830,11 @@ function Home() {
                       <div className="field-row">
                         <label className="field">
                           <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                         <label className="field">
                           <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">
@@ -8457,13 +8978,22 @@ function Home() {
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
                   ↓ Tải video MP4
                 </a>
+              ) : localRenderState.status === "rendering" || localRenderState.status === "cancelling" ? (
+                <button
+                  className="button settings-danger-button"
+                  type="button"
+                  disabled={localRenderState.status === "cancelling"}
+                  onClick={() => void stopLocalRender()}
+                >
+                  {localRenderState.status === "cancelling" ? "Đang dừng…" : "Dừng render"}
+                </button>
               ) : (
                 <button
                   className="button primary"
-                  disabled={localRenderState.status === "uploading" || localRenderState.status === "rendering"}
+                  disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling"}
                   onClick={() => void startLocalRender()}
                 >
-                  {localRenderState.status === "rendering" ? "Đang render…" : "Bắt đầu render"}
+                  {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Bắt đầu render"}
                 </button>
               )}
             </div>

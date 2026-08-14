@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import sharp from "sharp";
+import { processSpriteSheetBuffer } from "../scripts/sprite-sheet.mjs";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -89,8 +91,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /layer-name-input/);
   assert.match(css, /Compose layer lists need their labels to remain legible/);
   assert.match(css, /scene-image-select strong/);
-  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.width\}/);
-  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.height\}/);
+  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.width\}/);
+  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.height\}/);
   assert.match(page, /event\.currentTarget\.select\(\)/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
@@ -307,7 +309,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /createTextOverlay/);
   assert.match(renderer, /createSubtitleOverlay/);
-  assert.match(renderer, /requestedWidth = clamp\(Number\(image\?\.width \?\? 42\) \/ 100, 0\.01, 0\.96\)/);
+  assert.match(renderer, /requestedWidth = clamp\(Number\(image\?\.width \?\? 42\) \/ 100, 0\.01, 2\)/);
   assert.match(renderer, /subtitleStyle\.boxWidth/);
   assert.match(renderer, /const borderSvg = borderWidth > 0/);
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
@@ -337,4 +339,41 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(localServer, /--use-system-ca/);
   assert.match(localServer, /\/api\/align-subtitles/);
   assert.match(localServer, /alignSubtitles/);
+  assert.match(page, /fileToDataUrl/);
+  assert.match(page, /sourceData/);
+  assert.match(page, /tự nhận diện/);
+  assert.match(localServer, /alpha-v5-auto-grid-local-file/);
+  assert.match(localServer, /sourceData/);
+  assert.match(renderer, /processSpriteSheetBuffer/);
+});
+
+test("auto-detects a solid-background sprite sheet grid", async () => {
+  const columns = 6;
+  const rows = 5;
+  const cellSize = 64;
+  const width = columns * cellSize;
+  const height = rows * cellSize;
+  const raw = Buffer.alloc(width * height * 4);
+  for (let index = 3; index < raw.length; index += 4) raw[index] = 255;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      for (let y = 10; y < 54; y += 1) {
+        for (let x = 10; x < 54; x += 1) {
+          const index = ((row * cellSize + y) * width + column * cellSize + x) * 4;
+          raw[index] = 180 + column * 10;
+          raw[index + 1] = 60 + row * 20;
+          raw[index + 2] = 40;
+        }
+      }
+    }
+  }
+  const result = await processSpriteSheetBuffer(
+    await sharp(raw, { raw: { width, height, channels: 4 } }).png().toBuffer(),
+    { frameSize: 128, delay: 60 },
+  );
+  assert.equal(result.detected, true);
+  assert.equal(result.columns, columns);
+  assert.equal(result.rows, rows);
+  assert.equal(result.frameCount, columns * rows);
+  assert.equal(result.mode, "regular-grid");
 });
