@@ -6851,3 +6851,402 @@ body {
     height: min(48vw, calc(100vh - 190px), 520px) !important;
   }
 }
+
+/* Dark theme action controls: keep compact edit buttons readable at a glance. */
+.studio-shell[data-theme="dark"] {
+  --dark-action-bg: #1b3046;
+  --dark-action-border: #557b9e;
+  --dark-action-ink: #e8f4ff;
+  --dark-action-hover-bg: #2b5273;
+  --dark-danger-bg: #40232c;
+  --dark-danger-border: #a85c60;
+  --dark-danger-ink: #ffb5aa;
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action,
+.studio-shell[data-theme="dark"] .scene-icon-button,
+.studio-shell[data-theme="dark"] .scene-edit-actions button,
+.studio-shell[data-theme="dark"] .scene-image-action,
+.studio-shell[data-theme="dark"] .text-overlay-edit,
+.studio-shell[data-theme="dark"] .text-overlay-visibility,
+.studio-shell[data-theme="dark"] .text-overlay-delete,
+.studio-shell[data-theme="dark"] .map-decoration-edit,
+.studio-shell[data-theme="dark"] .map-decoration-visibility,
+.studio-shell[data-theme="dark"] .map-decoration-delete,
+.studio-shell[data-theme="dark"] .popup-visibility-button,
+.studio-shell[data-theme="dark"] .popup-delete-button,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button,
+.studio-shell[data-theme="dark"] .subtitle-delete-button {
+  border: 1px solid var(--dark-action-border) !important;
+  background: var(--dark-action-bg) !important;
+  color: var(--dark-action-ink) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .editor-section-action:focus-visible,
+.studio-shell[data-theme="dark"] .scene-icon-button:hover,
+.studio-shell[data-theme="dark"] .scene-icon-button:focus-visible,
+.studio-shell[data-theme="dark"] .scene-edit-actions button:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .scene-edit-actions button:focus-visible,
+.studio-shell[data-theme="dark"] .scene-image-action:hover,
+.studio-shell[data-theme="dark"] .scene-image-action:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-edit:hover,
+.studio-shell[data-theme="dark"] .text-overlay-edit:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-visibility:hover,
+.studio-shell[data-theme="dark"] .text-overlay-visibility:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-edit:hover,
+.studio-shell[data-theme="dark"] .map-decoration-edit:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-visibility:hover,
+.studio-shell[data-theme="dark"] .map-decoration-visibility:focus-visible,
+.studio-shell[data-theme="dark"] .popup-visibility-button:hover,
+.studio-shell[data-theme="dark"] .popup-visibility-button:focus-visible,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button:hover,
+.studio-shell[data-theme="dark"] .subtitle-visibility-button:focus-visible {
+  border-color: #8ecbff !important;
+  background: var(--dark-action-hover-bg) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(111, 190, 255, .2), 0 4px 12px rgba(0, 0, 0, .28);
+}
+
+.studio-shell[data-theme="dark"] .editor-section-action:disabled {
+  border-color: #3d566e !important;
+  background: #172535 !important;
+  color: #8da7bf !important;
+  opacity: 1;
+}
+
+.studio-shell[data-theme="dark"] .scene-delete-icon,
+.studio-shell[data-theme="dark"] .scene-image-action.danger,
+.studio-shell[data-theme="dark"] .text-overlay-delete,
+.studio-shell[data-theme="dark"] .map-decoration-delete,
+.studio-shell[data-theme="dark"] .popup-delete-button,
+.studio-shell[data-theme="dark"] .subtitle-delete-button,
+.studio-shell[data-theme="dark"] .settings-danger-button {
+  border-color: var(--dark-danger-border) !important;
+  background: var(--dark-danger-bg) !important;
+  color: var(--dark-danger-ink) !important;
+}
+
+.studio-shell[data-theme="dark"] .scene-delete-icon:hover,
+.studio-shell[data-theme="dark"] .scene-delete-icon:focus-visible,
+.studio-shell[data-theme="dark"] .scene-image-action.danger:hover,
+.studio-shell[data-theme="dark"] .scene-image-action.danger:focus-visible,
+.studio-shell[data-theme="dark"] .text-overlay-delete:hover,
+.studio-shell[data-theme="dark"] .text-overlay-delete:focus-visible,
+.studio-shell[data-theme="dark"] .map-decoration-delete:hover,
+.studio-shell[data-theme="dark"] .map-decoration-delete:focus-visible,
+.studio-shell[data-theme="dark"] .popup-delete-button:hover,
+.studio-shell[data-theme="dark"] .popup-delete-button:focus-visible,
+.studio-shell[data-theme="dark"] .subtitle-delete-button:hover,
+.studio-shell[data-theme="dark"] .subtitle-delete-button:focus-visible,
+.studio-shell[data-theme="dark"] .settings-danger-button:hover {
+  border-color: #ff9a90 !important;
+  background: #63313b !important;
+  color: #fff4f1 !important;
+  box-shadow: 0 0 0 2px rgba(255, 133, 125, .2), 0 4px 12px rgba(0, 0, 0, .28);
+}
+
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost {
+  border-color: var(--dark-action-border) !important;
+  background: var(--dark-action-bg) !important;
+  color: var(--dark-action-ink) !important;
+}
+
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost:hover,
+.studio-shell[data-theme="dark"] .settings-action-buttons .button.ghost:focus-visible {
+  border-color: #8ecbff !important;
+  background: var(--dark-action-hover-bg) !important;
+  color: #ffffff !important;
+}
+
+/* Compose layer lists need their labels to remain legible on the dark panel. */
+.studio-shell[data-theme="dark"] .scene-image-manager,
+.studio-shell[data-theme="dark"] .text-overlay-manager,
+.studio-shell[data-theme="dark"] .map-decoration-manager {
+  color: #edf5ff;
+}
+
+.studio-shell[data-theme="dark"] .scene-image-manager > small,
+.studio-shell[data-theme="dark"] .scene-image-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .text-overlay-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .map-decoration-manager .text-overlay-list-heading > span,
+.studio-shell[data-theme="dark"] .scene-image-select span,
+.studio-shell[data-theme="dark"] .text-overlay-select span,
+.studio-shell[data-theme="dark"] .map-decoration-select span,
+.studio-shell[data-theme="dark"] .scene-image-manager .text-overlay-empty,
+.studio-shell[data-theme="dark"] .text-overlay-manager .text-overlay-empty,
+.studio-shell[data-theme="dark"] .map-decoration-manager .text-overlay-empty {
+  color: #a9bfd4 !important;
+}
+
+.studio-shell[data-theme="dark"] .scene-image-select strong,
+.studio-shell[data-theme="dark"] .text-overlay-select strong,
+.studio-shell[data-theme="dark"] .map-decoration-select strong {
+  color: #f3f8ff !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .35);
+}
+
+.studio-shell[data-theme="dark"] .layer-name-input {
+  border-color: #76b8ec;
+  background: #122235;
+  color: #f5f9ff;
+}
+
+/* Mobile compose workspace: preserve the three-column editor and allow the
+   workspace itself to scroll horizontally without changing desktop layout. */
+@media (max-width: 760px) {
+  html,
+  body {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 100dvh;
+    padding-bottom: 0;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-layout {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 100dvh;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    width: 68px;
+    min-width: 68px;
+    height: 100dvh;
+    min-height: 100dvh;
+    flex: 0 0 68px;
+    padding: max(10px, env(safe-area-inset-top)) 8px 12px;
+    flex-direction: column;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail .rail-mark {
+    margin: 0 0 18px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail .rail-item {
+    width: 52px;
+    min-height: 58px;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-main {
+    width: calc(100vw - 68px);
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    display: block;
+    width: 100%;
+    min-height: 92px;
+    height: auto;
+    padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+    background: var(--topbar-bg);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand {
+    width: calc(100% - 82px);
+    min-width: 0;
+    padding: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand h1 {
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand p {
+    overflow: hidden;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    margin-top: 8px;
+    padding: 2px 0 1px;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions > * {
+    width: auto;
+    max-width: none;
+    flex: 0 0 auto;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .project-picker {
+    display: flex !important;
+    min-width: 175px;
+    max-width: 220px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .project-picker select {
+    min-width: 0;
+    max-width: 160px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .save-button {
+    position: absolute;
+    top: max(8px, env(safe-area-inset-top));
+    right: 10px;
+    z-index: 2;
+    display: inline-flex !important;
+    min-height: 34px;
+    padding-inline: 10px;
+    font-size: 11px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .save-state {
+    display: inline-flex;
+    min-height: 34px;
+    padding-inline: 8px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    display: grid;
+    grid-template-columns: 320px 520px 480px;
+    width: 100%;
+    min-width: 0;
+    height: 830px;
+    min-height: 830px;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    scrollbar-width: thin;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel,
+  .studio-shell[data-studio-tab="compose"] .preview-panel,
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    width: auto;
+    min-width: 0;
+    border-right: 1px solid var(--studio-line);
+    border-bottom: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel {
+    order: initial;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-panel {
+    order: initial;
+    padding-inline: 20px;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    order: initial;
+    padding-right: 12px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar {
+    grid-template-columns: minmax(0, 1fr) 126px 32px 32px;
+    gap: 7px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-aspect-switcher {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .time-pill {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: stretch;
+    min-width: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-ruler-control {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-fullscreen-toggle {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-play-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    min-height: 36px !important;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-navigation {
+    width: min(100%, 480px);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel {
+    position: relative;
+    z-index: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: 245px;
+    min-height: 245px;
+    margin: 0;
+    padding: 13px 10px calc(9px + env(safe-area-inset-bottom));
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel .timeline-heading {
+    position: sticky;
+    left: 0;
+    width: calc(100vw - 88px);
+    min-width: 260px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel .timeline {
+    min-width: 720px;
+  }
+}
