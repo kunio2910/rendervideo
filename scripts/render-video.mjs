@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
 if (!jsonPath || !outputPath) {
@@ -604,6 +605,39 @@ const createSceneImage = async (image, index) => {
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
+  let spriteSheet = { detected: false };
+  try {
+    spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source));
+  } catch {
+    // Unsupported or malformed images continue through the existing static
+    // image path instead of changing the behaviour of regular media.
+  }
+  if (spriteSheet.detected) {
+    const spritePath = path.join(renderDir, `scene-image-${index + 1}-sprite.webp`);
+    await fs.writeFile(spritePath, spriteSheet.buffer);
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
+    return {
+      path: spritePath,
+      animated: true,
+      spriteSheet: true,
+      maskPath,
+      borderPath,
+      width,
+      height,
+    };
+  }
   const resized = await sharp(source)
     .resize(width, height, { fit: "cover" })
     .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
@@ -985,7 +1019,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
       const hasImageBorder = Boolean(imageRender.borderPath);
-      const imageFit = image.transparent === true ? "contain" : "cover";
+      const imageFit = image.transparent === true || imageRender.spriteSheet === true ? "contain" : "cover";
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.

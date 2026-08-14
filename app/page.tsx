@@ -1796,6 +1796,7 @@ function Home() {
   }>({ status: "idle", sceneId: "", message: "" });
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -3922,9 +3923,45 @@ function Home() {
   };
 
   const updateSceneImageUrl = (url: string) => {
+    const imageId = activeSceneImage?.id;
+    if (imageId) {
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+    }
     updateSceneImage("url", url);
     updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
     updateSceneImage("transparent", isTransparentMedia(url));
+  };
+
+  const prepareSceneImageSprite = async (imageId: string, url: string) => {
+    const sourceUrl = safeTrim(url);
+    if (!scene || !imageId || !isRemoteUrl(sourceUrl) || isVideoMedia(sourceUrl)) return;
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return;
+      if (!result?.processed || !result.assetUrl) return;
+      setSceneImageSpritePreviewUrls((items) => ({ ...items, [imageId]: result.assetUrl }));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+              ? { ...image, transparent: true }
+              : image),
+          }
+        : item));
+    } catch {
+      // The editor remains usable with the original URL when the local
+      // renderer is not running; rendering will retry the conversion later.
+    }
   };
 
   const toggleSceneImageVisibility = (imageId: string) => {
@@ -5827,8 +5864,9 @@ function Home() {
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
-              const imageSource = assetPreviewSource(image.url);
+              const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
               const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+              const imageIsTransparent = image.transparent || Boolean(sceneImageSpritePreviewUrls[image.id]);
               const squareSize = Math.min(image.width, image.height);
               const width = image.shape === "square" ? squareSize : image.width;
               const height = image.shape === "square" ? squareSize : image.height;
@@ -5836,7 +5874,7 @@ function Home() {
                 <div
                   key={image.id}
                   data-scene-image-id={image.id}
-                  className={`scene-image-overlay scene-image-shape-${image.shape} ${image.transparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
+                  className={`scene-image-overlay scene-image-shape-${image.shape} ${imageIsTransparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
                   style={{
                     left: `${image.x}%`,
                     top: `${image.y}%`,
@@ -6287,7 +6325,7 @@ function Home() {
                     <div className="scene-image-controls">
                       <label className="field">
                         <span>URL hình ảnh hoặc video</span>
-                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} onBlur={(event) => void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value)} />
                       </label>
                       <label className="popup-transparent-toggle">
                         <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
