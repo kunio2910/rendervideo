@@ -429,8 +429,8 @@ const isVideoMedia = (value: unknown) => {
 
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
-  return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
-    || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
+  return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:png|apng|gif|webp|webm)/.test(normalized);
 };
 
 const assetReference = (value: unknown) => {

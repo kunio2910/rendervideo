@@ -202,28 +202,63 @@ const run = (command, args) =>
 
 const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
 
-const writeSpriteFrameSequence = async (frames, frameSize, delay, index) => {
-  const framesRoot = path.join(renderDir, `scene-image-${index + 1}-frames`);
+const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, sequenceName) => {
+  if (!frames.length) throw new Error("Sprite không có frame để render");
+  const framesRoot = path.join(renderDir, sequenceName);
   await fs.mkdir(framesRoot, { recursive: true });
   const framePaths = [];
   for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
     const framePath = path.join(framesRoot, `frame-${String(frameIndex + 1).padStart(3, "0")}.png`);
     await sharp(frames[frameIndex], {
-      raw: { width: frameSize, height: frameSize, channels: 4 },
+      raw: { width: frameWidth, height: frameHeight, channels: 4 },
     }).png().toFile(framePath);
     framePaths.push(framePath);
   }
-  const duration = (Math.max(60, Number(delay) || 180) / 1000).toFixed(3);
-  const concatPath = path.join(renderDir, `scene-image-${index + 1}-frames.txt`);
-  const entries = framePaths.flatMap((framePath) => [
+  const concatPath = path.join(renderDir, `${sequenceName}.txt`);
+  const entries = framePaths.flatMap((framePath, frameIndex) => [
     concatFileEntry(framePath),
-    `duration ${duration}`,
+    `duration ${(Math.max(60, Number(delays[frameIndex]) || 180) / 1000).toFixed(3)}`,
   ]);
   // The concat demuxer uses the next file to determine the duration of the
   // previous one, so repeat the last frame to preserve its duration.
   entries.push(concatFileEntry(framePaths[framePaths.length - 1]));
   await fs.writeFile(concatPath, `${entries.join("\n")}\n`, "utf8");
   return concatPath;
+};
+
+const writeSpriteFrameSequence = async (frames, frameSize, delay, index) =>
+  writeRawFrameSequence(
+    frames,
+    frameSize,
+    frameSize,
+    frames.map(() => delay),
+    `scene-image-${index + 1}-frames`,
+  );
+
+const writeAnimatedWebpFrameSequence = async (source, metadata, index) => {
+  const frameWidth = Math.max(1, Number(metadata.width) || 1);
+  const frameHeight = Math.max(1, Number(metadata.pageHeight) || Number(metadata.height) || 1);
+  const pageCount = Math.max(1, Number(metadata.pages) || Math.floor(Number(metadata.height) / frameHeight) || 1);
+  const rawResult = await sharp(source, { animated: true })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const frameBytes = frameWidth * frameHeight * rawResult.info.channels;
+  if (rawResult.data.length < frameBytes * pageCount) {
+    throw new Error("Không thể đọc đủ frame của WebP động");
+  }
+  const frames = Array.from({ length: pageCount }, (_, frameIndex) => (
+    rawResult.data.subarray(frameIndex * frameBytes, (frameIndex + 1) * frameBytes)
+  ));
+  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
+  const delays = frames.map((_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180));
+  return writeRawFrameSequence(
+    frames,
+    frameWidth,
+    frameHeight,
+    delays,
+    `scene-image-${index + 1}-webp-frames`,
+  );
 };
 
 const errorDetail = (error) => {
@@ -631,6 +666,41 @@ const createSceneImage = async (image, index) => {
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
+  let sourceMetadata = null;
+  try {
+    sourceMetadata = await sharp(source, { animated: true }).metadata();
+  } catch {
+    sourceMetadata = null;
+  }
+  const animatedWebp = mediaType === "image"
+    && sourceMetadata?.format === "webp"
+    && Number(sourceMetadata.pages) > 1;
+  if (animatedWebp) {
+    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata, index);
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
+    return {
+      path: frameSequencePath,
+      animated: true,
+      frameSequence: true,
+      webpAnimation: true,
+      maskPath,
+      borderPath,
+      width,
+      height,
+    };
+  }
   let spriteSheet = { detected: false };
   if (image?.spriteSheet === true) {
     try {
@@ -1055,7 +1125,11 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
       const hasImageBorder = Boolean(imageRender.borderPath);
-      const imageFit = image.transparent === true || imageRender.spriteSheet === true ? "contain" : "cover";
+      const imageFit = image.transparent === true
+        || imageRender.spriteSheet === true
+        || imageRender.webpAnimation === true
+        ? "contain"
+        : "cover";
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
