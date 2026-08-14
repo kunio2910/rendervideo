@@ -3964,6 +3964,16 @@ function Home() {
     }
   };
 
+  useEffect(() => {
+    const imageId = activeSceneImage?.id;
+    const imageUrl = activeSceneImage?.url;
+    if (!hydrated || !imageId || !imageUrl) return;
+    void prepareSceneImageSprite(imageId, imageUrl);
+    // Process an existing URL when switching to an image layer. URL edits are
+    // still handled explicitly on blur/Enter to avoid requests per keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, activeSceneImage?.id]);
+
   const toggleSceneImageVisibility = (imageId: string) => {
     if (!scene) return;
     setScenes((items) => items.map((item) => item.id === scene.id
@@ -6325,7 +6335,7 @@ function Home() {
                     <div className="scene-image-controls">
                       <label className="field">
                         <span>URL hình ảnh hoặc video</span>
-                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} onBlur={(event) => void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value)} />
+                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value); event.currentTarget.blur(); } }} onBlur={(event) => void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value)} />
                       </label>
                       <label className="popup-transparent-toggle">
                         <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />

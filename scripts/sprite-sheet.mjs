@@ -165,6 +165,141 @@ const estimateCheckerboard = (data, info, cellSize) => {
   return { colors, difference, averageResidual, horizontalStates, verticalStates, backgroundAt };
 };
 
+const integralSum = (integral, width, x, y, regionWidth, regionHeight) => {
+  const stride = width + 1;
+  return integral[(y + regionHeight) * stride + x + regionWidth]
+    - integral[y * stride + x + regionWidth]
+    - integral[(y + regionHeight) * stride + x]
+    + integral[y * stride + x];
+};
+
+const detectEmbeddedSpritePanel = (data, info) => {
+  const gridWidth = Math.min(160, info.width);
+  const gridHeight = Math.min(160, info.height);
+  const neutral = new Uint8Array(gridWidth * gridHeight);
+  const warm = new Uint8Array(gridWidth * gridHeight);
+  for (let gridY = 0; gridY < gridHeight; gridY += 1) {
+    const y = Math.min(info.height - 1, Math.floor((gridY + 0.5) * info.height / gridHeight));
+    for (let gridX = 0; gridX < gridWidth; gridX += 1) {
+      const x = Math.min(info.width - 1, Math.floor((gridX + 0.5) * info.width / gridWidth));
+      const sourceIndex = (y * info.width + x) * info.channels;
+      const red = data[sourceIndex];
+      const green = data[sourceIndex + 1];
+      const blue = data[sourceIndex + 2];
+      const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+      const light = luminance(red, green, blue);
+      const index = gridY * gridWidth + gridX;
+      neutral[index] = saturation < 28 && light >= 25 && light <= 150 ? 1 : 0;
+      warm[index] = (red > green + 18 && green > blue + 8 && red > 75)
+        || (saturation > 65 && light > 60)
+        ? 1
+        : 0;
+    }
+  }
+  const neutralIntegral = new Int32Array((gridWidth + 1) * (gridHeight + 1));
+  const warmIntegral = new Int32Array((gridWidth + 1) * (gridHeight + 1));
+  for (let y = 0; y < gridHeight; y += 1) {
+    let neutralRow = 0;
+    let warmRow = 0;
+    for (let x = 0; x < gridWidth; x += 1) {
+      const index = y * gridWidth + x;
+      const integralIndex = (y + 1) * (gridWidth + 1) + x + 1;
+      neutralRow += neutral[index];
+      warmRow += warm[index];
+      neutralIntegral[integralIndex] = neutralIntegral[integralIndex - gridWidth - 1] + neutralRow;
+      warmIntegral[integralIndex] = warmIntegral[integralIndex - gridWidth - 1] + warmRow;
+    }
+  }
+  const minWidth = Math.max(24, Math.round(gridWidth * 0.2));
+  const maxWidth = Math.max(minWidth, Math.round(gridWidth * 0.85));
+  const minHeight = Math.max(12, Math.round(gridHeight * 0.06));
+  const maxHeight = Math.max(minHeight, Math.round(gridHeight * 0.55));
+  let best = null;
+  for (let height = minHeight; height <= maxHeight; height += 2) {
+    for (let width = minWidth; width <= maxWidth; width += 2) {
+      const aspect = width / height;
+      if (aspect < 1.35 || aspect > 5.2) continue;
+      for (let top = 0; top + height <= gridHeight; top += 2) {
+        for (let left = 0; left + width <= gridWidth; left += 2) {
+          const area = width * height;
+          const neutralFraction = integralSum(neutralIntegral, gridWidth, left, top, width, height) / area;
+          const warmFraction = integralSum(warmIntegral, gridWidth, left, top, width, height) / area;
+          if (neutralFraction < 0.35 || warmFraction < 0.04) continue;
+          const areaFraction = area / (gridWidth * gridHeight);
+          const score = neutralFraction
+            + Math.min(0.22, warmFraction * 0.7)
+            + Math.min(0.14, areaFraction * 1.5)
+            - Math.abs(aspect - 2.1) * 0.01;
+          if (!best || score > best.score) best = { left, top, width, height, score };
+        }
+      }
+    }
+  }
+  if (!best || best.score < 0.68) return null;
+  // Keep the crop inside the neutral panel. A few pixels of surrounding map
+  // artwork can connect all sprite components into one large bounding box.
+  const padding = 0;
+  const left = Math.max(0, Math.floor(best.left * info.width / gridWidth) - padding);
+  const top = Math.max(0, Math.floor(best.top * info.height / gridHeight) - padding);
+  const right = Math.min(info.width, Math.ceil((best.left + best.width) * info.width / gridWidth) + padding);
+  const bottom = Math.min(info.height, Math.ceil((best.top + best.height) * info.height / gridHeight) + padding);
+  return { left, top, width: right - left, height: bottom - top };
+};
+
+const estimateSolidBackground = (data, info) => {
+  const channels = [[], [], []];
+  const step = Math.max(1, Math.floor(Math.min(info.width, info.height) / 120));
+  for (let y = 0; y < info.height; y += step) {
+    for (let x = 0; x < info.width; x += step) {
+      const sourceIndex = (y * info.width + x) * info.channels;
+      const red = data[sourceIndex];
+      const green = data[sourceIndex + 1];
+      const blue = data[sourceIndex + 2];
+      const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+      const light = luminance(red, green, blue);
+      if (saturation < 28 && light >= 25 && light <= 150) {
+        channels[0].push(red);
+        channels[1].push(green);
+        channels[2].push(blue);
+      }
+    }
+  }
+  if (channels.some((items) => items.length < 12)) return null;
+  return channels.map((items) => median(items));
+};
+
+const makeSolidForeground = (data, info, background) => {
+  const pixels = info.width * info.height;
+  const rgba = Buffer.alloc(pixels * 4);
+  const alpha = new Uint8Array(pixels);
+  const hasSourceAlpha = info.channels === 4;
+  for (let index = 0; index < pixels; index += 1) {
+    const sourceIndex = index * info.channels;
+    const red = data[sourceIndex];
+    const green = data[sourceIndex + 1];
+    const blue = data[sourceIndex + 2];
+    const distance = colorDistance(red, green, blue, background);
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const light = luminance(red, green, blue);
+    const chromaSignal = Math.max(0, saturation - 15) * 3.8;
+    const distanceSignal = Math.max(0, distance - 24) * 1.25;
+    const backgroundLike = distance < 38 && saturation < 34;
+    const neutralBackgroundLike = saturation < 38 && light < 155;
+    const score = backgroundLike || neutralBackgroundLike ? 0 : chromaSignal + distanceSignal;
+    const estimatedAlpha = clamp(Math.round(((score - 18) / 72) * 255), 0, 255);
+    const sourceAlpha = hasSourceAlpha ? data[sourceIndex + 3] : 255;
+    const outputAlpha = Math.min(sourceAlpha, estimatedAlpha);
+    alpha[index] = outputAlpha;
+    const alphaRatio = outputAlpha / 255;
+    const safeRatio = Math.max(0.22, alphaRatio);
+    rgba[index * 4] = clamp(Math.round((red - background[0] * (1 - alphaRatio)) / safeRatio), 0, 255);
+    rgba[index * 4 + 1] = clamp(Math.round((green - background[1] * (1 - alphaRatio)) / safeRatio), 0, 255);
+    rgba[index * 4 + 2] = clamp(Math.round((blue - background[2] * (1 - alphaRatio)) / safeRatio), 0, 255);
+    rgba[index * 4 + 3] = outputAlpha;
+  }
+  return { rgba, alpha };
+};
+
 const makeForeground = (data, info, cellSize, checker) => {
   const pixels = info.width * info.height;
   const rgba = Buffer.alloc(pixels * 4);
@@ -203,15 +338,15 @@ const makeForeground = (data, info, cellSize, checker) => {
   return { rgba, alpha };
 };
 
-const detectFrameBoxes = ({ alpha, width, height, cellSize }) => {
-  const tileSize = Math.max(8, Math.round(cellSize / 2));
+const detectFrameBoxes = ({ alpha, width, height, cellSize, alphaThreshold = 34, tileSizeOverride, minimumFrameDimensionOverride }) => {
+  const tileSize = tileSizeOverride ?? Math.max(8, Math.round(cellSize / 2));
   const tileColumns = Math.ceil(width / tileSize);
   const tileRows = Math.ceil(height / tileSize);
   const tileCount = tileColumns * tileRows;
   const occupied = new Uint8Array(tileCount);
   const pixelCounts = new Uint32Array(tileCount);
   for (let index = 0; index < alpha.length; index += 1) {
-    if (alpha[index] < 34) continue;
+    if (alpha[index] < alphaThreshold) continue;
     const x = index % width;
     const y = Math.floor(index / width);
     const tileIndex = Math.floor(y / tileSize) * tileColumns + Math.floor(x / tileSize);
@@ -265,7 +400,8 @@ const detectFrameBoxes = ({ alpha, width, height, cellSize }) => {
       });
     }
   }
-  const minimumFrameDimension = Math.max(18, Math.round(cellSize * 2));
+  const minimumFrameDimension = minimumFrameDimensionOverride
+    ?? Math.max(18, Math.round(cellSize * 2));
   const filtered = boxes.filter((box) => box.right - box.left >= minimumFrameDimension
     && box.bottom - box.top >= minimumFrameDimension);
   if (filtered.length > 64) return [];
@@ -288,8 +424,8 @@ const detectFrameBoxes = ({ alpha, width, height, cellSize }) => {
     .flatMap((row) => row.boxes.sort((left, right) => left.left - right.left));
 };
 
-const makeFrame = async ({ rgba, width, height, box, frameSize }) => {
-  const pad = Math.max(6, Math.round(Math.min(width, height) * 0.006));
+const makeFrame = async ({ rgba, width, height, box, frameSize, framePadding = 6 }) => {
+  const pad = Math.max(framePadding, Math.round(Math.min(width, height) * 0.006));
   const left = Math.max(0, box.left - pad);
   const top = Math.max(0, box.top - pad);
   const right = Math.min(width, box.right + pad);
@@ -308,16 +444,39 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
     return { detected: false, reason: "image-too-small" };
   }
   const rawResult = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const info = rawResult.info;
-  const cellSize = estimateCellSize(rawResult.data, info);
-  const checker = estimateCheckerboard(rawResult.data, info, cellSize);
-  if (!checker) return { detected: false, reason: "checkerboard-not-detected" };
-  const foreground = makeForeground(rawResult.data, info, cellSize, checker);
+  let info = rawResult.info;
+  let pixels = rawResult.data;
+  let cellSize = estimateCellSize(pixels, info);
+  let checker = estimateCheckerboard(pixels, info, cellSize);
+  let mode = "checkerboard";
+  let solidBackground = null;
+  let panel = null;
+  if (!checker) {
+    panel = detectEmbeddedSpritePanel(pixels, info);
+    if (!panel) return { detected: false, reason: "checkerboard-not-detected" };
+    const panelRaw = await sharp(input)
+      .extract(panel)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    info = panelRaw.info;
+    pixels = panelRaw.data;
+    solidBackground = estimateSolidBackground(pixels, info);
+    if (!solidBackground) return { detected: false, reason: "sprite-panel-background-not-detected" };
+    cellSize = Math.max(8, Math.round(Math.min(info.width, info.height) / 8));
+    mode = "embedded-panel";
+  }
+  const foreground = checker
+    ? makeForeground(pixels, info, cellSize, checker)
+    : makeSolidForeground(pixels, info, solidBackground);
   const boxes = detectFrameBoxes({
     alpha: foreground.alpha,
     width: info.width,
     height: info.height,
     cellSize,
+    alphaThreshold: mode === "embedded-panel" ? 70 : 34,
+    tileSizeOverride: mode === "embedded-panel" ? 3 : undefined,
+    minimumFrameDimensionOverride: mode === "embedded-panel" ? 8 : undefined,
   });
   if (boxes.length < 3) return { detected: false, reason: "not-enough-frames" };
   const largestBox = Math.max(...boxes.map((box) => Math.max(box.right - box.left, box.bottom - box.top)));
@@ -334,6 +493,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
       height: info.height,
       box,
       frameSize,
+      framePadding: mode === "embedded-panel" ? 2 : 6,
     }));
   }
   const delay = clamp(Math.round(options.delay ?? 90), 30, 1000);
@@ -357,6 +517,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
     frameSize,
     delay,
     cellSize,
-    checkerDifference: Math.round(checker.difference),
+    ...(checker ? { checkerDifference: Math.round(checker.difference) } : {}),
+    mode,
   };
 };
