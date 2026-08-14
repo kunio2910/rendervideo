@@ -7008,3 +7008,255 @@ body {
   background: #122235;
   color: #f5f9ff;
 }
+
+/* Mobile compose workspace: preserve the three-column editor and allow the
+   workspace itself to scroll horizontally without changing desktop layout. */
+@media (max-width: 760px) {
+  html,
+  body {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 100dvh;
+    padding-bottom: 0;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-layout {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 100dvh;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    width: 68px;
+    min-width: 68px;
+    height: 100dvh;
+    min-height: 100dvh;
+    flex: 0 0 68px;
+    padding: max(10px, env(safe-area-inset-top)) 8px 12px;
+    flex-direction: column;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail .rail-mark {
+    margin: 0 0 18px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-rail .rail-item {
+    width: 52px;
+    min-height: 58px;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .studio-main {
+    width: calc(100vw - 68px);
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    display: block;
+    width: 100%;
+    min-height: 92px;
+    height: auto;
+    padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+    background: var(--topbar-bg);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand {
+    width: calc(100% - 82px);
+    min-width: 0;
+    padding: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand h1 {
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .brand p {
+    overflow: hidden;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    margin-top: 8px;
+    padding: 2px 0 1px;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .header-actions > * {
+    width: auto;
+    max-width: none;
+    flex: 0 0 auto;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .project-picker {
+    display: flex !important;
+    min-width: 175px;
+    max-width: 220px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .project-picker select {
+    min-width: 0;
+    max-width: 160px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .save-button {
+    position: absolute;
+    top: max(8px, env(safe-area-inset-top));
+    right: 10px;
+    z-index: 2;
+    display: inline-flex !important;
+    min-height: 34px;
+    padding-inline: 10px;
+    font-size: 11px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .compose-topbar .save-state {
+    display: inline-flex;
+    min-height: 34px;
+    padding-inline: 8px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .workspace {
+    display: grid;
+    grid-template-columns: 320px 520px 480px;
+    width: 100%;
+    min-width: 0;
+    height: 830px;
+    min-height: 830px;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    scrollbar-width: thin;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel,
+  .studio-shell[data-studio-tab="compose"] .preview-panel,
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    width: auto;
+    min-width: 0;
+    border-right: 1px solid var(--studio-line);
+    border-bottom: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .scene-panel {
+    order: initial;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-panel {
+    order: initial;
+    padding-inline: 20px;
+    overflow: visible;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    order: initial;
+    padding-right: 12px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar {
+    grid-template-columns: minmax(0, 1fr) 126px 32px 32px;
+    gap: 7px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-aspect-switcher {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .time-pill {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: stretch;
+    min-width: 0;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-ruler-control {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-fullscreen-toggle {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-play-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    min-height: 36px !important;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-navigation {
+    width: min(100%, 480px);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel {
+    position: relative;
+    z-index: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: 245px;
+    min-height: 245px;
+    margin: 0;
+    padding: 13px 10px calc(9px + env(safe-area-inset-bottom));
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel .timeline-heading {
+    position: sticky;
+    left: 0;
+    width: calc(100vw - 88px);
+    min-width: 260px;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .timeline-panel .timeline {
+    min-width: 720px;
+  }
+}
