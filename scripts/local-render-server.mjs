@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { alignSubtitles } from "./align-subtitles.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
@@ -55,6 +55,12 @@ const runJob = async (job, project, files) => {
       await fs.writeFile(path.join(job.sourceDir, filename), Buffer.from(await file.arrayBuffer()));
     }
     await fs.writeFile(job.projectPath, JSON.stringify(project, null, 2), "utf8");
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+      return;
+    }
     job.status = "rendering";
     job.message = `Đang dựng 0/${project.scenes?.length || 0} cảnh`;
 
@@ -95,14 +101,26 @@ const runJob = async (job, project, files) => {
       child.once("error", reject);
       child.once("exit", resolve);
     });
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+      return;
+    }
     if (exitCode !== 0) throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}`);
     job.status = "completed";
     job.progress = 100;
     job.message = "Render hoàn tất";
     job.downloadUrl = `/api/render/${job.id}/download`;
   } catch (error) {
-    job.status = "failed";
-    job.message = error instanceof Error ? error.message : "Không thể render video";
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+    } else {
+      job.status = "failed";
+      job.message = error instanceof Error ? error.message : "Không thể render video";
+    }
   } finally {
     job.child = null;
     activeJobId = null;
@@ -291,6 +309,7 @@ const server = http.createServer(async (request, response) => {
       const job = {
         id,
         status: "queued",
+        cancelRequested: false,
         progress: 0,
         message: "Đang chuẩn bị tài nguyên",
         log: "",
@@ -306,6 +325,31 @@ const server = http.createServer(async (request, response) => {
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : "Dữ liệu render không hợp lệ" });
     }
+    return;
+  }
+
+  const cancelMatch = url.pathname.match(/^\/api\/render\/([^/]+)\/cancel$/);
+  if (request.method === "POST" && cancelMatch) {
+    const job = jobs.get(cancelMatch[1]);
+    if (!job) {
+      sendJson(response, 404, { error: "Không tìm thấy phiên render" });
+      return;
+    }
+    if (["completed", "failed", "cancelled"].includes(job.status)) {
+      sendJson(response, 200, { id: job.id, status: job.status });
+      return;
+    }
+    job.cancelRequested = true;
+    job.status = "cancelling";
+    job.message = "Đang dừng render…";
+    if (job.child?.pid) {
+      if (process.platform === "win32") {
+        execFile("taskkill", ["/PID", String(job.child.pid), "/T", "/F"], () => undefined);
+      } else {
+        job.child.kill("SIGTERM");
+      }
+    }
+    sendJson(response, 202, { id: job.id, status: job.status });
     return;
   }
 

@@ -442,7 +442,7 @@ const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 type LocalRenderState = {
-  status: "idle" | "checking" | "uploading" | "rendering" | "completed" | "failed";
+  status: "idle" | "checking" | "uploading" | "rendering" | "cancelling" | "completed" | "failed";
   progress: number;
   message: string;
   downloadUrl?: string;
@@ -1839,6 +1839,7 @@ function Home() {
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
+  const localRenderJobId = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -5142,6 +5143,7 @@ function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không thể bắt đầu render");
       const jobId = String(result.jobId);
+      localRenderJobId.current = jobId;
       for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}`);
@@ -5154,10 +5156,29 @@ function Home() {
             message: "Render hoàn tất. Video đã sẵn sàng để tải xuống.",
             downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
           });
+          localRenderJobId.current = "";
+          return;
+        }
+        if (status.status === "cancelled") {
+          localRenderJobId.current = "";
+          setLocalRenderState({
+            status: "idle",
+            progress: 0,
+            message: "Đã dừng render. Sẵn sàng render lại.",
+          });
           return;
         }
         if (status.status === "failed") {
+          localRenderJobId.current = "";
           throw Object.assign(new Error(status.message || "Render thất bại"), { log: status.log });
+        }
+        if (status.status === "cancelling") {
+          setLocalRenderState({
+            status: "cancelling",
+            progress: Number(status.progress) || 0,
+            message: status.message || "Đang dừng render…",
+          });
+          continue;
         }
         setLocalRenderState({
           status: "rendering",
@@ -5166,12 +5187,34 @@ function Home() {
         });
       }
     } catch (error) {
+      localRenderJobId.current = "";
       setLocalRenderState({
         status: "failed",
         progress: 0,
         message: error instanceof Error ? error.message : "Không thể render video",
         log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
       });
+    }
+  };
+
+  const stopLocalRender = async () => {
+    const jobId = localRenderJobId.current;
+    if (!jobId || !["rendering", "cancelling"].includes(localRenderState.status)) return;
+    setLocalRenderState((state) => ({
+      ...state,
+      status: "cancelling",
+      message: "Đang dừng render…",
+    }));
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}/cancel`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Không thể dừng render");
+    } catch (error) {
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "rendering",
+        message: error instanceof Error ? error.message : "Không thể dừng render",
+      }));
     }
   };
 
@@ -5274,6 +5317,7 @@ function Home() {
     checking: "Đang kiểm tra",
     uploading: "Đang tải tài nguyên",
     rendering: "Đang render",
+    cancelling: "Đang dừng",
     completed: "Hoàn tất",
     failed: "Lỗi",
   }[localRenderState.status];
@@ -8505,13 +8549,22 @@ function Home() {
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
                   ↓ Tải video MP4
                 </a>
+              ) : localRenderState.status === "rendering" || localRenderState.status === "cancelling" ? (
+                <button
+                  className="button settings-danger-button"
+                  type="button"
+                  disabled={localRenderState.status === "cancelling"}
+                  onClick={() => void stopLocalRender()}
+                >
+                  {localRenderState.status === "cancelling" ? "Đang dừng…" : "Dừng render"}
+                </button>
               ) : (
                 <button
                   className="button primary"
-                  disabled={localRenderState.status === "uploading" || localRenderState.status === "rendering"}
+                  disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling"}
                   onClick={() => void startLocalRender()}
                 >
-                  {localRenderState.status === "rendering" ? "Đang render…" : "Bắt đầu render"}
+                  {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Bắt đầu render"}
                 </button>
               )}
             </div>
