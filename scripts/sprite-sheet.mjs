@@ -327,7 +327,7 @@ const makeForeground = (data, info, cellSize, checker) => {
     const estimatedAlpha = clamp(Math.round(((score - 12) / 46) * 255), 0, 255);
     const sourceAlpha = hasSourceAlpha ? data[sourceIndex + 3] : 255;
     const outputAlpha = Math.min(sourceAlpha, estimatedAlpha);
-    alpha[index] = neutralBackdrop ? 0 : sourceAlpha;
+    alpha[index] = outputAlpha;
     const alphaRatio = outputAlpha / 255;
     const safeRatio = Math.max(0.22, alphaRatio);
     rgba[index * 4] = clamp(Math.round((red - background[0] * (1 - alphaRatio)) / safeRatio), 0, 255);
@@ -373,12 +373,12 @@ const makeAlphaForeground = (data, info) => {
     rgba[outputIndex + 1] = green;
     rgba[outputIndex + 2] = blue;
     rgba[outputIndex + 3] = outputAlpha;
-    alpha[index] = outputAlpha;
+    alpha[index] = neutralBackdrop ? 0 : sourceAlpha;
   }
   return { rgba, alpha };
 };
 
-const detectFrameBoxes = ({ alpha, width, height, cellSize, alphaThreshold = 34, tileSizeOverride, minimumFrameDimensionOverride }) => {
+const detectFrameBoxes = ({ alpha, width, height, cellSize, alphaThreshold = 34, tileSizeOverride, minimumFrameDimensionOverride, minimumPixelCountOverride }) => {
   const tileSize = tileSizeOverride ?? Math.max(8, Math.round(cellSize / 2));
   const tileColumns = Math.ceil(width / tileSize);
   const tileRows = Math.ceil(height / tileSize);
@@ -442,8 +442,10 @@ const detectFrameBoxes = ({ alpha, width, height, cellSize, alphaThreshold = 34,
   }
   const minimumFrameDimension = minimumFrameDimensionOverride
     ?? Math.max(18, Math.round(cellSize * 2));
+  const minimumPixelCount = minimumPixelCountOverride ?? 80;
   const filtered = boxes.filter((box) => box.right - box.left >= minimumFrameDimension
-    && box.bottom - box.top >= minimumFrameDimension);
+    && box.bottom - box.top >= minimumFrameDimension
+    && box.pixelCount >= minimumPixelCount);
   if (filtered.length > 64) return [];
   if (filtered.length < 3) return filtered;
   const medianHeight = median(filtered.map((box) => box.bottom - box.top));
@@ -503,6 +505,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
       alphaThreshold: 70,
       tileSizeOverride: cellSize,
       minimumFrameDimensionOverride: Math.max(18, cellSize * 2),
+      minimumPixelCountOverride: Math.max(400, Math.round(info.width * info.height * 0.0003)),
     });
     if (boxes.length >= 3) mode = "alpha";
   }
@@ -577,7 +580,6 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
     delay,
     cellSize,
     ...(checker ? { checkerDifference: Math.round(checker.difference) } : {}),
-    ...(options.debug ? { debugBoxes: boxes } : {}),
     mode,
   };
 };

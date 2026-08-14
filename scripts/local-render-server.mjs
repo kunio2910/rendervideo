@@ -11,7 +11,7 @@ const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
 const jobsRoot = path.join(root, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
-const spriteProcessVersion = "alpha-v2-delay180";
+const spriteProcessVersion = "alpha-v3-delay180";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const jobs = new Map();
