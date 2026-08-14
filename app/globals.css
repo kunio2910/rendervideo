@@ -593,6 +593,13 @@ button { color: inherit; }
 .layer-name-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(35, 137, 255, .16); }
 .scene-image-controls { display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .scene-image-controls .popup-transparent-toggle { margin-top: -2px; }
+.scene-image-sprite-action-row { display: grid; gap: 5px; }
+.scene-image-sprite-button { width: 100%; justify-content: center; padding: 7px 9px; font-size: 10px; }
+.scene-image-sprite-button:disabled { cursor: wait; opacity: .65; }
+.scene-image-sprite-notice { font-size: 9px; line-height: 1.35; }
+.scene-image-sprite-notice.processing { color: var(--blue); }
+.scene-image-sprite-notice.success { color: #2f8b58; }
+.scene-image-sprite-notice.error { color: #b54d3f; }
 .color-input-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);

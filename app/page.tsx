@@ -92,6 +92,7 @@ type SceneImage = {
   name: string;
   url: string;
   mediaType: "image" | "video";
+  spriteSheet: boolean;
   transparent: boolean;
   shape: SceneImageShape;
   x: number;
@@ -707,6 +708,7 @@ const defaultSceneImage = (
   name: "Hình ảnh",
   url: "",
   mediaType: "image",
+  spriteSheet: false,
   transparent: false,
   shape: "rectangle",
   x: 50,
@@ -741,6 +743,7 @@ const normalizeSceneImage = (
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
+    spriteSheet: raw.spriteSheet === true,
     transparent: typeof raw.transparent === "boolean"
       ? raw.transparent
       : raw.transparentMedia === true || isTransparentMedia(url),
@@ -1797,6 +1800,11 @@ function Home() {
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
+    imageId: string;
+    status: "idle" | "processing" | "success" | "error";
+    message: string;
+  }>({ imageId: "", status: "idle", message: "" });
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -3932,15 +3940,28 @@ function Home() {
         delete next[imageId];
         return next;
       });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
     }
     updateSceneImage("url", url);
     updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("spriteSheet", false);
     updateSceneImage("transparent", isTransparentMedia(url));
   };
 
-  const prepareSceneImageSprite = async (imageId: string, url: string) => {
+  const prepareSceneImageSprite = async (imageId: string, url: string, explicit = false) => {
+    if (!explicit) return;
     const sourceUrl = safeTrim(url);
-    if (!scene || !imageId || !isRemoteUrl(sourceUrl) || isVideoMedia(sourceUrl)) return;
+    if (!scene || !imageId) return;
+    if (!sourceUrl) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Hãy nhập URL hình trước." });
+      return;
+    }
+    if (!isRemoteUrl(sourceUrl) || isVideoMedia(sourceUrl)) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setSceneImageSpriteNotice({ imageId, status: "processing", message: "Đang chuyển sprite thành hình động…" });
+    setToast("Đang chuyển sprite thành hình động…");
     try {
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
         method: "POST",
@@ -3948,30 +3969,40 @@ function Home() {
         body: JSON.stringify({ sourceUrl }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) return;
-      if (!result?.processed || !result.assetUrl) return;
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error("Không phát hiện được sprite trong hình này.");
+      }
       setSceneImageSpritePreviewUrls((items) => ({ ...items, [imageId]: result.assetUrl }));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
             sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
-              ? { ...image, transparent: true }
+              ? { ...image, spriteSheet: true, transparent: true }
               : image),
           }
         : item));
-    } catch {
-      // The editor remains usable with the original URL when the local
-      // renderer is not running; rendering will retry the conversion later.
+      const frameMessage = Number(result.frameCount) > 0 ? ` (${result.frameCount} frame)` : "";
+      setSceneImageSpriteNotice({ imageId, status: "success", message: `Đã chuyển thành hình động${frameMessage}.` });
+      setToast(`Đã chuyển sprite thành hình động${frameMessage}`);
+      window.setTimeout(() => setToast(""), 3000);
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? `Chuyển sprite thành hình động thất bại: ${error.message}`
+        : "Chuyển sprite thành hình động thất bại.";
+      setSceneImageSpriteNotice({ imageId, status: "error", message });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
     }
   };
 
   useEffect(() => {
     const imageId = activeSceneImage?.id;
     const imageUrl = activeSceneImage?.url;
-    if (!hydrated || !imageId || !imageUrl) return;
-    void prepareSceneImageSprite(imageId, imageUrl);
-    // Process an existing URL when switching to an image layer. URL edits are
-    // still handled explicitly on blur/Enter to avoid requests per keystroke.
+    if (!hydrated || !activeSceneImage?.spriteSheet || !imageId || !imageUrl) return;
+    void prepareSceneImageSprite(imageId, imageUrl, true);
+    // Restore an explicitly converted sprite when switching layers. New URLs
+    // are never processed until the user clicks the conversion button.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, activeSceneImage?.id]);
 
@@ -4777,6 +4808,7 @@ function Home() {
              sceneImages: (item.sceneImages ?? []).map((image) => ({
               ...image,
               url: assetReference(image.url),
+              spriteSheet: image.spriteSheet === true,
               transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
@@ -6377,9 +6409,28 @@ function Home() {
                   )}
                   {activeSceneImage && (
                     <div className="scene-image-controls">
+                      <div className="scene-image-sprite-action-row">
+                        <button
+                          type="button"
+                          className="button ghost scene-image-sprite-button"
+                          disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
+                          onClick={() => void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true)}
+                        >
+                          {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
+                            ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
+                            : activeSceneImage.spriteSheet
+                              ? "Chuy\u1ec3n l\u1ea1i h\u00ecnh \u0111\u1ed9ng"
+                              : "Chuy\u1ec3n sprite th\u00e0nh h\u00ecnh \u0111\u1ed9ng"}
+                        </button>
+                        {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.message && (
+                          <small className={`scene-image-sprite-notice ${sceneImageSpriteNotice.status}`}>
+                            {sceneImageSpriteNotice.message}
+                          </small>
+                        )}
+                      </div>
                       <label className="field">
                         <span>URL hình ảnh hoặc video</span>
-                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value); event.currentTarget.blur(); } }} onBlur={(event) => void prepareSceneImageSprite(activeSceneImage.id, event.currentTarget.value)} />
+                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
                       </label>
                       <label className="popup-transparent-toggle">
                         <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />

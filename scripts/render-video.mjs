@@ -606,11 +606,13 @@ const createSceneImage = async (image, index) => {
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
   let spriteSheet = { detected: false };
-  try {
-    spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source));
-  } catch {
-    // Unsupported or malformed images continue through the existing static
-    // image path instead of changing the behaviour of regular media.
+  if (image?.spriteSheet === true) {
+    try {
+      spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source));
+    } catch {
+      // Unsupported or malformed images continue through the existing static
+      // image path instead of changing the behaviour of regular media.
+    }
   }
   if (spriteSheet.detected) {
     const spritePath = path.join(renderDir, `scene-image-${index + 1}-sprite.webp`);
