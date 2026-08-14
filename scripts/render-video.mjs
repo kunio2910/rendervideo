@@ -608,7 +608,9 @@ const createSceneImage = async (image, index) => {
   let spriteSheet = { detected: false };
   if (image?.spriteSheet === true) {
     try {
-      spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source));
+      spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source), {
+        delay: image?.spriteDelay,
+      });
     } catch {
       // Unsupported or malformed images continue through the existing static
       // image path instead of changing the behaviour of regular media.

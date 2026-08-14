@@ -224,12 +224,14 @@ const server = http.createServer(async (request, response) => {
   const spriteAssetMatch = url.pathname.match(/^\/api\/sprite-assets\/([a-f0-9]{64})\.webp$/i);
   if (request.method === "GET" && spriteAssetMatch) {
     const assetPath = path.join(spriteAssetsRoot, `${spriteAssetMatch[1].toLowerCase()}.webp`);
+    const download = url.searchParams.get("download") === "1";
     try {
       const stat = await fs.stat(assetPath);
       response.writeHead(200, {
         ...corsHeaders,
         "Content-Type": "image/webp",
         "Content-Length": stat.size,
+        ...(download ? { "Content-Disposition": "attachment; filename=\"kito-sprite-animation.webp\"" } : {}),
       });
       const file = await import("node:fs");
       file.createReadStream(assetPath).pipe(response);

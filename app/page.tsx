@@ -93,6 +93,7 @@ type SceneImage = {
   url: string;
   mediaType: "image" | "video";
   spriteSheet: boolean;
+  spriteDelay: number;
   transparent: boolean;
   shape: SceneImageShape;
   x: number;
@@ -709,6 +710,7 @@ const defaultSceneImage = (
   url: "",
   mediaType: "image",
   spriteSheet: false,
+  spriteDelay: 180,
   transparent: false,
   shape: "rectangle",
   x: 50,
@@ -744,6 +746,7 @@ const normalizeSceneImage = (
     url,
     mediaType,
     spriteSheet: raw.spriteSheet === true,
+    spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
       ? raw.transparent
       : raw.transparentMedia === true || isTransparentMedia(url),
@@ -1407,7 +1410,8 @@ function SettingsResourcePanel() {
     if (!assetUrl || downloading) return;
     setDownloading(true);
     try {
-      const response = await fetch(assetUrl);
+      const downloadAssetUrl = `${assetUrl}${assetUrl.includes("?") ? "&" : "?"}download=1`;
+      const response = await fetch(downloadAssetUrl);
       if (!response.ok) throw new Error("Không thể tải file WebP về máy.");
       const blobUrl = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a");
@@ -4119,9 +4123,26 @@ function Home() {
     updateSceneImage("transparent", isTransparentMedia(url));
   };
 
-  const prepareSceneImageSprite = async (imageId: string, url: string, explicit = false) => {
+  const updateSceneImageSpriteDelay = (value: number) => {
+    const imageId = activeSceneImage?.id;
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(value) || 180)));
+    if (imageId) {
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
+    }
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+  };
+
+  const prepareSceneImageSprite = async (imageId: string, url: string, explicit = false, requestedDelay = 180) => {
     if (!explicit) return;
     const sourceUrl = safeTrim(url);
+    const delay = Math.min(1000, Math.max(60, Math.round(Number(requestedDelay) || 180)));
     if (!scene || !imageId) return;
     if (!sourceUrl) {
       setSceneImageSpriteNotice({ imageId, status: "error", message: "Hãy nhập URL hình trước." });
@@ -4137,7 +4158,7 @@ function Home() {
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceUrl }),
+        body: JSON.stringify({ sourceUrl, delay }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
@@ -4149,11 +4170,13 @@ function Home() {
         ? {
             ...item,
             sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
-              ? { ...image, spriteSheet: true, transparent: true }
+              ? { ...image, spriteSheet: true, spriteDelay: Number(result.delay) || delay, transparent: true }
               : image),
           }
         : item));
-      const frameMessage = Number(result.frameCount) > 0 ? ` (${result.frameCount} frame)` : "";
+      const frameMessage = Number(result.frameCount) > 0
+        ? ` (${result.frameCount} frame · ${Number(result.delay) || delay}ms)`
+        : ` (${Number(result.delay) || delay}ms)`;
       setSceneImageSpriteNotice({ imageId, status: "success", message: `Đã chuyển thành hình động${frameMessage}.` });
       setToast(`Đã chuyển sprite thành hình động${frameMessage}`);
       window.setTimeout(() => setToast(""), 3000);
@@ -4171,7 +4194,7 @@ function Home() {
     const imageId = activeSceneImage?.id;
     const imageUrl = activeSceneImage?.url;
     if (!hydrated || !activeSceneImage?.spriteSheet || !imageId || !imageUrl) return;
-    void prepareSceneImageSprite(imageId, imageUrl, true);
+    void prepareSceneImageSprite(imageId, imageUrl, true, activeSceneImage?.spriteDelay);
     // Restore an explicitly converted sprite when switching layers. New URLs
     // are never processed until the user clicks the conversion button.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4980,6 +5003,7 @@ function Home() {
               ...image,
               url: assetReference(image.url),
               spriteSheet: image.spriteSheet === true,
+              spriteDelay: image.spriteDelay,
               transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
@@ -6581,11 +6605,27 @@ function Home() {
                   {activeSceneImage && (
                     <div className="scene-image-controls">
                       <div className="scene-image-sprite-action-row">
+                        <label className="field scene-image-sprite-speed-field">
+                          <span>Tốc độ chuyển động (ms/frame)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="60"
+                              max="1000"
+                              step="10"
+                              value={activeSceneImage.spriteDelay}
+                              disabled={sceneImageSpriteNotice.status === "processing"}
+                              onChange={(event) => updateSceneImageSpriteDelay(Number(event.target.value))}
+                            />
+                            <b>ms</b>
+                          </div>
+                          <small>Giá trị lớn hơn sẽ làm chuyển động chậm hơn.</small>
+                        </label>
                         <button
                           type="button"
                           className="button ghost scene-image-sprite-button"
                           disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
-                          onClick={() => void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true)}
+                          onClick={() => void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, activeSceneImage.spriteDelay)}
                         >
                           {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
                             ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
