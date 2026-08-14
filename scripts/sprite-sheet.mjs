@@ -578,6 +578,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
     frameCount: frames.length,
     frameSize,
     delay,
+    ...(options.returnFrames ? { frames } : {}),
     cellSize,
     ...(checker ? { checkerDifference: Math.round(checker.difference) } : {}),
     mode,

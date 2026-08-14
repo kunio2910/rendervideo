@@ -200,6 +200,32 @@ const run = (command, args) =>
     );
   });
 
+const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
+
+const writeSpriteFrameSequence = async (frames, frameSize, delay, index) => {
+  const framesRoot = path.join(renderDir, `scene-image-${index + 1}-frames`);
+  await fs.mkdir(framesRoot, { recursive: true });
+  const framePaths = [];
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+    const framePath = path.join(framesRoot, `frame-${String(frameIndex + 1).padStart(3, "0")}.png`);
+    await sharp(frames[frameIndex], {
+      raw: { width: frameSize, height: frameSize, channels: 4 },
+    }).png().toFile(framePath);
+    framePaths.push(framePath);
+  }
+  const duration = (Math.max(60, Number(delay) || 180) / 1000).toFixed(3);
+  const concatPath = path.join(renderDir, `scene-image-${index + 1}-frames.txt`);
+  const entries = framePaths.flatMap((framePath) => [
+    concatFileEntry(framePath),
+    `duration ${duration}`,
+  ]);
+  // The concat demuxer uses the next file to determine the duration of the
+  // previous one, so repeat the last frame to preserve its duration.
+  entries.push(concatFileEntry(framePaths[framePaths.length - 1]));
+  await fs.writeFile(concatPath, `${entries.join("\n")}\n`, "utf8");
+  return concatPath;
+};
+
 const errorDetail = (error) => {
   if (!(error instanceof Error)) return "unknown error";
   const cause = error.cause instanceof Error ? error.cause.message : "";
@@ -610,6 +636,7 @@ const createSceneImage = async (image, index) => {
     try {
       spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source), {
         delay: image?.spriteDelay,
+        returnFrames: true,
       });
     } catch {
       // Unsupported or malformed images continue through the existing static
@@ -617,8 +644,12 @@ const createSceneImage = async (image, index) => {
     }
   }
   if (spriteSheet.detected) {
-    const spritePath = path.join(renderDir, `scene-image-${index + 1}-sprite.webp`);
-    await fs.writeFile(spritePath, spriteSheet.buffer);
+    const frameSequencePath = await writeSpriteFrameSequence(
+      spriteSheet.frames,
+      spriteSheet.frameSize,
+      spriteSheet.delay,
+      index,
+    );
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -633,9 +664,10 @@ const createSceneImage = async (image, index) => {
       }).composite([{ input: borderSvg }]).png().toFile(borderPath);
     }
     return {
-      path: spritePath,
+      path: frameSequencePath,
       animated: true,
       spriteSheet: true,
+      frameSequence: true,
       maskPath,
       borderPath,
       width,
@@ -1210,7 +1242,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   });
   sceneImageRenders.forEach(({ rendered: image }) => {
     if (image.animated) {
-      args.push("-stream_loop", "-1", "-i", image.path);
+      if (image.frameSequence) {
+        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+      } else {
+        args.push("-stream_loop", "-1", "-i", image.path);
+      }
       args.push("-loop", "1", "-i", image.maskPath);
       if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
     } else {
