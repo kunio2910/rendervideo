@@ -11,6 +11,7 @@ const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
 const jobsRoot = path.join(root, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
+const spriteProcessVersion = "alpha-v2-delay180";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const jobs = new Map();
@@ -163,7 +164,7 @@ const server = http.createServer(async (request, response) => {
       const sourceUrl = String(body?.sourceUrl || "").trim();
       const parsed = new URL(sourceUrl);
       if (!/^https?:$/.test(parsed.protocol)) throw new Error("URL hình phải dùng http hoặc https");
-      const cacheKey = createHash("sha256").update(sourceUrl).digest("hex");
+      const cacheKey = createHash("sha256").update(`${spriteProcessVersion}\0${sourceUrl}`).digest("hex");
       const outputPath = path.join(spriteAssetsRoot, `${cacheKey}.webp`);
       const assetUrl = `http://${host}:${port}/api/sprite-assets/${cacheKey}.webp`;
       try {

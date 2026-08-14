@@ -327,13 +327,53 @@ const makeForeground = (data, info, cellSize, checker) => {
     const estimatedAlpha = clamp(Math.round(((score - 12) / 46) * 255), 0, 255);
     const sourceAlpha = hasSourceAlpha ? data[sourceIndex + 3] : 255;
     const outputAlpha = Math.min(sourceAlpha, estimatedAlpha);
-    alpha[index] = outputAlpha;
+    alpha[index] = neutralBackdrop ? 0 : sourceAlpha;
     const alphaRatio = outputAlpha / 255;
     const safeRatio = Math.max(0.22, alphaRatio);
     rgba[index * 4] = clamp(Math.round((red - background[0] * (1 - alphaRatio)) / safeRatio), 0, 255);
     rgba[index * 4 + 1] = clamp(Math.round((green - background[1] * (1 - alphaRatio)) / safeRatio), 0, 255);
     rgba[index * 4 + 2] = clamp(Math.round((blue - background[2] * (1 - alphaRatio)) / safeRatio), 0, 255);
     rgba[index * 4 + 3] = outputAlpha;
+  }
+  return { rgba, alpha };
+};
+
+const hasMeaningfulTransparency = (data, info) => {
+  if (info.channels < 4) return false;
+  const pixelCount = info.width * info.height;
+  const sampleStep = Math.max(1, Math.floor(pixelCount / 250000));
+  let sampled = 0;
+  let transparent = 0;
+  let opaque = 0;
+  for (let index = 0; index < pixelCount; index += sampleStep) {
+    const alpha = data[index * info.channels + 3];
+    sampled += 1;
+    if (alpha < 16) transparent += 1;
+    if (alpha > 220) opaque += 1;
+  }
+  return transparent / Math.max(1, sampled) > 0.08
+    && opaque / Math.max(1, sampled) > 0.01;
+};
+
+const makeAlphaForeground = (data, info) => {
+  const pixels = info.width * info.height;
+  const rgba = Buffer.alloc(pixels * 4);
+  const alpha = new Uint8Array(pixels);
+  for (let index = 0; index < pixels; index += 1) {
+    const sourceIndex = index * info.channels;
+    const outputIndex = index * 4;
+    const red = data[sourceIndex];
+    const green = data[sourceIndex + 1];
+    const blue = data[sourceIndex + 2];
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const neutralBackdrop = saturation < 32 && luminance(red, green, blue) < 175;
+    const sourceAlpha = data[sourceIndex + 3];
+    const outputAlpha = neutralBackdrop || sourceAlpha < 220 ? 0 : sourceAlpha;
+    rgba[outputIndex] = red;
+    rgba[outputIndex + 1] = green;
+    rgba[outputIndex + 2] = blue;
+    rgba[outputIndex + 3] = outputAlpha;
+    alpha[index] = outputAlpha;
   }
   return { rgba, alpha };
 };
@@ -446,38 +486,57 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
   const rawResult = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   let info = rawResult.info;
   let pixels = rawResult.data;
-  let cellSize = estimateCellSize(pixels, info);
-  let checker = estimateCheckerboard(pixels, info, cellSize);
+  let cellSize = Math.max(8, Math.round(Math.min(info.width, info.height) / 128));
+  let checker = null;
   let mode = "checkerboard";
   let solidBackground = null;
   let panel = null;
-  if (!checker) {
-    panel = detectEmbeddedSpritePanel(pixels, info);
-    if (!panel) return { detected: false, reason: "checkerboard-not-detected" };
-    const panelRaw = await sharp(input)
-      .extract(panel)
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    info = panelRaw.info;
-    pixels = panelRaw.data;
-    solidBackground = estimateSolidBackground(pixels, info);
-    if (!solidBackground) return { detected: false, reason: "sprite-panel-background-not-detected" };
-    cellSize = Math.max(8, Math.round(Math.min(info.width, info.height) / 8));
-    mode = "embedded-panel";
+  let foreground = null;
+  let boxes = [];
+  if (hasMeaningfulTransparency(pixels, info)) {
+    foreground = makeAlphaForeground(pixels, info);
+    boxes = detectFrameBoxes({
+      alpha: foreground.alpha,
+      width: info.width,
+      height: info.height,
+      cellSize,
+      alphaThreshold: 70,
+      tileSizeOverride: cellSize,
+      minimumFrameDimensionOverride: Math.max(18, cellSize * 2),
+    });
+    if (boxes.length >= 3) mode = "alpha";
   }
-  const foreground = checker
-    ? makeForeground(pixels, info, cellSize, checker)
-    : makeSolidForeground(pixels, info, solidBackground);
-  const boxes = detectFrameBoxes({
-    alpha: foreground.alpha,
-    width: info.width,
-    height: info.height,
-    cellSize,
-    alphaThreshold: mode === "embedded-panel" ? 70 : 34,
-    tileSizeOverride: mode === "embedded-panel" ? 3 : undefined,
-    minimumFrameDimensionOverride: mode === "embedded-panel" ? 8 : undefined,
-  });
+  if (boxes.length < 3) {
+    cellSize = estimateCellSize(pixels, info);
+    checker = estimateCheckerboard(pixels, info, cellSize);
+    if (!checker) {
+      panel = detectEmbeddedSpritePanel(pixels, info);
+      if (!panel) return { detected: false, reason: "checkerboard-not-detected" };
+      const panelRaw = await sharp(input)
+        .extract(panel)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      info = panelRaw.info;
+      pixels = panelRaw.data;
+      solidBackground = estimateSolidBackground(pixels, info);
+      if (!solidBackground) return { detected: false, reason: "sprite-panel-background-not-detected" };
+      cellSize = Math.max(8, Math.round(Math.min(info.width, info.height) / 8));
+      mode = "embedded-panel";
+    }
+    foreground = checker
+      ? makeForeground(pixels, info, cellSize, checker)
+      : makeSolidForeground(pixels, info, solidBackground);
+    boxes = detectFrameBoxes({
+      alpha: foreground.alpha,
+      width: info.width,
+      height: info.height,
+      cellSize,
+      alphaThreshold: mode === "embedded-panel" ? 70 : 34,
+      tileSizeOverride: mode === "embedded-panel" ? 3 : undefined,
+      minimumFrameDimensionOverride: mode === "embedded-panel" ? 8 : undefined,
+    });
+  }
   if (boxes.length < 3) return { detected: false, reason: "not-enough-frames" };
   const largestBox = Math.max(...boxes.map((box) => Math.max(box.right - box.left, box.bottom - box.top)));
   const frameSize = clamp(
@@ -496,7 +555,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
       framePadding: mode === "embedded-panel" ? 2 : 6,
     }));
   }
-  const delay = clamp(Math.round(options.delay ?? 90), 30, 1000);
+  const delay = clamp(Math.round(options.delay ?? 180), 60, 1000);
   const encoded = await sharp(Buffer.concat(frames), {
     raw: {
       width: frameSize,
@@ -518,6 +577,7 @@ export const processSpriteSheetBuffer = async (input, options = {}) => {
     delay,
     cellSize,
     ...(checker ? { checkerDifference: Math.round(checker.difference) } : {}),
+    ...(options.debug ? { debugBoxes: boxes } : {}),
     mode,
   };
 };
