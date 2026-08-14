@@ -1344,6 +1344,176 @@ type SettingsWorkspaceProps = {
   saveLabel: string;
 };
 
+type ResourceSpriteNotice = {
+  status: "idle" | "processing" | "success" | "error";
+  message: string;
+};
+
+function SettingsResourcePanel() {
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [delay, setDelay] = useState(180);
+  const [frameSize, setFrameSize] = useState(576);
+  const [assetUrl, setAssetUrl] = useState("");
+  const [frameCount, setFrameCount] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [notice, setNotice] = useState<ResourceSpriteNotice>({ status: "idle", message: "" });
+
+  const updateSourceUrl = (value: string) => {
+    setSourceUrl(value);
+    setAssetUrl("");
+    setFrameCount(0);
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const convertResourceSprite = async () => {
+    const source = safeTrim(sourceUrl);
+    if (!source) {
+      setNotice({ status: "error", message: "Hãy nhập URL hình trước." });
+      return;
+    }
+    if (!isRemoteUrl(source) || isVideoMedia(source)) {
+      setNotice({ status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setNotice({ status: "processing", message: "Đang chuyển tài nguyên thành hình động…" });
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: source, delay, frameSize }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error(result?.reason || "Không phát hiện được sprite trong hình này.");
+      }
+      const convertedFrameCount = Number(result.frameCount) || 0;
+      setAssetUrl(String(result.assetUrl));
+      setFrameCount(convertedFrameCount);
+      setNotice({
+        status: "success",
+        message: `Đã chuyển thành WebP động${convertedFrameCount ? ` (${convertedFrameCount} frame)` : ""}.`,
+      });
+    } catch (error) {
+      setAssetUrl("");
+      const message = error instanceof Error && error.message
+        ? `Chuyển tài nguyên thất bại: ${error.message}`
+        : "Chuyển tài nguyên thất bại.";
+      setNotice({ status: "error", message });
+    }
+  };
+
+  const downloadResourceSprite = async () => {
+    if (!assetUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const response = await fetch(assetUrl);
+      if (!response.ok) throw new Error("Không thể tải file WebP về máy.");
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = "kito-sprite-animation.webp";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      setNotice({ status: "success", message: "Đã tải hình động WebP về máy." });
+    } catch (error) {
+      setNotice({
+        status: "error",
+        message: error instanceof Error ? error.message : "Không thể tải file WebP về máy.",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const isProcessing = notice.status === "processing";
+
+  return (
+    <section className="settings-card settings-resource-card" aria-labelledby="settings-resource-heading">
+      <div className="settings-resource-heading">
+        <div>
+          <span className="settings-section-label">CÔNG CỤ TÀI NGUYÊN</span>
+          <h3 id="settings-resource-heading">Tài Nguyên</h3>
+          <p>Chuyển sprite sheet thành WebP động trong suốt để dùng lại khi biên soạn video.</p>
+        </div>
+        <span className="settings-resource-badge">WEBP</span>
+      </div>
+
+      <div className="settings-resource-form">
+        <label className="field settings-resource-url-field">
+          <span>URL hình ảnh</span>
+          <input
+            type="url"
+            inputMode="url"
+            value={sourceUrl}
+            placeholder="https://.../sprite.png"
+            disabled={isProcessing}
+            onChange={(event) => updateSourceUrl(event.target.value)}
+          />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span>Tốc độ (ms/frame)</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="60"
+                max="1000"
+                step="10"
+                value={delay}
+                disabled={isProcessing}
+                onChange={(event) => setDelay(Math.min(1000, Math.max(60, Number(event.target.value) || 180)))}
+              />
+              <b>ms</b>
+            </div>
+            <small>Giá trị càng lớn thì chuyển động càng chậm.</small>
+          </label>
+          <label className="field">
+            <span>Kích thước frame</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="128"
+                max="1024"
+                step="16"
+                value={frameSize}
+                disabled={isProcessing}
+                onChange={(event) => setFrameSize(Math.min(1024, Math.max(128, Number(event.target.value) || 576)))}
+              />
+              <b>px</b>
+            </div>
+          </label>
+        </div>
+        <div className="settings-resource-actions">
+          <button type="button" className="button primary" onClick={() => void convertResourceSprite()} disabled={isProcessing}>
+            {isProcessing ? "Đang chuyển thành hình động…" : assetUrl ? "Chuyển lại hình động" : "Chuyển sang hình động"}
+          </button>
+          {assetUrl && (
+            <button type="button" className="button ghost" onClick={() => void downloadResourceSprite()} disabled={downloading}>
+              {downloading ? "Đang tải…" : "Download WebP"}
+            </button>
+          )}
+        </div>
+        {notice.message && <small className={`settings-resource-notice ${notice.status}`}>{notice.message}</small>}
+      </div>
+
+      {assetUrl && (
+        <div className="settings-resource-result">
+          <div className="settings-resource-result-heading">
+            <strong>Hình động đã tạo</strong>
+            <span>{frameCount ? `${frameCount} frame · ${frameSize}px · ${delay}ms` : `${frameSize}px · ${delay}ms`}</span>
+          </div>
+          <div className="settings-resource-preview">
+            <img src={assetUrl} alt="Xem trước hình động WebP" />
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SettingsWorkspace({
   projectItems,
   activeProjectId,
@@ -1729,6 +1899,7 @@ function SettingsWorkspace({
                   <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
                 </div>
             </div>
+            <SettingsResourcePanel />
           </div>
         </div>
       </section>

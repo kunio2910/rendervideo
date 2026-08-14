@@ -11,7 +11,7 @@ const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
 const jobsRoot = path.join(root, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
-const spriteProcessVersion = "alpha-v3-delay180";
+const spriteProcessVersion = "alpha-v4-custom-delay-size";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const jobs = new Map();
@@ -164,12 +164,22 @@ const server = http.createServer(async (request, response) => {
       const sourceUrl = String(body?.sourceUrl || "").trim();
       const parsed = new URL(sourceUrl);
       if (!/^https?:$/.test(parsed.protocol)) throw new Error("URL hình phải dùng http hoặc https");
-      const cacheKey = createHash("sha256").update(`${spriteProcessVersion}\0${sourceUrl}`).digest("hex");
+      const requestedDelay = Number(body?.delay);
+      const delay = Number.isFinite(requestedDelay)
+        ? Math.min(1000, Math.max(60, Math.round(requestedDelay)))
+        : 180;
+      const requestedFrameSize = Number(body?.frameSize);
+      const frameSize = Number.isFinite(requestedFrameSize)
+        ? Math.min(1024, Math.max(128, Math.round(requestedFrameSize)))
+        : 0;
+      const cacheKey = createHash("sha256")
+        .update(`${spriteProcessVersion}\0${sourceUrl}\0${delay}\0${frameSize || "auto"}`)
+        .digest("hex");
       const outputPath = path.join(spriteAssetsRoot, `${cacheKey}.webp`);
       const assetUrl = `http://${host}:${port}/api/sprite-assets/${cacheKey}.webp`;
       try {
         await fs.access(outputPath);
-        sendJson(response, 200, { processed: true, assetUrl });
+        sendJson(response, 200, { processed: true, assetUrl, delay, ...(frameSize ? { frameSize } : {}) });
         return;
       } catch {
         // Cache miss: download and inspect the source below.
@@ -187,7 +197,10 @@ const server = http.createServer(async (request, response) => {
       if (contentLength > 25 * 1024 * 1024) throw new Error("Hình sprite vượt quá giới hạn 25 MB");
       const sourceBuffer = Buffer.from(await remote.arrayBuffer());
       if (sourceBuffer.length > 25 * 1024 * 1024) throw new Error("Hình sprite vượt quá giới hạn 25 MB");
-      const result = await processSpriteSheetBuffer(sourceBuffer);
+      const result = await processSpriteSheetBuffer(sourceBuffer, {
+        delay,
+        ...(frameSize ? { frameSize } : {}),
+      });
       if (!result.detected) {
         sendJson(response, 200, { processed: false, reason: result.reason });
         return;
