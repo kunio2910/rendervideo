@@ -2574,6 +2574,18 @@ function Home() {
   );
 
   const openProject = (project: ProjectSnapshot, preserveHistory = false) => {
+    const preservedSelectedId = preserveHistory ? selectedId : "";
+    const preservedSelectedSceneIds = preserveHistory ? selectedSceneIds : [];
+    const preservedSelectedPopupId = preserveHistory ? selectedPopupId : "";
+    const preservedSelectedTextOverlayId = preserveHistory ? selectedTextOverlayId : "";
+    const preservedSelectedDecorationId = preserveHistory ? selectedDecorationId : "";
+    const preservedSelectedSceneImageId = preserveHistory ? selectedSceneImageId : "";
+    const previousSelectedScene = preserveHistory
+      ? scenes.find((item) => item.id === preservedSelectedId)
+      : undefined;
+    const previousSceneLocalTime = previousSelectedScene
+      ? Math.max(0, Math.min(previousSelectedScene.end - previousSelectedScene.start, playTime - previousSelectedScene.start))
+      : 0;
     setProjectId(project.id);
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
@@ -2601,13 +2613,26 @@ function Home() {
       ...item,
       backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
     }));
-    setEditorSections(normalizeEditorSections(project.editorSections));
+    if (!preserveHistory) setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
-    setSelectedId(restoredScenes[0]?.id ?? "");
-    setSelectedPopupId("");
-    setSelectedTextOverlayId("");
-    setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
-    setPlayTime(restoredScenes[0]?.start ?? 0);
+    const restoredSelectedScene = restoredScenes.find((item) => item.id === preservedSelectedId)
+      ?? restoredScenes[0];
+    const restoredSelectedSceneIds = preservedSelectedSceneIds.filter((id) =>
+      restoredScenes.some((item) => item.id === id),
+    );
+    const restoredPopupIds = restoredSelectedScene ? new Set(scenePopupList(restoredSelectedScene).map((item) => item.id)) : new Set<string>();
+    const restoredTextOverlayIds = restoredSelectedScene ? new Set((restoredSelectedScene.textOverlays ?? []).map((item) => item.id)) : new Set<string>();
+    const restoredDecorationIds = restoredSelectedScene ? new Set((restoredSelectedScene.mapDecorations ?? []).map((item) => item.id)) : new Set<string>();
+    const restoredSceneImageIds = restoredSelectedScene ? new Set((restoredSelectedScene.sceneImages ?? []).map((item) => item.id)) : new Set<string>();
+    setSelectedId(restoredSelectedScene?.id ?? "");
+    setSelectedPopupId(restoredPopupIds.has(preservedSelectedPopupId) ? preservedSelectedPopupId : "");
+    setSelectedTextOverlayId(restoredTextOverlayIds.has(preservedSelectedTextOverlayId) ? preservedSelectedTextOverlayId : "");
+    setSelectedDecorationId(restoredDecorationIds.has(preservedSelectedDecorationId) ? preservedSelectedDecorationId : "");
+    setSelectedSceneImageId(restoredSceneImageIds.has(preservedSelectedSceneImageId) ? preservedSelectedSceneImageId : "");
+    setSelectedSceneIds(restoredSelectedSceneIds.length ? restoredSelectedSceneIds : (restoredSelectedScene ? [restoredSelectedScene.id] : []));
+    setPlayTime(restoredSelectedScene
+      ? Number((restoredSelectedScene.start + (preserveHistory ? Math.min(previousSceneLocalTime, restoredSelectedScene.end - restoredSelectedScene.start) : 0)).toFixed(2))
+      : 0);
     setPlaying(false);
     if (!preserveHistory) {
       historyPast.current = [];
@@ -6790,11 +6815,23 @@ function Home() {
                   ? `${selectedSceneIds.length} cảnh`
                   : `Cảnh ${scene.number}`}
               </span>
+              <label className="quick-scene-duration">
+                <span>Thời lượng</span>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={Number(sceneDuration.toFixed(1))}
+                  aria-label="Thay đổi nhanh thời lượng cảnh (giây)"
+                  onChange={(event) => updateSelectedSceneDuration(Number(event.target.value))}
+                />
+                <b>s</b>
+              </label>
             </div>
           </div>
           <div className="editor-scroll">
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-visual"
               open={editorSections.visual}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -6874,7 +6911,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-images"
               open={editorSections.images}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -6882,7 +6919,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>02</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
+                <span>03</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <div className="scene-image-manager">
@@ -7070,7 +7107,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-scene-content"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -7081,7 +7118,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field">
@@ -7114,7 +7151,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-text"
               open={editorSections.text}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -7645,7 +7682,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-audio"
               open={editorSections.audio}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -7990,7 +8027,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-effects"
               open={editorSections.effects}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -8344,7 +8381,7 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-popup"
               open={editorSections.popup}
               onToggle={(event) => {
                 const open = event.currentTarget.open;

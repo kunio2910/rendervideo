@@ -2273,6 +2273,38 @@ body {
   align-items: center;
   gap: 7px;
 }
+.quick-scene-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 27px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--studio-line);
+  border-radius: 7px;
+  background: var(--panel-bg);
+  color: var(--studio-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.quick-scene-duration input {
+  width: 52px;
+  min-height: 21px;
+  padding: 2px 4px;
+  border: 1px solid var(--studio-line);
+  border-radius: 5px;
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+  font: 700 10px var(--font-mono);
+}
+.quick-scene-duration input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(35, 137, 255, .12);
+}
+.quick-scene-duration b {
+  color: var(--studio-ink);
+  font-size: 9px;
+}
 .accordion-toggle-all {
   min-height: 27px;
   padding: 4px 9px;
@@ -4100,6 +4132,8 @@ body {
 }
 
 .studio-shell[data-studio-tab="compose"] .editor-scroll {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
@@ -4110,12 +4144,32 @@ body {
   scrollbar-gutter: stable;
 }
 
+.studio-shell[data-studio-tab="compose"] .editor-accordion-visual { order: 1; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-scene-content { order: 2; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-images { order: 3; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-text { order: 4; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-audio { order: 5; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-effects { order: 6; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-popup { order: 7; }
+
 .studio-shell[data-studio-tab="compose"] .editor-accordion-content {
   min-width: 0;
   overflow: visible;
 }
 
 @media (max-width: 760px) {
+  .quick-scene-duration span {
+    display: none;
+  }
+
+  .quick-scene-duration {
+    padding-inline: 5px;
+  }
+
+  .quick-scene-duration input {
+    width: 46px;
+  }
+
   .studio-shell[data-studio-tab="compose"] .workspace {
     height: auto;
     min-height: 0;
