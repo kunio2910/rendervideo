@@ -148,6 +148,7 @@ type Scene = {
   narration: string;
   voice: string;
   image: string;
+  avatar: string;
   background?: string;
   start: number;
   end: number;
@@ -351,6 +352,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   narration: "",
   voice: "",
   image: "",
+  avatar: "",
   background: "",
   start,
   end: start + 5,
@@ -404,6 +406,14 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
 const initialScenes: Scene[] = [createEmptyScene()];
 
 const safeTrim = (value: unknown) => String(value ?? "").trim();
+
+const editorVisibilityIcon = (hidden: boolean) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.5" y="4" width="17" height="13" rx="2" />
+    <path d="M9 20h6M12 17v3" />
+    {hidden && <path d="m5 5 14 14" />}
+  </svg>
+);
 
 const reorderById = <T extends { id: string }>(items: T[], draggedItemId: string, targetItemId: string) => {
   const fromIndex = items.findIndex((item) => item.id === draggedItemId);
@@ -619,6 +629,7 @@ type EditorSectionKey = keyof EditorSectionState;
 type EditorSectionClipboard =
   | {
       section: "visual";
+      avatar: string;
       background: string;
       backgroundVisible: boolean;
     }
@@ -1257,6 +1268,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     return {
       ...item,
       id,
+      avatar: String((item as Scene & { avatar?: unknown }).avatar ?? ""),
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
       ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
@@ -1895,7 +1907,8 @@ function SettingsWorkspace({
                 </div>
                 <div className="settings-scenes-list">
                   {selectedScenes.map((item) => {
-                    const sceneMediaValue = String(item.image ?? "").trim()
+                    const sceneMediaValue = String(item.avatar ?? "").trim()
+                      || String(item.image ?? "").trim()
                       || String(item.background ?? "").trim()
                       || clipAvatarValue;
                     const sceneMediaSource = assetPreviewSource(sceneMediaValue);
@@ -2319,6 +2332,7 @@ function Home() {
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
   const backgroundPreviewSource = assetPreviewSource(backgroundValue);
+  const sceneAvatarPreviewSource = assetPreviewSource(scene.avatar ?? "");
   const backgroundIsVideo = isVideoMedia(backgroundValue);
   const backgroundVideoPreviewSource = backgroundIsVideo ? backgroundPreviewSource : "";
   const narrationPreviewSource =
@@ -3249,9 +3263,10 @@ function Home() {
   const copyEditorSection = (section: EditorSectionKey) => {
     if (!scene) return;
     const data: EditorSectionClipboard = section === "visual"
-      ? {
-          section,
-          background: String(scene.background ?? ""),
+        ? {
+            section,
+            avatar: String(scene.avatar ?? ""),
+            background: String(scene.background ?? ""),
           backgroundVisible: scene.backgroundVisible !== false,
         }
       : section === "content"
@@ -3320,6 +3335,7 @@ function Home() {
         case "visual":
           return {
             ...item,
+            avatar: data.avatar,
             background: data.background,
             backgroundVisible: data.backgroundVisible,
           };
@@ -3768,6 +3784,7 @@ function Home() {
       narration: "",
       voice: "",
       image: "",
+      avatar: "",
       background: "",
       backgroundVisible: true,
       start: last.end,
@@ -5319,6 +5336,7 @@ function Home() {
               visible: subtitle.visible !== false,
             })),
             sceneVisible: item.sceneVisible !== false,
+            ...(safeTrim(item.avatar) ? { avatar: assetReference(item.avatar) } : {}),
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
             body: firstPopup.body,
@@ -6044,12 +6062,14 @@ function Home() {
               const visibleIndex = visibleScenes.findIndex(
                 (visibleItem) => visibleItem.id === item.id,
               );
+              const displayDuration = Math.max(0.1, displayItem.end - displayItem.start);
               const playbackActive =
                 playing &&
                 visibleIndex >= 0 &&
                 playTime >= displayItem.start &&
                 playTime < displayItem.end;
               const thumbSource =
+                assetPreviewSource(item.avatar) ||
                 assetPreviewSource(item.image) ||
                 assetPreviewSource(item.background ?? "") ||
                 assetPreviewSource(legacyBackgroundPreview);
@@ -6119,8 +6139,8 @@ function Home() {
                   <strong>{item.sceneName || `Cảnh ${item.number}`}</strong>
                   <small>
                     {item.sceneVisible === false
-                      ? "Đang ẩn"
-                      : `${formatTime(displayItem.start)}–${formatTime(displayItem.end)}`}
+                      ? `Đang ẩn · ${displayDuration.toFixed(1)} giây`
+                      : `${formatTime(displayItem.start)}–${formatTime(displayItem.end)} · ${displayDuration.toFixed(1)} giây`}
                   </small>
                 </span>
                 <span
@@ -6817,6 +6837,22 @@ function Home() {
               )}
               <small>Nhập URL hoặc tên file ảnh/clip riêng cho cảnh (.jpg, .png, .webp, .mp4, .webm, .mov). URL sẽ được renderer tự tải về.</small>
             </label>
+            <label className="field scene-avatar-field">
+              <span>Ảnh avatar cho Cảnh {scene.number}</span>
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="https://example.com/avatar.jpg"
+                value={scene.avatar ?? ""}
+                onChange={(event) => updateScene("avatar", event.target.value)}
+              />
+              {sceneAvatarPreviewSource && (
+                <div className="image-url-preview scene-avatar-preview">
+                  <img src={sceneAvatarPreviewSource} alt={`Ảnh avatar Cảnh ${scene.number}`} />
+                </div>
+              )}
+              <small>Ảnh này chỉ dùng làm avatar/thumbnail của Cảnh trong danh sách, không thay thế background khi render.</small>
+            </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
@@ -6919,11 +6955,7 @@ function Home() {
                             aria-label={image.editorVisible === false ? `Hiện ${sceneImageLabel(image, index)} khi biên soạn` : `Ẩn ${sceneImageLabel(image, index)} khi biên soạn`}
                             onClick={() => toggleSceneImageEditorVisibility(image.id)}
                           >
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
-                              <circle cx="12" cy="12" r="2.2" />
-                              {image.editorVisible === false && <path d="m4 4 16 16" />}
-                            </svg>
+                            {editorVisibilityIcon(image.editorVisible === false)}
                           </button>
                           <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
                           <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
@@ -7182,11 +7214,7 @@ function Home() {
                               title={overlay.editorVisible === false ? `Hiện chữ ${index + 1} khi biên soạn` : `Ẩn chữ ${index + 1} khi biên soạn`}
                               onClick={() => toggleTextOverlayEditorVisibility(overlay.id)}
                             >
-                              <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
-                                <circle cx="12" cy="12" r="2.2" />
-                                {overlay.editorVisible === false && <path d="m4 4 16 16" />}
-                              </svg>
+                              {editorVisibilityIcon(overlay.editorVisible === false)}
                             </button>
                             <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
                           </div>
@@ -8381,11 +8409,7 @@ function Home() {
                       title={popup.editorVisible === false ? `Hiện Popup ${index + 1} khi biên soạn` : `Ẩn Popup ${index + 1} khi biên soạn`}
                       onClick={() => togglePopupEditorVisibility(popup.id)}
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
-                        <circle cx="12" cy="12" r="2.2" />
-                        {popup.editorVisible === false && <path d="m4 4 16 16" />}
-                      </svg>
+                      {editorVisibilityIcon(popup.editorVisible === false)}
                     </button>
                     <button
                       type="button"

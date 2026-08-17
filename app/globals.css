@@ -818,6 +818,8 @@ button { color: inherit; }
 }
 .image-url-preview img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .image-url-preview video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.scene-avatar-preview { width: min(180px, 100%); height: 88px; }
+.scene-avatar-preview img { object-fit: cover; }
 .image-url-preview span {
   position: absolute;
   left: 6px;
