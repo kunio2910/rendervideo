@@ -2398,6 +2398,7 @@ function Home() {
   const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
+  const timelineCanvasWidth = Math.max(720, Math.ceil(projectDuration * 16));
   const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
   const updateAspectRatio = (nextAspectRatio: AspectRatio) => {
@@ -9125,199 +9126,208 @@ function Home() {
           </div>
         </div>
         <div className="timeline">
-          <div className="ruler-labels">
-            <span />
-            <div className="ruler-scale">
-              {Array.from({ length: 6 }, (_, index) => {
-                const time = (projectDuration / 5) * index;
-                return (
-                  <i key={index} style={{ left: `${index * 20}%` }}>
-                    {formatTime(time)}
-                  </i>
-                );
-              })}
-            </div>
-          </div>
-          <div className="track scene-time-track">
-            <strong>Thời gian</strong>
-            <div className="track-content grid">
-              {visibleScenes.map((item) => (
-                <Fragment key={`${item.id}-time`}>
-                  <button
-                    type="button"
-                    className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
-                    onClick={() => {
-                      setSelectedId(item.id);
-                      setSelectedSceneIds([item.id]);
-                      setSelectedPopupId("");
-                      setSelectedTextOverlayId("");
-                      setPlayTime(item.start);
-                      setPlaying(false);
-                    }}
-                    style={{
-                      left: timelinePercent(item.start),
-                      width: timelinePercent(item.end - item.start),
-                    }}
-                    title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
-                  >
-                    <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
-                    <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
-                  </button>
-                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
-                    {formatTime(item.start)}
-                  </span>
-                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
-                    {formatTime(item.end)}
-                  </span>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          <div className="track popup-track">
-            <strong>Popup</strong>
-            <div className="track-content grid">
-              {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && popupHasContent(popup)).map(({ item, popup }) => {
-                const sceneLength = Math.max(0.1, item.end - item.start);
-                const popupStart = Math.min(
-                  sceneLength,
-                  Math.max(0, Number(popup.start) || 0),
-                );
-                const popupDuration = Math.min(
-                  Math.max(0.1, Number(popup.duration) || 0.1),
-                  Math.max(0.1, sceneLength - popupStart),
-                );
-                const popupGlobalStart = item.start + popupStart;
-                const popupGlobalEnd = popupGlobalStart + popupDuration;
-                return (
-                  <Fragment key={`${item.id}-${popup.id}`}>
-                  <button
-                    onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
-                    onClick={(event) => {
-                      if (timelinePopupMoved.current) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        timelinePopupMoved.current = false;
-                        return;
-                      }
-                      setSelectedPopupId(popup.id);
-                      openTimelineEditor(item, "editor-popup");
-                    }}
-                    className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
-                    style={{
-                      left: timelinePercent(popupGlobalStart),
-                      width: timelinePercent(popupDuration),
-                    }}
-                  >
-                    <span
-                      className="timeline-edge-handle timeline-edge-start"
-                      title="Kéo để đổi thời gian bắt đầu popup"
-                      aria-label="Điểm bắt đầu popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                    <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {popupDuration}s</span>
-                    <span
-                      className="timeline-edge-handle timeline-edge-end"
-                      title="Kéo để đổi thời lượng popup"
-                      aria-label="Điểm kết thúc popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  </button>
-                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(popupGlobalStart) }}>
-                    {formatTime(popupGlobalStart)}
-                  </span>
-                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(popupGlobalEnd) }}>
-                    {formatTime(popupGlobalEnd)}
-                  </span>
-                  </Fragment>
-                );
-              })}
-            </div>
-          </div>
-          <div className="track narration-track">
-            <strong>Thuyết minh</strong>
-            <div className="track-content grid">
-              {narrationEnabled && visibleScenes.map((item) => (
-                <Fragment key={`${item.id}-narration`}>
-                <button
-                  key={item.id}
-                  className="clip voice-clip"
-                  onClick={() => openTimelineEditor(item, "editor-audio")}
-                  style={{
-                    left: timelinePercent(item.start),
-                    width: timelinePercent(item.end - item.start),
-                  }}
-                >
-                  🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
-                </button>
-                <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
-                  {formatTime(item.start)}
-                </span>
-                <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
-                  {formatTime(item.end)}
-                </span>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          <div className="track subtitle-track">
-            <strong>Phụ đề</strong>
-            <div className="track-content grid">
-              {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
-                .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
-                .map(({ item, subtitle }) => {
-                  const sceneLength = Math.max(0.1, item.end - item.start);
-                  const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
-                  const subtitleEnd = Math.min(
-                    sceneLength,
-                    Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
-                  );
-                  const subtitleGlobalStart = item.start + subtitleStart;
-                  const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);
-                  return (
-                    <button
-                      key={`${item.id}-${subtitle.id}`}
-                      type="button"
-                      className="clip subtitle-clip"
-                      onClick={() => {
-                        setSelectedId(item.id);
-                        setSelectedSceneIds([item.id]);
-                        setPlaying(false);
-                        openTimelineEditor(item, "editor-subtitle");
-                        setPlayTime(Number(subtitleGlobalStart.toFixed(2)));
-                      }}
-                      style={{
-                        left: timelinePercent(subtitleGlobalStart),
-                        width: timelinePercent(subtitleDuration),
-                      }}
-                      title={`Phụ đề: ${formatTime(subtitleGlobalStart)} – ${formatTime(subtitleGlobalStart + subtitleDuration)}`}
-                    >
-                      <span className="timeline-clip-label">{subtitle.text}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
           <div
-            className="timeline-playhead-layer"
-            aria-label="Thanh tua timeline"
-            aria-hidden={playing}
+            className="timeline-scroll"
+            role="region"
+            tabIndex={0}
+            aria-label="Nội dung Timeline có thể cuộn ngang"
           >
-            <div
-              className={`playhead-grabber ${!playing ? "is-draggable" : ""}`}
-              style={{ left: `${timelineProgress * 100}%` }}
-              role={!playing ? "slider" : undefined}
-              tabIndex={!playing ? 0 : -1}
-              aria-label={!playing ? "Kéo để tua timeline" : undefined}
-              aria-valuemin={!playing ? 0 : undefined}
-              aria-valuemax={!playing ? projectDuration : undefined}
-              aria-valuenow={!playing ? Number(playTime.toFixed(1)) : undefined}
-              aria-valuetext={!playing ? formatTime(playTime) : undefined}
-              onPointerDown={startTimelineScrub}
-            >
-              <div className={`playhead ${playing ? "is-playing" : ""}`}>
-                <span>{formatTime(playTime)}</span>
+            <div className="timeline-scroll-content" style={{ minWidth: `${timelineCanvasWidth}px` }}>
+              <div className="ruler-labels">
+                <span />
+                <div className="ruler-scale">
+                  {Array.from({ length: 6 }, (_, index) => {
+                    const time = (projectDuration / 5) * index;
+                    return (
+                      <i key={index} style={{ left: `${index * 20}%` }}>
+                        {formatTime(time)}
+                      </i>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="track scene-time-track">
+                <strong>Thời gian</strong>
+                <div className="track-content grid">
+                  {visibleScenes.map((item) => (
+                    <Fragment key={`${item.id}-time`}>
+                      <button
+                        type="button"
+                        className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedId(item.id);
+                          setSelectedSceneIds([item.id]);
+                          setSelectedPopupId("");
+                          setSelectedTextOverlayId("");
+                          setPlayTime(item.start);
+                          setPlaying(false);
+                        }}
+                        style={{
+                          left: timelinePercent(item.start),
+                          width: timelinePercent(item.end - item.start),
+                        }}
+                        title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
+                      >
+                        <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
+                        <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
+                      </button>
+                      <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                        {formatTime(item.start)}
+                      </span>
+                      <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                        {formatTime(item.end)}
+                      </span>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="track popup-track">
+                <strong>Popup</strong>
+                <div className="track-content grid">
+                  {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && popupHasContent(popup)).map(({ item, popup }) => {
+                    const sceneLength = Math.max(0.1, item.end - item.start);
+                    const popupStart = Math.min(
+                      sceneLength,
+                      Math.max(0, Number(popup.start) || 0),
+                    );
+                    const popupDuration = Math.min(
+                      Math.max(0.1, Number(popup.duration) || 0.1),
+                      Math.max(0.1, sceneLength - popupStart),
+                    );
+                    const popupGlobalStart = item.start + popupStart;
+                    const popupGlobalEnd = popupGlobalStart + popupDuration;
+                    return (
+                      <Fragment key={`${item.id}-${popup.id}`}>
+                      <button
+                        onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
+                        onClick={(event) => {
+                          if (timelinePopupMoved.current) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            timelinePopupMoved.current = false;
+                            return;
+                          }
+                          setSelectedPopupId(popup.id);
+                          openTimelineEditor(item, "editor-popup");
+                        }}
+                        className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
+                        style={{
+                          left: timelinePercent(popupGlobalStart),
+                          width: timelinePercent(popupDuration),
+                        }}
+                      >
+                        <span
+                          className="timeline-edge-handle timeline-edge-start"
+                          title="Kéo để đổi thời gian bắt đầu popup"
+                          aria-label="Điểm bắt đầu popup"
+                          onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                        <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {popupDuration}s</span>
+                        <span
+                          className="timeline-edge-handle timeline-edge-end"
+                          title="Kéo để đổi thời lượng popup"
+                          aria-label="Điểm kết thúc popup"
+                          onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      </button>
+                      <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(popupGlobalStart) }}>
+                        {formatTime(popupGlobalStart)}
+                      </span>
+                      <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(popupGlobalEnd) }}>
+                        {formatTime(popupGlobalEnd)}
+                      </span>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="track narration-track">
+                <strong>Thuyết minh</strong>
+                <div className="track-content grid">
+                  {narrationEnabled && visibleScenes.map((item) => (
+                    <Fragment key={`${item.id}-narration`}>
+                    <button
+                      key={item.id}
+                      className="clip voice-clip"
+                      onClick={() => openTimelineEditor(item, "editor-audio")}
+                      style={{
+                        left: timelinePercent(item.start),
+                        width: timelinePercent(item.end - item.start),
+                      }}
+                    >
+                      🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
+                    </button>
+                    <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                      {formatTime(item.start)}
+                    </span>
+                    <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                      {formatTime(item.end)}
+                    </span>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="track subtitle-track">
+                <strong>Phụ đề</strong>
+                <div className="track-content grid">
+                  {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
+                    .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
+                    .map(({ item, subtitle }) => {
+                      const sceneLength = Math.max(0.1, item.end - item.start);
+                      const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
+                      const subtitleEnd = Math.min(
+                        sceneLength,
+                        Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+                      );
+                      const subtitleGlobalStart = item.start + subtitleStart;
+                      const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);
+                      return (
+                        <button
+                          key={`${item.id}-${subtitle.id}`}
+                          type="button"
+                          className="clip subtitle-clip"
+                          onClick={() => {
+                            setSelectedId(item.id);
+                            setSelectedSceneIds([item.id]);
+                            setPlaying(false);
+                            openTimelineEditor(item, "editor-subtitle");
+                            setPlayTime(Number(subtitleGlobalStart.toFixed(2)));
+                          }}
+                          style={{
+                            left: timelinePercent(subtitleGlobalStart),
+                            width: timelinePercent(subtitleDuration),
+                          }}
+                          title={`Phụ đề: ${formatTime(subtitleGlobalStart)} – ${formatTime(subtitleGlobalStart + subtitleDuration)}`}
+                        >
+                          <span className="timeline-clip-label">{subtitle.text}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+              <div
+                className="timeline-playhead-layer"
+                aria-label="Thanh tua timeline"
+                aria-hidden={playing}
+              >
+                <div
+                  className={`playhead-grabber ${!playing ? "is-draggable" : ""}`}
+                  style={{ left: `${timelineProgress * 100}%` }}
+                  role={!playing ? "slider" : undefined}
+                  tabIndex={!playing ? 0 : -1}
+                  aria-label={!playing ? "Kéo để tua timeline" : undefined}
+                  aria-valuemin={!playing ? 0 : undefined}
+                  aria-valuemax={!playing ? projectDuration : undefined}
+                  aria-valuenow={!playing ? Number(playTime.toFixed(1)) : undefined}
+                  aria-valuetext={!playing ? formatTime(playTime) : undefined}
+                  onPointerDown={startTimelineScrub}
+                >
+                  <div className={`playhead ${playing ? "is-playing" : ""}`}>
+                    <span>{formatTime(playTime)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
