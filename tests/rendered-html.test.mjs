@@ -115,7 +115,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /setTimelineHeight\(normalizeTimelineHeight/);
   assert.match(page, /data-popup-id=\{popup\.id\}/);
   assert.match(page, /draggedPopupBounds/);
-  assert.match(page, /height: `min\(\$\{popup\.height \?\? 255\}px, 88%\)`/);
+  assert.match(page, /height: `min\(\$\{popupGeometry\.height \|\| popup\.height \|\| 255\}px, 88%\)`/);
   assert.match(page, /popupX/);
   assert.match(page, /popupY/);
   assert.match(page, /zoomStart/);
@@ -275,7 +275,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
   assert.match(renderer, /popupPixelHeight/);
-  assert.match(renderer, /const height = popupPixelHeight\(scene\)/);
+  assert.match(renderer, /const geometry = popupSectionGeometry\(/);
+  assert.match(renderer, /const height = Math\.min\(/);
+  assert.match(renderer, /Number\(popup\.width\)/);
+  assert.match(renderer, /Number\(popup\.height\)/);
+  assert.match(renderer, /popupImageHeight/);
+  assert.match(renderer, /popupContentHeight/);
   assert.match(renderer, /const animatedStickerSize = Math\.max\(1, Math\.round\(previewPx\(220\)\)\)/);
   assert.match(renderer, /const ffmpegMediaFit = \(width, height, fit = "cover"\)/);
   assert.match(renderer, /force_original_aspect_ratio=decrease,pad=\$\{width\}:\$\{height\}/);
@@ -334,7 +339,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /volume=\$\{voiceVolume\.toFixed\(3\)\}/);
   assert.match(renderer, /"-c:v", "copy"/);
   assert.match(renderer, /"-c:a", "aac"/);
-  assert.doesNotMatch(renderer, /adelay=/);
+  assert.match(renderer, /adelay=\$\{Math\.round\(voiceStart \* 1000\)\}/);
   assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
   assert.match(localServer, /--use-system-ca/);
   assert.match(localServer, /\/api\/align-subtitles/);
