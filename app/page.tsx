@@ -2097,6 +2097,7 @@ function Home() {
   const [timelineHeight, setTimelineHeight] = useState(245);
   const animationFrame = useRef<number | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
   const animatedEffectFileInput = useRef<HTMLInputElement | null>(null);
@@ -2107,6 +2108,10 @@ function Home() {
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
   const localRenderJobId = useRef("");
+
+  // Keep the latest timeline position available to media readiness callbacks.
+  // Audio files can finish loading after the playhead has already advanced.
+  playTimeRef.current = playTime;
 
   useEffect(() => {
     let cancelled = false;
@@ -2891,21 +2896,35 @@ function Home() {
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
+    audio.preload = "auto";
     audio.volume = clampVolume(scene.voiceVolume, 95) / 100;
-    const elapsed = Math.max(0, playTime - scene.start);
+    const sceneDuration = Math.max(0.1, scene.end - scene.start);
+    let cancelled = false;
+    let started = false;
     const startAudio = () => {
-      audio.currentTime = elapsed;
+      if (cancelled || started || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+      const elapsed = Math.max(0, playTimeRef.current - scene.start);
+      if (elapsed >= sceneDuration) return;
+      audio.currentTime = Math.min(elapsed, Math.max(0, audio.duration - 0.01));
+      started = true;
       void audio.play().catch(() => {
         // A local path that has not been uploaded is previewed silently.
       });
     };
-    const timer = window.setTimeout(startAudio, 0);
+    audio.addEventListener("loadedmetadata", startAudio);
+    audio.addEventListener("canplay", startAudio);
+    audio.load();
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startAudio();
     return () => {
-      window.clearTimeout(timer);
+      cancelled = true;
+      audio.removeEventListener("loadedmetadata", startAudio);
+      audio.removeEventListener("canplay", startAudio);
       audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.voiceVolume, sceneIsVisibleInPlayback]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.end, scene.voiceVolume, sceneIsVisibleInPlayback]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
@@ -7487,7 +7506,22 @@ function Home() {
                   inputMode="url"
                   value={scene.voiceFile}
                 placeholder="voice.mp3 hoặc https://example.com/voice.mp3"
-                  onChange={(event) => updateScene("voiceFile", event.target.value)}
+                  onChange={(event) => {
+                    updateScene("voiceFile", event.target.value);
+                    setAudioFiles((items) => {
+                      if (!items[scene.id]) return items;
+                      const next = { ...items };
+                      delete next[scene.id];
+                      return next;
+                    });
+                    setAudioPreview((items) => {
+                      if (!items[scene.id]) return items;
+                      URL.revokeObjectURL(items[scene.id]);
+                      const next = { ...items };
+                      delete next[scene.id];
+                      return next;
+                    });
+                  }}
                 />
                 <label className="file-picker">
                   Chọn file
