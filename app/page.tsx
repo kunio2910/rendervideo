@@ -2359,6 +2359,7 @@ function Home() {
     ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
     : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
+  const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
   const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
@@ -2913,6 +2914,14 @@ function Home() {
   }, []);
 
   const saveProjectNow = async () => {
+    const durationFromScenes = sceneTimelineDuration;
+    const workspaceToSave: StoredWorkspace = {
+      ...storedProject,
+      projects: storedProject.projects.map((item) => item.id === projectId
+        ? { ...item, projectDuration: durationFromScenes }
+        : item),
+    };
+    setProjectDuration(durationFromScenes);
     if (!googleUser) {
       setSaveStatus("error");
       setToast("Hãy đăng nhập Google để lưu dữ liệu lên Firestore");
@@ -2920,7 +2929,7 @@ function Home() {
       return;
     }
 
-    const currentSnapshot = JSON.stringify(storedProject);
+    const currentSnapshot = JSON.stringify(workspaceToSave);
     const savedAt = Date.now();
     window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
     window.localStorage.setItem(
@@ -2930,7 +2939,7 @@ function Home() {
     window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
     setSaveStatus("saving");
     try {
-      await saveWorkspaceToFirestore(storedProject);
+      await saveWorkspaceToFirestore(workspaceToSave);
       const now = new Date();
       lastSavedProjectSnapshot.current = currentSnapshot;
       setSaveStatus("saved");
@@ -3000,7 +3009,7 @@ function Home() {
     const startedAt = performance.now() - playTime * 1000;
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
-      if (nextTime >= projectDuration) {
+      if (nextTime >= sceneTimelineDuration) {
         const firstScene = visibleScenes[0];
         setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
@@ -3008,6 +3017,10 @@ function Home() {
           setSelectedId(firstScene.id);
           setSelectedSceneIds([firstScene.id]);
         }
+        setSelectedPopupId("");
+        setSelectedTextOverlayId("");
+        setSelectedDecorationId("");
+        setSelectedSceneImageId("");
         return;
       }
       setPlayTime(nextTime);
@@ -3031,7 +3044,7 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, projectDuration, scenes, visibleScenes]);
+  }, [playing, sceneTimelineDuration, scenes, visibleScenes]);
 
   useEffect(() => {
     narrationAudio.current?.pause();
@@ -3158,12 +3171,14 @@ function Home() {
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
-    const resumeAt = playTime >= projectDuration ? 0 : playTime;
+    const resumeAt = playTime >= sceneTimelineDuration ? 0 : playTime;
     const activeScene =
       visibleScenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
       visibleScenes.find((item) => item.start >= resumeAt) ??
       visibleScenes[0];
     const startAt = activeScene?.start ?? resumeAt;
+    setRulerEnabled(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
     setPlayTime(activeScene && !(resumeAt >= activeScene.start && resumeAt < activeScene.end)
       ? startAt
       : resumeAt);
@@ -4834,6 +4849,11 @@ function Home() {
   const clearLayerListDrag = () => setLayerListDrag({ type: "", id: "", overId: "" });
 
   const toggleRuler = () => {
+    if (playing) {
+      setRulerEnabled(false);
+      setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      return;
+    }
     const next = !rulerEnabled;
     setRulerEnabled(next);
     if (!next) setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
