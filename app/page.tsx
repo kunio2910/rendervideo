@@ -18,6 +18,7 @@ import {
   signInWithGoogle,
   signOutFromGoogle,
 } from "./lib/firebase";
+import { parseSubtitleFileText } from "./lib/subtitles";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
@@ -2199,6 +2200,7 @@ function Home() {
     message: string;
     progress?: number;
   }>({ status: "idle", sceneId: "", message: "", progress: 0 });
+  const [subtitleImportBusy, setSubtitleImportBusy] = useState(false);
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
@@ -2242,6 +2244,7 @@ function Home() {
   const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
   const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
+  const subtitleFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
@@ -4169,6 +4172,64 @@ function Home() {
     setPlaying(false);
     setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const importSubtitlesFromFile = async (file: File) => {
+    if (!scene || !hydrated || subtitleImportBusy) return;
+    const targetSceneId = scene.id;
+    const targetDuration = Math.max(0.1, scene.end - scene.start);
+    setSubtitleImportBusy(true);
+    try {
+      const parsedCues = parseSubtitleFileText(await file.text());
+      if (!parsedCues.length) {
+        throw new Error("Không tìm thấy cue hợp lệ trong file SRT/VTT");
+      }
+      const importedCues = parsedCues
+        .map((cue, index) => ({
+          ...cue,
+          start: Math.max(0, cue.start),
+          end: Math.min(targetDuration, cue.end),
+          index,
+        }))
+        .filter((cue) => cue.end - cue.start >= 0.05)
+        .map((cue, index) => normalizeSubtitleCue(
+          {
+            id: `${targetSceneId}-subtitle-import-${Date.now().toString(36)}-${index + 1}`,
+            text: cue.text,
+            start: cue.start,
+            end: cue.end,
+          },
+          `${targetSceneId}-subtitle-${index + 1}`,
+          targetDuration,
+        ));
+      if (!importedCues.length) {
+        throw new Error(`Timestamp trong file không nằm trong độ dài cảnh (${targetDuration.toFixed(1)} giây)`);
+      }
+      if ((scene.subtitles ?? []).length > 0
+        && !window.confirm("Import SRT/VTT sẽ thay thế toàn bộ phụ đề hiện tại của cảnh này. Tiếp tục?")) {
+        return;
+      }
+      setScenes((items) => items.map((item) => item.id === targetSceneId
+        ? { ...item, subtitleEnabled: true, subtitles: importedCues }
+        : item));
+      setSubtitleAlignState({
+        status: "success",
+        sceneId: targetSceneId,
+        message: `Đã import ${importedCues.length} cue từ ${file.name}. Hãy phát và rà soát lại.`,
+        progress: 100,
+      });
+      setPlayTime(Number((scene.start + importedCues[0].start).toFixed(2)));
+      setPlaying(false);
+      setToast(`Đã import ${importedCues.length} cue phụ đề`);
+      window.setTimeout(() => setToast(""), 3200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể import file SRT/VTT";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+    } finally {
+      setSubtitleImportBusy(false);
+    }
   };
 
   const updateSubtitleStyle = <K extends keyof SubtitleStyle>(
@@ -8160,12 +8221,32 @@ function Home() {
                     type="button"
                     className="button primary subtitle-generate-button"
                     onClick={() => void generateSubtitlesFromNarration()}
-                    disabled={subtitleAlignState.status === "running"}
+                    disabled={subtitleAlignState.status === "running" || subtitleImportBusy}
                   >
                     {subtitleAlignState.status === "running" && subtitleAlignState.sceneId === scene.id
                       ? "Đang tạo…"
                       : "✦ Tạo từ lời thuyết minh"}
                   </button>
+                  <button
+                    type="button"
+                    className="button subtitle-add-button"
+                    onClick={() => subtitleFileInput.current?.click()}
+                    disabled={subtitleImportBusy || subtitleAlignState.status === "running"}
+                  >
+                    {subtitleImportBusy ? "Đang đọc…" : "⇧ Import SRT/VTT"}
+                  </button>
+                  <input
+                    ref={subtitleFileInput}
+                    className="visually-hidden"
+                    type="file"
+                    accept=".srt,.vtt,application/x-subrip,text/vtt,text/plain"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void importSubtitlesFromFile(file);
+                    }}
+                    aria-label="Chọn file phụ đề SRT hoặc VTT"
+                  />
                   <button type="button" className="button subtitle-add-button" onClick={addSubtitleCue}>
                     ＋ Thêm câu
                   </button>
@@ -8184,6 +8265,7 @@ function Home() {
                 <span>1. Nhập <b>Lời thuyết minh</b></span>
                 <span>2. Chọn <b>file audio</b></span>
                 <span>3. Bấm <b>Tạo từ lời thuyết minh</b></span>
+                <span>Hoặc import <b>SRT/VTT</b> đã có timestamp</span>
                 <span>4. Phát từng cue để rà soát</span>
               </div>
               {subtitleAlignState.sceneId === scene.id && subtitleAlignState.message && (
