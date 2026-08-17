@@ -6336,6 +6336,45 @@ body {
   border-radius: 6px;
   background: var(--panel-bg);
 }
+.subtitle-align-progress {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 5px;
+  padding: 8px 9px;
+  border: 1px solid rgba(35, 137, 255, .24);
+  border-radius: 8px;
+  background: rgba(35, 137, 255, .06);
+}
+.subtitle-align-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--studio-muted);
+  font-size: 9px;
+}
+.subtitle-align-progress-heading b { color: var(--blue); font: 700 10px var(--font-mono); }
+.subtitle-align-progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--studio-line);
+}
+.subtitle-align-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2389ff, #65b6ff);
+  transition: width .35s ease;
+}
+.subtitle-align-status {
+  margin: 6px 0 0;
+  color: var(--studio-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.subtitle-align-status.is-success { color: #2f8b58; }
+.subtitle-align-status.is-error { color: #b54d3f; }
 .subtitle-style-editor {
   display: grid;
   gap: 10px;

@@ -2197,7 +2197,8 @@ function Home() {
     status: "idle" | "running" | "success" | "error";
     sceneId: string;
     message: string;
-  }>({ status: "idle", sceneId: "", message: "" });
+    progress?: number;
+  }>({ status: "idle", sceneId: "", message: "", progress: 0 });
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
@@ -4204,18 +4205,34 @@ function Home() {
     const targetSceneId = scene.id;
     const targetDuration = Math.max(0.1, scene.end - scene.start);
     setSubtitleAlignState({ status: "running", sceneId: targetSceneId, message: "Đang nghe audio và tạo timestamp…" });
+    let progressTimer: number | null = null;
+    setSubtitleAlignState((current) => current.sceneId === targetSceneId
+      ? { ...current, progress: 5 }
+      : current);
     try {
       const form = new FormData();
       form.append("text", narration);
       form.append("duration", String(targetDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
       else form.append("audioUrl", safeTrim(scene.voiceFile));
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 12 }
+        : current);
+      progressTimer = window.setInterval(() => {
+        setSubtitleAlignState((current) => {
+          if (current.status !== "running" || current.sceneId !== targetSceneId) return current;
+          return { ...current, progress: Math.min(92, (current.progress ?? 0) + 2) };
+        });
+      }, 500);
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
         method: "POST",
         body: form,
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không thể tạo timestamp phụ đề");
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 96 }
+        : current);
       const generated = Array.isArray(result.cues) ? result.cues : [];
       if (!generated.length) throw new Error("Không nhận được cue phụ đề từ audio");
       const subtitles = generated.map((cue: Partial<SubtitleCue>, index: number) => normalizeSubtitleCue(
@@ -4233,14 +4250,16 @@ function Home() {
         ? "Whisper đã tạo timestamp"
         : "đã tạo timestamp theo nhịp nói dự phòng";
       const message = `Đã tạo ${subtitles.length} cue; ${engineMessage}. Hãy phát và rà soát lại.`;
-      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message });
+      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message, progress: 100 });
       setToast(message);
       window.setTimeout(() => setToast(""), 3600);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Không thể tạo phụ đề";
-      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message });
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
       setToast(message);
       window.setTimeout(() => setToast(""), 3600);
+    } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
     }
   };
 
@@ -4290,7 +4309,7 @@ function Home() {
       ? { ...item, subtitles: [] }
       : item));
     setSubtitleAlignState((current) => current.sceneId === scene.id
-      ? { status: "idle", sceneId: "", message: "" }
+      ? { status: "idle", sceneId: "", message: "", progress: 0 }
       : current);
     setToast(`Đã xóa ${count} phụ đề trong cảnh`);
     window.setTimeout(() => setToast(""), 2200);
@@ -8168,9 +8187,32 @@ function Home() {
                 <span>4. Phát từng cue để rà soát</span>
               </div>
               {subtitleAlignState.sceneId === scene.id && subtitleAlignState.message && (
-                <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
+                <>
+                  {subtitleAlignState.status === "running" && (
+                    <div
+                      className="subtitle-align-progress"
+                      role="status"
+                      aria-label={`Tiến độ tạo phụ đề ${subtitleAlignState.progress ?? 0}%`}
+                    >
+                      <div className="subtitle-align-progress-heading">
+                        <span>Tiến độ xử lý</span>
+                        <b>{subtitleAlignState.progress ?? 0}%</b>
+                      </div>
+                      <div
+                        className="subtitle-align-progress-track"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={subtitleAlignState.progress ?? 0}
+                      >
+                        <i style={{ width: `${subtitleAlignState.progress ?? 0}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
                   {subtitleAlignState.message}
-                </p>
+                  </p>
+                </>
               )}
               <div className="subtitle-style-editor">
                 <div className="subtitle-style-heading">
