@@ -187,6 +187,8 @@ type Scene = {
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
+  popupImageHeight?: number;
+  popupContentHeight?: number;
   popupBorderWidth?: number;
   popupLayout?: "image-top" | "split" | "quote" | "stats" | "image-only" | "content-only";
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
@@ -279,6 +281,8 @@ type PopupConfig = {
   out: string;
   width: number;
   height: number;
+  imageHeight: number;
+  contentHeight: number;
   borderWidth: number;
   layout: Scene["popupLayout"];
   theme: Scene["popupTheme"];
@@ -1063,6 +1067,51 @@ const normalizeEditorSections = (
   images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
 });
 
+const popupDimensionLayout = (value: unknown): NonNullable<Scene["popupLayout"]> =>
+  ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
+    ? value as NonNullable<Scene["popupLayout"]>
+    : "image-top";
+
+const popupDimensionHeight = (value: unknown, fallback = 255) => {
+  const numeric = Number(value);
+  return Math.min(440, Math.max(170, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const popupSectionDefaults = (
+  layoutValue: unknown,
+  heightValue = 255,
+) => {
+  const layout = popupDimensionLayout(layoutValue);
+  const height = popupDimensionHeight(heightValue);
+  if (layout === "split") return { imageHeight: height, contentHeight: height, height };
+  if (layout === "image-only") return { imageHeight: height, contentHeight: 0, height };
+  if (layout === "content-only" || layout === "quote") return { imageHeight: 0, contentHeight: height, height };
+  const imageHeight = Math.min(115, Math.max(48, height - 48));
+  return { imageHeight, contentHeight: Math.max(48, height - imageHeight), height };
+};
+
+const popupSectionGeometry = (popup: PopupConfig, showVisual = true, showText = true) => {
+  const layout = popupDimensionLayout(popup.layout);
+  const defaults = popupSectionDefaults(layout, popup.height);
+  const imageValue = Number(popup.imageHeight);
+  const contentValue = Number(popup.contentHeight);
+  let imageHeight = Number.isFinite(imageValue) ? Math.max(0, imageValue) : defaults.imageHeight;
+  let contentHeight = Number.isFinite(contentValue) ? Math.max(0, contentValue) : defaults.contentHeight;
+  if (!showVisual) imageHeight = 0;
+  if (!showText) contentHeight = 0;
+  if (showVisual && !showText) imageHeight = Math.max(imageHeight, defaults.height);
+  if (!showVisual && showText) contentHeight = Math.max(contentHeight, defaults.height);
+  const height = layout === "split"
+    ? Math.max(imageHeight, contentHeight)
+    : imageHeight + contentHeight;
+  return {
+    layout,
+    imageHeight: Math.round(imageHeight),
+    contentHeight: Math.round(contentHeight),
+    height: Math.round(Math.max(0, height)),
+  };
+};
+
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
   id,
   title: "",
@@ -1077,6 +1126,8 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   out: "fade-slide-down",
   width: 90,
   height: 255,
+  imageHeight: 115,
+  contentHeight: 140,
   borderWidth: 1,
   layout: "image-top",
   theme: "travel",
@@ -1089,8 +1140,11 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   ...overrides,
 });
 
-const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
-  defaultPopupConfig(id, {
+const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig => {
+  const layout = popupDimensionLayout(scene.popupLayout);
+  const height = popupDimensionHeight(scene.popupHeight, 255);
+  const defaults = popupSectionDefaults(layout, height);
+  return defaultPopupConfig(id, {
     title: String(scene.title ?? ""),
     body: String(scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
@@ -1102,9 +1156,11 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     in: scene.popupIn ?? "fade-slide-up",
     out: scene.popupOut ?? "fade-slide-down",
     width: clampPercent(scene.popupWidth, 90),
-    height: positiveNumber(scene.popupHeight, 255, 170),
+    height,
+    imageHeight: scene.popupImageHeight ?? defaults.imageHeight,
+    contentHeight: scene.popupContentHeight ?? defaults.contentHeight,
     borderWidth: Math.min(12, positiveNumber(scene.popupBorderWidth, 1)),
-    layout: scene.popupLayout ?? "image-top",
+    layout,
     theme: scene.popupTheme ?? "travel",
     textEffect: scene.popupTextEffect ?? "none",
     x: clampPercent(scene.popupX, 5),
@@ -1112,6 +1168,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     visible: scene.popupVisible !== false,
     imageVisible: (scene as Scene & { imageVisible?: boolean }).imageVisible !== false,
   });
+};
 
 const scenePopupList = (scene: Scene): PopupConfig[] => {
   if (Array.isArray(scene.popups)) return scene.popups;
@@ -1130,6 +1187,8 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popupOut: popup.out,
   popupWidth: popup.width,
   popupHeight: popup.height,
+  popupImageHeight: popup.imageHeight,
+  popupContentHeight: popup.contentHeight,
   popupBorderWidth: popup.borderWidth,
   popupLayout: popup.layout,
   popupTheme: popup.theme,
@@ -1179,6 +1238,14 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     const popups = Array.isArray(rawPopups)
       ? rawPopups.filter(isRecord).map((rawPopup, popupIndex) => {
           const fallback = popupIndex === 0 ? popupConfigFromScene(item, `${id}-popup-1`) : defaultPopupConfig(`${id}-popup-${popupIndex + 1}`);
+          const rawLayout = String(rawPopup.layout ?? rawPopup.popupLayout ?? fallback.layout);
+          const layout = ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(rawLayout)
+            ? rawLayout as Scene["popupLayout"]
+            : fallback.layout;
+          const height = popupDimensionHeight(rawPopup.height ?? rawPopup.popupHeight, fallback.height);
+          const sectionDefaults = popupSectionDefaults(layout, height);
+          const rawImageHeight = Number(rawPopup.imageHeight ?? rawPopup.popupImageHeight);
+          const rawContentHeight = Number(rawPopup.contentHeight ?? rawPopup.popupContentHeight);
           return defaultPopupConfig(
             String(rawPopup.id ?? fallback.id),
             {
@@ -1194,11 +1261,15 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
               out: String(rawPopup.out ?? rawPopup.popupOut ?? fallback.out),
               width: clampPercent(rawPopup.width ?? rawPopup.popupWidth, fallback.width),
-              height: positiveNumber(rawPopup.height ?? rawPopup.popupHeight, fallback.height, 170),
+              height,
+              imageHeight: Number.isFinite(rawImageHeight)
+                ? Math.min(440, Math.max(0, rawImageHeight))
+                : sectionDefaults.imageHeight,
+              contentHeight: Number.isFinite(rawContentHeight)
+                ? Math.min(440, Math.max(0, rawContentHeight))
+                : sectionDefaults.contentHeight,
               borderWidth: Math.min(12, positiveNumber(rawPopup.borderWidth ?? rawPopup.popupBorderWidth, fallback.borderWidth)),
-              layout: ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
-                ? (rawPopup.layout ?? rawPopup.popupLayout) as Scene["popupLayout"]
-                : fallback.layout,
+              layout,
               theme: ["travel", "sunset", "ocean", "minimal"].includes(String(rawPopup.theme ?? rawPopup.popupTheme))
                 ? (rawPopup.theme ?? rawPopup.popupTheme) as Scene["popupTheme"]
                 : fallback.theme,
@@ -3227,9 +3298,8 @@ function Home() {
       : item));
   };
 
-  const updatePopup = <K extends keyof PopupConfig>(
-    key: K,
-    value: PopupConfig[K],
+  const updatePopupValues = (
+    values: Partial<PopupConfig>,
     popupId = selectedPopupId,
   ) => {
     if (!hydrated) return;
@@ -3245,7 +3315,7 @@ function Home() {
       const popups = scenePopupList(item);
       const current = popups[popupIndex];
       if (!current) return item;
-      const nextPopup = { ...current, [key]: value } as PopupConfig;
+      const nextPopup = { ...current, ...values } as PopupConfig;
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
         ...item,
@@ -3253,6 +3323,25 @@ function Home() {
         ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
       };
     }));
+  };
+
+  const updatePopup = <K extends keyof PopupConfig>(
+    key: K,
+    value: PopupConfig[K],
+    popupId = selectedPopupId,
+  ) => {
+    if (key === "layout") {
+      const layout = popupDimensionLayout(value);
+      const defaults = popupSectionDefaults(layout, activePopup?.height ?? 255);
+      updatePopupValues({
+        layout,
+        height: defaults.height,
+        imageHeight: defaults.imageHeight,
+        contentHeight: defaults.contentHeight,
+      }, popupId);
+      return;
+    }
+    updatePopupValues({ [key]: value } as Partial<PopupConfig>, popupId);
   };
 
   const updatePopupMedia = (value: string, popupId = selectedPopupId) => {
@@ -4799,13 +4888,15 @@ function Home() {
   const startPopupResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (!activePopup) return;
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
-    const startWidth = activePopup?.width ?? 90;
-    const startHeight = activePopup?.height ?? 255;
+    const startWidth = activePopup.width ?? 90;
+    const startGeometry = popupSectionGeometry(activePopup);
+    const startHeight = startGeometry.height || activePopup.height || 255;
     const maxPopupHeight = Math.min(440, bounds.height * 0.88);
 
     const resize = (moveEvent: PointerEvent) => {
@@ -4817,8 +4908,21 @@ function Home() {
         maxPopupHeight,
         Math.max(170, startHeight + moveEvent.clientY - startY),
       );
-      updatePopup("width", Math.round(width));
-      updatePopup("height", Math.round(height));
+      const layout = popupDimensionLayout(activePopup.layout);
+      const nextDimensions = layout === "split"
+        ? {
+            imageHeight: Math.round(height),
+            contentHeight: Math.round(height),
+          }
+        : startGeometry.imageHeight > 0 && startGeometry.contentHeight > 0
+          ? {
+              imageHeight: startGeometry.imageHeight,
+              contentHeight: Math.round(Math.max(48, height - startGeometry.imageHeight)),
+            }
+          : startGeometry.imageHeight > 0
+            ? { imageHeight: Math.round(height), contentHeight: 0 }
+            : { imageHeight: 0, contentHeight: Math.round(height) };
+      updatePopupValues({ width: Math.round(width), height: Math.round(height), ...nextDimensions });
     };
     const stop = () => {
       window.removeEventListener("pointermove", resize);
@@ -4826,6 +4930,66 @@ function Home() {
     };
     window.addEventListener("pointermove", resize);
     window.addEventListener("pointerup", stop);
+  };
+
+  const startPopupSectionResize = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    section: "image" | "content",
+    popupId = activePopup?.id,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (playing || !popupId) return;
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
+    if (!popup) return;
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.height <= 0) return;
+    const geometry = popupSectionGeometry(popup);
+    const layout = popupDimensionLayout(popup.layout);
+    const startHeight = section === "image" ? geometry.imageHeight : geometry.contentHeight;
+    const otherHeight = section === "image" ? geometry.contentHeight : geometry.imageHeight;
+    const maxPopupHeight = Math.min(440, bounds.height * 0.88);
+    const maxHeight = layout === "split"
+      ? maxPopupHeight
+      : Math.max(48, maxPopupHeight - otherHeight);
+    const startY = event.clientY;
+    const field = section === "image" ? "imageHeight" : "contentHeight";
+    const resize = (moveEvent: PointerEvent) => {
+      const nextHeight = Math.min(
+        maxHeight,
+        Math.max(48, startHeight + moveEvent.clientY - startY),
+      );
+      const nextTotalHeight = layout === "split"
+        ? Math.max(nextHeight, otherHeight)
+        : nextHeight + otherHeight;
+      updatePopupValues({
+        [field]: Math.round(nextHeight),
+        height: Math.round(nextTotalHeight),
+      } as Partial<PopupConfig>, popupId);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const resetPopupSize = (popupId: string) => {
+    const popup = scenePopups.find((item) => item.id === popupId);
+    if (!popup) return;
+    const defaults = popupSectionDefaults(popup.layout, 255);
+    updatePopupValues({
+      width: 90,
+      height: defaults.height,
+      imageHeight: defaults.imageHeight,
+      contentHeight: defaults.contentHeight,
+    }, popupId);
+    setSelectedPopupId(popupId);
+    setToast("Đã đặt lại kích thước Popup");
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const getAlignmentPoints = (
@@ -5302,6 +5466,8 @@ function Home() {
             out: popup.out,
             width: popup.width,
             height: popup.height,
+            imageHeight: popup.imageHeight,
+            contentHeight: popup.contentHeight,
             borderWidth: popup.borderWidth,
             layout: popup.layout,
             theme: popup.theme,
@@ -5376,6 +5542,8 @@ function Home() {
             popupOut: firstPopup.out,
             popupWidth: firstPopup.width,
             popupHeight: firstPopup.height,
+            popupImageHeight: firstPopup.imageHeight,
+            popupContentHeight: firstPopup.contentHeight,
             popupBorderWidth: firstPopup.borderWidth,
             popupLayout: firstPopup.layout,
             popupTheme: firstPopup.theme,
@@ -6650,6 +6818,7 @@ function Home() {
               const popupMediaOnly = popupShowMedia && !popupShowText;
               const popupTransparentMedia = popup.transparentMedia === true && popupShowMedia;
               const popupEmptyFrame = !popupShowMedia && !popupShowText;
+              const popupGeometry = popupSectionGeometry(popup, popupShowMedia, popupShowText);
               return (
                 <article
                   key={popup.id}
@@ -6661,7 +6830,7 @@ function Home() {
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                    height: `min(${popup.height ?? 255}px, 88%)`,
+                    height: `min(${popupGeometry.height || popup.height || 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
                     right: "auto",
@@ -6672,7 +6841,7 @@ function Home() {
                   onPointerDown={(event) => startPopupDrag(event, popup.id)}
                 >
                   {popupShowMedia && (
-                    <div className="photo-placeholder">
+                    <div className="photo-placeholder" style={{ height: `${popupGeometry.imageHeight}px` }}>
                       {popupVideoSource ? (
                         <video
                           className={`popup-video ${popupTransparentMedia ? "popup-transparent-media-asset" : ""}`}
@@ -6692,9 +6861,18 @@ function Home() {
                           <span>Không tải được tài nguyên popup</span>
                         </>
                       )}
+                      {popup.id === activePopup?.id && !playing && (
+                        <button
+                          type="button"
+                          className="popup-section-resize-handle popup-section-resize-handle-image"
+                          aria-label="Kéo để thay đổi chiều cao phần hình ảnh Popup"
+                          title="Kéo để tăng hoặc giảm chiều cao phần Hình ảnh"
+                          onPointerDown={(event) => startPopupSectionResize(event, "image", popup.id)}
+                        />
+                      )}
                     </div>
                   )}
-                  {popupShowText && <div className="card-content">
+                  {popupShowText && <div className="card-content" style={{ height: `${popupGeometry.contentHeight}px` }}>
                      {popupLayout === "stats" && (
                       <div className="popup-stat-row">
                         <span>{scene.location || "HÀNH TRÌNH"}</span>
@@ -6704,6 +6882,15 @@ function Home() {
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
                     {safeTrim(popup.title) && <h3>{popup.title}</h3>}
                     {safeTrim(popup.body) && <p>{popup.body}</p>}
+                    {popup.id === activePopup?.id && !playing && (
+                      <button
+                        type="button"
+                        className="popup-section-resize-handle popup-section-resize-handle-content"
+                        aria-label="Kéo để thay đổi chiều cao phần nội dung Popup"
+                        title="Kéo để tăng hoặc giảm chiều cao phần Nội dung"
+                        onPointerDown={(event) => startPopupSectionResize(event, "content", popup.id)}
+                      />
+                    )}
                    </div>}
                   {popup.id === activePopup?.id && (
                     <button
@@ -8450,6 +8637,15 @@ function Home() {
                     </button>
                     <button
                       type="button"
+                      className="popup-size-reset"
+                      aria-label={`Đặt lại kích thước Popup ${index + 1}`}
+                      title="Đặt lại kích thước Popup về mặc định"
+                      onClick={() => resetPopupSize(popup.id)}
+                    >
+                      ↺
+                    </button>
+                    <button
+                      type="button"
                       className="popup-delete-button"
                       aria-label={`Xóa Popup ${index + 1}`}
                       title={`Xóa Popup ${index + 1}`}
@@ -8460,6 +8656,7 @@ function Home() {
                   </div>
                 ))}
               </div>
+              <small className="popup-size-help">Trong khung xem trước, kéo vạch xanh ở cuối Hình ảnh hoặc Nội dung để chỉnh riêng chiều cao. Nút ↺ sẽ đặt lại kích thước mặc định.</small>
             </div>
             {activePopup ? (
             <div className="popup-motion-settings-card" id="editor-popup">

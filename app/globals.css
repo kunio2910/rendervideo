@@ -5103,6 +5103,45 @@ body {
   opacity: .85;
 }
 .preview-card.popup-layout-stats .card-content { padding-top: 9px; }
+.preview-card .photo-placeholder,
+.preview-card .card-content {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.preview-card.popup-layout-split .photo-placeholder,
+.preview-card.popup-layout-split .card-content {
+  align-self: flex-start;
+}
+.popup-section-resize-handle {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 11px;
+  padding: 0;
+  border: 0;
+  border-top: 2px solid rgba(35, 137, 255, .88);
+  background: linear-gradient(90deg, transparent, rgba(35, 137, 255, .2), transparent);
+  cursor: ns-resize;
+  touch-action: none;
+}
+.popup-section-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(35, 137, 255, .9);
+  transform: translateX(-50%);
+}
+.popup-section-resize-handle:hover,
+.popup-section-resize-handle:focus-visible {
+  background: linear-gradient(90deg, transparent, rgba(35, 137, 255, .34), transparent);
+  outline: none;
+}
 .popup-stat-row {
   display: flex;
   align-items: center;
@@ -5248,7 +5287,7 @@ body {
 .popup-manager-list { display: grid; gap: 6px; }
 .popup-manager-item {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 28px 28px 28px;
+  grid-template-columns: 24px minmax(0, 1fr) 28px 28px 28px 28px;
   gap: 8px;
   align-items: center;
   width: 100%;
@@ -5291,8 +5330,36 @@ body {
   line-height: 1;
 }
 .popup-delete-button:hover { border-color: #df8d79; background: #fff0ec; color: #b6412e; }
+.popup-size-reset {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.popup-size-reset:hover,
+.popup-size-reset:focus-visible {
+  border-color: #d6a057;
+  background: #fff5df;
+  color: #a66b20;
+  outline: none;
+}
 .popup-border-field { max-width: 220px; }
 .popup-manager-item.active { border-color: #d88b2b; background: #fff0d4; }
+.popup-size-help {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
 .popup-empty-state {
   display: grid;
   gap: 5px;

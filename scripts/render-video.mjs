@@ -71,6 +71,44 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
+  ? String(value)
+  : "image-top";
+const popupDimensionHeight = (value, fallback = 255) => clamp(
+  Number.isFinite(Number(value)) ? Number(value) : fallback,
+  170,
+  440,
+);
+const popupSectionDefaults = (layoutValue, heightValue = 255) => {
+  const layout = popupDimensionLayout(layoutValue);
+  const height = popupDimensionHeight(heightValue);
+  if (layout === "split") return { imageHeight: height, contentHeight: height, height };
+  if (layout === "image-only") return { imageHeight: height, contentHeight: 0, height };
+  if (layout === "content-only" || layout === "quote") return { imageHeight: 0, contentHeight: height, height };
+  const imageHeight = Math.min(115, Math.max(48, height - 48));
+  return { imageHeight, contentHeight: Math.max(48, height - imageHeight), height };
+};
+const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
+  const layout = popupDimensionLayout(popup.popupLayout ?? popup.layout);
+  const defaults = popupSectionDefaults(layout, popup.popupHeight ?? popup.height);
+  let imageHeight = Number.isFinite(Number(popup.popupImageHeight ?? popup.imageHeight))
+    ? Math.max(0, Number(popup.popupImageHeight ?? popup.imageHeight))
+    : defaults.imageHeight;
+  let contentHeight = Number.isFinite(Number(popup.popupContentHeight ?? popup.contentHeight))
+    ? Math.max(0, Number(popup.popupContentHeight ?? popup.contentHeight))
+    : defaults.contentHeight;
+  if (!showVisual) imageHeight = 0;
+  if (!showText) contentHeight = 0;
+  if (showVisual && !showText) imageHeight = Math.max(imageHeight, defaults.height);
+  if (!showVisual && showText) contentHeight = Math.max(contentHeight, defaults.height);
+  const height = layout === "split" ? Math.max(imageHeight, contentHeight) : imageHeight + contentHeight;
+  return {
+    layout,
+    imageHeight: Math.round(imageHeight),
+    contentHeight: Math.round(contentHeight),
+    height: Math.round(Math.max(0, height)),
+  };
+};
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
   return {
@@ -92,7 +130,7 @@ const normalizeSceneEffects = (value) => {
   };
 };
 const popupPixelHeight = (scene) => Math.min(
-  Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440))),
+  Math.round(previewPx(popupSectionGeometry(scene).height)),
   Math.round(outputHeight * 0.88),
 );
 const popupEntriesForScene = (scene) => {
@@ -111,6 +149,8 @@ const popupEntriesForScene = (scene) => {
       popupOut: popup.out ?? popup.popupOut ?? "fade-slide-down",
       popupWidth: popup.width ?? popup.popupWidth ?? 90,
       popupHeight: popup.height ?? popup.popupHeight ?? 255,
+      popupImageHeight: popup.imageHeight ?? popup.popupImageHeight,
+      popupContentHeight: popup.contentHeight ?? popup.popupContentHeight,
       popupBorderWidth: popup.borderWidth ?? popup.popupBorderWidth ?? scene.popupBorderWidth ?? 1,
       popupLayout: popup.layout ?? popup.popupLayout ?? "image-top",
       popupTheme: popup.theme ?? popup.popupTheme ?? "travel",
@@ -128,6 +168,8 @@ const popupEntriesForScene = (scene) => {
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
+    popupImageHeight: scene.popupImageHeight,
+    popupContentHeight: scene.popupContentHeight,
     popupBorderWidth: Number(scene.popupBorderWidth ?? 1),
     popupIndex: 0,
   }];
@@ -435,7 +477,6 @@ const createPopup = async (scene, index) => {
   const transparentMediaOnly = transparentMedia && !showText;
   if (!showText && !showVisual) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
-  const height = popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
   const borderWidth = Math.max(0, Math.round(previewPx(clamp(Number(scene.popupBorderWidth ?? 1), 0, 12))));
   const paddingX = Math.round(previewPx(15));
@@ -459,33 +500,41 @@ const createPopup = async (scene, index) => {
     : null;
   const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
+  const geometry = popupSectionGeometry({
+    ...scene,
+    popupLayout: layout,
+  }, showVisual, showText);
+  const height = Math.min(
+    popupPixelHeight({ ...scene, popupLayout: layout, popupImageHeight: geometry.imageHeight, popupContentHeight: geometry.contentHeight }),
+    Math.round(outputHeight * 0.88),
+  );
   const imageWidth = split ? Math.round(width * 0.42) : width;
-  const imageHeight = layout === "quote"
-    ? 0
-    : split
-      ? height
-      : hasVisual
-        ? imageOnly
-          ? height
-          : Math.round(previewPx(115))
-        : 0;
+  const imageHeight = Math.min(
+    Math.round(previewPx(geometry.imageHeight)),
+    height,
+  );
+  const contentHeight = Math.min(
+    Math.round(previewPx(geometry.contentHeight)),
+    height,
+  );
   const contentX = split ? imageWidth + paddingX : paddingX;
   const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
+  const contentTop = split ? 0 : imageHeight;
   const titleY = layout === "quote"
     ? Math.round(previewPx(56))
-    : imageHeight + Math.round(previewPx(layout === "stats" ? 33 : 33));
+    : contentTop + Math.round(previewPx(layout === "stats" ? 33 : 33));
   const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
   const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
-  const maxBodyLines = Math.max(1, Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1);
+  const maxBodyLines = Math.max(1, Math.floor((contentTop + contentHeight - bodyY - previewPx(15)) / bodyLineHeight) + 1);
   const bodyLines = wrap(showText ? scene.body ?? scene.popup ?? "" : "", maxCharacters).slice(0, maxBodyLines);
   const bodyText = bodyLines.map((line, lineIndex) =>
     `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
   ).join("");
   const imageClipPath = split
-    ? `M ${radius} 0 H ${imageWidth} V ${height} H ${radius} Q 0 ${height} 0 ${height - radius} V ${radius} Q 0 0 ${radius} 0 Z`
+    ? `M ${radius} 0 H ${imageWidth} V ${imageHeight} H ${radius} Q 0 ${imageHeight} 0 ${Math.max(0, imageHeight - radius)} V ${radius} Q 0 0 ${radius} 0 Z`
     : `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${imageHeight} H 0 V ${radius} Q 0 0 ${radius} 0 Z`;
   const placeholder = split
-    ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
+    ? `<rect width="${imageWidth}" height="${imageHeight}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
   const cardBackground = transparentMediaOnly
     ? ""
