@@ -273,7 +273,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
   assert.match(css, /preview-audio-toggle/);
-  assert.match(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
+  assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);
   assert.match(css, /popup-theme-ocean/);

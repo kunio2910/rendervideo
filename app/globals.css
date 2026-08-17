@@ -4162,18 +4162,6 @@ body {
   overflow: visible;
 }
 
-/* Long popup forms need their own scroll area so the last controls remain
-   reachable even when the editor column is shorter than the accordion. */
-.studio-shell[data-studio-tab="compose"] .editor-accordion-popup[open] > .editor-accordion-content {
-  min-height: 0;
-  max-height: calc(100vh - 110px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding-right: 6px;
-  scrollbar-gutter: stable;
-  overscroll-behavior-y: contain;
-}
-
 @media (max-width: 760px) {
   .quick-scene-duration span {
     display: none;
