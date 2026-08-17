@@ -26,6 +26,7 @@ type TextOverlay = {
   name: string;
   text: string;
   visible: boolean;
+  editorVisible: boolean;
   size: number;
   style: "normal" | "bold" | "italic" | "bold-italic";
   color: string;
@@ -106,6 +107,7 @@ type SceneImage = {
   start: number;
   duration: number;
   visible: boolean;
+  editorVisible: boolean;
 };
 
 type AlignmentGuides = {
@@ -177,6 +179,7 @@ type Scene = {
   subtitles: SubtitleCue[];
   popupDuration: number;
   voiceFile: string;
+  voiceStart: number;
   voiceVolume: number;
   popupIn: string;
   popupOut: string;
@@ -282,6 +285,7 @@ type PopupConfig = {
   x: number;
   y: number;
   visible: boolean;
+  editorVisible: boolean;
   imageVisible: boolean;
 };
 
@@ -379,6 +383,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
+  voiceStart: 0,
   voiceVolume: 95,
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
@@ -399,6 +404,17 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
 const initialScenes: Scene[] = [createEmptyScene()];
 
 const safeTrim = (value: unknown) => String(value ?? "").trim();
+
+const reorderById = <T extends { id: string }>(items: T[], draggedItemId: string, targetItemId: string) => {
+  const fromIndex = items.findIndex((item) => item.id === draggedItemId);
+  const targetIndex = items.findIndex((item) => item.id === targetItemId);
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return items;
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  if (!movedItem) return items;
+  nextItems.splice(targetIndex, 0, movedItem);
+  return nextItems;
+};
 
 const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -616,6 +632,7 @@ type EditorSectionClipboard =
       narration: string;
       voice: string;
       voiceFile: string;
+      voiceStart: number;
       voiceVolume: number;
       backgroundMusic: string;
       backgroundMusicVolume: number;
@@ -730,6 +747,7 @@ const defaultSceneImage = (
   start: 0,
   duration: 5,
   visible: true,
+  editorVisible: true,
   ...overrides,
 });
 
@@ -768,6 +786,7 @@ const normalizeSceneImage = (
     start: Math.max(0, positiveNumber(raw.start, base.start)),
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
     visible: raw.visible !== false,
+    editorVisible: raw.editorVisible !== false,
   };
 };
 
@@ -787,6 +806,7 @@ const defaultTextOverlay = (
   name: "Chữ viết",
   text: "",
   visible: true,
+  editorVisible: true,
   size: 24,
   style: "normal",
   color: "#ffffff",
@@ -973,6 +993,7 @@ const normalizeTextOverlay = (
     name: String(raw.name ?? base.name).trim() || base.name,
     text: String(raw.text ?? raw.overlayText ?? base.text),
     visible: raw.visible !== false,
+    editorVisible: raw.editorVisible !== false,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
     style: ["normal", "bold", "italic", "bold-italic"].includes(style)
       ? style as TextOverlay["style"]
@@ -1052,6 +1073,7 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   x: 5,
   y: 55,
   visible: true,
+  editorVisible: true,
   imageVisible: true,
   ...overrides,
 });
@@ -1175,6 +1197,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               x: clampPercent(rawPopup.x ?? rawPopup.popupX, fallback.x),
               y: clampPercent(rawPopup.y ?? rawPopup.popupY, fallback.y),
               visible: rawPopup.visible !== false,
+              editorVisible: rawPopup.editorVisible !== false,
               imageVisible: rawPopup.imageVisible !== false,
             },
           );
@@ -1263,6 +1286,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       subtitleEnabled: item.subtitleEnabled !== false,
       subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
+      voiceStart: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -2033,6 +2057,11 @@ function Home() {
   const [playTime, setPlayTime] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [layerListDrag, setLayerListDrag] = useState<{
+    type: "popup" | "text" | "image" | "";
+    id: string;
+    overId: string;
+  }>({ type: "", id: "", overId: "" });
   const [toast, setToast] = useState("");
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
@@ -2301,6 +2330,11 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneVoiceStart = Math.min(
+    sceneDuration,
+    Math.max(0, Number(scene.voiceStart ?? 0) || 0),
+  );
+  const sceneVoiceReady = sceneLocalTime >= sceneVoiceStart;
   useEffect(() => {
     const video = backgroundVideoRef.current;
     if (playing || !video || !backgroundVideoPreviewSource) return;
@@ -2341,12 +2375,13 @@ function Home() {
       ? scenePopups.filter((popup) => {
           const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
           const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
-          return popup.visible !== false
+          return (playing || popup.editorVisible !== false)
+            && popup.visible !== false
             && popupHasContent(popup)
             && sceneLocalTime >= timingStart
             && sceneLocalTime <= timingEnd;
         })
-      : scenePopups.filter((popup) => popup.visible !== false && popupHasContent(popup))
+      : scenePopups.filter((popup) => popup.editorVisible !== false && popup.visible !== false && popupHasContent(popup))
     : [];
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
@@ -2378,7 +2413,7 @@ function Home() {
             && sceneLocalTime >= start
             && sceneLocalTime <= end;
         })
-      : sceneImages.filter((image) => image.visible !== false && Boolean(safeTrim(image.url)))
+      : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
@@ -2891,7 +2926,7 @@ function Home() {
   useEffect(() => {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
-    if (!playing || !narrationEnabled || !sceneIsVisibleInPlayback) return;
+    if (!playing || !narrationEnabled || !sceneIsVisibleInPlayback || !sceneVoiceReady) return;
     const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -2903,8 +2938,8 @@ function Home() {
     let started = false;
     const startAudio = () => {
       if (cancelled || started || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
-      const elapsed = Math.max(0, playTimeRef.current - scene.start);
-      if (elapsed >= sceneDuration) return;
+      const elapsed = Math.max(0, playTimeRef.current - scene.start - sceneVoiceStart);
+      if (elapsed >= Math.max(0, sceneDuration - sceneVoiceStart)) return;
       audio.currentTime = Math.min(elapsed, Math.max(0, audio.duration - 0.01));
       started = true;
       void audio.play().catch(() => {
@@ -2924,7 +2959,7 @@ function Home() {
       audio.load();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.end, scene.voiceVolume, sceneIsVisibleInPlayback]);
+  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.end, scene.voiceStart, scene.voiceVolume, sceneIsVisibleInPlayback, sceneVoiceReady, sceneVoiceStart]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
@@ -3231,6 +3266,7 @@ function Home() {
               narration: scene.narration ?? "",
               voice: scene.voice ?? "",
               voiceFile: scene.voiceFile ?? "",
+              voiceStart: Math.max(0, Number(scene.voiceStart ?? 0) || 0),
               voiceVolume: clampVolume(scene.voiceVolume, 95),
               backgroundMusic,
               backgroundMusicVolume,
@@ -3299,6 +3335,7 @@ function Home() {
             narration: data.narration,
             voice: data.voice,
             voiceFile: data.voiceFile,
+            voiceStart: data.voiceStart,
             voiceVolume: data.voiceVolume,
           };
         case "effects":
@@ -3763,6 +3800,7 @@ function Home() {
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
+      voiceStart: 0,
       voiceVolume: 95,
       sceneVisible: true,
       popupIn: "fade-slide-up",
@@ -4380,6 +4418,18 @@ function Home() {
       : item));
   };
 
+  const toggleSceneImageEditorVisibility = (imageId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, editorVisible: image.editorVisible === false }
+            : image),
+        }
+      : item));
+  };
+
   const deleteSceneImage = (imageId = activeSceneImage?.id) => {
     if (!scene || !imageId) return;
     const currentImages = scene.sceneImages ?? [];
@@ -4512,6 +4562,18 @@ function Home() {
     }));
   };
 
+  const toggleTextOverlayEditorVisibility = (overlayId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          textOverlays: (item.textOverlays ?? []).map((overlay) => overlay.id === overlayId
+            ? { ...overlay, editorVisible: overlay.editorVisible === false }
+            : overlay),
+        }
+      : item));
+  };
+
   const deleteTextOverlay = (overlayId = activeTextOverlay?.id) => {
     if (!scene || !overlayId) return;
     const currentOverlays = scene.textOverlays ?? [];
@@ -4566,6 +4628,79 @@ function Home() {
       };
     }));
   };
+
+  const togglePopupEditorVisibility = (popupId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const popups = scenePopupList(item).map((popup) => popup.id === popupId
+        ? { ...popup, editorVisible: popup.editorVisible === false }
+        : popup);
+      const firstPopup = popups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+      return {
+        ...item,
+        popups,
+        ...popupSceneFields(firstPopup),
+      };
+    }));
+  };
+
+  const beginLayerListDrag = (
+    type: "popup" | "text" | "image",
+    id: string,
+    event: React.DragEvent<HTMLElement>,
+  ) => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+    setLayerListDrag({ type, id, overId: "" });
+  };
+
+  const updateLayerListDragOver = (
+    type: "popup" | "text" | "image",
+    id: string,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    if (layerListDrag.type !== type || !layerListDrag.id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setLayerListDrag((current) => current.type === type
+      ? { ...current, overId: id }
+      : current);
+  };
+
+  const finishLayerListDrop = (
+    type: "popup" | "text" | "image",
+    targetId: string,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    const draggedLayerId = layerListDrag.type === type ? layerListDrag.id : "";
+    if (!scene || !draggedLayerId || draggedLayerId === targetId) {
+      setLayerListDrag({ type: "", id: "", overId: "" });
+      return;
+    }
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      if (type === "popup") {
+        const popups = reorderById(scenePopupList(item), draggedLayerId, targetId);
+        const firstPopup = popups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+        return { ...item, popups, ...popupSceneFields(firstPopup) };
+      }
+      if (type === "text") {
+        const textOverlays = reorderById(item.textOverlays ?? [], draggedLayerId, targetId);
+        const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${item.id}-text-1`);
+        return { ...item, textOverlays, ...textOverlaySceneFields(firstTextOverlay) };
+      }
+      return { ...item, sceneImages: reorderById(item.sceneImages ?? [], draggedLayerId, targetId) };
+    }));
+    if (type === "popup") setSelectedPopupId(draggedLayerId);
+    if (type === "text") setSelectedTextOverlayId(draggedLayerId);
+    if (type === "image") setSelectedSceneImageId(draggedLayerId);
+    setLayerListDrag({ type: "", id: "", overId: "" });
+  };
+
+  const clearLayerListDrag = () => setLayerListDrag({ type: "", id: "", overId: "" });
 
   const toggleRuler = () => {
     const next = !rulerEnabled;
@@ -6285,7 +6420,7 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => safeTrim(overlay.text) ? (
+            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false)).map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
                 className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
@@ -6723,7 +6858,22 @@ function Home() {
                   {sceneImages.length > 0 ? (
                     <div className="scene-image-list">
                       {sceneImages.map((image, index) => (
-                        <div key={image.id} className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""}`}>
+                        <div
+                          key={image.id}
+                          className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""} ${image.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === image.id && layerListDrag.type === "image" ? "is-drag-over" : ""}`}
+                          onDragOver={(event) => updateLayerListDragOver("image", image.id, event)}
+                          onDrop={(event) => finishLayerListDrop("image", image.id, event)}
+                        >
+                          <span
+                            className="layer-drag-handle"
+                            draggable
+                            role="button"
+                            tabIndex={0}
+                            title="Kéo để sắp xếp hình ảnh"
+                            aria-label={`Kéo để sắp xếp ${sceneImageLabel(image, index)}`}
+                            onDragStart={(event) => beginLayerListDrag("image", image.id, event)}
+                            onDragEnd={clearLayerListDrag}
+                          >⠿</span>
                           {renamingSceneImageId === image.id ? (
                             <div className="layer-name-editor">
                               <input
@@ -6761,6 +6911,19 @@ function Home() {
                           </button>
                           <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
                             {image.visible === false ? "○" : "◉"}
+                          </button>
+                          <button
+                            type="button"
+                            className={`scene-image-action editor-layer-visibility ${image.editorVisible === false ? "is-hidden" : ""}`}
+                            title={image.editorVisible === false ? "Hiện lớp khi biên soạn" : "Ẩn lớp khi biên soạn"}
+                            aria-label={image.editorVisible === false ? `Hiện ${sceneImageLabel(image, index)} khi biên soạn` : `Ẩn ${sceneImageLabel(image, index)} khi biên soạn`}
+                            onClick={() => toggleSceneImageEditorVisibility(image.id)}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                              <circle cx="12" cy="12" r="2.2" />
+                              {image.editorVisible === false && <path d="m4 4 16 16" />}
+                            </svg>
                           </button>
                           <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
                           <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
@@ -6948,7 +7111,22 @@ function Home() {
                     {sceneTextOverlays.length > 0 ? (
                       <div className="text-overlay-list">
                         {sceneTextOverlays.map((overlay, index) => (
-                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""}`}>
+                          <div
+                            key={overlay.id}
+                            className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""} ${overlay.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === overlay.id && layerListDrag.type === "text" ? "is-drag-over" : ""}`}
+                            onDragOver={(event) => updateLayerListDragOver("text", overlay.id, event)}
+                            onDrop={(event) => finishLayerListDrop("text", overlay.id, event)}
+                          >
+                            <span
+                              className="layer-drag-handle"
+                              draggable
+                              role="button"
+                              tabIndex={0}
+                              title="Kéo để sắp xếp chữ viết"
+                              aria-label={`Kéo để sắp xếp ${textOverlayLabel(overlay, index)}`}
+                              onDragStart={(event) => beginLayerListDrag("text", overlay.id, event)}
+                              onDragEnd={clearLayerListDrag}
+                            >⠿</span>
                             {renamingTextOverlayId === overlay.id ? (
                               <div className="layer-name-editor">
                                 <input
@@ -6995,6 +7173,19 @@ function Home() {
                                 <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
                                 <circle cx="12" cy="12" r="2.2" />
                                 {overlay.visible === false && <path d="m4 4 16 16" />}
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              className={`text-overlay-visibility editor-layer-visibility ${overlay.editorVisible === false ? "is-hidden" : ""}`}
+                              aria-label={overlay.editorVisible === false ? `Hiện chữ ${index + 1} khi biên soạn` : `Ẩn chữ ${index + 1} khi biên soạn`}
+                              title={overlay.editorVisible === false ? `Hiện chữ ${index + 1} khi biên soạn` : `Ẩn chữ ${index + 1} khi biên soạn`}
+                              onClick={() => toggleTextOverlayEditorVisibility(overlay.id)}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                                <circle cx="12" cy="12" r="2.2" />
+                                {overlay.editorVisible === false && <path d="m4 4 16 16" />}
                               </svg>
                             </button>
                             <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
@@ -7541,6 +7732,22 @@ function Home() {
                     }}
                   />
                 </label>
+              </div>
+              <div className="field audio-volume-field">
+                <span>Thời gian bắt đầu phát âm thanh (giây)</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max={sceneDuration}
+                    step="0.1"
+                    aria-label="Thời gian bắt đầu phát âm thanh (giây)"
+                    value={scene.voiceStart ?? 0}
+                    onChange={(event) => updateScene("voiceStart", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))}
+                  />
+                  <b>s</b>
+                </div>
+                <small>0 giây = phát ngay khi cảnh bắt đầu.</small>
               </div>
               <div className="field audio-volume-field">
                 <span>Âm lượng thuyết minh (%)</span>
@@ -8132,8 +8339,20 @@ function Home() {
                 {scenePopups.map((popup, index) => (
                   <div
                     key={popup.id}
-                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""}`}
+                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""} ${popup.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === popup.id && layerListDrag.type === "popup" ? "is-drag-over" : ""}`}
+                    onDragOver={(event) => updateLayerListDragOver("popup", popup.id, event)}
+                    onDrop={(event) => finishLayerListDrop("popup", popup.id, event)}
                   >
+                    <span
+                      className="layer-drag-handle"
+                      draggable
+                      role="button"
+                      tabIndex={0}
+                      title="Kéo để sắp xếp Popup"
+                      aria-label={`Kéo để sắp xếp Popup ${index + 1}`}
+                      onDragStart={(event) => beginLayerListDrag("popup", popup.id, event)}
+                      onDragEnd={clearLayerListDrag}
+                    >⠿</span>
                     <button
                       type="button"
                       className="popup-manager-select"
@@ -8153,6 +8372,19 @@ function Home() {
                         <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
                         <circle cx="12" cy="12" r="2.2" />
                         {popup.visible === false && <path d="m4 4 16 16" />}
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className={`popup-visibility-button editor-layer-visibility ${popup.editorVisible === false ? "is-hidden" : ""}`}
+                      aria-label={popup.editorVisible === false ? `Hiện Popup ${index + 1} khi biên soạn` : `Ẩn Popup ${index + 1} khi biên soạn`}
+                      title={popup.editorVisible === false ? `Hiện Popup ${index + 1} khi biên soạn` : `Ẩn Popup ${index + 1} khi biên soạn`}
+                      onClick={() => togglePopupEditorVisibility(popup.id)}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                        <circle cx="12" cy="12" r="2.2" />
+                        {popup.editorVisible === false && <path d="m4 4 16 16" />}
                       </svg>
                     </button>
                     <button

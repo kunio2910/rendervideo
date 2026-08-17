@@ -931,6 +931,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
+  const voiceStart = clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));
   const zoomStartFrames = Math.min(
@@ -1351,8 +1352,11 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-filter_complex", filter,
     "-map", "[composed]",
   );
+  const voiceDelayFilter = voice && voiceStart > 0
+    ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
+    : "";
   const audioFilter = voice
-    ? `aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
+    ? `${voiceDelayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
     : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
   args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
   args.push(
