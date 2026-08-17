@@ -350,6 +350,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /-stream_loop/);
   assert.match(renderer, /d=1,trim=duration/);
   assert.match(renderer, /popup\.video/);
+  assert.match(renderer, /const animatedImageDetected = isAnimatedImageMedia\(imageValue\)/);
+  assert.match(renderer, /const image = animatedImage && !resolvedVideo \? null : resolvedImage/);
+  assert.match(renderer, /videoFrameSequence/);
+  assert.match(renderer, /const writeAnimatedImageFrameSequence/);
+  assert.match(renderer, /animatedImage = await writeAnimatedImageFrameSequence/);
+  assert.match(renderer, /const writeAnimatedWebpFrameSequence/);
+  assert.match(renderer, /args\.push\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);
   assert.match(renderer, /scene\.popupY/);

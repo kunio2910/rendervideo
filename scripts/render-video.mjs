@@ -277,7 +277,11 @@ const writeSpriteFrameSequence = async (frames, frameSize, delay, index) =>
     `scene-image-${index + 1}-frames`,
   );
 
-const writeAnimatedWebpFrameSequence = async (source, metadata, index) => {
+const writeAnimatedImageFrameSequence = async (
+  source,
+  metadata,
+  sequenceName,
+) => {
   const frameWidth = Math.max(1, Number(metadata.width) || 1);
   const frameHeight = Math.max(1, Number(metadata.pageHeight) || Number(metadata.height) || 1);
   const pageCount = Math.max(1, Number(metadata.pages) || Math.floor(Number(metadata.height) / frameHeight) || 1);
@@ -287,7 +291,7 @@ const writeAnimatedWebpFrameSequence = async (source, metadata, index) => {
     .toBuffer({ resolveWithObject: true });
   const frameBytes = frameWidth * frameHeight * rawResult.info.channels;
   if (rawResult.data.length < frameBytes * pageCount) {
-    throw new Error("Không thể đọc đủ frame của WebP động");
+    throw new Error("Không thể đọc đủ frame của hình động");
   }
   const frames = Array.from({ length: pageCount }, (_, frameIndex) => (
     rawResult.data.subarray(frameIndex * frameBytes, (frameIndex + 1) * frameBytes)
@@ -299,9 +303,16 @@ const writeAnimatedWebpFrameSequence = async (source, metadata, index) => {
     frameWidth,
     frameHeight,
     delays,
-    `scene-image-${index + 1}-webp-frames`,
+    sequenceName,
   );
 };
+
+const writeAnimatedWebpFrameSequence = async (source, metadata, index) =>
+  writeAnimatedImageFrameSequence(
+    source,
+    metadata,
+    `scene-image-${index + 1}-webp-frames`,
+  );
 
 const errorDetail = (error) => {
   if (!(error instanceof Error)) return "unknown error";
@@ -494,10 +505,39 @@ const createPopup = async (scene, index) => {
     ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
     minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
   }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
-  const image = showVisual && imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
-  const video = showVisual && layout !== "quote" && videoValue
+  const resolvedImage = showVisual && imageVisible
+    ? await resolveImage(imageValue, `scene-${index + 1}-image`)
+    : null;
+  let animatedImage = null;
+  let animatedImageFrameSequence = false;
+  if (resolvedImage && showVisual && imageVisible && layout !== "quote") {
+    let imageMetadata = null;
+    try {
+      imageMetadata = await sharp(resolvedImage, { animated: true }).metadata();
+    } catch {
+      imageMetadata = null;
+    }
+    const animatedImageDetected = isAnimatedImageMedia(imageValue)
+      || Number(imageMetadata?.pages) > 1;
+    if (animatedImageDetected) {
+      if (imageMetadata) {
+        animatedImage = await writeAnimatedImageFrameSequence(
+          resolvedImage,
+          imageMetadata,
+          `popup-${index + 1}-frames`,
+        );
+        animatedImageFrameSequence = true;
+      } else {
+        animatedImage = resolvedImage;
+      }
+    }
+  }
+  const resolvedVideo = showVisual && layout !== "quote" && videoValue
     ? await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`)
     : null;
+  const image = animatedImage && !resolvedVideo ? null : resolvedImage;
+  const video = resolvedVideo ?? animatedImage;
+  const videoFrameSequence = Boolean(!resolvedVideo && animatedImageFrameSequence);
   const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
   const geometry = popupSectionGeometry({
@@ -582,6 +622,7 @@ const createPopup = async (scene, index) => {
     path: filename,
     borderPath: borderFilename,
     video,
+    videoFrameSequence,
     videoWidth: imageWidth,
     videoHeight: imageHeight,
     // Keep the dimensions used to build the popup image. The composition
@@ -1394,7 +1435,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
     if (popup.video) {
-      args.push("-stream_loop", "-1", "-i", popup.video);
+      if (popup.videoFrameSequence) {
+        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
+      } else {
+        args.push("-stream_loop", "-1", "-i", popup.video);
+      }
       args.push("-loop", "1", "-i", popup.borderPath);
     }
   });
