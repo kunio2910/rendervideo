@@ -77,6 +77,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /editor-layer-popup-/);
   assert.match(page, /editor-layer-text-/);
   assert.match(page, /editor-layer-images-/);
+  assert.match(page, /previewAudioMuted/);
+  assert.match(page, /togglePreviewAudio/);
+  assert.match(page, /preview-audio-toggle/);
+  assert.match(page, /previewAudioMuted \|\|/);
   assert.match(page, /popupVideo/);
   assert.match(page, /const updatePopupMedia = \(value: string, popupId = selectedPopupId\)/);
   assert.match(page, /copyEditorSection/);
@@ -262,6 +266,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /aspect-ratio: 9 \/ 16/);
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
+  assert.match(css, /preview-audio-toggle/);
+  assert.match(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);
   assert.match(css, /popup-theme-ocean/);

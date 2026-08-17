@@ -4162,6 +4162,18 @@ body {
   overflow: visible;
 }
 
+/* Long popup forms need their own scroll area so the last controls remain
+   reachable even when the editor column is shorter than the accordion. */
+.studio-shell[data-studio-tab="compose"] .editor-accordion-popup[open] > .editor-accordion-content {
+  min-height: 0;
+  max-height: calc(100vh - 110px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  overscroll-behavior-y: contain;
+}
+
 @media (max-width: 760px) {
   .quick-scene-duration span {
     display: none;
@@ -5547,6 +5559,35 @@ body {
 .preview-control-bar .play-icon {
   margin-right: 4px;
 }
+.preview-audio-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-height: 29px;
+  padding: 0;
+  border: 1px solid #d8cfc1;
+  border-radius: 6px;
+  background: #f4eee1;
+  color: #8a5620;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.preview-audio-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.preview-audio-toggle:hover,
+.preview-audio-toggle.muted {
+  border-color: #c67a2e;
+  background: #c67a2e;
+  color: #fff8ec;
+  box-shadow: 0 3px 8px rgba(198, 122, 46, .24);
+}
 .preview-control-bar .time-pill {
   justify-self: end;
   min-width: 105px;
@@ -5598,6 +5639,17 @@ body {
 .studio-shell[data-theme="dark"] .preview-control-bar .time-pill {
   background: #163357;
   color: #78b9ff;
+}
+.studio-shell[data-theme="dark"] .preview-audio-toggle {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #d8e4f0;
+}
+.studio-shell[data-theme="dark"] .preview-audio-toggle:hover,
+.studio-shell[data-theme="dark"] .preview-audio-toggle.muted {
+  border-color: #dda13e;
+  background: #6e4b12;
+  color: #ffe4a6;
 }
 .studio-shell[data-theme="dark"] .preview-panel-progress { background: #304052; }
 @media (max-width: 560px) {
@@ -6626,7 +6678,7 @@ body {
 }
 
 .preview-control-bar {
-  grid-template-columns: minmax(145px, 1fr) 105px 126px 32px 32px;
+  grid-template-columns: minmax(145px, 1fr) 105px 126px 32px 32px 32px;
 }
 
 .preview-ruler-toggle {
@@ -6881,7 +6933,7 @@ body {
 
 @media (max-width: 560px) {
   .preview-control-bar {
-    grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr) 32px 32px;
+    grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr) 32px 32px 32px;
   }
 
   .preview-ruler-toggle {
@@ -7460,7 +7512,7 @@ body {
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-control-bar {
-    grid-template-columns: minmax(0, 1fr) 126px 32px 32px;
+    grid-template-columns: minmax(0, 1fr) 126px 32px 32px 32px;
     gap: 7px;
   }
 
@@ -7477,12 +7529,17 @@ body {
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-ruler-control {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-audio-toggle {
     grid-column: 3;
     grid-row: 1;
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-fullscreen-toggle {
-    grid-column: 4;
+    grid-column: 5;
     grid-row: 1;
   }
 

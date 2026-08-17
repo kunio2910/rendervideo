@@ -2169,6 +2169,7 @@ function Home() {
     DEFAULT_EDITOR_SECTIONS,
   );
   const [playing, setPlaying] = useState(false);
+  const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -3103,7 +3104,7 @@ function Home() {
   useEffect(() => {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
-    if (!playing || !narrationEnabled || !sceneIsVisibleInPlayback || !sceneVoiceReady) return;
+    if (!playing || !narrationEnabled || previewAudioMuted || !sceneIsVisibleInPlayback || !sceneVoiceReady) return;
     const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -3136,12 +3137,12 @@ function Home() {
       audio.load();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.end, scene.voiceStart, scene.voiceVolume, sceneIsVisibleInPlayback, sceneVoiceReady, sceneVoiceStart]);
+  }, [playing, selectedId, narrationEnabled, previewAudioMuted, narrationPreviewSource, scene.start, scene.end, scene.voiceStart, scene.voiceVolume, sceneIsVisibleInPlayback, sceneVoiceReady, sceneVoiceStart]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
-    if (!playing || !safeTrim(backgroundMusic)) return;
+    if (!playing || previewAudioMuted || !safeTrim(backgroundMusic)) return;
     const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -3156,7 +3157,7 @@ function Home() {
       audio.pause();
       if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, backgroundMusic, musicPreviewSource, backgroundMusicVolume]);
+  }, [playing, previewAudioMuted, backgroundMusic, musicPreviewSource, backgroundMusicVolume]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -3268,6 +3269,10 @@ function Home() {
       : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
     setPlaying(true);
+  };
+
+  const togglePreviewAudio = () => {
+    setPreviewAudioMuted((muted) => !muted);
   };
 
   const seekTimeline = (seconds: number) => {
@@ -6678,6 +6683,23 @@ function Home() {
               >
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
+              </button>
+              <button
+                type="button"
+                className={`preview-audio-toggle ${previewAudioMuted ? "muted" : ""}`}
+                aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
+                aria-pressed={previewAudioMuted}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                onClick={togglePreviewAudio}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 10v4h3l4 3V7l-4 3H4Z" />
+                  {previewAudioMuted ? (
+                    <path d="m16 9 5 6m0-6-5 6" />
+                  ) : (
+                    <path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" />
+                  )}
+                </svg>
               </button>
               <div className="preview-ruler-control">
                 <button
