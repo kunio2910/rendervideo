@@ -5646,8 +5646,12 @@ body {
 .settings-clip-list { display: grid; gap: 7px; max-height: 540px; margin-top: 16px; padding-right: 2px; overflow: auto; }
 .settings-clip-list::-webkit-scrollbar, .settings-scenes-list::-webkit-scrollbar { width: 6px; }
 .settings-clip-list::-webkit-scrollbar-thumb, .settings-scenes-list::-webkit-scrollbar-thumb { background: #d8cbac; border-radius: 99px; }
-.settings-clip-item { min-width: 0; display: grid; grid-template-columns: 45px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: 10px; background: var(--panel-soft); color: var(--studio-ink); text-align: left; cursor: pointer; }
+.settings-clip-item { position: relative; min-width: 0; display: grid; grid-template-columns: 20px 45px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: 10px; background: var(--panel-soft); color: var(--studio-ink); text-align: left; cursor: grab; }
+.settings-clip-item:active { cursor: grabbing; }
 .settings-clip-item:hover { border-color: #e0bd85; background: #fff8eb; }
+.settings-clip-item.drag-over { border-color: var(--blue); box-shadow: 0 -3px 0 var(--blue); transform: translateY(3px); }
+.settings-clip-drag-handle { display: grid; place-items: center; color: var(--studio-muted); font-size: 16px; line-height: 1; letter-spacing: -3px; user-select: none; }
+.settings-clip-item:hover .settings-clip-drag-handle, .settings-clip-item.selected .settings-clip-drag-handle { color: #a96524; }
 .settings-clip-item.selected { border-color: #d28a35; background: #f8e6c8; box-shadow: 0 4px 12px rgba(198,122,46,.12); }
 .settings-clip-thumb { position: relative; width: 45px; height: 54px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; background: linear-gradient(145deg, #b98b4b 0%, #79542c 48%, #382b1d 100%); color: #fff4d8; }
 .settings-clip-thumb::before, .settings-scene-thumb::before { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,.23), transparent 38%, rgba(20,18,12,.25)); }
@@ -5769,7 +5773,7 @@ body {
 @media (max-width: 460px) {
   .settings-topbar { align-items: flex-start; flex-direction: column; }
   .settings-project-chip { max-width: 100%; }
-  .settings-clip-item { grid-template-columns: 40px minmax(0, 1fr); }
+  .settings-clip-item { grid-template-columns: 20px 40px minmax(0, 1fr); }
   .settings-clip-thumb { width: 40px; height: 48px; }
   .settings-clip-status { display: none; }
   .settings-scene-item { grid-template-columns: 25px 45px minmax(0, 1fr) 12px; gap: 7px; padding-inline: 5px; }
@@ -5806,7 +5810,7 @@ body {
 .settings-detail-heading p { margin-top: 8px; font-size: 13px; }
 .settings-count-badge, .settings-detail-ratio { min-width: 36px; min-height: 32px; padding-inline: 9px; font-size: 12px; }
 .settings-clip-list { gap: 10px; max-height: 700px; margin-top: 22px; }
-.settings-clip-item { grid-template-columns: 68px minmax(0, 1fr) auto; gap: 15px; padding: 14px; border-radius: 13px; }
+.settings-clip-item { grid-template-columns: 20px 68px minmax(0, 1fr) auto; gap: 15px; padding: 14px; border-radius: 13px; }
 .settings-clip-thumb { width: 68px; height: 80px; border-radius: 11px; }
 .settings-clip-thumb b { font-size: 20px; }
 .settings-clip-thumb em { right: 6px; bottom: 6px; padding: 3px 5px; font-size: 10px; }
@@ -5858,7 +5862,7 @@ body {
   .settings-page-heading p { font-size: 13px; }
   .settings-clip-grid { grid-template-columns: 1fr; }
   .settings-clip-list-card, .settings-detail-card { padding: 20px; }
-  .settings-clip-item { grid-template-columns: 58px minmax(0, 1fr) auto; }
+  .settings-clip-item { grid-template-columns: 20px 58px minmax(0, 1fr) auto; }
   .settings-clip-thumb { width: 58px; height: 70px; }
   .settings-scene-item { grid-template-columns: 32px 68px minmax(0, 1fr) 18px; gap: 11px; }
   .settings-scene-number { width: 32px; height: 32px; }
@@ -5874,7 +5878,7 @@ body {
   .settings-workspace { padding: 24px 12px 34px; }
   .settings-page-heading h2 { font-size: 26px; }
   .settings-clip-list-card, .settings-detail-card { padding: 15px; }
-  .settings-clip-item { grid-template-columns: 50px minmax(0, 1fr); gap: 11px; padding: 11px; }
+  .settings-clip-item { grid-template-columns: 20px 50px minmax(0, 1fr); gap: 11px; padding: 11px; }
   .settings-clip-thumb { width: 50px; height: 60px; }
   .settings-clip-status { display: none; }
   .settings-scene-item { grid-template-columns: 28px 58px minmax(0, 1fr) 14px; gap: 8px; padding: 11px 8px; }

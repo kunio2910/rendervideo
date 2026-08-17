@@ -1453,6 +1453,7 @@ type SettingsWorkspaceProps = {
   assetPreviewSource: (value: string) => string;
   onAddClip: () => void;
   onRenameClip: (projectId: string, title: string) => void;
+  onReorderClips: (draggedProjectId: string, targetProjectId: string) => void;
   onDuplicateClip: (project: ProjectSnapshot) => ProjectSnapshot;
   onDeleteClip: (project: ProjectSnapshot) => string | null;
   onOpenScene: (project: ProjectSnapshot, scene: Scene) => void;
@@ -1716,6 +1717,7 @@ function SettingsWorkspace({
   assetPreviewSource,
   onAddClip,
   onRenameClip,
+  onReorderClips,
   onDuplicateClip,
   onDeleteClip,
   onOpenScene,
@@ -1727,6 +1729,7 @@ function SettingsWorkspace({
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [editingClipTitle, setEditingClipTitle] = useState("");
+  const [clipDrag, setClipDrag] = useState({ draggedId: "", overId: "" });
   const selectedClip = projectItems.find((item) => item.id === selectedClipId)
     ?? projectItems.find((item) => item.id === activeProjectId)
     ?? projectItems[0];
@@ -1775,6 +1778,15 @@ function SettingsWorkspace({
     const nextTitle = editingClipTitle.trim() || source?.title || "Clip chưa đặt tên";
     onRenameClip(editingClipId, nextTitle);
     cancelClipRename();
+  };
+
+  const finishClipDrop = (targetProjectId: string) => {
+    if (!clipDrag.draggedId || clipDrag.draggedId === targetProjectId) {
+      setClipDrag({ draggedId: "", overId: "" });
+      return;
+    }
+    onReorderClips(clipDrag.draggedId, targetProjectId);
+    setClipDrag({ draggedId: "", overId: "" });
   };
 
   const handleDuplicateClip = () => {
@@ -1862,8 +1874,25 @@ function SettingsWorkspace({
                         role="button"
                         tabIndex={0}
                         key={project.id}
-                        className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""}`}
+                        draggable
+                        className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""} ${project.id === clipDrag.overId ? "drag-over" : ""}`}
                         onClick={() => selectClip(project)}
+                        onDragStart={(event) => {
+                          setClipDrag({ draggedId: project.id, overId: "" });
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", project.id);
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          if (clipDrag.overId !== project.id) setClipDrag((current) => ({ ...current, overId: project.id }));
+                        }}
+                        onDragLeave={() => setClipDrag((current) => current.overId === project.id ? { ...current, overId: "" } : current)}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          finishClipDrop(project.id);
+                        }}
+                        onDragEnd={() => setClipDrag({ draggedId: "", overId: "" })}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) return;
                           if (event.key === "Enter" || event.key === " ") {
@@ -1873,6 +1902,7 @@ function SettingsWorkspace({
                         }}
                         aria-pressed={project.id === selectedClip.id}
                       >
+                        <span className="settings-clip-drag-handle" aria-hidden="true" title="Kéo để đổi vị trí clip">⠿</span>
                         {(() => {
                           const projectFirstScene = project.scenes[0];
                           const projectAvatarValue = String(projectFirstScene?.background ?? "").trim()
@@ -2396,10 +2426,6 @@ function Home() {
   const activePopupMediaValue = activePopup
     ? safeTrim(activePopup.video) || safeTrim(activePopup.image)
     : "";
-  const popupMediaIsVideo = isVideoMedia(activePopupMediaValue);
-  const popupMediaPreviewSource = activePopupMediaValue && (popupMediaIsVideo || imageEnabled)
-    ? assetPreviewSource(activePopupMediaValue)
-    : "";
   const legacyBackgroundPreview = safeTrim(previewBackground) || safeTrim(background);
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
@@ -2634,16 +2660,17 @@ function Home() {
     ],
   );
 
+  const projectItems = useMemo(() => {
+    const currentProjectIndex = projects.findIndex((item) => item.id === projectId);
+    if (currentProjectIndex < 0) return [...projects, currentProject];
+    return projects.map((item) => item.id === projectId ? currentProject : item);
+  }, [projects, projectId, currentProject]);
+
   const storedProject = useMemo<StoredWorkspace>(() => ({
     version: 2,
     activeProjectId: projectId,
-    projects: [...projects.filter((item) => item.id !== projectId), currentProject],
-  }), [projects, projectId, currentProject]);
-
-  const projectItems = useMemo(
-    () => [...projects.filter((item) => item.id !== projectId), currentProject],
-    [projects, projectId, currentProject],
-  );
+    projects: projectItems,
+  }), [projectId, projectItems]);
 
   const openProject = (project: ProjectSnapshot, preserveHistory = false) => {
     const preservedSelectedId = preserveHistory ? selectedId : "";
@@ -3870,6 +3897,14 @@ function Home() {
     )));
     setToast(`Đã đổi tên clip “${nextTitle}”`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const reorderProjectClips = (draggedProjectId: string, targetProjectId: string) => {
+    const nextItems = reorderById(projectItems, draggedProjectId, targetProjectId);
+    if (nextItems === projectItems) return;
+    setProjects(nextItems);
+    setToast("Đã cập nhật vị trí clip");
+    window.setTimeout(() => setToast(""), 1800);
   };
 
   const deleteProjectClip = (source: ProjectSnapshot) => {
@@ -8780,22 +8815,6 @@ function Home() {
                   <span />
                   Giữ nền trong suốt cho ảnh / video popup
                 </label>
-                {popupMediaPreviewSource && (
-                  <div className="image-url-preview">
-                    {popupMediaIsVideo ? (
-                      <video
-                        src={popupMediaPreviewSource}
-                        muted
-                        loop
-                        playsInline
-                        controls
-                      />
-                    ) : (
-                      <img src={popupMediaPreviewSource} alt="Xem trước ảnh popup" />
-                    )}
-                    <span>Ảnh hoặc video này chỉ dùng cho popup đang chọn.</span>
-                  </div>
-                )}
               </label>
               <label className="field">
                 <span>Thời gian bắt đầu xuất hiện popup</span>
@@ -9344,10 +9363,11 @@ function Home() {
               activeProjectId={projectId}
               projectTitle={projectTitle}
               aspectRatio={aspectRatio}
-              assetPreviewSource={assetPreviewSource}
-              onAddClip={() => setShowNewProject(true)}
-              onRenameClip={renameProjectClip}
-              onDuplicateClip={duplicateProjectClip}
+                assetPreviewSource={assetPreviewSource}
+                onAddClip={() => setShowNewProject(true)}
+                onRenameClip={renameProjectClip}
+                onReorderClips={reorderProjectClips}
+                onDuplicateClip={duplicateProjectClip}
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
               onSave={() => void saveProjectNow()}
