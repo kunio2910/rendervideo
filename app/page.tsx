@@ -2241,6 +2241,7 @@ function Home() {
     return savedTheme === "dark" ? "dark" : "light";
   });
   const [timelineHeight, setTimelineHeight] = useState(245);
+  const [timelineZoom, setTimelineZoom] = useState(100);
   const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
   const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
@@ -2256,6 +2257,8 @@ function Home() {
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const timelineZoomRef = useRef(100);
   const localRenderJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
@@ -2398,8 +2401,25 @@ function Home() {
   const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
-  const timelineCanvasWidth = Math.max(720, Math.ceil(projectDuration * 16));
+  const timelineCanvasWidth = Math.max(320, Math.ceil(projectDuration * 16 * (timelineZoom / 100)));
   const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
+  const handleTimelineWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) < 0.5) return;
+    event.preventDefault();
+    const viewport = event.currentTarget;
+    const oldZoom = timelineZoomRef.current;
+    const nextZoom = Math.min(300, Math.max(50, oldZoom + (event.deltaY < 0 ? 10 : -10)));
+    if (nextZoom === oldZoom) return;
+    const bounds = viewport.getBoundingClientRect();
+    const pointerOffset = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const contentPosition = viewport.scrollLeft + pointerOffset;
+    const scaleRatio = nextZoom / oldZoom;
+    timelineZoomRef.current = nextZoom;
+    setTimelineZoom(nextZoom);
+    window.requestAnimationFrame(() => {
+      viewport.scrollLeft = Math.max(0, contentPosition * scaleRatio - pointerOffset);
+    });
+  };
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
   const updateAspectRatio = (nextAspectRatio: AspectRatio) => {
     setAspectRatio(nextAspectRatio);
@@ -9074,7 +9094,7 @@ function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>{projectDuration} giây · {visibleScenes.length} cảnh hiện · {renderFps} FPS</span>
+            <span>{projectDuration} giây · {visibleScenes.length} cảnh hiện · {renderFps} FPS · Zoom {timelineZoom}% · Cuộn chuột để thu/phóng</span>
           </div>
           <div className="timeline-transport" aria-label="Điều khiển phát timeline">
             <button
@@ -9128,9 +9148,12 @@ function Home() {
         <div className="timeline">
           <div
             className="timeline-scroll"
+            ref={timelineScrollRef}
             role="region"
             tabIndex={0}
             aria-label="Nội dung Timeline có thể cuộn ngang"
+            title="Cuộn bánh xe chuột để thu hẹp hoặc dãn Timeline"
+            onWheel={handleTimelineWheel}
           >
             <div className="timeline-scroll-content" style={{ minWidth: `${timelineCanvasWidth}px` }}>
               <div className="ruler-labels">
