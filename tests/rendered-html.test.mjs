@@ -82,6 +82,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /preview-audio-toggle/);
   assert.match(page, /previewAudioMuted \|\|/);
   assert.match(page, /popupVideo/);
+  assert.match(page, /typeof rawPopup\.transparentMedia === "boolean"/);
+  assert.match(page, /typeof rawPopup\.popupTransparentMedia === "boolean"/);
   assert.match(page, /const updatePopupMedia = \(value: string, popupId = selectedPopupId\)/);
   assert.match(page, /copyEditorSection/);
   assert.match(page, /pasteEditorSection/);
@@ -350,6 +352,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /-stream_loop/);
   assert.match(renderer, /d=1,trim=duration/);
   assert.match(renderer, /popup\.video/);
+  assert.match(renderer, /typeof popup\.transparentMedia === "boolean"/);
+  assert.match(renderer, /typeof popup\.popupTransparentMedia === "boolean"/);
   assert.match(renderer, /const animatedImageDetected = isAnimatedImageMedia\(imageValue\)/);
   assert.match(renderer, /const image = animatedImage && !resolvedVideo \? null : resolvedImage/);
   assert.match(renderer, /videoFrameSequence/);

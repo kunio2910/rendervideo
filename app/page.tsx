@@ -1256,7 +1256,11 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
-              transparentMedia: rawPopup.transparentMedia === true || rawPopup.popupTransparentMedia === true || fallback.transparentMedia,
+              transparentMedia: typeof rawPopup.transparentMedia === "boolean"
+                ? rawPopup.transparentMedia
+                : typeof rawPopup.popupTransparentMedia === "boolean"
+                  ? rawPopup.popupTransparentMedia
+                  : fallback.transparentMedia,
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
               duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),

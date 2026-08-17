@@ -159,7 +159,11 @@ const popupEntriesForScene = (scene) => {
       popupY: popup.y ?? popup.popupY ?? 55,
       popupVisible: popup.visible !== false,
       imageVisible: popup.imageVisible !== false,
-      popupTransparentMedia: popup.transparentMedia === true || popup.popupTransparentMedia === true || scene.popupTransparentMedia === true,
+      popupTransparentMedia: typeof popup.transparentMedia === "boolean"
+        ? popup.transparentMedia
+        : typeof popup.popupTransparentMedia === "boolean"
+          ? popup.popupTransparentMedia
+          : scene.popupTransparentMedia === true,
       popupIndex: index,
     }));
   }
