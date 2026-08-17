@@ -6982,14 +6982,14 @@ body {
 }
 
 .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-portrait {
-  width: auto !important;
-  height: min(84vh, 960px) !important;
+  width: min(100%, 360px) !important;
+  height: auto !important;
   aspect-ratio: 9 / 16;
 }
 
 .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-landscape {
-  width: auto !important;
-  height: min(50vw, calc(100vh - 190px), 720px) !important;
+  width: min(100%, 528px) !important;
+  height: auto !important;
   aspect-ratio: 16 / 9;
 }
 
@@ -7171,11 +7171,13 @@ body {
   }
 
   .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-portrait {
-    height: min(76vh, 720px) !important;
+    width: min(100%, 360px) !important;
+    height: auto !important;
   }
 
   .studio-shell.preview-fullscreen .preview-fullscreen-panel .phone-preview.preview-landscape {
-    height: min(48vw, calc(100vh - 190px), 520px) !important;
+    width: min(100%, 360px) !important;
+    height: auto !important;
   }
 }
 

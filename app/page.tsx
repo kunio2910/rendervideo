@@ -3293,6 +3293,51 @@ function Home() {
     });
   };
 
+  const moveSelectedMapLayer = (
+    direction: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+    step = 1,
+  ) => {
+    if (!hydrated || playing) return false;
+    const deltaX = direction === "ArrowLeft" ? -step : direction === "ArrowRight" ? step : 0;
+    const deltaY = direction === "ArrowUp" ? -step : direction === "ArrowDown" ? step : 0;
+    const movePercent = (value: unknown, fallback: number, delta: number) =>
+      clampPercent(clampPercent(value, fallback) + delta, fallback);
+    const selectedPopup = selectedPopupId
+      ? scenePopups.find((item) => item.id === selectedPopupId)
+      : undefined;
+    const selectedText = selectedTextOverlayId
+      ? sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
+      : undefined;
+    const selectedImage = selectedSceneImageId
+      ? sceneImages.find((item) => item.id === selectedSceneImageId)
+      : undefined;
+    const selectedDecoration = selectedDecorationId
+      ? sceneDecorations.find((item) => item.id === selectedDecorationId)
+      : undefined;
+
+    if (selectedPopup) {
+      updatePopup("x", movePercent(selectedPopup.x, 5, deltaX), selectedPopup.id);
+      updatePopup("y", movePercent(selectedPopup.y, 55, deltaY), selectedPopup.id);
+      return true;
+    }
+    if (selectedText) {
+      updateTextOverlay("x", movePercent(selectedText.x, 50, deltaX));
+      updateTextOverlay("y", movePercent(selectedText.y, 18, deltaY));
+      return true;
+    }
+    if (selectedImage) {
+      updateSceneImage("x", movePercent(selectedImage.x, 50, deltaX));
+      updateSceneImage("y", movePercent(selectedImage.y, 50, deltaY));
+      return true;
+    }
+    if (selectedDecoration) {
+      updateMapDecoration("x", movePercent(selectedDecoration.x, 50, deltaX));
+      updateMapDecoration("y", movePercent(selectedDecoration.y, 50, deltaY));
+      return true;
+    }
+    return false;
+  };
+
   const startTimelineScrub = (event: React.PointerEvent<HTMLDivElement>) => {
     if (playing) return;
     event.preventDefault();
@@ -3349,6 +3394,17 @@ function Home() {
         return;
       }
       if (isTyping) return;
+      const isLayerArrow = event.key === "ArrowUp"
+        || event.key === "ArrowDown"
+        || event.key === "ArrowLeft"
+        || event.key === "ArrowRight";
+      if (!modifier && isLayerArrow && moveSelectedMapLayer(
+        event.key as "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+        event.shiftKey ? 5 : 1,
+      )) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === " ") {
         event.preventDefault();
         togglePlayback();
@@ -7108,6 +7164,8 @@ function Home() {
                     ["--popup-transition-duration" as string]: `${popupTransition}s`,
                     ["--popup-border-width" as string]: `${popup.borderWidth ?? 1}px`,
                   }}
+                  tabIndex={0}
+                  aria-label={`Popup ${popup.title || popup.id}. Dùng phím mũi tên để di chuyển`}
                   onPointerDown={(event) => startPopupDrag(event, popup.id)}
                 >
                   {popupShowMedia && (

@@ -208,6 +208,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera|editor-effects/);
   assert.match(css, /zoom-focus-target/);
   assert.match(page, /event\.key === " "/);
+  assert.match(page, /const moveSelectedMapLayer/);
+  assert.match(page, /event\.shiftKey \? 5 : 1/);
+  assert.match(page, /ArrowUp/);
+  assert.match(page, /Dùng phím mũi tên để di chuyển/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
   assert.match(css, /timeline-playhead-layer/);
@@ -231,6 +235,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-alignment-guides/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
+  assert.match(css, /preview-fullscreen-panel \.phone-preview\.preview-portrait[\s\S]{0,180}width: min\(100%, 360px\) !important/);
+  assert.match(css, /preview-fullscreen-panel \.phone-preview\.preview-landscape[\s\S]{0,180}height: auto !important/);
   assert.match(css, /data-theme="dark".*field > span/s);
   assert.match(css, /data-theme="dark"\]\s+\.button\.ghost/);
   assert.match(css, /subtitle-add-button:hover/);
