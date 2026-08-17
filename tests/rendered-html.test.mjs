@@ -72,6 +72,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /popupLayout/);
   assert.match(page, /popupTheme/);
   assert.match(page, /popupTextEffect/);
+  assert.match(page, /const focusEditorLayer/);
+  assert.match(page, /const selectPreviewLayer/);
+  assert.match(page, /editor-layer-popup-/);
+  assert.match(page, /editor-layer-text-/);
+  assert.match(page, /editor-layer-images-/);
   assert.match(page, /popupVideo/);
   assert.match(page, /const updatePopupMedia = \(value: string, popupId = selectedPopupId\)/);
   assert.match(page, /copyEditorSection/);

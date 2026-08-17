@@ -3215,6 +3215,36 @@ function Home() {
     }, 40);
   };
 
+  const focusEditorLayer = (
+    section: "popup" | "text" | "images",
+    layerId: string,
+  ) => {
+    setEditorSections((items) => ({ ...items, [section]: true }));
+    window.setTimeout(() => {
+      const target = document.getElementById(`editor-layer-${section}-${layerId}`);
+      const group = target?.closest("details");
+      if (group instanceof HTMLDetailsElement) group.open = true;
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+      target.classList.add("timeline-focus");
+      window.setTimeout(() => {
+        document.getElementById(`editor-layer-${section}-${layerId}`)?.classList.remove("timeline-focus");
+      }, 1300);
+    }, 40);
+  };
+
+  const selectPreviewLayer = (
+    kind: "popup" | "text" | "image" | "decoration",
+    layerId: string,
+  ) => {
+    setSelectedPopupId(kind === "popup" ? layerId : "");
+    setSelectedTextOverlayId(kind === "text" ? layerId : "");
+    setSelectedSceneImageId(kind === "image" ? layerId : "");
+    setSelectedDecorationId(kind === "decoration" ? layerId : "");
+    focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
+  };
+
   const togglePlayback = () => {
     if (playing) {
       setPlaying(false);
@@ -4805,6 +4835,7 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === imageId);
     const draggedImage = sceneImages[imageIndex];
     if (!draggedImage || !scene) return;
+    selectPreviewLayer("image", draggedImage.id);
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4854,6 +4885,7 @@ function Home() {
 
   const startSceneImageResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (playing || !scene || !activeSceneImage) return;
+    selectPreviewLayer("image", activeSceneImage.id);
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -5099,6 +5131,7 @@ function Home() {
     event.preventDefault();
     event.stopPropagation();
     if (!activePopup) return;
+    selectPreviewLayer("popup", activePopup.id);
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
@@ -5154,6 +5187,7 @@ function Home() {
     if (!(preview instanceof HTMLElement)) return;
     const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
     if (!popup) return;
+    selectPreviewLayer("popup", popup.id);
     const bounds = preview.getBoundingClientRect();
     if (bounds.height <= 0) return;
     const geometry = popupSectionGeometry(popup);
@@ -5296,15 +5330,17 @@ function Home() {
   };
 
   const startPopupDrag = (event: React.PointerEvent<HTMLElement>, popupId = activePopup?.id) => {
-    if (playing || (event.target as HTMLElement).closest(".popup-resize-handle")) return;
+    if ((event.target as HTMLElement).closest(".popup-resize-handle")) return;
+    const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
+    if (!draggedPopup) return;
+    selectPreviewLayer("popup", draggedPopup.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
-    if (!draggedPopup) return;
     const draggedPopupElement = popupId
       ? Array.from(preview.querySelectorAll<HTMLElement>("[data-popup-id]"))
         .find((element) => element.dataset.popupId === popupId)
@@ -5380,10 +5416,11 @@ function Home() {
     event: React.PointerEvent<HTMLDivElement>,
     overlayId = activeTextOverlay?.id,
   ) => {
-    if (playing) return;
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const draggedOverlay = sceneTextOverlays[overlayIndex];
     if (!draggedOverlay) return;
+    selectPreviewLayer("text", draggedOverlay.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -5495,10 +5532,11 @@ function Home() {
     event: React.PointerEvent<HTMLDivElement>,
     decorationId = activeDecoration?.id,
   ) => {
-    if (playing) return;
     const decorationIndex = sceneDecorations.findIndex((item) => item.id === decorationId);
     const draggedDecoration = sceneDecorations[decorationIndex];
     if (!draggedDecoration) return;
+    selectPreviewLayer("decoration", draggedDecoration.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -7330,6 +7368,9 @@ function Home() {
                       {sceneImages.map((image, index) => (
                         <div
                           key={image.id}
+                          id={`editor-layer-images-${image.id}`}
+                          tabIndex={-1}
+                          aria-selected={image.id === activeSceneImage?.id}
                           className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""} ${image.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === image.id && layerListDrag.type === "image" ? "is-drag-over" : ""}`}
                           onDragOver={(event) => updateLayerListDragOver("image", image.id, event)}
                           onDrop={(event) => finishLayerListDrop("image", image.id, event)}
@@ -7579,6 +7620,9 @@ function Home() {
                         {sceneTextOverlays.map((overlay, index) => (
                           <div
                             key={overlay.id}
+                            id={`editor-layer-text-${overlay.id}`}
+                            tabIndex={-1}
+                            aria-selected={overlay.id === activeTextOverlay?.id}
                             className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""} ${overlay.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === overlay.id && layerListDrag.type === "text" ? "is-drag-over" : ""}`}
                             onDragOver={(event) => updateLayerListDragOver("text", overlay.id, event)}
                             onDrop={(event) => finishLayerListDrop("text", overlay.id, event)}
@@ -8830,6 +8874,9 @@ function Home() {
                 {scenePopups.map((popup, index) => (
                   <div
                     key={popup.id}
+                    id={`editor-layer-popup-${popup.id}`}
+                    tabIndex={-1}
+                    aria-selected={popup.id === activePopup?.id}
                     className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""} ${popup.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === popup.id && layerListDrag.type === "popup" ? "is-drag-over" : ""}`}
                     onDragOver={(event) => updateLayerListDragOver("popup", popup.id, event)}
                     onDrop={(event) => finishLayerListDrop("popup", popup.id, event)}
