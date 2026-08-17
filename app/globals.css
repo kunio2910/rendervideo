@@ -4151,8 +4151,13 @@ body {
 .studio-shell[data-studio-tab="compose"] .editor-accordion-audio { order: 5; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-effects { order: 6; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-popup { order: 7; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion {
+  flex: 0 0 auto;
+  min-height: max-content;
+}
 
 .studio-shell[data-studio-tab="compose"] .editor-accordion-content {
+  flex: 0 0 auto;
   min-width: 0;
   overflow: visible;
 }

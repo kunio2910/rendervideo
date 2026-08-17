@@ -2238,6 +2238,8 @@ function Home() {
     return savedTheme === "dark" ? "dark" : "light";
   });
   const [timelineHeight, setTimelineHeight] = useState(245);
+  const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
+  const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const playTimeRef = useRef(playTime);
@@ -3737,65 +3739,117 @@ function Home() {
   };
 
   const updateZoomStart = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomEnd = Math.min(duration, Math.max(0, Number(item.zoomEnd ?? duration) || duration));
-        const maxStart = Math.max(0, zoomEnd - Math.max(0.1, item.zoomInDuration));
         return {
           ...item,
-          zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
+          zoomStart: numericValue,
         };
       }),
     );
   };
 
   const updateZoomEnd = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
-        const zoomInDuration = Math.max(0.1, Number(item.zoomInDuration) || 0.1);
-        const minimumEnd = Math.min(duration, zoomStart + zoomInDuration);
-        const numericValue = Number(value);
-        const requestedEnd = Number.isFinite(numericValue) ? numericValue : duration;
         return {
           ...item,
-          zoomEnd: Number(Math.min(duration, Math.max(minimumEnd, requestedEnd)).toFixed(2)),
+          zoomEnd: numericValue,
         };
       }),
     );
   };
 
   const updateZoomInDuration = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomInDuration = Math.max(0.1, Number(value) || 0.1);
-        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
-        const zoomEnd = Math.min(
-          duration,
-          Math.max(zoomStart + zoomInDuration, Number(item.zoomEnd ?? duration) || duration),
-        );
         return {
           ...item,
-          zoomInDuration: Number(zoomInDuration.toFixed(2)),
-          zoomEnd: Number(zoomEnd.toFixed(2)),
+          zoomInDuration: numericValue,
         };
       }),
     );
+  };
+
+  type ZoomInputField = "zoomStart" | "zoom" | "zoomEnd" | "zoomInDuration" | "zoomOutDuration";
+  const zoomInputKey = (field: ZoomInputField) => `${scene.id}:${field}`;
+  const zoomInputValue = (field: ZoomInputField, value: number) =>
+    zoomInputDrafts[zoomInputKey(field)] ?? String(value);
+  const updateZoomInput = (field: ZoomInputField, value: string) => {
+    const key = zoomInputKey(field);
+    setZoomInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    if (field === "zoomStart") updateZoomStart(numericValue);
+    if (field === "zoomEnd") updateZoomEnd(numericValue);
+    if (field === "zoomInDuration") updateZoomInDuration(numericValue);
+    if (field === "zoom" || field === "zoomOutDuration") updateScene(field, numericValue);
+  };
+  const commitZoomInput = (field: ZoomInputField) => {
+    const key = zoomInputKey(field);
+    const draft = zoomInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateZoomInput(field, String(numericValue));
+      setZoomInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setZoomInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+
+  type SceneEffectNumberField =
+    | "snowIntensity" | "snowSpeed"
+    | "lightFlickerIntensity" | "lightFlickerSpeed"
+    | "rainIntensity" | "rainSpeed"
+    | "thunderIntensity" | "thunderSpeed"
+    | "cloudIntensity" | "cloudSpeed";
+  const effectInputKey = (field: SceneEffectNumberField) => `${scene.id}:${field}`;
+  const effectInputValue = (field: SceneEffectNumberField, value: number) =>
+    effectInputDrafts[effectInputKey(field)] ?? String(value);
+  const updateEffectInput = (field: SceneEffectNumberField, value: string) => {
+    const key = effectInputKey(field);
+    setEffectInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue)) updateSceneEffects(field, numericValue);
+  };
+  const commitEffectInput = (field: SceneEffectNumberField) => {
+    const key = effectInputKey(field);
+    const draft = effectInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateEffectInput(field, String(numericValue));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
   };
 
   const updateSelectedSceneDuration = (duration: number) => {
@@ -8303,13 +8357,12 @@ function Home() {
                       <span>Thời gian bắt đầu zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0"
-                          max={Math.max(0, sceneDuration - 0.1)}
-                          step="0.1"
-                          value={scene.zoomStart}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomStart", scene.zoomStart)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomStart(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomStart", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomStart")}
                         />
                         <b>giây</b>
                       </div>
@@ -8318,13 +8371,12 @@ function Home() {
                       <span>Tỉ lệ zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="1"
-                          max="5"
-                          step="0.05"
-                          value={scene.zoom}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoom", scene.zoom)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateScene("zoom", Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoom", event.target.value)}
+                          onBlur={() => commitZoomInput("zoom")}
                         />
                         <b>×</b>
                       </div>
@@ -8333,13 +8385,12 @@ function Home() {
                       <span>Thời gian kết thúc zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min={Math.min(sceneDuration, scene.zoomStart + scene.zoomInDuration)}
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomEnd}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomEnd", scene.zoomEnd)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomEnd(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomEnd", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomEnd")}
                         />
                         <b>giây</b>
                       </div>
@@ -8348,13 +8399,12 @@ function Home() {
                       <span>Thời gian tới tỉ lệ đó</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0.1"
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomInDuration}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomInDuration", scene.zoomInDuration)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomInDuration(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomInDuration", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomInDuration")}
                         />
                         <b>giây</b>
                       </div>
@@ -8363,13 +8413,12 @@ function Home() {
                       <span>Khoảng thời gian zoom về</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0"
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomOutDuration}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomOutDuration", scene.zoomOutDuration)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomOutDuration", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomOutDuration")}
                         />
                         <b>giây</b>
                       </div>
@@ -8398,13 +8447,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.snowIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("snowIntensity", sceneEffects.snowIntensity)}
                               disabled={!sceneEffects.snowEnabled}
-                              onChange={(event) => updateSceneEffects("snowIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("snowIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("snowIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -8413,13 +8461,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.snowSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("snowSpeed", sceneEffects.snowSpeed)}
                               disabled={!sceneEffects.snowEnabled}
-                              onChange={(event) => updateSceneEffects("snowSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("snowSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("snowSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -8446,13 +8493,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.lightFlickerIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("lightFlickerIntensity", sceneEffects.lightFlickerIntensity)}
                               disabled={!sceneEffects.lightFlickerEnabled}
-                              onChange={(event) => updateSceneEffects("lightFlickerIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("lightFlickerIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("lightFlickerIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -8461,13 +8507,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.lightFlickerSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("lightFlickerSpeed", sceneEffects.lightFlickerSpeed)}
                               disabled={!sceneEffects.lightFlickerEnabled}
-                              onChange={(event) => updateSceneEffects("lightFlickerSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("lightFlickerSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("lightFlickerSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -8494,13 +8539,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.rainIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("rainIntensity", sceneEffects.rainIntensity)}
                               disabled={!sceneEffects.rainEnabled}
-                              onChange={(event) => updateSceneEffects("rainIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("rainIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("rainIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -8509,13 +8553,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.rainSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("rainSpeed", sceneEffects.rainSpeed)}
                               disabled={!sceneEffects.rainEnabled}
-                              onChange={(event) => updateSceneEffects("rainSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("rainSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("rainSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -8542,13 +8585,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.thunderIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("thunderIntensity", sceneEffects.thunderIntensity)}
                               disabled={!sceneEffects.thunderEnabled}
-                              onChange={(event) => updateSceneEffects("thunderIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("thunderIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("thunderIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -8557,13 +8599,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.thunderSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("thunderSpeed", sceneEffects.thunderSpeed)}
                               disabled={!sceneEffects.thunderEnabled}
-                              onChange={(event) => updateSceneEffects("thunderSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("thunderSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("thunderSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -8590,13 +8631,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.cloudIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("cloudIntensity", sceneEffects.cloudIntensity)}
                               disabled={!sceneEffects.cloudEnabled}
-                              onChange={(event) => updateSceneEffects("cloudIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("cloudIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("cloudIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -8605,13 +8645,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.cloudSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("cloudSpeed", sceneEffects.cloudSpeed)}
                               disabled={!sceneEffects.cloudEnabled}
-                              onChange={(event) => updateSceneEffects("cloudSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("cloudSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("cloudSpeed")}
                             />
                             <b>×</b>
                           </div>
