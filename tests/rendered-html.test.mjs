@@ -277,6 +277,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-audio-toggle/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
+  assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
+  assert.match(css, /\.preview-ruler-style-popover \{[\s\S]{0,180}top: calc\(100% \+ 8px\);/);
   assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);

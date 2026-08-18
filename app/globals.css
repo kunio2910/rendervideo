@@ -5490,9 +5490,12 @@ body {
 
 /* Preview control card: matches the compact reference panel above the map. */
 .studio-shell[data-studio-tab="compose"] .preview-control-panel {
+  position: relative;
+  z-index: 80;
   width: min(100%, 510px);
   margin: 0 auto 10px;
   text-align: left;
+  overflow: visible;
 }
 .preview-panel-kicker {
   display: block;
@@ -6775,10 +6778,8 @@ body {
 }
 
 .preview-control-bar {
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: visible;
 }
-.preview-control-bar::-webkit-scrollbar { display: none; }
 
 .preview-ruler-toggle {
   display: inline-grid;
@@ -6840,8 +6841,8 @@ body {
 
 .preview-ruler-style-popover {
   position: absolute;
-  top: auto;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
+  bottom: auto;
   right: 0;
   z-index: 100;
   display: grid;
@@ -7658,7 +7659,7 @@ body {
     display: flex;
     flex-wrap: nowrap;
     gap: 4px;
-    overflow-x: hidden;
+    overflow: visible;
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-control-bar .preview-aspect-switcher {
