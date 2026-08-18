@@ -487,7 +487,26 @@ const assetReference = (value: unknown) => {
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
 const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
+const LOCAL_REVIEW_ZOOM_KEY = "kito-video-studio-review-zoom";
+const REVIEW_ZOOM_MIN = 35;
+const REVIEW_ZOOM_MAX = 200;
+const REVIEW_ZOOM_DEFAULT = 50;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
+
+const clampReviewZoom = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return REVIEW_ZOOM_DEFAULT;
+  return Math.min(REVIEW_ZOOM_MAX, Math.max(REVIEW_ZOOM_MIN, numeric));
+};
+
+const readReviewZoomPreference = () => {
+  if (typeof window === "undefined") return REVIEW_ZOOM_DEFAULT;
+  try {
+    return clampReviewZoom(window.localStorage.getItem(LOCAL_REVIEW_ZOOM_KEY));
+  } catch {
+    return REVIEW_ZOOM_DEFAULT;
+  }
+};
 
 type LocalRenderState = {
   status: "idle" | "checking" | "uploading" | "rendering" | "cancelling" | "completed" | "failed";
@@ -2324,7 +2343,7 @@ function Home() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewZoom, setReviewZoom] = useState(50);
+  const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -2354,7 +2373,7 @@ function Home() {
   const timelinePopupMoved = useRef(false);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineZoomRef = useRef(100);
-  const reviewZoomRef = useRef(50);
+  const reviewZoomRef = useRef(readReviewZoomPreference());
   const localRenderJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
@@ -2992,6 +3011,14 @@ function Home() {
   useEffect(() => {
     window.localStorage.setItem("kito-video-studio-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LOCAL_REVIEW_ZOOM_KEY, String(reviewZoom));
+    } catch {
+      // localStorage may be unavailable in private browsing or restricted contexts.
+    }
+  }, [reviewZoom]);
 
   useEffect(() => {
     if (!previewFullscreen && !reviewOpen) return;
@@ -5370,7 +5397,7 @@ function Home() {
 
   const adjustReviewZoom = (delta: number, viewport?: HTMLDivElement | null) => {
     const oldZoom = reviewZoomRef.current;
-    const nextZoom = Math.min(150, Math.max(35, oldZoom + delta));
+    const nextZoom = clampReviewZoom(oldZoom + delta);
     if (nextZoom === oldZoom) return;
     reviewZoomRef.current = nextZoom;
     if (viewport) {
@@ -10499,7 +10526,7 @@ function Home() {
                 >
                   <button type="button" onClick={() => adjustReviewZoom(-10)} disabled={reviewZoom <= 35} aria-label="Thu nhỏ cột cảnh">−</button>
                   <output>{reviewZoom}%</output>
-                  <button type="button" onClick={() => adjustReviewZoom(10)} disabled={reviewZoom >= 150} aria-label="Phóng to cột cảnh">＋</button>
+                  <button type="button" onClick={() => adjustReviewZoom(10)} disabled={reviewZoom >= REVIEW_ZOOM_MAX} aria-label="Phóng to cột cảnh">＋</button>
                 </div>
                 <button type="button" className="button primary review-save-button" onClick={() => void saveProjectNow()}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></svg>

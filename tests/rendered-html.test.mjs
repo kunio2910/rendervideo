@@ -116,6 +116,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /toggleRuler/);
   assert.match(page, /preview-ruler-style-popover/);
   assert.match(page, /preview-ruler-open/);
+  assert.match(page, /REVIEW_ZOOM_MAX = 200/);
+  assert.match(page, /readReviewZoomPreference/);
   assert.match(page, /snapDragPosition/);
   assert.match(page, /preview-ruler-toggle/);
   assert.match(page, /preview-alignment-guides/);
@@ -276,6 +278,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
   assert.match(css, /preview-audio-toggle/);
+  assert.match(page, /Math\.min\(REVIEW_ZOOM_MAX/);
+  assert.match(page, /localStorage\.setItem\(LOCAL_REVIEW_ZOOM_KEY/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
