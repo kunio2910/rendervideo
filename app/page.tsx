@@ -2731,7 +2731,7 @@ function Home() {
         label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
         icon: "IMG",
       })),
-      ...(activeSubtitle ? [{
+      ...(((scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) ? [{
         token: previewLayerToken("subtitle", "subtitle"),
         kind: "subtitle" as const,
         id: "subtitle",
@@ -2752,18 +2752,28 @@ function Home() {
       .map((token) => itemByToken.get(token))
       .filter((item): item is PreviewLayerItem => Boolean(item));
   }, [
-    activeSubtitle,
     playing,
     previewDecorationItems,
     previewPopupItems,
     previewSceneImageItems,
     scene.layerOrder,
+    scene.subtitleEnabled,
+    scene.subtitles,
     sceneTextOverlays,
   ]);
   const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
     return 10 + (index < 0 ? previewLayerItems.length : index);
   };
+  const explicitlySelectedPreviewLayerToken = selectedPopupId
+    ? previewLayerToken("popup", selectedPopupId)
+    : selectedTextOverlayId
+      ? previewLayerToken("text", selectedTextOverlayId)
+      : selectedSceneImageId
+        ? previewLayerToken("image", selectedSceneImageId)
+        : selectedDecorationId
+          ? previewLayerToken("decoration", selectedDecorationId)
+          : "";
   const visiblePreviewLayerItems = useMemo(() => {
     const query = safeTrim(previewLayerQuery).toLocaleLowerCase("vi-VN");
     if (!query) return previewLayerItems;
@@ -3495,6 +3505,10 @@ function Home() {
 
   const selectPreviewLayerItem = (item: PreviewLayerItem) => {
     if (item.kind === "subtitle") {
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
       setEditorSections((sections) => ({ ...sections, text: true }));
       return;
     }
@@ -7973,10 +7987,7 @@ function Home() {
                     key={item.token}
                     draggable
                     className={`preview-layer-item ${
-                      (item.kind === "popup" && item.id === activePopup?.id)
-                      || (item.kind === "text" && item.id === activeTextOverlay?.id)
-                      || (item.kind === "image" && item.id === activeSceneImage?.id)
-                      || (item.kind === "decoration" && item.id === activeDecoration?.id)
+                      item.token === explicitlySelectedPreviewLayerToken
                         ? "active"
                         : ""
                     } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
