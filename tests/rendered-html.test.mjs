@@ -356,9 +356,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /layerOrder\?: string\[\]/);
   assert.match(page, /previewLayerItems/);
   assert.match(page, /reorderPreviewLayers/);
+  assert.match(page, /visiblePreviewLayerItems/);
+  assert.match(page, /preview-layer-search/);
   assert.match(renderer, /orderedLayerTokens/);
   assert.match(renderer, /layerToken = \(kind, id\)/);
   assert.match(renderer, /appendSceneImageLayer/);
+  assert.match(css, /grid-template-columns: minmax\(190px, 220px\)/);
+  assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
   assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);

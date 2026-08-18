@@ -2300,6 +2300,7 @@ function Home() {
     overId: string;
   }>({ type: "", id: "", overId: "" });
   const [previewLayerDrag, setPreviewLayerDrag] = useState({ draggedId: "", overId: "" });
+  const [previewLayerQuery, setPreviewLayerQuery] = useState("");
   const [toast, setToast] = useState("");
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
@@ -2763,6 +2764,13 @@ function Home() {
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
     return 10 + (index < 0 ? previewLayerItems.length : index);
   };
+  const visiblePreviewLayerItems = useMemo(() => {
+    const query = safeTrim(previewLayerQuery).toLocaleLowerCase("vi-VN");
+    if (!query) return previewLayerItems;
+    return previewLayerItems.filter((item) =>
+      `${item.label} ${item.kind}`.toLocaleLowerCase("vi-VN").includes(query),
+    );
+  }, [previewLayerItems, previewLayerQuery]);
   const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
   const subtitleAnimationProgress = activeSubtitle
     ? Math.min(
@@ -7945,8 +7953,21 @@ function Home() {
                 <strong>Layer</strong>
                 <small>Trên cùng ở phía dưới</small>
               </div>
+              <label className="preview-layer-search">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="10.8" cy="10.8" r="6.4" />
+                  <path d="m16 16 4.2 4.2" />
+                </svg>
+                <input
+                  type="search"
+                  value={previewLayerQuery}
+                  onChange={(event) => setPreviewLayerQuery(event.target.value)}
+                  placeholder="Tìm layer"
+                  aria-label="Tìm layer trong màn hình xem trước"
+                />
+              </label>
               <div className="preview-layer-list">
-                {previewLayerItems.length ? previewLayerItems.map((item, index) => (
+                {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => (
                   <button
                     type="button"
                     key={item.token}
@@ -7971,11 +7992,11 @@ function Home() {
                     <span className="preview-layer-icon" aria-hidden="true">{item.icon}</span>
                     <span className="preview-layer-label">
                       <strong>{item.label}</strong>
-                      <small>{index === previewLayerItems.length - 1 ? "Trên cùng" : item.kind}</small>
+                      <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
                     </span>
                   </button>
                 )) : (
-                  <span className="preview-layer-empty">Chưa có layer trên màn hình.</span>
+                  <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
                 )}
               </div>
               <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
