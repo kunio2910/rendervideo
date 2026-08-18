@@ -105,6 +105,7 @@ type SceneImage = {
   opacity: number;
   borderWidth: number;
   borderColor: string;
+  borderFill: string;
   start: number;
   duration: number;
   visible: boolean;
@@ -722,6 +723,11 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const normalizeSceneImageBorderFill = (value: unknown, fallback = "transparent") => {
+  const color = String(value ?? "").trim();
+  return color.toLowerCase() === "transparent" ? "transparent" : normalizeHexColor(color, fallback);
+};
+
 const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> = [
   { value: "rectangle", label: "Chữ nhật" },
   { value: "square", label: "Vuông" },
@@ -765,6 +771,7 @@ const defaultSceneImage = (
   opacity: 100,
   borderWidth: 0,
   borderColor: "#ffffff",
+  borderFill: "transparent",
   start: 0,
   duration: 5,
   visible: true,
@@ -804,6 +811,7 @@ const normalizeSceneImage = (
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
+    borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
     start: Math.max(0, positiveNumber(raw.start, base.start)),
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
     visible: raw.visible !== false,
@@ -7023,6 +7031,7 @@ function Home() {
                     height: `${height}%`,
                     opacity: image.opacity / 100,
                     clipPath: sceneImageClipPath(image.shape),
+                    backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
                     border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
                   }}
                   role="button"
@@ -7630,6 +7639,30 @@ function Home() {
                           <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
                         </label>
                         <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field color-field scene-image-border-fill-field">
+                          <span>Màu nền bên trong border</span>
+                          <div className="color-input-row">
+                            <input
+                              className="text-color-picker"
+                              type="color"
+                              value={normalizeHexColor(activeSceneImage.borderFill, "#ffffff")}
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value)}
+                            />
+                            <input
+                              className="text-color-code"
+                              type="text"
+                              inputMode="text"
+                              maxLength={11}
+                              value={activeSceneImage.borderFill === "transparent" ? "" : activeSceneImage.borderFill}
+                              placeholder="transparent / #FFFFFF"
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value || "transparent")}
+                              onBlur={(event) => updateSceneImage("borderFill", normalizeSceneImageBorderFill(event.target.value))}
+                            />
+                          </div>
+                          <small>Để trống hoặc nhập transparent để giữ nền trong suốt.</small>
+                        </label>
                       </div>
                       <div className="field-row">
                         <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
@@ -9577,20 +9610,21 @@ function Home() {
                           ))}
                         </div>
                       </div>
-                      <label className="export-field">
-                        <span>Cháº¿ Ä‘á»™ render</span>
+                      <label className="export-field render-profile-field">
+                        <span>Chế độ render</span>
                         <select
+                          className="render-profile-select"
                           value={renderProfile}
-                          aria-label="Cháº¿ Ä‘á»™ render"
+                          aria-label="Chế độ render"
                           onChange={(event) => setRenderProfile(normalizeRenderProfile(event.target.value))}
                         >
-                          <option value="quality">Cháº¥t lÆ°á»£ng cao</option>
-                          <option value="fast">Báº£n nhÃ¡p nhanh (720p / 24 FPS)</option>
+                          <option value="quality">Chất lượng cao</option>
+                          <option value="fast">Render nhanh</option>
                         </select>
                         <small className="export-field-hint">
                           {renderProfile === "fast"
-                            ? "Giáº£m Ä‘á»™ phÃ¢n giáº£i, FPS vÃ  thá»i gian encode Ä‘á»ƒ xem thá»­ nhanh."
-                            : "Giá»¯ nguyÃªn Ä‘á»™ phÃ¢n giáº£i vÃ  FPS Ä‘ang chá»n cho báº£n xuáº¥t cuá»‘i."}
+                            ? "Giảm độ phân giải, FPS và thời gian encode để xem thử nhanh."
+                            : "Giữ nguyên độ phân giải và FPS đang chọn cho bản xuất cuối."}
                         </small>
                       </label>
                       <div className="export-field-row">

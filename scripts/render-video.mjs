@@ -817,6 +817,23 @@ const createSceneImage = async (image, index) => {
   const borderSvg = borderWidth > 0
     ? Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${borderWidth}">${geometry.clip}</g></svg>`)
     : null;
+  const borderFill = String(image?.borderFill ?? "transparent").trim().toLowerCase() === "transparent"
+    ? null
+    : decorationColor(image?.borderFill, null);
+  const fillPath = borderFill ? path.join(renderDir, `scene-image-${index + 1}-fill.png`) : null;
+  if (fillPath && borderFill) {
+    await sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: borderFill,
+      },
+    })
+      .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
+      .png()
+      .toFile(fillPath);
+  }
   const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
   const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
   if (mediaType === "video" || animatedImage) {
@@ -839,7 +856,7 @@ const createSceneImage = async (image, index) => {
         },
       }).composite([{ input: borderSvg }]).png().toFile(borderPath);
     }
-    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
+    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, fillPath, borderPath, width, height };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
@@ -873,6 +890,7 @@ const createSceneImage = async (image, index) => {
       frameSequence: true,
       webpAnimation: true,
       maskPath,
+      fillPath,
       borderPath,
       width,
       height,
@@ -949,6 +967,7 @@ const createSceneImage = async (image, index) => {
       spriteSheet: true,
       frameSequence: true,
       maskPath,
+      fillPath,
       borderPath,
       width,
       height,
@@ -962,7 +981,9 @@ const createSceneImage = async (image, index) => {
     .toBuffer();
   const filename = path.join(renderDir, `scene-image-${index + 1}.png`);
   const border = borderWidth > 0 ? borderSvg : null;
-  const composites = [{ input: resized, top: 0, left: 0 }];
+  const composites = [];
+  if (fillPath) composites.push({ input: fillPath, top: 0, left: 0 });
+  composites.push({ input: resized, top: 0, left: 0 });
   if (border) composites.push({ input: border, top: 0, left: 0 });
   await sharp({
     create: {
@@ -1333,10 +1354,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageAlphaSourceLabel = `sceneImageAlphaSource${imageIndex}`;
     const imageAlphaLabel = `sceneImageAlpha${imageIndex}`;
     const imageMaskLabel = `sceneImageMask${imageIndex}`;
+    const imageFillLabel = `sceneImageFill${imageIndex}`;
+    const imageFilledLabel = `sceneImageFilled${imageIndex}`;
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
+      const hasImageFill = Boolean(imageRender.fillPath);
       const hasImageBorder = Boolean(imageRender.borderPath);
+      const imageMaskInputIndex = sceneImageInputIndex + 1;
+      const imageFillInputIndex = hasImageFill ? sceneImageInputIndex + 2 : null;
+      const imageBorderInputIndex = sceneImageInputIndex + 2 + (hasImageFill ? 1 : 0);
       const imageFit = image.transparent === true
         || imageRender.spriteSheet === true
         || imageRender.webpAnimation === true
@@ -1346,13 +1373,18 @@ for (let index = 0; index < scenes.length; index += 1) {
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
       filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
-      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
+      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${imageMaskInputIndex}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      let imageLayerLabel = imageAssetLabel;
+      if (hasImageFill && imageFillInputIndex !== null) {
+        filter += `[${imageFillInputIndex}:v]format=rgba[${imageFillLabel}];[${imageFillLabel}][${imageAssetLabel}]overlay=0:0:shortest=1[${imageFilledLabel}];`;
+        imageLayerLabel = imageFilledLabel;
+      }
       if (hasImageBorder) {
-        filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}];`;
+        filter += `[${imageBorderInputIndex}:v]format=rgba[${imageBorderLabel}];[${imageLayerLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}bordered];`;
+        imageLayerLabel = `${imageLayerLabel}bordered`;
       }
       filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += hasImageBorder ? 3 : 2;
+      sceneImageInputIndex += 2 + (hasImageFill ? 1 : 0) + (hasImageBorder ? 1 : 0);
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
@@ -1542,6 +1574,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         args.push("-stream_loop", "-1", "-i", image.path);
       }
       args.push("-loop", "1", "-i", image.maskPath);
+      if (image.fillPath) args.push("-loop", "1", "-i", image.fillPath);
       if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
     } else {
       args.push("-loop", "1", "-i", image.path);
