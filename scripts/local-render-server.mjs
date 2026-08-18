@@ -11,6 +11,7 @@ const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
 const jobsRoot = path.join(root, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
+const renderCacheRoot = path.join(jobsRoot, "render-cache");
 const spriteProcessVersion = "alpha-v5-auto-grid-local-file";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
@@ -83,6 +84,7 @@ const runJob = async (job, project, files) => {
           FFMPEG_PATH: ffmpegPath,
           RENDER_SOURCE_DIR: job.sourceDir,
           RENDER_WORK_DIR: job.renderDir,
+          RENDER_CACHE_DIR: renderCacheRoot,
         },
       },
     );
@@ -130,6 +132,7 @@ const runJob = async (job, project, files) => {
 
 await fs.mkdir(jobsRoot, { recursive: true });
 await fs.mkdir(spriteAssetsRoot, { recursive: true });
+await fs.mkdir(renderCacheRoot, { recursive: true });
 
 const server = http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") {

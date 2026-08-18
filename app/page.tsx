@@ -297,6 +297,10 @@ type PopupConfig = {
 
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
+type RenderProfile = "quality" | "fast";
+
+const normalizeRenderProfile = (value: unknown): RenderProfile =>
+  value === "fast" ? "fast" : "quality";
 
 const normalizeAspectRatio = (value: unknown): AspectRatio =>
   value === "16:9" ? "16:9" : "9:16";
@@ -615,6 +619,7 @@ type StoredProject = {
   backgroundMusic?: string;
   backgroundMusicVolume?: number;
   renderFps?: 24 | 30 | 60;
+  renderProfile?: RenderProfile;
   editorSections?: EditorSectionState;
   scenes: Scene[];
 };
@@ -2160,6 +2165,7 @@ function Home() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [renderResolution, setRenderResolution] = useState<RenderResolution>("1080x1920");
   const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
+  const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -2662,6 +2668,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2682,6 +2689,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2730,6 +2738,7 @@ function Home() {
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
     setRenderFps(project.renderFps ?? 30);
+    setRenderProfile(normalizeRenderProfile(project.renderProfile));
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
@@ -2788,6 +2797,7 @@ function Home() {
           project.renderResolution,
           normalizeAspectRatio(project.aspectRatio),
         ),
+        renderProfile: normalizeRenderProfile(project.renderProfile),
         editorSections: normalizeEditorSections(project.editorSections),
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
@@ -2814,6 +2824,7 @@ function Home() {
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
         renderFps: data.renderFps ?? 30,
+        renderProfile: normalizeRenderProfile(data.renderProfile),
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -4018,6 +4029,7 @@ function Home() {
       imageEnabled: true,
       narrationEnabled: true,
       renderFps: 30,
+      renderProfile: "quality",
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -5749,6 +5761,7 @@ function Home() {
         aspectRatio,
         resolution: renderResolution,
         fps: renderFps,
+        renderProfile,
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
@@ -5880,6 +5893,7 @@ function Home() {
       aspectRatio,
       renderResolution,
       renderFps,
+      renderProfile,
       projectTitle,
       background,
       previewBackground,
@@ -9563,6 +9577,22 @@ function Home() {
                           ))}
                         </div>
                       </div>
+                      <label className="export-field">
+                        <span>Cháº¿ Ä‘á»™ render</span>
+                        <select
+                          value={renderProfile}
+                          aria-label="Cháº¿ Ä‘á»™ render"
+                          onChange={(event) => setRenderProfile(normalizeRenderProfile(event.target.value))}
+                        >
+                          <option value="quality">Cháº¥t lÆ°á»£ng cao</option>
+                          <option value="fast">Báº£n nhÃ¡p nhanh (720p / 24 FPS)</option>
+                        </select>
+                        <small className="export-field-hint">
+                          {renderProfile === "fast"
+                            ? "Giáº£m Ä‘á»™ phÃ¢n giáº£i, FPS vÃ  thá»i gian encode Ä‘á»ƒ xem thá»­ nhanh."
+                            : "Giá»¯ nguyÃªn Ä‘á»™ phÃ¢n giáº£i vÃ  FPS Ä‘ang chá»n cho báº£n xuáº¥t cuá»‘i."}
+                        </small>
+                      </label>
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>

@@ -18,6 +18,11 @@ const sourceDir = process.env.RENDER_SOURCE_DIR
 const renderDir = process.env.RENDER_WORK_DIR
   ? path.resolve(process.env.RENDER_WORK_DIR)
   : path.join(root, "work", "render-current");
+const renderCacheDir = process.env.RENDER_CACHE_DIR
+  ? path.resolve(process.env.RENDER_CACHE_DIR)
+  : path.join(root, "work", "render-cache");
+const assetCacheDir = path.join(renderCacheDir, "assets");
+const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
@@ -44,6 +49,7 @@ const timelineDuration = Math.max(
   ...scenes.map((scene) => Number(scene.end ?? 0) || 0),
 );
 const aspectRatio = project.aspectRatio === "16:9" ? "16:9" : "9:16";
+const renderProfile = project.renderProfile === "fast" ? "fast" : "quality";
 const defaultResolution = aspectRatio === "16:9" ? "1920x1080" : "1080x1920";
 const requestedResolution = String(project.resolution ?? defaultResolution).split("x");
 let outputWidth = Math.max(1, Number.parseInt(requestedResolution[0], 10) || 1);
@@ -56,7 +62,20 @@ if (!resolutionMatchesAspect) {
     .split("x")
     .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
 }
-const fps = Math.max(1, Number(project.fps ?? 30) || 30);
+if (renderProfile === "fast") {
+  const [fastWidth, fastHeight] = (aspectRatio === "16:9" ? "1280x720" : "720x1280")
+    .split("x")
+    .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
+  if (outputWidth > fastWidth || outputHeight > fastHeight) {
+    outputWidth = fastWidth;
+    outputHeight = fastHeight;
+  }
+}
+const requestedFps = Math.max(1, Number(project.fps ?? 30) || 30);
+const fps = renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
+const videoPreset = renderProfile === "fast" ? "veryfast" : "medium";
+const videoCrf = renderProfile === "fast" ? "24" : "20";
+const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
 const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
@@ -205,6 +224,8 @@ const audioVolume = (value, fallback) => {
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
+await fs.mkdir(assetCacheDir, { recursive: true });
+await fs.mkdir(frameSequenceCacheDir, { recursive: true });
 await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
 const escapeXml = (value = "") =>
@@ -248,9 +269,36 @@ const run = (command, args) =>
 
 const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
 
-const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, sequenceName) => {
+const sequenceCacheKey = (...parts) => createHash("sha1")
+  .update(parts.map((part) => String(part)).join("\0"))
+  .digest("hex");
+
+const sequenceCachePaths = (cacheKey) => {
+  const sequenceRoot = path.join(frameSequenceCacheDir, cacheKey);
+  return {
+    sequenceRoot,
+    concatPath: path.join(sequenceRoot, "frames.txt"),
+    metadataPath: path.join(sequenceRoot, "metadata.json"),
+  };
+};
+
+const readCachedFrameSequence = async (cacheKey) => {
+  const paths = sequenceCachePaths(cacheKey);
+  try {
+    const metadata = JSON.parse(await fs.readFile(paths.metadataPath, "utf8"));
+    await fs.access(paths.concatPath);
+    return { ...metadata, path: paths.concatPath };
+  } catch {
+    return null;
+  }
+};
+
+const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, cacheKey) => {
   if (!frames.length) throw new Error("Sprite không có frame để render");
-  const framesRoot = path.join(renderDir, sequenceName);
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
+  const { sequenceRoot, concatPath, metadataPath } = sequenceCachePaths(cacheKey);
+  const framesRoot = path.join(sequenceRoot, "frames");
   await fs.mkdir(framesRoot, { recursive: true });
   const framePaths = [];
   for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
@@ -260,7 +308,6 @@ const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, se
     }).png().toFile(framePath);
     framePaths.push(framePath);
   }
-  const concatPath = path.join(renderDir, `${sequenceName}.txt`);
   const entries = framePaths.flatMap((framePath, frameIndex) => [
     concatFileEntry(framePath),
     `duration ${(Math.max(60, Number(delays[frameIndex]) || 180) / 1000).toFixed(3)}`,
@@ -269,26 +316,49 @@ const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, se
   // previous one, so repeat the last frame to preserve its duration.
   entries.push(concatFileEntry(framePaths[framePaths.length - 1]));
   await fs.writeFile(concatPath, `${entries.join("\n")}\n`, "utf8");
+  await fs.writeFile(metadataPath, JSON.stringify({
+    frameWidth,
+    frameHeight,
+    frameCount: frames.length,
+    delay: Number(delays[0]) || 180,
+  }), "utf8");
   return concatPath;
 };
 
-const writeSpriteFrameSequence = async (frames, frameSize, delay, index) =>
+const writeSpriteFrameSequence = async (frames, frameSize, delay, sourceKey) =>
   writeRawFrameSequence(
     frames,
     frameSize,
     frameSize,
     frames.map(() => delay),
-    `scene-image-${index + 1}-frames`,
+    sequenceCacheKey("sprite", sourceKey, frameSize, delay),
   );
+
+const fileHashCache = new Map();
+const hashFile = async (filename) => {
+  const cached = fileHashCache.get(filename);
+  if (cached) return cached;
+  const promise = fs.readFile(filename).then((buffer) => createHash("sha1").update(buffer).digest("hex"));
+  fileHashCache.set(filename, promise);
+  return promise;
+};
 
 const writeAnimatedImageFrameSequence = async (
   source,
   metadata,
-  sequenceName,
 ) => {
   const frameWidth = Math.max(1, Number(metadata.width) || 1);
   const frameHeight = Math.max(1, Number(metadata.pageHeight) || Number(metadata.height) || 1);
   const pageCount = Math.max(1, Number(metadata.pages) || Math.floor(Number(metadata.height) / frameHeight) || 1);
+  const sourceKey = await hashFile(source);
+  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
+  const delays = Array.from(
+    { length: pageCount },
+    (_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180),
+  );
+  const cacheKey = sequenceCacheKey("animated", sourceKey, frameWidth, frameHeight, pageCount, delays.join(","));
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
   const rawResult = await sharp(source, { animated: true })
     .ensureAlpha()
     .raw()
@@ -300,23 +370,17 @@ const writeAnimatedImageFrameSequence = async (
   const frames = Array.from({ length: pageCount }, (_, frameIndex) => (
     rawResult.data.subarray(frameIndex * frameBytes, (frameIndex + 1) * frameBytes)
   ));
-  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
-  const delays = frames.map((_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180));
   return writeRawFrameSequence(
     frames,
     frameWidth,
     frameHeight,
     delays,
-    sequenceName,
+    cacheKey,
   );
 };
 
-const writeAnimatedWebpFrameSequence = async (source, metadata, index) =>
-  writeAnimatedImageFrameSequence(
-    source,
-    metadata,
-    `scene-image-${index + 1}-webp-frames`,
-  );
+const writeAnimatedWebpFrameSequence = async (source, metadata) =>
+  writeAnimatedImageFrameSequence(source, metadata);
 
 const errorDetail = (error) => {
   if (!(error instanceof Error)) return "unknown error";
@@ -370,7 +434,13 @@ const downloadResource = async (kind, value, fallbackName) => {
     const sourceName = referenceName(trimmed, fallbackName);
     const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
     const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
-    return download(trimmed, path.join(renderDir, `${kind}-${hash}-${safeName}`));
+    const cachedPath = path.join(assetCacheDir, `${kind}-${hash}-${safeName}`);
+    try {
+      await fs.access(cachedPath);
+      return cachedPath;
+    } catch {
+      return download(trimmed, cachedPath);
+    }
   })();
   resourceCache.set(key, promise);
   try {
@@ -528,7 +598,6 @@ const createPopup = async (scene, index) => {
         animatedImage = await writeAnimatedImageFrameSequence(
           resolvedImage,
           imageMetadata,
-          `popup-${index + 1}-frames`,
         );
         animatedImageFrameSequence = true;
       } else {
@@ -784,7 +853,7 @@ const createSceneImage = async (image, index) => {
     && sourceMetadata?.format === "webp"
     && Number(sourceMetadata.pages) > 1;
   if (animatedWebp) {
-    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata, index);
+    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata);
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -810,24 +879,57 @@ const createSceneImage = async (image, index) => {
     };
   }
   let spriteSheet = { detected: false };
+  let spriteSourceKey = "";
   if (image?.spriteSheet === true) {
     try {
-      spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source), {
-        delay: image?.spriteDelay,
-        returnFrames: true,
-      });
+      const sourceBuffer = await fs.readFile(source);
+      spriteSourceKey = createHash("sha1").update(sourceBuffer).digest("hex");
+      const spriteLookupPath = path.join(
+        frameSequenceCacheDir,
+        `sprite-${sequenceCacheKey("lookup", spriteSourceKey, image?.spriteDelay ?? "auto")}.json`,
+      );
+      try {
+        const cachedLookup = JSON.parse(await fs.readFile(spriteLookupPath, "utf8"));
+        const cachedSequence = await readCachedFrameSequence(cachedLookup.cacheKey);
+        if (cachedSequence) {
+          spriteSheet = {
+            detected: true,
+            frameSize: cachedSequence.frameWidth,
+            delay: cachedSequence.delay,
+            cachedPath: cachedSequence.path,
+          };
+        }
+      } catch {
+        // Cache miss: detect the sprite grid below.
+      }
+      if (!spriteSheet.detected) {
+        spriteSheet = await processSpriteSheetBuffer(sourceBuffer, {
+          delay: image?.spriteDelay,
+          returnFrames: true,
+        });
+        if (spriteSheet.detected) {
+          const cacheKey = sequenceCacheKey(
+            "sprite",
+            spriteSourceKey,
+            spriteSheet.frameSize,
+            spriteSheet.delay,
+          );
+          spriteSheet.cacheKey = cacheKey;
+          await fs.writeFile(spriteLookupPath, JSON.stringify({ cacheKey }), "utf8");
+        }
+      }
     } catch {
       // Unsupported or malformed images continue through the existing static
       // image path instead of changing the behaviour of regular media.
     }
   }
   if (spriteSheet.detected) {
-    const frameSequencePath = await writeSpriteFrameSequence(
-      spriteSheet.frames,
-      spriteSheet.frameSize,
-      spriteSheet.delay,
-      index,
-    );
+    const frameSequencePath = spriteSheet.cachedPath || await writeSpriteFrameSequence(
+        spriteSheet.frames,
+        spriteSheet.frameSize,
+        spriteSheet.delay,
+        spriteSourceKey,
+      );
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -1482,9 +1584,9 @@ for (let index = 0; index < scenes.length; index += 1) {
   args.push(
     "-t", String(duration),
     "-r", String(fps),
-    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+    "-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf,
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+    "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart",
     clip,
   );
@@ -1511,7 +1613,7 @@ await run(ffmpeg, [
   "-i", concatFile,
   "-c:v", "copy",
   "-c:a", "aac",
-  "-b:a", "192k",
+  "-b:a", audioBitrate,
   "-ar", "48000",
   "-ac", "2",
   "-af", "aresample=async=1:first_pts=0",
@@ -1531,7 +1633,7 @@ if (music) {
     "-map", "[a]",
     "-c:v", "copy",
     "-c:a", "aac",
-    "-b:a", "192k",
+    "-b:a", audioBitrate,
     "-t", String(timelineDuration),
     "-movflags", "+faststart",
     outputPath,

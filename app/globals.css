@@ -3517,6 +3517,7 @@ body {
 
 .export-field { display: grid; gap: 6px; margin-bottom: 13px; }
 .export-field > span { color: var(--studio-muted); font-size: 10px; }
+.export-field-hint { color: var(--studio-muted); font-size: 11px; line-height: 1.35; }
 
 .export-field select,
 .export-file-name {
