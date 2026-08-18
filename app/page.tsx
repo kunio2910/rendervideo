@@ -2163,6 +2163,65 @@ function SettingsWorkspace({
   );
 }
 
+type ReviewEditableProps = {
+  value: string;
+  label: string;
+  onCommit: (value: string) => void;
+  numeric?: boolean;
+  multiline?: boolean;
+  className?: string;
+};
+
+function ReviewEditable({ value, label, onCommit, numeric = false, multiline = false, className = "" }: ReviewEditableProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const commit = () => {
+    const nextValue = draft.trim();
+    if (nextValue && nextValue !== value) onCommit(nextValue);
+    setEditing(false);
+  };
+
+  if (editing) {
+    const editorProps = {
+      autoFocus: true,
+      className: `review-edit-input ${multiline ? "review-edit-textarea" : ""}`,
+      value: draft,
+      "aria-label": label,
+      inputMode: numeric ? "decimal" as const : undefined,
+      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
+      onBlur: commit,
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        if (event.key === "Enter" && (!multiline || !event.shiftKey)) {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(value);
+          setEditing(false);
+        }
+      },
+    };
+    return multiline ? <textarea {...editorProps} rows={2} /> : <input {...editorProps} type={numeric ? "number" : "text"} />;
+  }
+
+  return (
+    <button
+      type="button"
+      className={`review-edit-value ${className}`}
+      title="Double-click để chỉnh sửa"
+      aria-label={`${label}: ${value}`}
+      onDoubleClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      {value || "—"}
+    </button>
+  );
+}
+
 function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
@@ -2264,6 +2323,7 @@ function Home() {
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -2932,9 +2992,11 @@ function Home() {
   }, [theme]);
 
   useEffect(() => {
-    if (!previewFullscreen) return;
+    if (!previewFullscreen && !reviewOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreviewFullscreen(false);
+      if (event.key !== "Escape") return;
+      if (reviewOpen) setReviewOpen(false);
+      else setPreviewFullscreen(false);
     };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -2943,7 +3005,7 @@ function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [previewFullscreen]);
+  }, [previewFullscreen, reviewOpen]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -3498,6 +3560,111 @@ function Home() {
     setScenes((items) => items.map((item) => targetIds.has(item.id)
       ? { ...item, effects: { ...item.effects, [key]: value } }
       : item));
+  };
+
+  const updateReviewSceneField = <K extends keyof Scene>(
+    sceneId: string,
+    key: K,
+    value: Scene[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? { ...item, [key]: value }
+      : item));
+  };
+
+  const updateReviewSceneDuration = (sceneId: string, value: string) => {
+    if (!hydrated) return;
+    const nextDuration = Math.max(0.1, Number(value.replace(",", ".")) || 0.1);
+    const nextTotal = visibleScenes.reduce(
+      (total, item) => total + (item.id === sceneId ? nextDuration : Math.max(0.1, item.end - item.start)),
+      0,
+    );
+    let cursor = 0;
+    setScenes((items) => items.map((item) => {
+      if (item.sceneVisible === false) return item;
+      const duration = item.id === sceneId
+        ? nextDuration
+        : Math.max(0.1, item.end - item.start);
+      const next = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + duration).toFixed(2)),
+      };
+      cursor += duration;
+      return next;
+    }));
+    setProjectDuration((current) => Math.max(current, Number(nextTotal.toFixed(2))));
+    setPlayTime((current) => Math.min(current, Number(nextTotal.toFixed(2))));
+  };
+
+  const updateReviewSceneImageValue = <K extends keyof SceneImage>(
+    sceneId: string,
+    imageId: string,
+    key: K,
+    value: SceneImage[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, [key]: value }
+            : image),
+        }
+      : item));
+  };
+
+  const updateReviewPopupValue = <K extends keyof PopupConfig>(
+    sceneId: string,
+    popupId: string,
+    key: K,
+    value: PopupConfig[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const nextPopup = { ...popups[popupIndex], [key]: value } as PopupConfig;
+      const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updateReviewPopupHeight = (sceneId: string, popupId: string, value: string) => {
+    if (!hydrated) return;
+    const nextHeight = Math.min(440, Math.max(170, Number(value.replace(",", ".")) || 170));
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const popup = popups[popupIndex];
+      const defaults = popupSectionDefaults(popup.layout, nextHeight);
+      const nextPopup = {
+        ...popup,
+        height: nextHeight,
+        imageHeight: defaults.imageHeight,
+        contentHeight: defaults.contentHeight,
+      };
+      const nextPopups = popups.map((entry, index) => index === popupIndex ? nextPopup : entry);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const reviewNumber = (value: string, fallback: number) => {
+    const numeric = Number(value.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric : fallback;
   };
 
   const updatePopupValues = (
@@ -6526,6 +6693,72 @@ function Home() {
         ? "idle"
         : "progress";
 
+  const reviewAssetSource = (value: string) => assetPreviewSource(value);
+  const reviewLayoutLabel = (value: PopupConfig["layout"]) => ({
+    "image-top": "Ảnh trên",
+    split: "Chia đôi",
+    quote: "Trích dẫn",
+    stats: "Số liệu",
+    "image-only": "Chỉ hình",
+    "content-only": "Chỉ nội dung",
+  }[value ?? "image-top"] ?? "Ảnh trên");
+  const reviewThemeLabel = (value: PopupConfig["theme"]) => ({
+    travel: "Travel",
+    sunset: "Sunset",
+    ocean: "Ocean",
+    minimal: "Minimal",
+  }[value ?? "travel"] ?? "Travel");
+  const reviewEffectSummary = (item: Scene) => {
+    const effects = normalizeSceneEffects(item.effects);
+    const entries = [
+      ["Tuyết", effects.snowEnabled, effects.snowIntensity, effects.snowSpeed],
+      ["Mưa", effects.rainEnabled, effects.rainIntensity, effects.rainSpeed],
+      ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
+      ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
+      ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+    ] as const;
+    return entries.filter(([, enabled]) => enabled).map(([label, , intensity, speed]) => ({
+      label,
+      intensity,
+      speed,
+    }));
+  };
+
+  const renderReviewVisibility = (
+    visible: boolean,
+    label: string,
+    onClick: () => void,
+  ) => (
+    <button
+      type="button"
+      className={`review-visibility ${visible ? "is-visible" : "is-hidden"}`}
+      aria-label={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      title={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      onClick={onClick}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+        <circle cx="12" cy="12" r="2.2" />
+        {!visible && <path d="m4 4 16 16" />}
+      </svg>
+    </button>
+  );
+
+  const reviewLayerFocus = (
+    item: Scene,
+    section: "images" | "popup" | "effects",
+    layerId = "",
+  ) => {
+    setSelectedId(item.id);
+    setSelectedSceneIds([item.id]);
+    if (section === "images") setSelectedSceneImageId(layerId);
+    if (section === "popup") setSelectedPopupId(layerId);
+    setEditorSections((sections) => ({ ...sections, [section]: true }));
+    setReviewOpen(false);
+  };
+
+  const reviewSceneCountLabel = `${visibleScenes.length} cảnh đang hiện`;
+
   return (
     <main
       className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
@@ -6917,6 +7150,23 @@ function Home() {
                   <circle cx="12" cy="12" r="2.2" />
                   {!subtitleGuideVisible && <path d="m4 4 16 16" />}
                 </svg>
+              </button>
+              <button
+                type="button"
+                className="preview-review-toggle"
+                aria-label="Mở Review tổng quan"
+                title="Review tổng quan các cảnh đang hiện"
+                onClick={() => {
+                  setPlaying(false);
+                  setPreviewFullscreen(false);
+                  setReviewOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M8 4v16M3 9h18M3 14h18" />
+                </svg>
+                <span>Review</span>
               </button>
               <div className="preview-ruler-control">
                 <button
@@ -10192,6 +10442,292 @@ function Home() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {reviewOpen && (
+        <div className="review-overlay" role="dialog" aria-modal="true" aria-labelledby="review-heading">
+          <section className="review-shell">
+            <header className="review-topbar">
+              <div className="review-title-wrap">
+                <div className="review-brand-mark" aria-hidden="true">
+                  <span /><span /><span /><span />
+                </div>
+                <div>
+                  <div className="review-kicker">KITO VIDEO STUDIO · XEM TRƯỚC</div>
+                  <h1 id="review-heading">Review tổng quan</h1>
+                  <p>{projectTitle} · {reviewSceneCountLabel} · {formatTime(totalDuration)}</p>
+                </div>
+              </div>
+              <div className="review-top-actions">
+                <span className="review-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <button type="button" className="button primary review-save-button" onClick={() => void saveProjectNow()}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></svg>
+                  Lưu thay đổi
+                </button>
+                <button
+                  type="button"
+                  className="review-close-button"
+                  aria-label="Đóng Review"
+                  title="Đóng Review (Esc)"
+                  onClick={() => setReviewOpen(false)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+              </div>
+            </header>
+
+            <div className="review-notice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v6M12 7h.01" /></svg>
+              <span>Double-click vào thông số để chỉnh sửa và đồng bộ ngay về khu vực “Biên soạn”. Enter để xác nhận · Esc để hủy.</span>
+            </div>
+
+            <div className="review-body">
+              <div className="review-scroll-area">
+                {visibleScenes.length ? (
+                  <div
+                    className="review-table-grid"
+                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, minmax(330px, 1fr))` }}
+                  >
+                    <div className="review-corner">Thông tin cảnh</div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      return (
+                        <div className="review-scene-header" key={`review-head-${item.id}`}>
+                          <div className="review-scene-heading">
+                            <b>{String(item.number).padStart(2, "0")}</b>
+                            <ReviewEditable
+                              value={item.sceneName || `Cảnh ${item.number}`}
+                              label={`Tên cảnh ${item.number}`}
+                              className="review-scene-name"
+                              onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                            />
+                          </div>
+                          <div className="review-scene-time"><strong>{formatTime(item.start)} → {formatTime(item.end)}</strong><span>{duration.toFixed(1)} giây</span></div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Tên cảnh <small>text</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-name-${item.id}`}>
+                        <ReviewEditable
+                          value={item.sceneName || `Cảnh ${item.number}`}
+                          label={`Tên cảnh ${item.number}`}
+                          onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                        />
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Bắt đầu <small>timeline</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-start-${item.id}`}>
+                        <span className="review-readonly-value mono">{formatTime(item.start)}</span>
+                        <small className="review-cell-help">Tự tính theo thứ tự cảnh</small>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Thời lượng <small>giây</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-duration-${item.id}`}>
+                        <ReviewEditable
+                          value={Math.max(0.1, item.end - item.start).toFixed(2)}
+                          label={`Thời lượng cảnh ${item.number}`}
+                          numeric
+                          onCommit={(value) => updateReviewSceneDuration(item.id, value)}
+                        />
+                        <span className="review-unit">giây</span>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Âm thanh <small>voice</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-audio-${item.id}`}>
+                        <ReviewEditable
+                          value={fileNameOnly(item.voiceFile) || "Chưa có file âm thanh"}
+                          label={`File âm thanh cảnh ${item.number}`}
+                          className="review-audio-value"
+                          onCommit={(value) => updateReviewSceneField(item.id, "voiceFile", value)}
+                        />
+                        <div className="review-detail-line">Âm lượng {Number(item.voiceVolume ?? 95).toFixed(0)}%</div>
+                        <div className="review-detail-line">Bắt đầu phát <ReviewEditable value={Number(item.voiceStart ?? 0).toFixed(2)} label={`Thời gian bắt đầu âm thanh cảnh ${item.number}`} numeric onCommit={(value) => updateReviewSceneField(item.id, "voiceStart", Math.max(0, reviewNumber(value, Number(item.voiceStart ?? 0))))} /> <span>giây</span></div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Phụ đề <small>cues</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-subtitle-${item.id}`}>
+                        <button type="button" className={`review-toggle-row ${item.subtitleEnabled !== false ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "subtitleEnabled", item.subtitleEnabled === false)}>
+                          <span className="review-toggle-dot" /> {item.subtitleEnabled !== false ? `${(item.subtitles ?? []).filter((cue) => cue.visible !== false).length} cue đang bật` : "Đang tắt phụ đề"}
+                        </button>
+                        <div className="review-detail-line">Style: {normalizeSubtitleStyle(item.subtitleStyle).animation} · {normalizeSubtitleStyle(item.subtitleStyle).size}px</div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label review-section-label">Hình ảnh <small>{"item"}</small></div>
+                    {visibleScenes.map((item) => {
+                      const images = item.sceneImages ?? [];
+                      return (
+                        <div className="review-grid-cell review-section-cell review-images-cell" key={`review-images-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{images.length} hình ảnh</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {images.length ? images.map((image) => {
+                            const source = reviewAssetSource(image.url);
+                            return (
+                              <article className="review-layer-card" key={image.id}>
+                                <div className="review-layer-topline">
+                                  <span className="review-drag-dots" aria-hidden="true">⋮</span>
+                                  <div className="review-media-thumb">
+                                    {source && image.mediaType === "video" ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>IMG</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={image.name || "Hình ảnh"} label={`Tên hình ảnh ${image.name}`} onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "name", value)} />
+                                    <small>{fileNameOnly(image.url) || "Chưa nhập URL"} · {image.mediaType === "video" ? "video" : "image"}</small>
+                                  </div>
+                                  {renderReviewVisibility(image.visible !== false, `hình ảnh ${image.name}`, () => updateReviewSceneImageValue(item.id, image.id, "visible", image.visible === false))}
+                                </div>
+                                <div className="review-metric-grid">
+                                  <div><b>X</b><ReviewEditable value={String(image.x)} label="Vị trí X" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "x", clampPercent(reviewNumber(value, image.x), image.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(image.y)} label="Vị trí Y" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "y", clampPercent(reviewNumber(value, image.y), image.y))} /><em>%</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(image.width)} label="Chiều rộng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "width", Math.min(200, Math.max(1, reviewNumber(value, image.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(image.height)} label="Chiều cao hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "height", Math.min(200, Math.max(1, reviewNumber(value, image.height))))} /><em>%</em></div>
+                                </div>
+                                <div className="review-metric-grid review-metric-grid-secondary">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(image.start).toFixed(2)} label="Thời gian bắt đầu hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "start", Math.max(0, reviewNumber(value, image.start)))} /><em>s</em></div>
+                                  <div><b>Thời lượng</b><ReviewEditable value={Number(image.duration).toFixed(2)} label="Thời lượng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "duration", Math.max(0.1, reviewNumber(value, image.duration)))} /><em>s</em></div>
+                                  <div><b>Opacity</b><ReviewEditable value={String(image.opacity)} label="Độ trong suốt hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "opacity", Math.min(100, Math.max(0, reviewNumber(value, image.opacity))))} /><em>%</em></div>
+                                  <div><b>Border</b><ReviewEditable value={String(image.borderWidth)} label="Độ dày border hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "borderWidth", Math.min(12, Math.max(0, reviewNumber(value, image.borderWidth))))} /><em>px</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${image.transparent ? "is-on" : ""}`} onClick={() => updateReviewSceneImageValue(item.id, image.id, "transparent", !image.transparent)}><span /> Giữ nền trong suốt</button>
+                                  <span className="review-chip">{image.spriteSheet ? `Sprite · ${image.spriteDelay}ms` : image.shape}</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "images", image.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          }) : <div className="review-empty-layer">Chưa có hình ảnh trong cảnh này.</div>}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>＋ Thêm hình ảnh trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Popup <small>items</small></div>
+                    {visibleScenes.map((item) => {
+                      const popups = scenePopupList(item);
+                      return (
+                        <div className="review-grid-cell review-section-cell review-popups-cell" key={`review-popups-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{popups.length} popup</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {popups.map((popup) => {
+                            const mediaValue = safeTrim(popup.video) || safeTrim(popup.image);
+                            const source = reviewAssetSource(mediaValue);
+                            return (
+                              <article className="review-layer-card review-popup-card" key={popup.id}>
+                                <div className="review-layer-topline">
+                                  <div className="review-media-thumb popup-thumb">
+                                    {source && isVideoMedia(mediaValue) ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>POPUP</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={popup.title || "Popup"} label={`Tiêu đề popup ${popup.title}`} onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "title", value)} />
+                                    <small>{reviewLayoutLabel(popup.layout)} · {reviewThemeLabel(popup.theme)} · {popup.textEffect || "none"}</small>
+                                  </div>
+                                  {renderReviewVisibility(popup.visible !== false, `popup ${popup.title}`, () => updateReviewPopupValue(item.id, popup.id, "visible", popup.visible === false))}
+                                </div>
+                                <ReviewEditable value={popup.body || "Chưa có nội dung popup"} label={`Nội dung popup ${popup.title}`} multiline className="review-popup-body" onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "body", value)} />
+                                <div className="review-popup-meta-grid">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(popup.start).toFixed(2)} label="Thời gian bắt đầu popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "start", Math.max(0, reviewNumber(value, popup.start)))} /><em>s</em></div>
+                                  <div><b>Độ dài</b><ReviewEditable value={Number(popup.duration).toFixed(2)} label="Thời lượng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "duration", Math.min(Math.max(0.1, reviewNumber(value, popup.duration)), Math.max(0.1, item.end - item.start - popup.start)))} /><em>s</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(popup.width)} label="Chiều rộng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "width", Math.min(96, Math.max(55, reviewNumber(value, popup.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(popup.height)} label="Chiều cao popup" numeric onCommit={(value) => updateReviewPopupHeight(item.id, popup.id, value)} /><em>px</em></div>
+                                  <div><b>X</b><ReviewEditable value={String(popup.x)} label="Vị trí X popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "x", clampPercent(reviewNumber(value, popup.x), popup.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(popup.y)} label="Vị trí Y popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "y", clampPercent(reviewNumber(value, popup.y), popup.y))} /><em>%</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${popup.transparentMedia ? "is-on" : ""}`} onClick={() => updateReviewPopupValue(item.id, popup.id, "transparentMedia", !popup.transparentMedia)}><span /> Nền trong suốt</button>
+                                  <span className="review-chip review-chip-orange">Border {popup.borderWidth}px</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "popup", popup.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          })}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>＋ Thêm popup trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Hiệu ứng <small>motion</small></div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      const effectSummaries = reviewEffectSummary(item);
+                      return (
+                        <div className="review-grid-cell review-section-cell review-effects-cell" key={`review-effects-${item.id}`}>
+                          <div className="review-effect-heading">
+                            <button type="button" className={`review-effect-toggle ${item.zoomEnabled ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "zoomEnabled", !item.zoomEnabled)}><span /> Hiệu ứng zoom</button>
+                            <span className={`review-chip ${item.zoomEnabled ? "review-chip-orange" : "review-chip-muted"}`}>{item.zoomEnabled ? "Đang bật" : "Đang tắt"}</span>
+                          </div>
+                          <div className="review-effect-columns">
+                            <div className="review-effect-group">
+                              <strong>Zoom vào</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Number(item.zoomStart).toFixed(2)} label="Thời gian bắt đầu zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomStart", Math.max(0, reviewNumber(value, item.zoomStart)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><ReviewEditable value={Number(item.zoomEnd).toFixed(2)} label="Thời gian kết thúc zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomEnd", Math.max(0, reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                            </div>
+                            <div className="review-effect-group">
+                              <strong>Zoom ra</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Math.max(0, item.zoomEnd - item.zoomOutDuration).toFixed(2)} label="Thời gian bắt đầu zoom ra" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomOutDuration", Math.max(0, item.zoomEnd - reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><span className="review-readonly-value mono">{formatTime(duration)}</span></div>
+                            </div>
+                          </div>
+                          <div className="review-metric-grid review-effect-metrics">
+                            <div><b>Tỉ lệ zoom</b><ReviewEditable value={Number(item.zoom).toFixed(2)} label="Tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoom", Math.max(1, reviewNumber(value, item.zoom)))} /><em>×</em></div>
+                            <div><b>Zoom vào</b><ReviewEditable value={Number(item.zoomInDuration).toFixed(2)} label="Thời gian tới tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomInDuration", Math.max(0, reviewNumber(value, item.zoomInDuration)))} /><em>s</em></div>
+                            <div><b>Tâm X</b><ReviewEditable value={String(item.centerX)} label="Tâm bản đồ X" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerX", clampPercent(reviewNumber(value, item.centerX), item.centerX))} /><em>%</em></div>
+                            <div><b>Tâm Y</b><ReviewEditable value={String(item.centerY)} label="Tâm bản đồ Y" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerY", clampPercent(reviewNumber(value, item.centerY), item.centerY))} /><em>%</em></div>
+                          </div>
+                          <div className="review-effect-timeline" aria-label={`Timeline hiệu ứng cảnh ${item.number}`}>
+                            <span><b>{formatTime(0)}</b><b>{formatTime(duration / 2)}</b><b>{formatTime(duration)}</b></span>
+                            <div><i className={item.zoomEnabled ? "is-active" : ""} style={{ left: `${Math.min(100, Math.max(0, (item.zoomStart / duration) * 100))}%`, width: `${Math.min(100, Math.max(1, ((item.zoomEnd - item.zoomStart) / duration) * 100))}%` }} /></div>
+                          </div>
+                          <div className="review-active-effects">
+                            <span>Hiệu ứng nền:</span>
+                            {effectSummaries.length ? effectSummaries.map((effect) => <span className="review-chip" key={effect.label}>{effect.label} · {effect.intensity}% · ×{effect.speed}</span>) : <span className="review-chip review-chip-muted">Không có</span>}
+                          </div>
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "effects")}>Mở mục Hiệu ứng trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Chữ viết <small>items</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-text-${item.id}`}>
+                        <span className="review-count-chip">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).length} lớp chữ đang hiện</span>
+                        <div className="review-detail-line">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).map((overlay) => overlay.name || overlay.text).slice(0, 2).join(" · ") || "Chưa có lớp chữ"}</div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Ghi chú <small>review</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-note-${item.id}`}>
+                        <ReviewEditable value={item.reference || "Double-click để thêm ghi chú"} label={`Ghi chú cảnh ${item.number}`} multiline className="review-note-value" onCommit={(value) => updateReviewSceneField(item.id, "reference", value)} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="review-empty-state">
+                    <strong>Chưa có cảnh đang hiện</strong>
+                    <span>Hãy bật hiển thị ít nhất một cảnh để mở Review tổng quan.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <footer className="review-footer">
+              <span><i /> {reviewSceneCountLabel} · Cuộn ngang để xem thêm cảnh · Cuộn dọc để xem thêm thông tin</span>
+              <span>Thay đổi được cập nhật trực tiếp vào Biên soạn</span>
+            </footer>
+          </section>
         </div>
       )}
     </main>
