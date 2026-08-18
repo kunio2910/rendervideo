@@ -5497,6 +5497,9 @@ body {
   text-align: left;
   overflow: visible;
 }
+.studio-shell[data-studio-tab="compose"] .preview-panel.preview-ruler-open {
+  overflow: visible;
+}
 .preview-panel-kicker {
   display: block;
   margin: 0 0 3px 2px;
@@ -6841,8 +6844,8 @@ body {
 
 .preview-ruler-style-popover {
   position: absolute;
-  top: calc(100% + 8px);
-  bottom: auto;
+  top: auto;
+  bottom: calc(100% + 8px);
   right: 0;
   z-index: 100;
   display: grid;

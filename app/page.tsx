@@ -7112,7 +7112,7 @@ function Home() {
           </div>
         </aside>
 
-        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
+        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""} ${rulerEnabled ? "preview-ruler-open" : ""}`}>
           <div className="preview-control-panel">
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
