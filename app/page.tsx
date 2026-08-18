@@ -10527,7 +10527,7 @@ function Home() {
                 {visibleScenes.length ? (
                   <div
                     className="review-table-grid"
-                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, minmax(${Math.round(165 * reviewZoom / 50)}px, 1fr))` }}
+                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, ${Math.round(165 * reviewZoom / 50)}px)` }}
                   >
                     <div className="review-corner">Thông tin cảnh</div>
                     {visibleScenes.map((item) => {
