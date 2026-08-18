@@ -360,9 +360,18 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /preview-layer-search/);
   assert.match(page, /explicitlySelectedPreviewLayerToken/);
   assert.match(page, /label: "Phụ đề"/);
+  assert.match(page, /sceneImageTransitionOptions/);
+  assert.match(page, /value: "fade-black"/);
+  assert.match(page, /Hiệu ứng chuyển hình/);
+  assert.match(page, /sceneImagePreviewTransition/);
+  assert.match(page, /scene-image-fade-black/);
   assert.match(renderer, /orderedLayerTokens/);
   assert.match(renderer, /layerToken = \(kind, id\)/);
   assert.match(renderer, /appendSceneImageLayer/);
+  assert.match(renderer, /sceneImageTransitionNeedsOverlap/);
+  assert.match(renderer, /imageTransitionFilter/);
+  assert.match(renderer, /sceneImageFadeBlack/);
+  assert.match(renderer, /boxblur=luma_radius/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
   assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);

@@ -91,6 +91,7 @@ type MapDecoration = {
 };
 
 type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond";
+type SceneImageTransition = "cut" | "crossfade" | "fade-black" | "slide-left" | "slide-right" | "zoom" | "blur";
 
 type SceneImage = {
   id: string;
@@ -111,6 +112,8 @@ type SceneImage = {
   borderFill: string;
   start: number;
   duration: number;
+  transition: SceneImageTransition;
+  transitionDuration: number;
   visible: boolean;
   editorVisible: boolean;
 };
@@ -770,6 +773,29 @@ const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> =
   { value: "diamond", label: "Hình thoi" },
 ];
 
+const sceneImageTransitionOptions: Array<{ value: SceneImageTransition; label: string; hint: string }> = [
+  { value: "cut", label: "Cắt trực tiếp", hint: "Chuyển ngay sang hình mới." },
+  { value: "crossfade", label: "Crossfade", hint: "Hình cũ mờ dần khi hình mới hiện lên." },
+  { value: "fade-black", label: "Fade đen", hint: "Màn hình chuyển qua màu đen rồi hiện hình mới." },
+  { value: "slide-left", label: "Trượt trái", hint: "Hình mới trượt vào từ bên trái." },
+  { value: "slide-right", label: "Trượt phải", hint: "Hình mới trượt vào từ bên phải." },
+  { value: "zoom", label: "Zoom", hint: "Hình mới thu nhẹ từ lớn về kích thước chuẩn." },
+  { value: "blur", label: "Blur", hint: "Hình mới rõ dần từ trạng thái mờ." },
+];
+
+const normalizeSceneImageTransition = (value: unknown): SceneImageTransition => {
+  const transition = String(value ?? "cut") as SceneImageTransition;
+  return sceneImageTransitionOptions.some((option) => option.value === transition) ? transition : "cut";
+};
+
+const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "transitionDuration">) =>
+  normalizeSceneImageTransition(image.transition) === "cut"
+    ? 0
+    : Math.min(1.5, Math.max(0.1, positiveNumber(image.transitionDuration, 0.5, 0.1)));
+
+const sceneImageTransitionNeedsOverlap = (transition: SceneImageTransition) =>
+  transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
+
 const mapDecorationDefaultName = (type: MapDecorationType) => ({
   "animated-sticker": "Hiệu ứng động",
   "text-3d": "Chữ 3D",
@@ -808,6 +834,8 @@ const defaultSceneImage = (
   borderFill: "transparent",
   start: 0,
   duration: 5,
+  transition: "cut",
+  transitionDuration: 0.5,
   visible: true,
   editorVisible: true,
   ...overrides,
@@ -848,6 +876,8 @@ const normalizeSceneImage = (
     borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
     start: Math.max(0, positiveNumber(raw.start, base.start)),
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
+    transition: normalizeSceneImageTransition(raw.transition ?? base.transition),
+    transitionDuration: Math.min(1.5, Math.max(0.1, positiveNumber(raw.transitionDuration, base.transitionDuration, 0.1))),
     visible: raw.visible !== false,
     editorVisible: raw.editorVisible !== false,
   };
@@ -2601,6 +2631,29 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
+    const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+    const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+    const nextImage = sceneImages[imageIndex + 1];
+    if (!nextImage) return { start, end };
+    const nextStart = Math.min(sceneDuration, Math.max(0, Number(nextImage.start) || 0));
+    const nextTransition = normalizeSceneImageTransition(nextImage.transition);
+    if (!sceneImageTransitionNeedsOverlap(nextTransition)) return { start, end };
+    const overlapEnd = nextStart + sceneImageTransitionDuration(nextImage);
+    return { start, end: Math.min(sceneDuration, Math.max(end, overlapEnd)) };
+  };
+  const sceneImagePreviewTransition = (image: SceneImage, time = sceneLocalTime) => {
+    const transition = normalizeSceneImageTransition(image.transition);
+    const duration = sceneImageTransitionDuration(image);
+    const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+    const progress = duration > 0
+      ? Math.min(1, Math.max(0, (time - start) / duration))
+      : 1;
+    if (!playing || transition === "cut" || time < start) {
+      return { transition, progress: 1 };
+    }
+    return { transition, progress };
+  };
   const sceneVoiceStart = Math.min(
     sceneDuration,
     Math.max(0, Number(scene.voiceStart ?? 0) || 0),
@@ -2676,9 +2729,8 @@ function Home() {
     : [];
   const previewSceneImageItems = sceneIsVisibleInPlayback
     ? playing
-      ? sceneImages.filter((image) => {
-          const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
-          const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+      ? sceneImages.filter((image, imageIndex) => {
+          const { start, end } = sceneImagePlaybackWindow(image, imageIndex);
           return image.visible !== false
             && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
@@ -2686,6 +2738,25 @@ function Home() {
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
+  const activeFadeBlackImage = playing
+    ? sceneImages.find((image) => {
+        const transition = normalizeSceneImageTransition(image.transition);
+        const duration = sceneImageTransitionDuration(image);
+        const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+        return transition === "fade-black"
+          && image.visible !== false
+          && Boolean(safeTrim(image.url))
+          && duration > 0
+          && sceneLocalTime >= start
+          && sceneLocalTime <= Math.min(sceneDuration, start + duration);
+      })
+    : null;
+  const fadeBlackOpacity = activeFadeBlackImage
+    ? (() => {
+        const { progress } = sceneImagePreviewTransition(activeFadeBlackImage);
+        return progress <= 0.5 ? progress * 2 : (1 - progress) * 2;
+      })()
+    : 0;
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
         const start = Math.min(sceneDuration, Math.max(0, Number(subtitle.start) || 0));
@@ -7657,6 +7728,18 @@ function Home() {
               const squareSize = Math.min(image.width, image.height);
               const width = image.shape === "square" ? squareSize : image.width;
               const height = image.shape === "square" ? squareSize : image.height;
+              const imageTransition = sceneImagePreviewTransition(image);
+              const transitionProgress = imageTransition.progress;
+              const transitionTransform = imageTransition.transition === "slide-left"
+                ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
+                : imageTransition.transition === "slide-right"
+                  ? `translate(-50%, -50%) translateX(${(1 - transitionProgress) * 110}%)`
+                  : imageTransition.transition === "zoom"
+                    ? `translate(-50%, -50%) scale(${1.14 - transitionProgress * 0.14})`
+                    : undefined;
+              const transitionFilter = imageTransition.transition === "blur"
+                ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
+                : undefined;
               return (
                 <div
                   key={image.id}
@@ -7668,10 +7751,13 @@ function Home() {
                     zIndex: previewLayerZIndex("image", image.id),
                     width: `${width}%`,
                     height: `${height}%`,
-                    opacity: image.opacity / 100,
                     clipPath: sceneImageClipPath(image.shape),
                     backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
                     border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
+                    opacity: (image.opacity / 100) * (imageTransition.transition === "crossfade" ? transitionProgress : 1),
+                    transform: transitionTransform,
+                    filter: transitionFilter,
+                    transformOrigin: "center center",
                   }}
                   role="button"
                   tabIndex={0}
@@ -7927,6 +8013,13 @@ function Home() {
                 </article>
               );
             })}
+            {activeFadeBlackImage && fadeBlackOpacity > 0 && (
+              <div
+                className="scene-image-fade-black"
+                aria-hidden="true"
+                style={{ opacity: fadeBlackOpacity }}
+              />
+            )}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
@@ -8332,6 +8425,36 @@ function Home() {
                         <span />
                         Giữ nền trong suốt cho lớp media
                       </label>
+                      <div className="field-row scene-image-transition-row">
+                        <label className="field scene-image-transition-field">
+                          <span>Hiệu ứng chuyển hình</span>
+                          <select
+                            value={activeSceneImage.transition}
+                            onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}
+                          >
+                            {sceneImageTransitionOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                          <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
+                        </label>
+                        <label className="field scene-image-transition-duration-field">
+                          <span>Thời lượng hiệu ứng</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="0.1"
+                              max="1.5"
+                              step="0.1"
+                              value={activeSceneImage.transitionDuration}
+                              disabled={activeSceneImage.transition === "cut"}
+                              onChange={(event) => updateSceneImage("transitionDuration", Math.min(1.5, Math.max(0.1, Number(event.target.value) || 0.1)))}
+                            />
+                            <b>s</b>
+                          </div>
+                          <small>Áp dụng khi hình này bắt đầu xuất hiện.</small>
+                        </label>
+                      </div>
                       <div className="field-row">
                         <label className="field">
                           <span>Kiểu khung</span>

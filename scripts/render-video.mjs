@@ -90,6 +90,13 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
+const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
+const sceneImageTransitionDuration = (image) => normalizeSceneImageTransition(image?.transition) === "cut"
+  ? 0
+  : clamp(Number(image?.transitionDuration ?? 0.5) || 0.5, 0.1, 1.5);
+const sceneImageTransitionNeedsOverlap = (transition) =>
+  transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
   ? String(value)
   : "image-top";
@@ -1160,6 +1167,19 @@ for (let index = 0; index < scenes.length; index += 1) {
   const sceneImageScenes = Array.isArray(scene.sceneImages)
     ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
     : [];
+  const sceneImagePlaybackEnd = (imageIndex) => {
+    const image = sceneImageScenes[imageIndex];
+    if (!image) return 0;
+    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const nextImage = sceneImageScenes[imageIndex + 1];
+    if (!nextImage) return imageEnd;
+    const nextStart = Math.min(duration, Math.max(0, Number(nextImage.start ?? 0) || 0));
+    const nextTransition = normalizeSceneImageTransition(nextImage.transition);
+    if (!sceneImageTransitionNeedsOverlap(nextTransition)) return imageEnd;
+    const overlapEnd = nextStart + sceneImageTransitionDuration(nextImage);
+    return Math.min(duration, Math.max(imageEnd, overlapEnd));
+  };
   const sceneImageRenders = [];
   for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
     const image = sceneImageScenes[imageIndex];
@@ -1383,7 +1403,12 @@ for (let index = 0; index < scenes.length; index += 1) {
     const { scene: image, rendered: imageRender } = sceneImageRenders[imageIndex];
     const sceneImageInputIndex = sceneImageInputIndices[imageIndex];
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
-    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const imageEnd = sceneImagePlaybackEnd(imageIndex);
+    const imageTransition = normalizeSceneImageTransition(image.transition);
+    const imageTransitionDuration = sceneImageTransitionDuration(image);
+    const imageTransitionProgress = imageTransitionDuration > 0
+      ? `min(1,max(0,(t-${imageStart})/${imageTransitionDuration}))`
+      : "1";
     const imageX = clamp(Number(image.x ?? 50) / 100, 0, 1);
     const imageY = clamp(Number(image.y ?? 50) / 100, 0, 1);
     const imageOpacity = clamp(Number(image.opacity ?? 100) / 100, 0, 1);
@@ -1396,6 +1421,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageFilledLabel = `sceneImageFilled${imageIndex}`;
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
+    const imageTransitionFilter = imageTransition === "crossfade"
+      ? `fade=t=in:st=${imageStart}:d=${imageTransitionDuration}:alpha=1,`
+      : imageTransition === "zoom"
+        ? `scale=w='iw*(1.14-0.14*${imageTransitionProgress})':h='ih*(1.14-0.14*${imageTransitionProgress})':eval=frame,`
+        : imageTransition === "blur"
+          ? `boxblur=luma_radius='min(12,max(0,12*(1-${imageTransitionProgress})))':luma_power=1,`
+          : "";
+    const imageBaseX = "main_w*" + imageX + "-overlay_w/2";
+    const imageOverlayX = imageTransition === "slide-left"
+      ? `${imageBaseX}-(main_w+overlay_w)*(1-${imageTransitionProgress})`
+      : imageTransition === "slide-right"
+        ? `${imageBaseX}+(main_w+overlay_w)*(1-${imageTransitionProgress})`
+      : imageBaseX;
+    let imageLayerLabel = imageAssetLabel;
     if (imageRender.animated) {
       const hasImageFill = Boolean(imageRender.fillPath);
       const hasImageBorder = Boolean(imageRender.borderPath);
@@ -1412,7 +1451,6 @@ for (let index = 0; index < scenes.length; index += 1) {
       // reproduce that same behaviour in the final video.
       filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
       filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${imageMaskInputIndex}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      let imageLayerLabel = imageAssetLabel;
       if (hasImageFill && imageFillInputIndex !== null) {
         filter += `[${imageFillInputIndex}:v]format=rgba[${imageFillLabel}];[${imageFillLabel}][${imageAssetLabel}]overlay=0:0:shortest=1[${imageFilledLabel}];`;
         imageLayerLabel = imageFilledLabel;
@@ -1421,11 +1459,15 @@ for (let index = 0; index < scenes.length; index += 1) {
         filter += `[${imageBorderInputIndex}:v]format=rgba[${imageBorderLabel}];[${imageLayerLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}bordered];`;
         imageLayerLabel = `${imageLayerLabel}bordered`;
       }
-      filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
     }
+    if (imageTransitionFilter) {
+      const transitionedLabel = `sceneImageTransition${imageIndex}`;
+      filter += `[${imageLayerLabel}]${imageTransitionFilter}format=rgba[${transitionedLabel}];`;
+      imageLayerLabel = transitionedLabel;
+    }
+    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
     composedLabel = `[sceneImageComposed${imageIndex}]`;
   };
   const appendDecorationLayer = (decorationIndex) => {
@@ -1606,6 +1648,22 @@ for (let index = 0; index < scenes.length; index += 1) {
     } else if (kind === "subtitle") {
       subtitleRenders.forEach((_, index) => appendSubtitleLayer(index));
     }
+  });
+  sceneImageRenders.forEach(({ scene: image }, imageIndex) => {
+    if (normalizeSceneImageTransition(image.transition) !== "fade-black") return;
+    const fadeStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const fadeDuration = sceneImageTransitionDuration(image);
+    if (fadeDuration <= 0 || fadeStart >= duration) return;
+    const halfDuration = Math.max(0.05, fadeDuration / 2);
+    const fadeInputIndex = weatherInputIndex + weatherInputSpecs.length;
+    const fadeLabel = `sceneImageFadeBlack${imageIndex}`;
+    weatherInputSpecs.push(
+      `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+      `fade=t=in:st=${fadeStart}:d=${halfDuration}:alpha=1,` +
+      `fade=t=out:st=${fadeStart + halfDuration}:d=${halfDuration}:alpha=1`,
+    );
+    filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
+    composedLabel = `[${fadeLabel}]`;
   });
   filter += `${composedLabel}copy[composed]`;
   const args = [

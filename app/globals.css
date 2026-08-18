@@ -5245,6 +5245,26 @@ body {
 @keyframes popup-text-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes popup-text-pop { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: scale(1); } }
 
+.scene-image-transition-row { align-items: start; }
+.scene-image-transition-field { min-width: 0; }
+.scene-image-transition-field small,
+.scene-image-transition-duration-field small {
+  display: block;
+  min-height: 26px;
+  margin-top: 5px;
+  color: var(--muted-text, #82786c);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.scene-image-transition-duration-field { min-width: 132px; }
+.scene-image-fade-black {
+  position: absolute;
+  inset: 0;
+  z-index: 100000;
+  background: #000;
+  pointer-events: none;
+}
+
 .popup-design-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
 .popup-video-field small { display: block; margin-top: 5px; color: var(--muted-text, #82786c); font-size: 10px; line-height: 1.35; }
 @media (max-width: 620px) {
