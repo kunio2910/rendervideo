@@ -1256,15 +1256,45 @@ for (let index = 0; index < scenes.length; index += 1) {
       `x='iw*${centerX}*(1-1/zoom)':` +
       `y='ih*${centerY}*(1-1/zoom)':` +
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
-  const popupInputCount = popupRenders.reduce(
-    (total, { rendered: popup }) => total + (popup.video ? (popup.borderPath ? 3 : 2) : 1),
-    0,
-  );
-  const weatherInputIndex = 1
-    + textOverlayRenders.length
-    + decorationRenders.length
-    + popupInputCount
-    + subtitleRenders.length;
+  const layerToken = (kind, id) => `${kind}:${id}`;
+  const layerItemId = (item, index, prefix) => String(item?.id ?? `${prefix}-${index + 1}`);
+  const textLayerIds = textOverlayRenders.map(({ scene: overlay }, index) => layerItemId(overlay, index, "text"));
+  const decorationLayerIds = decorationRenders.map(({ scene: decoration }, index) => layerItemId(decoration, index, "decoration"));
+  const sceneImageLayerIds = sceneImageRenders.map(({ scene: image }, index) => layerItemId(image, index, "image"));
+  const popupLayerIds = popupRenders.map(({ scene: popup }, index) => layerItemId(popup, index, "popup"));
+  const layerCandidates = [
+    ...textLayerIds.map((id) => layerToken("text", id)),
+    ...popupLayerIds.map((id) => layerToken("popup", id)),
+    ...decorationLayerIds.map((id) => layerToken("decoration", id)),
+    ...sceneImageLayerIds.map((id) => layerToken("image", id)),
+    ...(subtitleRenders.length ? [layerToken("subtitle", "subtitle")] : []),
+  ];
+  const knownLayerTokens = new Set(layerCandidates);
+  const storedLayerOrder = Array.isArray(scene.layerOrder)
+    ? scene.layerOrder.filter((token) => typeof token === "string")
+    : [];
+  const orderedLayerTokens = Array.from(new Set([
+    ...storedLayerOrder.filter((token) => knownLayerTokens.has(token)),
+    ...layerCandidates.filter((token) => !storedLayerOrder.includes(token)),
+  ]));
+  const textInputIndices = textOverlayRenders.map((_, index) => 1 + index);
+  const decorationInputStartIndex = 1 + textOverlayRenders.length;
+  const decorationInputIndices = decorationRenders.map((_, index) => decorationInputStartIndex + index);
+  const sceneImageInputIndices = [];
+  let nextInputIndex = decorationInputStartIndex + decorationRenders.length;
+  for (const { rendered: image } of sceneImageRenders) {
+    sceneImageInputIndices.push(nextInputIndex);
+    nextInputIndex += image.animated
+      ? 2 + (image.fillPath ? 1 : 0) + (image.borderPath ? 1 : 0)
+      : 1;
+  }
+  const popupInputIndices = [];
+  for (const { rendered: popup } of popupRenders) {
+    popupInputIndices.push(nextInputIndex);
+    nextInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
+  }
+  const subtitleInputStartIndex = nextInputIndex;
+  const weatherInputIndex = subtitleInputStartIndex + subtitleRenders.length;
   const weatherInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
@@ -1341,15 +1371,17 @@ for (let index = 0; index < scenes.length; index += 1) {
       });
     }
   }
-  textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
+  const appendTextLayer = (textIndex) => {
+    const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
     const outputLabel = `texted${textIndex}`;
-    filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    filter += `${composedLabel}[${textInputIndices[textIndex]}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
-  });
-  let sceneImageInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
-  sceneImageRenders.forEach(({ scene: image, rendered: imageRender }, imageIndex) => {
+  };
+  const appendSceneImageLayer = (imageIndex) => {
+    const { scene: image, rendered: imageRender } = sceneImageRenders[imageIndex];
+    const sceneImageInputIndex = sceneImageInputIndices[imageIndex];
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
     const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
     const imageX = clamp(Number(image.x ?? 50) / 100, 0, 1);
@@ -1390,16 +1422,14 @@ for (let index = 0; index < scenes.length; index += 1) {
         imageLayerLabel = `${imageLayerLabel}bordered`;
       }
       filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += 2 + (hasImageFill ? 1 : 0) + (hasImageBorder ? 1 : 0);
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += 1;
     }
     composedLabel = `[sceneImageComposed${imageIndex}]`;
-  });
-  let popupInputIndex = sceneImageInputIndex;
-  decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
+  };
+  const appendDecorationLayer = (decorationIndex) => {
+    const { scene: decoration } = decorationRenders[decorationIndex];
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
     const decorationEnd = Math.min(duration, decorationStart + decorationDuration);
@@ -1423,7 +1453,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const outputLabel = `decorated${decorationIndex}`;
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
-    const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
+    const decorationInputIndex = decorationInputIndices[decorationIndex];
     const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
     const animatedStickerFit = decoration.animated
       ? `${ffmpegMediaFit(animatedStickerSize, animatedStickerSize, "contain")},`
@@ -1431,8 +1461,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `[${decorationInputIndex}:v]${animatedFilter}${animatedStickerFit}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
-  });
-  popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
+  };
+  const appendPopupLayer = (popupIndex) => {
+    const { scene: popupScene, rendered: popup } = popupRenders[popupIndex];
+    const popupInputIndex = popupInputIndices[popupIndex];
     const popupStart = Math.min(duration, Math.max(0, Number(popupScene.popupStart ?? 0)));
     const popupEnd = Math.min(duration, popupStart + Number(popupScene.popupDuration ?? duration));
     const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
@@ -1517,17 +1549,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[${popLabel}];`;
     filter += `${composedLabel}[${popLabel}]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'${composedOutput};`;
     composedLabel = composedOutput;
-    popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
-  });
-  const subtitleInputIndex = popupInputIndex;
-  subtitleRenders.forEach(({ scene: subtitle, style, rendered: renderedOverlay }, subtitleIndex) => {
+  };
+  const appendSubtitleLayer = (subtitleIndex) => {
+    const { scene: subtitle, style, rendered: renderedOverlay } = subtitleRenders[subtitleIndex];
     const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
     const subtitleEnd = Math.min(
       duration,
       Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
     );
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
-    const inputIndex = subtitleInputIndex + subtitleIndex;
+    const inputIndex = subtitleInputStartIndex + subtitleIndex;
     const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
     const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
     const animation = ["none", "fade", "pop", "slide-up", "typewriter"].includes(String(style?.animation))
@@ -1555,8 +1586,27 @@ for (let index = 0; index < scenes.length; index += 1) {
       : `main_w*${subtitleX}-overlay_w/2`;
     filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
+  };
+  orderedLayerTokens.forEach((token) => {
+    const separatorIndex = token.indexOf(":");
+    const kind = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
+    const id = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : "";
+    if (kind === "text") {
+      const index = textLayerIds.indexOf(id);
+      if (index >= 0) appendTextLayer(index);
+    } else if (kind === "image") {
+      const index = sceneImageLayerIds.indexOf(id);
+      if (index >= 0) appendSceneImageLayer(index);
+    } else if (kind === "decoration") {
+      const index = decorationLayerIds.indexOf(id);
+      if (index >= 0) appendDecorationLayer(index);
+    } else if (kind === "popup") {
+      const index = popupLayerIds.indexOf(id);
+      if (index >= 0) appendPopupLayer(index);
+    } else if (kind === "subtitle") {
+      subtitleRenders.forEach((_, index) => appendSubtitleLayer(index));
+    }
   });
-  popupInputIndex += subtitleRenders.length;
   filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
@@ -1603,7 +1653,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   weatherInputSpecs.forEach((source) => {
     args.push("-f", "lavfi", "-i", source);
   });
-  const audioInputIndex = popupInputIndex + weatherInputSpecs.length;
+  const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
   if (voice) {
     args.push("-i", voice);
   } else {

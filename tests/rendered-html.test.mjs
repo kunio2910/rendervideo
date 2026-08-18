@@ -239,6 +239,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-ruler-style-popover/);
   assert.match(css, /preview-ruler-grid/);
   assert.match(css, /preview-alignment-guides/);
+  assert.match(css, /preview-stage-layout/);
+  assert.match(css, /preview-layer-panel/);
+  assert.match(css, /preview-layer-item/);
+  assert.match(css, /pointer-events: none !important/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
   assert.match(css, /preview-fullscreen-panel \.phone-preview\.preview-portrait[\s\S]{0,180}width: min\(100%, 360px\) !important/);
@@ -349,7 +353,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
   assert.match(renderer, /const imageFit = image\.transparent === true \? "contain" : "cover"/);
   assert.match(renderer, /animatedStickerFit/);
-  assert.match(renderer, /sceneImageInputIndex \+= 2 \+ \(hasImageFill \? 1 : 0\) \+ \(hasImageBorder \? 1 : 0\)/);
+  assert.match(page, /layerOrder\?: string\[\]/);
+  assert.match(page, /previewLayerItems/);
+  assert.match(page, /reorderPreviewLayers/);
+  assert.match(renderer, /orderedLayerTokens/);
+  assert.match(renderer, /layerToken = \(kind, id\)/);
+  assert.match(renderer, /appendSceneImageLayer/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
   assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);

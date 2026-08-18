@@ -5497,6 +5497,124 @@ body {
   text-align: left;
   overflow: visible;
 }
+.preview-stage-layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  width: min(100%, 620px);
+  min-width: 0;
+}
+.preview-stage {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
+}
+.preview-layer-panel {
+  display: flex;
+  flex: 0 0 156px;
+  flex-direction: column;
+  width: 156px;
+  max-height: min(70vh, 660px);
+  min-height: 150px;
+  overflow: hidden;
+  border: 1px solid #eadfce;
+  border-radius: 9px;
+  background: #fffdf9;
+  box-shadow: 0 5px 14px rgba(111, 77, 35, .08);
+}
+.preview-layer-panel-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 9px 6px;
+  border-bottom: 1px solid #eadfce;
+}
+.preview-layer-panel-heading strong {
+  color: #4f3825;
+  font: 800 10px var(--font-mono);
+  text-transform: uppercase;
+}
+.preview-layer-panel-heading small,
+.preview-layer-panel-hint {
+  color: #9b8978;
+  font-size: 8px;
+  line-height: 1.3;
+}
+.preview-layer-list {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 5px;
+  scrollbar-color: #c9a77b transparent;
+  scrollbar-width: thin;
+}
+.preview-layer-item {
+  display: grid;
+  grid-template-columns: 14px 25px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #5a4634;
+  cursor: grab;
+  text-align: left;
+}
+.preview-layer-item:active { cursor: grabbing; }
+.preview-layer-item:hover,
+.preview-layer-item.active { border-color: #e6c18f; background: #fff5e5; }
+.preview-layer-item.is-drag-over { border-color: #2389ff; box-shadow: 0 0 0 2px rgba(35, 137, 255, .14); }
+.preview-layer-drag-handle { color: #b19a80; font-size: 15px; letter-spacing: -3px; user-select: none; }
+.preview-layer-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border: 1px solid #e0d1bd;
+  border-radius: 5px;
+  background: #fffaf1;
+  color: #a86727;
+  font: 800 8px var(--font-mono);
+}
+.preview-layer-label { min-width: 0; }
+.preview-layer-label strong,
+.preview-layer-label small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-layer-label strong { color: inherit; font-size: 9px; }
+.preview-layer-label small { margin-top: 2px; color: #a18e7b; font: 700 7px var(--font-mono); text-transform: uppercase; }
+.preview-layer-empty { padding: 10px 6px; color: #9b8978; font-size: 9px; line-height: 1.35; }
+.preview-layer-panel-hint { flex: 0 0 auto; padding: 5px 8px 7px; border-top: 1px dashed #eadfce; }
+.studio-shell[data-theme="dark"] .preview-layer-panel { border-color: #304052; background: #152130; box-shadow: 0 5px 14px rgba(0, 0, 0, .2); }
+.studio-shell[data-theme="dark"] .preview-layer-panel-heading { border-color: #304052; }
+.studio-shell[data-theme="dark"] .preview-layer-panel-heading strong { color: #e4d3b7; }
+.studio-shell[data-theme="dark"] .preview-layer-panel-heading small,
+.studio-shell[data-theme="dark"] .preview-layer-panel-hint,
+.studio-shell[data-theme="dark"] .preview-layer-label small,
+.studio-shell[data-theme="dark"] .preview-layer-empty { color: #9eafc1; }
+.studio-shell[data-theme="dark"] .preview-layer-item { color: #e4edf5; }
+.studio-shell[data-theme="dark"] .preview-layer-item:hover,
+.studio-shell[data-theme="dark"] .preview-layer-item.active { border-color: #6e512e; background: #2d271e; }
+.studio-shell[data-theme="dark"] .preview-layer-icon { border-color: #42566d; background: #1a2635; color: #e4bc79; }
+.studio-shell[data-theme="dark"] .preview-layer-panel-hint { border-color: #304052; }
+@media (max-width: 760px) {
+  .preview-stage-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+  .preview-layer-panel {
+    width: min(100%, 360px);
+    flex-basis: auto;
+    max-height: 240px;
+  }
+}
 .preview-panel-kicker {
   display: block;
   margin: 0 0 3px 2px;
@@ -6949,6 +7067,20 @@ body {
   inset: 0;
   z-index: 30;
   pointer-events: none;
+}
+
+/* Alignment guides are visual-only and must never capture drag gestures. */
+.preview-alignment-guides,
+.preview-alignment-guides * {
+  pointer-events: none !important;
+}
+
+.scene-image-overlay,
+.map-text-overlay,
+.map-decoration,
+.preview-card,
+.subtitle-layout-guide {
+  pointer-events: auto;
 }
 
 .alignment-guide {

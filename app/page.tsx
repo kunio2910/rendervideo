@@ -122,6 +122,16 @@ type AlignmentGuides = {
 
 type SnapMode = "center" | "box";
 type RulerStyle = "center" | "grid" | "all";
+type PreviewLayerKind = "popup" | "text" | "image" | "decoration" | "subtitle";
+type PreviewLayerItem = {
+  token: string;
+  kind: PreviewLayerKind;
+  id: string;
+  label: string;
+  icon: string;
+};
+
+const previewLayerToken = (kind: PreviewLayerKind, id: string) => `${kind}:${id}`;
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
@@ -180,6 +190,7 @@ type Scene = {
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
   sceneImages: SceneImage[];
+  layerOrder?: string[];
   subtitleEnabled: boolean;
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
@@ -392,6 +403,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   textOverlays: [],
   mapDecorations: [],
   sceneImages: [],
+  layerOrder: [],
   subtitleEnabled: true,
   subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
@@ -2287,6 +2299,7 @@ function Home() {
     id: string;
     overId: string;
   }>({ type: "", id: "", overId: "" });
+  const [previewLayerDrag, setPreviewLayerDrag] = useState({ draggedId: "", overId: "" });
   const [toast, setToast] = useState("");
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
@@ -2685,6 +2698,71 @@ function Home() {
           && sceneLocalTime < end;
       })
     : null;
+  const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
+    const candidates: PreviewLayerItem[] = [
+      ...sceneTextOverlays
+        .filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false) && safeTrim(overlay.text))
+        .map((overlay, index) => ({
+          token: previewLayerToken("text", overlay.id),
+          kind: "text" as const,
+          id: overlay.id,
+          label: safeTrim(overlay.name) || safeTrim(overlay.text).slice(0, 32) || `Chữ ${index + 1}`,
+          icon: "T",
+        })),
+      ...previewPopupItems.map((popup, index) => ({
+        token: previewLayerToken("popup", popup.id),
+        kind: "popup" as const,
+        id: popup.id,
+        label: safeTrim(popup.title) || `Popup ${index + 1}`,
+        icon: "P",
+      })),
+      ...previewDecorationItems.map((decoration, index) => ({
+        token: previewLayerToken("decoration", decoration.id),
+        kind: "decoration" as const,
+        id: decoration.id,
+        label: safeTrim(decoration.name) || `${decoration.type === "text-3d" ? "Chữ 3D" : decoration.type === "animated-sticker" ? "GIF / WebM / APNG" : decoration.type === "sticker" ? "Sticker" : decoration.type === "icon" ? "Icon" : "Hiệu ứng"} ${index + 1}`,
+        icon: "✦",
+      })),
+      ...previewSceneImageItems.map((image, index) => ({
+        token: previewLayerToken("image", image.id),
+        kind: "image" as const,
+        id: image.id,
+        label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
+        icon: "IMG",
+      })),
+      ...(activeSubtitle ? [{
+        token: previewLayerToken("subtitle", "subtitle"),
+        kind: "subtitle" as const,
+        id: "subtitle",
+        label: "Phụ đề",
+        icon: "CC",
+      }] : []),
+    ];
+    const candidateTokens = new Set(candidates.map((item) => item.token));
+    const storedOrder = Array.isArray(scene.layerOrder)
+      ? scene.layerOrder.filter((token): token is string => typeof token === "string")
+      : [];
+    const orderedTokens = Array.from(new Set([
+      ...storedOrder.filter((token) => candidateTokens.has(token)),
+      ...candidates.map((item) => item.token).filter((token) => !storedOrder.includes(token)),
+    ]));
+    const itemByToken = new Map(candidates.map((item) => [item.token, item]));
+    return orderedTokens
+      .map((token) => itemByToken.get(token))
+      .filter((item): item is PreviewLayerItem => Boolean(item));
+  }, [
+    activeSubtitle,
+    playing,
+    previewDecorationItems,
+    previewPopupItems,
+    previewSceneImageItems,
+    scene.layerOrder,
+    sceneTextOverlays,
+  ]);
+  const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
+    const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
+    return 10 + (index < 0 ? previewLayerItems.length : index);
+  };
   const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
   const subtitleAnimationProgress = activeSubtitle
     ? Math.min(
@@ -3406,6 +3484,55 @@ function Home() {
     setSelectedDecorationId(kind === "decoration" ? layerId : "");
     focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
   };
+
+  const selectPreviewLayerItem = (item: PreviewLayerItem) => {
+    if (item.kind === "subtitle") {
+      setEditorSections((sections) => ({ ...sections, text: true }));
+      return;
+    }
+    selectPreviewLayer(item.kind, item.id);
+  };
+
+  const reorderPreviewLayers = (draggedToken: string, targetToken: string) => {
+    if (!scene || !draggedToken || !targetToken || draggedToken === targetToken) return;
+    const currentTokens = previewLayerItems.map((item) => item.token);
+    const nextVisibleTokens = reorderById(
+      currentTokens.map((token) => ({ id: token })),
+      draggedToken,
+      targetToken,
+    ).map((item) => item.id);
+    const storedTokens = Array.isArray(scene.layerOrder) ? scene.layerOrder : [];
+    const visibleTokenSet = new Set(currentTokens);
+    const nextOrder = [
+      ...nextVisibleTokens,
+      ...storedTokens.filter((token) => !visibleTokenSet.has(token)),
+    ];
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, layerOrder: nextOrder }
+      : item));
+  };
+
+  const startPreviewLayerDrag = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", token);
+    setPreviewLayerDrag({ draggedId: token, overId: "" });
+  };
+
+  const updatePreviewLayerDragOver = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    if (!previewLayerDrag.draggedId || previewLayerDrag.draggedId === token) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setPreviewLayerDrag((current) => ({ ...current, overId: token }));
+  };
+
+  const finishPreviewLayerDrop = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    event.preventDefault();
+    reorderPreviewLayers(previewLayerDrag.draggedId, token);
+    setPreviewLayerDrag({ draggedId: "", overId: "" });
+  };
+
+  const clearPreviewLayerDrag = () => setPreviewLayerDrag({ draggedId: "", overId: "" });
 
   const togglePlayback = () => {
     if (playing) {
@@ -7332,6 +7459,8 @@ function Home() {
               <i style={{ left: `${sceneProgress * 100}%` }} />
             </div>
           </div>
+          <div className="preview-stage-layout">
+            <div className="preview-stage">
           <div
             className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
             style={{ transform: `scale(${previewZoom / 100})` }}
@@ -7467,6 +7596,7 @@ function Home() {
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
+                  zIndex: previewLayerZIndex("text", overlay.id),
                   ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
@@ -7513,6 +7643,7 @@ function Home() {
                   style={{
                     left: `${image.x}%`,
                     top: `${image.y}%`,
+                    zIndex: previewLayerZIndex("image", image.id),
                     width: `${width}%`,
                     height: `${height}%`,
                     opacity: image.opacity / 100,
@@ -7564,6 +7695,7 @@ function Home() {
                   style={{
                     left: `${decoration.x}%`,
                     top: `${decoration.y}%`,
+                    zIndex: previewLayerZIndex("decoration", decoration.id),
                     opacity: decoration.opacity / 100,
                     color: colorWithAlpha(decoration.color, decoration.opacity / 100, "#ffd166"),
                     fontSize: `${decoration.size}px`,
@@ -7591,6 +7723,7 @@ function Home() {
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
+                  zIndex: previewLayerZIndex("subtitle", "subtitle"),
                   right: "auto",
                   width: `${subtitleStyle.boxWidth}%`,
                   ...(Number.isFinite(Number(subtitleStyle.boxHeight)) ? { height: `${subtitleStyle.boxHeight}%` } : {}),
@@ -7621,6 +7754,7 @@ function Home() {
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y}%`,
+                  zIndex: previewLayerZIndex("subtitle", "subtitle"),
                   width: `${subtitleStyle.boxWidth}%`,
                   height: `${subtitleGuideHeight}%`,
                 }}
@@ -7698,6 +7832,7 @@ function Home() {
                     height: `min(${popupGeometry.height || popup.height || 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
+                    zIndex: previewLayerZIndex("popup", popup.id),
                     right: "auto",
                     bottom: "auto",
                     ["--popup-transition-duration" as string]: `${popupTransition}s`,
@@ -7803,6 +7938,48 @@ function Home() {
                 )}
               </div>
             )}
+          </div>
+            </div>
+            <aside className="preview-layer-panel" aria-label="Các lớp trong màn hình xem trước">
+              <div className="preview-layer-panel-heading">
+                <strong>Layer</strong>
+                <small>Trên cùng ở phía dưới</small>
+              </div>
+              <div className="preview-layer-list">
+                {previewLayerItems.length ? previewLayerItems.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.token}
+                    draggable
+                    className={`preview-layer-item ${
+                      (item.kind === "popup" && item.id === activePopup?.id)
+                      || (item.kind === "text" && item.id === activeTextOverlay?.id)
+                      || (item.kind === "image" && item.id === activeSceneImage?.id)
+                      || (item.kind === "decoration" && item.id === activeDecoration?.id)
+                        ? "active"
+                        : ""
+                    } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
+                    title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
+                    aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
+                    onClick={() => selectPreviewLayerItem(item)}
+                    onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
+                    onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
+                    onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
+                    onDragEnd={clearPreviewLayerDrag}
+                  >
+                    <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
+                    <span className="preview-layer-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="preview-layer-label">
+                      <strong>{item.label}</strong>
+                      <small>{index === previewLayerItems.length - 1 ? "Trên cùng" : item.kind}</small>
+                    </span>
+                  </button>
+                )) : (
+                  <span className="preview-layer-empty">Chưa có layer trên màn hình.</span>
+                )}
+              </div>
+              <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
+            </aside>
           </div>
           <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
             <button
