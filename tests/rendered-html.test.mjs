@@ -115,7 +115,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /normalizeRulerStyle/);
   assert.match(page, /toggleRuler/);
   assert.match(page, /preview-ruler-style-popover/);
-  assert.match(page, /preview-ruler-open/);
+  assert.match(page, /rulerPopoverPosition/);
+  assert.match(page, /rulerPopoverRef/);
   assert.match(page, /REVIEW_ZOOM_MAX = 200/);
   assert.match(page, /readReviewZoomPreference/);
   assert.match(page, /snapDragPosition/);
@@ -283,7 +284,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
-  assert.match(css, /\.preview-ruler-style-popover \{[\s\S]{0,180}bottom: calc\(100% \+ 8px\);/);
+  assert.match(css, /\.preview-ruler-style-popover \{[\s\S]{0,180}position: fixed;/);
   assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);

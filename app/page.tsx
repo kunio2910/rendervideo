@@ -2374,6 +2374,9 @@ function Home() {
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineZoomRef = useRef(100);
   const reviewZoomRef = useRef(readReviewZoomPreference());
+  const rulerToggleRef = useRef<HTMLButtonElement | null>(null);
+  const rulerPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
@@ -3019,6 +3022,31 @@ function Home() {
       // localStorage may be unavailable in private browsing or restricted contexts.
     }
   }, [reviewZoom]);
+
+  useEffect(() => {
+    if (!rulerEnabled) return;
+
+    const repositionRulerPopover = () => {
+      const toggle = rulerToggleRef.current;
+      if (!toggle) return;
+      const toggleBounds = toggle.getBoundingClientRect();
+      const popover = rulerPopoverRef.current;
+      const popoverWidth = popover?.offsetWidth ?? 168;
+      const popoverHeight = popover?.offsetHeight ?? 72;
+      const maxLeft = Math.max(8, window.innerWidth - popoverWidth - 8);
+      const left = Math.min(maxLeft, Math.max(8, toggleBounds.right - popoverWidth));
+      const top = Math.max(8, toggleBounds.top - popoverHeight - 8);
+      setRulerPopoverPosition({ top, left });
+    };
+
+    repositionRulerPopover();
+    window.addEventListener("resize", repositionRulerPopover);
+    window.addEventListener("scroll", repositionRulerPopover, true);
+    return () => {
+      window.removeEventListener("resize", repositionRulerPopover);
+      window.removeEventListener("scroll", repositionRulerPopover, true);
+    };
+  }, [previewFullscreen, rulerEnabled]);
 
   useEffect(() => {
     if (!previewFullscreen && !reviewOpen) return;
@@ -7139,7 +7167,7 @@ function Home() {
           </div>
         </aside>
 
-        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""} ${rulerEnabled ? "preview-ruler-open" : ""}`}>
+        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
           <div className="preview-control-panel">
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
@@ -7226,6 +7254,7 @@ function Home() {
               <div className="preview-ruler-control">
                 <button
                   type="button"
+                  ref={rulerToggleRef}
                   className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
                   aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
                   aria-pressed={rulerEnabled}
@@ -7239,7 +7268,13 @@ function Home() {
                   </svg>
                 </button>
                 {rulerEnabled && (
-                  <div className="preview-ruler-style-popover" role="group" aria-label="Kiểu thước căn chỉnh">
+                  <div
+                    ref={rulerPopoverRef}
+                    className="preview-ruler-style-popover"
+                    role="group"
+                    aria-label="Kiểu thước căn chỉnh"
+                    style={{ top: rulerPopoverPosition.top, left: rulerPopoverPosition.left }}
+                  >
                     <span>Kiểu thước</span>
                     <button
                       type="button"
