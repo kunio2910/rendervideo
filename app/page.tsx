@@ -2259,7 +2259,6 @@ function Home() {
   const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
   const [draggingSubtitleResize, setDraggingSubtitleResize] = useState(false);
-  const [subtitlePreviewVisible, setSubtitlePreviewVisible] = useState(false);
   const [subtitleGuideVisible, setSubtitleGuideVisible] = useState(true);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
@@ -3299,7 +3298,6 @@ function Home() {
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
-    setSubtitlePreviewVisible(true);
     const resumeAt = playTime >= sceneTimelineDuration ? 0 : playTime;
     const activeScene =
       visibleScenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
@@ -5646,8 +5644,8 @@ function Home() {
   };
 
   const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (playing || !scene || !subtitlePreviewVisible) return;
-    if ((event.target as HTMLElement).closest(".subtitle-resize-handle, .subtitle-guide-toggle")) return;
+    if (playing || !scene || !subtitleGuideVisible) return;
+    if ((event.target as HTMLElement).closest(".subtitle-resize-handle")) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -5703,7 +5701,7 @@ function Home() {
   };
 
   const startSubtitleResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (playing || !scene || !subtitlePreviewVisible) return;
+    if (playing || !scene || !subtitleGuideVisible) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -6906,6 +6904,20 @@ function Home() {
                   )}
                 </svg>
               </button>
+              <button
+                type="button"
+                className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
+                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-pressed={subtitleGuideVisible}
+                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                onClick={() => setSubtitleGuideVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                </svg>
+              </button>
               <div className="preview-ruler-control">
                 <button
                   type="button"
@@ -7263,9 +7275,9 @@ function Home() {
                 {activeSubtitle.text}
               </div>
             )}
-            {subtitlePreviewVisible && !playing && (
+            {subtitleGuideVisible && !playing && (
               <div
-                className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""} ${subtitleGuideVisible ? "is-labeled" : "is-label-hidden"}`}
+                className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""}`}
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y}%`,
@@ -7278,24 +7290,7 @@ function Home() {
                 title="Kéo để di chuyển vùng phụ đề"
                 onPointerDown={startSubtitleDrag}
               >
-                {subtitleGuideVisible && <span>{subtitleGuideMetrics}</span>}
-                <button
-                  type="button"
-                  className="subtitle-guide-toggle"
-                  aria-label={subtitleGuideVisible ? "Ẩn text mẫu phụ đề" : "Hiện text mẫu phụ đề"}
-                  title={subtitleGuideVisible ? "Ẩn text mẫu phụ đề" : "Hiện text mẫu phụ đề"}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSubtitleGuideVisible((visible) => !visible);
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
-                    <circle cx="12" cy="12" r="2.2" />
-                    {!subtitleGuideVisible && <path d="m4 4 16 16" />}
-                  </svg>
-                </button>
+                <span>{subtitleGuideMetrics}</span>
                 <button
                   type="button"
                   className="subtitle-resize-handle"
