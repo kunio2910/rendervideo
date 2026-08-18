@@ -41,12 +41,15 @@ type TextOverlay = {
   borderFill: string;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
 };
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
 type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
   boxWidth: number;
+  boxHeight?: number;
   animation: SubtitleAnimation;
   animationDuration: number;
 };
@@ -105,6 +108,7 @@ type SceneImage = {
   opacity: number;
   borderWidth: number;
   borderColor: string;
+  borderFill: string;
   start: number;
   duration: number;
   visible: boolean;
@@ -297,6 +301,10 @@ type PopupConfig = {
 
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
+type RenderProfile = "quality" | "fast";
+
+const normalizeRenderProfile = (value: unknown): RenderProfile =>
+  value === "fast" ? "fast" : "quality";
 
 const normalizeAspectRatio = (value: unknown): AspectRatio =>
   value === "16:9" ? "16:9" : "9:16";
@@ -615,6 +623,7 @@ type StoredProject = {
   backgroundMusic?: string;
   backgroundMusicVolume?: number;
   renderFps?: 24 | 30 | 60;
+  renderProfile?: RenderProfile;
   editorSections?: EditorSectionState;
   scenes: Scene[];
 };
@@ -717,6 +726,11 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const normalizeSceneImageBorderFill = (value: unknown, fallback = "transparent") => {
+  const color = String(value ?? "").trim();
+  return color.toLowerCase() === "transparent" ? "transparent" : normalizeHexColor(color, fallback);
+};
+
 const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> = [
   { value: "rectangle", label: "Chữ nhật" },
   { value: "square", label: "Vuông" },
@@ -760,6 +774,7 @@ const defaultSceneImage = (
   opacity: 100,
   borderWidth: 0,
   borderColor: "#ffffff",
+  borderFill: "transparent",
   start: 0,
   duration: 5,
   visible: true,
@@ -799,6 +814,7 @@ const normalizeSceneImage = (
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
+    borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
     start: Math.max(0, positiveNumber(raw.start, base.start)),
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
     visible: raw.visible !== false,
@@ -845,6 +861,7 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
   const style = String(raw.style ?? base.style);
   const font = String(raw.font ?? base.font);
   const animation = String(raw.animation ?? base.animation);
+  const rawBoxHeight = Number(raw.boxHeight);
   return {
     ...base,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size, base.size, 8))),
@@ -865,6 +882,9 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
     x: clampPercent(raw.x, base.x),
     y: clampPercent(raw.y, base.y),
     boxWidth: Math.min(100, Math.max(40, positiveNumber(raw.boxWidth, base.boxWidth, 40))),
+    ...(Number.isFinite(rawBoxHeight)
+      ? { boxHeight: Math.min(40, Math.max(3, rawBoxHeight)) }
+      : {}),
     animation: ["none", "fade", "pop", "slide-up", "typewriter"].includes(animation)
       ? animation as SubtitleAnimation
       : base.animation,
@@ -1027,6 +1047,12 @@ const normalizeTextOverlay = (
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
+    ...(Number.isFinite(Number(raw.width ?? fallback.width))
+      ? { width: clampPercent(raw.width ?? fallback.width, 60) }
+      : {}),
+    ...(Number.isFinite(Number(raw.height ?? fallback.height))
+      ? { height: clampPercent(raw.height ?? fallback.height, 10) }
+      : {}),
   };
 };
 
@@ -1666,8 +1692,8 @@ function SettingsResourcePanel() {
               <b>ms</b>
             </div>
             <small>Giá trị càng lớn thì chuyển động càng chậm.</small>
-          </label>
-          <label className="field">
+                 </label>
+                 <label className="field">
             <span>Kích thước frame</span>
             <div className="number-with-unit">
               <input
@@ -2137,6 +2163,65 @@ function SettingsWorkspace({
   );
 }
 
+type ReviewEditableProps = {
+  value: string;
+  label: string;
+  onCommit: (value: string) => void;
+  numeric?: boolean;
+  multiline?: boolean;
+  className?: string;
+};
+
+function ReviewEditable({ value, label, onCommit, numeric = false, multiline = false, className = "" }: ReviewEditableProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const commit = () => {
+    const nextValue = draft.trim();
+    if (nextValue && nextValue !== value) onCommit(nextValue);
+    setEditing(false);
+  };
+
+  if (editing) {
+    const editorProps = {
+      autoFocus: true,
+      className: `review-edit-input ${multiline ? "review-edit-textarea" : ""}`,
+      value: draft,
+      "aria-label": label,
+      inputMode: numeric ? "decimal" as const : undefined,
+      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
+      onBlur: commit,
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        if (event.key === "Enter" && (!multiline || !event.shiftKey)) {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(value);
+          setEditing(false);
+        }
+      },
+    };
+    return multiline ? <textarea {...editorProps} rows={2} /> : <input {...editorProps} type={numeric ? "number" : "text"} />;
+  }
+
+  return (
+    <button
+      type="button"
+      className={`review-edit-value ${className}`}
+      title="Double-click để chỉnh sửa"
+      aria-label={`${label}: ${value}`}
+      onDoubleClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      {value || "—"}
+    </button>
+  );
+}
+
 function Home() {
   const [scenes, setScenes] = useState(initialScenes);
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
@@ -2160,6 +2245,7 @@ function Home() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [renderResolution, setRenderResolution] = useState<RenderResolution>("1080x1920");
   const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
+  const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -2231,10 +2317,14 @@ function Home() {
   const [draggingSceneImage, setDraggingSceneImage] = useState(false);
   const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
+  const [draggingSubtitleResize, setDraggingSubtitleResize] = useState(false);
+  const [subtitleGuideVisible, setSubtitleGuideVisible] = useState(true);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewZoom, setReviewZoom] = useState(50);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -2264,6 +2354,7 @@ function Home() {
   const timelinePopupMoved = useRef(false);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineZoomRef = useRef(100);
+  const reviewZoomRef = useRef(50);
   const localRenderJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
@@ -2595,6 +2686,10 @@ function Home() {
   const subtitleAnimationClipPath = subtitleStyle.animation === "typewriter"
     ? `inset(0 ${Math.max(0, 100 - subtitleAnimationProgress * 100)}% 0 0)`
     : "none";
+  const subtitleGuideHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+    ? Number(subtitleStyle.boxHeight)
+    : Math.min(16, Math.max(6, subtitleStyle.size / 3));
+  const subtitleGuideMetrics = `Phụ đề mẫu · X ${Number(subtitleStyle.x.toFixed(1))}% · Y ${Number(subtitleStyle.y.toFixed(1))}% · Rộng ${Number(subtitleStyle.boxWidth.toFixed(1))}% · Cao ${Number(subtitleGuideHeight.toFixed(1))}%`;
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -2662,6 +2757,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2682,6 +2778,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2730,6 +2827,7 @@ function Home() {
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
     setRenderFps(project.renderFps ?? 30);
+    setRenderProfile(normalizeRenderProfile(project.renderProfile));
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
@@ -2788,6 +2886,7 @@ function Home() {
           project.renderResolution,
           normalizeAspectRatio(project.aspectRatio),
         ),
+        renderProfile: normalizeRenderProfile(project.renderProfile),
         editorSections: normalizeEditorSections(project.editorSections),
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
@@ -2814,6 +2913,7 @@ function Home() {
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
         renderFps: data.renderFps ?? 30,
+        renderProfile: normalizeRenderProfile(data.renderProfile),
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -2894,9 +2994,11 @@ function Home() {
   }, [theme]);
 
   useEffect(() => {
-    if (!previewFullscreen) return;
+    if (!previewFullscreen && !reviewOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreviewFullscreen(false);
+      if (event.key !== "Escape") return;
+      if (reviewOpen) setReviewOpen(false);
+      else setPreviewFullscreen(false);
     };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -2905,7 +3007,7 @@ function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [previewFullscreen]);
+  }, [previewFullscreen, reviewOpen]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -3462,6 +3564,111 @@ function Home() {
       : item));
   };
 
+  const updateReviewSceneField = <K extends keyof Scene>(
+    sceneId: string,
+    key: K,
+    value: Scene[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? { ...item, [key]: value }
+      : item));
+  };
+
+  const updateReviewSceneDuration = (sceneId: string, value: string) => {
+    if (!hydrated) return;
+    const nextDuration = Math.max(0.1, Number(value.replace(",", ".")) || 0.1);
+    const nextTotal = visibleScenes.reduce(
+      (total, item) => total + (item.id === sceneId ? nextDuration : Math.max(0.1, item.end - item.start)),
+      0,
+    );
+    let cursor = 0;
+    setScenes((items) => items.map((item) => {
+      if (item.sceneVisible === false) return item;
+      const duration = item.id === sceneId
+        ? nextDuration
+        : Math.max(0.1, item.end - item.start);
+      const next = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + duration).toFixed(2)),
+      };
+      cursor += duration;
+      return next;
+    }));
+    setProjectDuration((current) => Math.max(current, Number(nextTotal.toFixed(2))));
+    setPlayTime((current) => Math.min(current, Number(nextTotal.toFixed(2))));
+  };
+
+  const updateReviewSceneImageValue = <K extends keyof SceneImage>(
+    sceneId: string,
+    imageId: string,
+    key: K,
+    value: SceneImage[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, [key]: value }
+            : image),
+        }
+      : item));
+  };
+
+  const updateReviewPopupValue = <K extends keyof PopupConfig>(
+    sceneId: string,
+    popupId: string,
+    key: K,
+    value: PopupConfig[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const nextPopup = { ...popups[popupIndex], [key]: value } as PopupConfig;
+      const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updateReviewPopupHeight = (sceneId: string, popupId: string, value: string) => {
+    if (!hydrated) return;
+    const nextHeight = Math.min(440, Math.max(170, Number(value.replace(",", ".")) || 170));
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const popup = popups[popupIndex];
+      const defaults = popupSectionDefaults(popup.layout, nextHeight);
+      const nextPopup = {
+        ...popup,
+        height: nextHeight,
+        imageHeight: defaults.imageHeight,
+        contentHeight: defaults.contentHeight,
+      };
+      const nextPopups = popups.map((entry, index) => index === popupIndex ? nextPopup : entry);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const reviewNumber = (value: string, fallback: number) => {
+    const numeric = Number(value.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric : fallback;
+  };
+
   const updatePopupValues = (
     values: Partial<PopupConfig>,
     popupId = selectedPopupId,
@@ -3506,6 +3713,18 @@ function Home() {
       return;
     }
     updatePopupValues({ [key]: value } as Partial<PopupConfig>, popupId);
+  };
+
+  const updatePopupHeight = (value: number, popupId = selectedPopupId) => {
+    const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
+    if (!popup) return;
+    const height = Math.min(440, Math.max(170, Number(value) || 170));
+    const defaults = popupSectionDefaults(popup.layout, height);
+    updatePopupValues({
+      height,
+      imageHeight: defaults.imageHeight,
+      contentHeight: defaults.contentHeight,
+    }, popupId);
   };
 
   const updatePopupMedia = (value: string, popupId = selectedPopupId) => {
@@ -4018,6 +4237,7 @@ function Home() {
       imageEnabled: true,
       narrationEnabled: true,
       renderFps: 30,
+      renderProfile: "quality",
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -5148,6 +5368,32 @@ function Home() {
 
   const togglePreviewFullscreen = () => setPreviewFullscreen((current) => !current);
 
+  const adjustReviewZoom = (delta: number, viewport?: HTMLDivElement | null) => {
+    const oldZoom = reviewZoomRef.current;
+    const nextZoom = Math.min(150, Math.max(35, oldZoom + delta));
+    if (nextZoom === oldZoom) return;
+    reviewZoomRef.current = nextZoom;
+    if (viewport) {
+      const bounds = viewport.getBoundingClientRect();
+      const pointerOffsetX = bounds.width / 2;
+      const pointerOffsetY = bounds.height / 2;
+      const contentPositionX = viewport.scrollLeft + pointerOffsetX;
+      const contentPositionY = viewport.scrollTop + pointerOffsetY;
+      const scaleRatio = nextZoom / oldZoom;
+      window.requestAnimationFrame(() => {
+        viewport.scrollLeft = Math.max(0, contentPositionX * scaleRatio - pointerOffsetX);
+        viewport.scrollTop = Math.max(0, contentPositionY * scaleRatio - pointerOffsetY);
+      });
+    }
+    setReviewZoom(nextZoom);
+  };
+
+  const handleReviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
+    event.preventDefault();
+    adjustReviewZoom(event.deltaY < 0 ? 10 : -10, event.currentTarget);
+  };
+
   const copySelectedScene = () => {
     if (!scene) return;
     setClipboardScene({
@@ -5481,6 +5727,7 @@ function Home() {
     event: React.PointerEvent<HTMLDivElement>,
     overlayId = activeTextOverlay?.id,
   ) => {
+    if ((event.target as HTMLElement).closest(".map-text-resize-handle")) return;
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const draggedOverlay = sceneTextOverlays[overlayIndex];
     if (!draggedOverlay) return;
@@ -5537,8 +5784,63 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTextOverlayResize = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    overlayId = activeTextOverlay?.id,
+  ) => {
+    if (playing || !scene || !overlayId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
+    const resizedOverlay = sceneTextOverlays[overlayIndex];
+    if (!resizedOverlay) return;
+    selectPreviewLayer("text", resizedOverlay.id);
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".map-text-overlay");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = Number.isFinite(Number(resizedOverlay.width))
+      ? Number(resizedOverlay.width)
+      : (targetBounds.width / bounds.width) * 100;
+    const startHeight = Number.isFinite(Number(resizedOverlay.height))
+      ? Number(resizedOverlay.height)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingTextOverlay(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== scene.id) return item;
+        const overlays = item.textOverlays ?? [];
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, width: Number(width.toFixed(1)), height: Number(height.toFixed(1)) }
+          : overlay);
+        const nextOverlay = nextOverlays[overlayIndex];
+        return {
+          ...item,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 && nextOverlay ? textOverlaySceneFields(nextOverlay) : {}),
+        };
+      }));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (playing || !scene || !activeSubtitle) return;
+    if (playing || !scene || !subtitleGuideVisible) return;
+    if ((event.target as HTMLElement).closest(".subtitle-resize-handle")) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -5586,6 +5888,40 @@ function Home() {
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
       setDraggingSubtitle(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startSubtitleResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (playing || !scene || !subtitleGuideVisible) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".subtitle-layout-guide");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = subtitleStyle.boxWidth;
+    const startHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+      ? Number(subtitleStyle.boxHeight)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingSubtitleResize(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(40, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      updateSubtitleStyle("boxWidth", Number(width.toFixed(1)));
+      updateSubtitleStyle("boxHeight", Number(height.toFixed(1)));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingSubtitleResize(false);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
     };
@@ -5749,6 +6085,7 @@ function Home() {
         aspectRatio,
         resolution: renderResolution,
         fps: renderFps,
+        renderProfile,
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
@@ -5880,6 +6217,7 @@ function Home() {
       aspectRatio,
       renderResolution,
       renderFps,
+      renderProfile,
       projectTitle,
       background,
       previewBackground,
@@ -6383,6 +6721,72 @@ function Home() {
         ? "idle"
         : "progress";
 
+  const reviewAssetSource = (value: string) => assetPreviewSource(value);
+  const reviewLayoutLabel = (value: PopupConfig["layout"]) => ({
+    "image-top": "Ảnh trên",
+    split: "Chia đôi",
+    quote: "Trích dẫn",
+    stats: "Số liệu",
+    "image-only": "Chỉ hình",
+    "content-only": "Chỉ nội dung",
+  }[value ?? "image-top"] ?? "Ảnh trên");
+  const reviewThemeLabel = (value: PopupConfig["theme"]) => ({
+    travel: "Travel",
+    sunset: "Sunset",
+    ocean: "Ocean",
+    minimal: "Minimal",
+  }[value ?? "travel"] ?? "Travel");
+  const reviewEffectSummary = (item: Scene) => {
+    const effects = normalizeSceneEffects(item.effects);
+    const entries = [
+      ["Tuyết", effects.snowEnabled, effects.snowIntensity, effects.snowSpeed],
+      ["Mưa", effects.rainEnabled, effects.rainIntensity, effects.rainSpeed],
+      ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
+      ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
+      ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+    ] as const;
+    return entries.filter(([, enabled]) => enabled).map(([label, , intensity, speed]) => ({
+      label,
+      intensity,
+      speed,
+    }));
+  };
+
+  const renderReviewVisibility = (
+    visible: boolean,
+    label: string,
+    onClick: () => void,
+  ) => (
+    <button
+      type="button"
+      className={`review-visibility ${visible ? "is-visible" : "is-hidden"}`}
+      aria-label={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      title={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      onClick={onClick}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+        <circle cx="12" cy="12" r="2.2" />
+        {!visible && <path d="m4 4 16 16" />}
+      </svg>
+    </button>
+  );
+
+  const reviewLayerFocus = (
+    item: Scene,
+    section: "images" | "popup" | "effects",
+    layerId = "",
+  ) => {
+    setSelectedId(item.id);
+    setSelectedSceneIds([item.id]);
+    if (section === "images") setSelectedSceneImageId(layerId);
+    if (section === "popup") setSelectedPopupId(layerId);
+    setEditorSections((sections) => ({ ...sections, [section]: true }));
+    setReviewOpen(false);
+  };
+
+  const reviewSceneCountLabel = `${visibleScenes.length} cảnh đang hiện`;
+
   return (
     <main
       className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
@@ -6761,6 +7165,37 @@ function Home() {
                   )}
                 </svg>
               </button>
+              <button
+                type="button"
+                className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
+                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-pressed={subtitleGuideVisible}
+                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                onClick={() => setSubtitleGuideVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="preview-review-toggle"
+                aria-label="Mở Review tổng quan"
+                title="Review tổng quan các cảnh đang hiện"
+                onClick={() => {
+                  setPlaying(false);
+                  setPreviewFullscreen(false);
+                  setReviewOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M8 4v16M3 9h18M3 14h18" />
+                </svg>
+                <span>Review</span>
+              </button>
               <div className="preview-ruler-control">
                 <button
                   type="button"
@@ -6970,6 +7405,8 @@ function Home() {
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
+                  ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
+                  ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
@@ -6988,6 +7425,15 @@ function Home() {
                 onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
               >
                 {overlay.text}
+                {overlay.id === activeTextOverlay?.id && !playing && (
+                  <button
+                    type="button"
+                    className="map-text-resize-handle"
+                    aria-label="Kéo để thay đổi kích thước chữ viết"
+                    title="Kéo để tăng hoặc giảm chiều rộng, chiều cao"
+                    onPointerDown={(event) => startTextOverlayResize(event, overlay.id)}
+                  />
+                )}
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
@@ -7009,6 +7455,7 @@ function Home() {
                     height: `${height}%`,
                     opacity: image.opacity / 100,
                     clipPath: sceneImageClipPath(image.shape),
+                    backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
                     border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
                   }}
                   role="button"
@@ -7071,7 +7518,7 @@ function Home() {
                 </div>
               );
             })}
-            {activeSubtitle && (
+            {playing && activeSubtitle && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
                 role="status"
@@ -7084,6 +7531,7 @@ function Home() {
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
                   right: "auto",
                   width: `${subtitleStyle.boxWidth}%`,
+                  ...(Number.isFinite(Number(subtitleStyle.boxHeight)) ? { height: `${subtitleStyle.boxHeight}%` } : {}),
                   maxWidth: "100%",
                   boxSizing: "border-box",
                   color: colorWithAlpha(subtitleStyle.color, (subtitleStyle.opacity / 100) * subtitleAnimationOpacity, "#ffffff"),
@@ -7103,6 +7551,31 @@ function Home() {
                 }}
               >
                 {activeSubtitle.text}
+              </div>
+            )}
+            {subtitleGuideVisible && !playing && (
+              <div
+                className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""}`}
+                style={{
+                  left: `${subtitleStyle.x}%`,
+                  top: `${subtitleStyle.y}%`,
+                  width: `${subtitleStyle.boxWidth}%`,
+                  height: `${subtitleGuideHeight}%`,
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="Vùng chỉnh sửa phụ đề. Kéo để di chuyển."
+                title="Kéo để di chuyển vùng phụ đề"
+                onPointerDown={startSubtitleDrag}
+              >
+                <span>{subtitleGuideMetrics}</span>
+                <button
+                  type="button"
+                  className="subtitle-resize-handle"
+                  aria-label="Kéo để thay đổi kích thước phụ đề"
+                  title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
+                  onPointerDown={startSubtitleResize}
+                />
               </div>
             )}
             {playing && sceneIsVisibleInPlayback && (
@@ -7602,6 +8075,16 @@ function Home() {
                       </div>
                       <div className="field-row">
                         <label className="field">
+                          <span>Vị trí X</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Vị trí Y</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
                           <span>Chiều rộng</span>
                           <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
@@ -7616,6 +8099,30 @@ function Home() {
                           <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
                         </label>
                         <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field color-field scene-image-border-fill-field">
+                          <span>Màu nền bên trong border</span>
+                          <div className="color-input-row">
+                            <input
+                              className="text-color-picker"
+                              type="color"
+                              value={normalizeHexColor(activeSceneImage.borderFill, "#ffffff")}
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value)}
+                            />
+                            <input
+                              className="text-color-code"
+                              type="text"
+                              inputMode="text"
+                              maxLength={11}
+                              value={activeSceneImage.borderFill === "transparent" ? "" : activeSceneImage.borderFill}
+                              placeholder="transparent / #FFFFFF"
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value || "transparent")}
+                              onBlur={(event) => updateSceneImage("borderFill", normalizeSceneImageBorderFill(event.target.value))}
+                            />
+                          </div>
+                          <small>Để trống hoặc nhập transparent để giữ nền trong suốt.</small>
+                        </label>
                       </div>
                       <div className="field-row">
                         <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
@@ -7813,9 +8320,30 @@ function Home() {
                       <option value="bold">Đậm</option>
                       <option value="italic">Nghiêng</option>
                       <option value="bold-italic">Đậm + nghiêng</option>
-                    </select>
-                  </label>
+                   </select>
+                 </label>
                  </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.x ?? 50} onChange={(event) => updateTextOverlay("x", clampPercent(event.target.value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.y ?? 18} onChange={(event) => updateTextOverlay("y", clampPercent(event.target.value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Chiều rộng</span>
+                    <div className="number-with-unit"><input type="number" min="4" max="100" step="0.1" value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("width", event.target.value === "" ? undefined : Math.min(100, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("height", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Kéo nút ở góc chữ để thay đổi cả chiều rộng và chiều cao. Để trống để dùng kích thước tự động.</small>
                  <div className="field-row">
                    <label className="field">
                      <span>Độ trong suốt</span>
@@ -8495,6 +9023,21 @@ function Home() {
                     <div className="number-with-unit"><input type="number" min="40" max="100" step="1" value={subtitleStyle.boxWidth} onChange={(event) => updateSubtitleStyle("boxWidth", Math.min(100, Math.max(40, Number(event.target.value) || 40)))} /><b>%</b></div>
                   </label>
                 </div>
+                <div className="field-row subtitle-style-fields subtitle-geometry-fields">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.x} onChange={(event) => updateSubtitleStyle("x", clampPercent(event.target.value, subtitleStyle.x))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.y} onChange={(event) => updateSubtitleStyle("y", clampPercent(event.target.value, subtitleStyle.y))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao khung chữ</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSubtitleStyle("boxHeight", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Chỉ hiện vùng chỉnh sửa này sau khi bấm “Xem thử”. Có thể kéo khung hoặc nhập trực tiếp X/Y, rộng/cao.</small>
                 <div className="subtitle-border-heading"><strong>Border / nền phụ đề</strong><small>Điều chỉnh viền, màu viền, độ trong suốt và nền.</small></div>
                 <div className="field-row subtitle-style-fields">
                   <label className="field">
@@ -9112,6 +9655,27 @@ function Home() {
                 </div>
                 <small>Nhập 0 để tắt viền.</small>
               </label>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Vị trí X</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.x ?? 5} onChange={(event) => updatePopup("x", clampPercent(event.target.value, activePopup?.x ?? 5))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Vị trí Y</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.y ?? 55} onChange={(event) => updatePopup("y", clampPercent(event.target.value, activePopup?.y ?? 55))} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Chiều rộng</span>
+                  <div className="number-with-unit"><input type="number" min="55" max="96" step="1" value={activePopup?.width ?? 90} onChange={(event) => updatePopup("width", Math.min(96, Math.max(55, Number(event.target.value) || 55)))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Chiều cao</span>
+                  <div className="number-with-unit"><input type="number" min="170" max="440" step="1" value={activePopup?.height ?? 255} onChange={(event) => updatePopupHeight(Number(event.target.value), activePopup?.id)} /><b>px</b></div>
+                </label>
+              </div>
+              <small className="popup-geometry-help">Kéo Popup hoặc nút ở góc để các thông số này tự cập nhật.</small>
               <label className="field popup-image-field">
                 <span>Ảnh / video popup riêng</span>
                 <input
@@ -9563,6 +10127,23 @@ function Home() {
                           ))}
                         </div>
                       </div>
+                      <label className="export-field render-profile-field">
+                        <span>Chế độ render</span>
+                        <select
+                          className="render-profile-select"
+                          value={renderProfile}
+                          aria-label="Chế độ render"
+                          onChange={(event) => setRenderProfile(normalizeRenderProfile(event.target.value))}
+                        >
+                          <option value="quality">Chất lượng cao</option>
+                          <option value="fast">Render nhanh</option>
+                        </select>
+                        <small className="export-field-hint">
+                          {renderProfile === "fast"
+                            ? "Giảm độ phân giải, FPS và thời gian encode để xem thử nhanh."
+                            : "Giữ nguyên độ phân giải và FPS đang chọn cho bản xuất cuối."}
+                        </small>
+                      </label>
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>
@@ -9889,6 +10470,305 @@ function Home() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {reviewOpen && (
+        <div className="review-overlay" role="dialog" aria-modal="true" aria-labelledby="review-heading">
+          <section className="review-shell">
+            <header className="review-topbar">
+              <div className="review-title-wrap">
+                <div className="review-brand-mark" aria-hidden="true">
+                  <span /><span /><span /><span />
+                </div>
+                <div>
+                  <div className="review-kicker">KITO VIDEO STUDIO · XEM TRƯỚC</div>
+                  <h1 id="review-heading">Review tổng quan</h1>
+                  <p>{projectTitle} · {reviewSceneCountLabel} · {formatTime(totalDuration)}</p>
+                </div>
+              </div>
+              <div className="review-top-actions">
+                <span className="review-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <div
+                  className="review-zoom-control"
+                  aria-label="Thu phóng cột cảnh"
+                  title="Cuộn chuột tại đây hoặc dùng Ctrl/Alt + cuộn trong bảng để phóng to, thu nhỏ"
+                  onWheel={(event) => {
+                    event.preventDefault();
+                    adjustReviewZoom(event.deltaY < 0 ? 10 : -10);
+                  }}
+                >
+                  <button type="button" onClick={() => adjustReviewZoom(-10)} disabled={reviewZoom <= 35} aria-label="Thu nhỏ cột cảnh">−</button>
+                  <output>{reviewZoom}%</output>
+                  <button type="button" onClick={() => adjustReviewZoom(10)} disabled={reviewZoom >= 150} aria-label="Phóng to cột cảnh">＋</button>
+                </div>
+                <button type="button" className="button primary review-save-button" onClick={() => void saveProjectNow()}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></svg>
+                  Lưu thay đổi
+                </button>
+                <button
+                  type="button"
+                  className="review-close-button"
+                  aria-label="Đóng Review"
+                  title="Đóng Review (Esc)"
+                  onClick={() => setReviewOpen(false)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+              </div>
+            </header>
+
+            <div className="review-notice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v6M12 7h.01" /></svg>
+              <span>Double-click vào thông số để chỉnh sửa và đồng bộ ngay về khu vực “Biên soạn”. Enter để xác nhận · Esc để hủy.</span>
+            </div>
+
+            <div className="review-body">
+              <div className="review-scroll-area" onWheel={handleReviewWheel}>
+                {visibleScenes.length ? (
+                  <div
+                    className="review-table-grid"
+                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, ${Math.round(165 * reviewZoom / 50)}px)` }}
+                  >
+                    <div className="review-corner">Thông tin cảnh</div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      return (
+                        <div className="review-scene-header" key={`review-head-${item.id}`}>
+                          <div className="review-scene-heading">
+                            <b>{String(item.number).padStart(2, "0")}</b>
+                            <ReviewEditable
+                              value={item.sceneName || `Cảnh ${item.number}`}
+                              label={`Tên cảnh ${item.number}`}
+                              className="review-scene-name"
+                              onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                            />
+                          </div>
+                          <div className="review-scene-time"><strong>{formatTime(item.start)} → {formatTime(item.end)}</strong><span>{duration.toFixed(1)} giây</span></div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Tên cảnh <small>text</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-name-${item.id}`}>
+                        <ReviewEditable
+                          value={item.sceneName || `Cảnh ${item.number}`}
+                          label={`Tên cảnh ${item.number}`}
+                          onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                        />
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Bắt đầu <small>timeline</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-start-${item.id}`}>
+                        <span className="review-readonly-value mono">{formatTime(item.start)}</span>
+                        <small className="review-cell-help">Tự tính theo thứ tự cảnh</small>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Thời lượng <small>giây</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-duration-${item.id}`}>
+                        <ReviewEditable
+                          value={Math.max(0.1, item.end - item.start).toFixed(2)}
+                          label={`Thời lượng cảnh ${item.number}`}
+                          numeric
+                          onCommit={(value) => updateReviewSceneDuration(item.id, value)}
+                        />
+                        <span className="review-unit">giây</span>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Âm thanh <small>voice</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-audio-${item.id}`}>
+                        <ReviewEditable
+                          value={fileNameOnly(item.voiceFile) || "Chưa có file âm thanh"}
+                          label={`File âm thanh cảnh ${item.number}`}
+                          className="review-audio-value"
+                          onCommit={(value) => updateReviewSceneField(item.id, "voiceFile", value)}
+                        />
+                        <div className="review-detail-line">Âm lượng {Number(item.voiceVolume ?? 95).toFixed(0)}%</div>
+                        <div className="review-detail-line">Bắt đầu phát <ReviewEditable value={Number(item.voiceStart ?? 0).toFixed(2)} label={`Thời gian bắt đầu âm thanh cảnh ${item.number}`} numeric onCommit={(value) => updateReviewSceneField(item.id, "voiceStart", Math.max(0, reviewNumber(value, Number(item.voiceStart ?? 0))))} /> <span>giây</span></div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Phụ đề <small>cues</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-subtitle-${item.id}`}>
+                        <button type="button" className={`review-toggle-row ${item.subtitleEnabled !== false ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "subtitleEnabled", item.subtitleEnabled === false)}>
+                          <span className="review-toggle-dot" /> {item.subtitleEnabled !== false ? `${(item.subtitles ?? []).filter((cue) => cue.visible !== false).length} cue đang bật` : "Đang tắt phụ đề"}
+                        </button>
+                        <div className="review-detail-line">Style: {normalizeSubtitleStyle(item.subtitleStyle).animation} · {normalizeSubtitleStyle(item.subtitleStyle).size}px</div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label review-section-label">Hình ảnh <small>{"item"}</small></div>
+                    {visibleScenes.map((item) => {
+                      const images = item.sceneImages ?? [];
+                      return (
+                        <div className="review-grid-cell review-section-cell review-images-cell" key={`review-images-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{images.length} hình ảnh</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {images.length ? images.map((image) => {
+                            const source = reviewAssetSource(image.url);
+                            return (
+                              <article className="review-layer-card" key={image.id}>
+                                <div className="review-layer-topline">
+                                  <span className="review-drag-dots" aria-hidden="true">⋮</span>
+                                  <div className="review-media-thumb">
+                                    {source && image.mediaType === "video" ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>IMG</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={image.name || "Hình ảnh"} label={`Tên hình ảnh ${image.name}`} onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "name", value)} />
+                                    <small>{fileNameOnly(image.url) || "Chưa nhập URL"} · {image.mediaType === "video" ? "video" : "image"}</small>
+                                  </div>
+                                  {renderReviewVisibility(image.visible !== false, `hình ảnh ${image.name}`, () => updateReviewSceneImageValue(item.id, image.id, "visible", image.visible === false))}
+                                </div>
+                                <div className="review-metric-grid">
+                                  <div><b>X</b><ReviewEditable value={String(image.x)} label="Vị trí X" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "x", clampPercent(reviewNumber(value, image.x), image.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(image.y)} label="Vị trí Y" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "y", clampPercent(reviewNumber(value, image.y), image.y))} /><em>%</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(image.width)} label="Chiều rộng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "width", Math.min(200, Math.max(1, reviewNumber(value, image.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(image.height)} label="Chiều cao hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "height", Math.min(200, Math.max(1, reviewNumber(value, image.height))))} /><em>%</em></div>
+                                </div>
+                                <div className="review-metric-grid review-metric-grid-secondary">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(image.start).toFixed(2)} label="Thời gian bắt đầu hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "start", Math.max(0, reviewNumber(value, image.start)))} /><em>s</em></div>
+                                  <div><b>Thời lượng</b><ReviewEditable value={Number(image.duration).toFixed(2)} label="Thời lượng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "duration", Math.max(0.1, reviewNumber(value, image.duration)))} /><em>s</em></div>
+                                  <div><b>Opacity</b><ReviewEditable value={String(image.opacity)} label="Độ trong suốt hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "opacity", Math.min(100, Math.max(0, reviewNumber(value, image.opacity))))} /><em>%</em></div>
+                                  <div><b>Border</b><ReviewEditable value={String(image.borderWidth)} label="Độ dày border hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "borderWidth", Math.min(12, Math.max(0, reviewNumber(value, image.borderWidth))))} /><em>px</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${image.transparent ? "is-on" : ""}`} onClick={() => updateReviewSceneImageValue(item.id, image.id, "transparent", !image.transparent)}><span /> Giữ nền trong suốt</button>
+                                  <span className="review-chip">{image.spriteSheet ? `Sprite · ${image.spriteDelay}ms` : image.shape}</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "images", image.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          }) : <div className="review-empty-layer">Chưa có hình ảnh trong cảnh này.</div>}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>＋ Thêm hình ảnh trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Popup <small>items</small></div>
+                    {visibleScenes.map((item) => {
+                      const popups = scenePopupList(item);
+                      return (
+                        <div className="review-grid-cell review-section-cell review-popups-cell" key={`review-popups-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{popups.length} popup</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {popups.map((popup) => {
+                            const mediaValue = safeTrim(popup.video) || safeTrim(popup.image);
+                            const source = reviewAssetSource(mediaValue);
+                            return (
+                              <article className="review-layer-card review-popup-card" key={popup.id}>
+                                <div className="review-layer-topline">
+                                  <div className="review-media-thumb popup-thumb">
+                                    {source && isVideoMedia(mediaValue) ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>POPUP</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={popup.title || "Popup"} label={`Tiêu đề popup ${popup.title}`} onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "title", value)} />
+                                    <small>{reviewLayoutLabel(popup.layout)} · {reviewThemeLabel(popup.theme)} · {popup.textEffect || "none"}</small>
+                                  </div>
+                                  {renderReviewVisibility(popup.visible !== false, `popup ${popup.title}`, () => updateReviewPopupValue(item.id, popup.id, "visible", popup.visible === false))}
+                                </div>
+                                <ReviewEditable value={popup.body || "Chưa có nội dung popup"} label={`Nội dung popup ${popup.title}`} multiline className="review-popup-body" onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "body", value)} />
+                                <div className="review-popup-meta-grid">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(popup.start).toFixed(2)} label="Thời gian bắt đầu popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "start", Math.max(0, reviewNumber(value, popup.start)))} /><em>s</em></div>
+                                  <div><b>Độ dài</b><ReviewEditable value={Number(popup.duration).toFixed(2)} label="Thời lượng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "duration", Math.min(Math.max(0.1, reviewNumber(value, popup.duration)), Math.max(0.1, item.end - item.start - popup.start)))} /><em>s</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(popup.width)} label="Chiều rộng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "width", Math.min(96, Math.max(55, reviewNumber(value, popup.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(popup.height)} label="Chiều cao popup" numeric onCommit={(value) => updateReviewPopupHeight(item.id, popup.id, value)} /><em>px</em></div>
+                                  <div><b>X</b><ReviewEditable value={String(popup.x)} label="Vị trí X popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "x", clampPercent(reviewNumber(value, popup.x), popup.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(popup.y)} label="Vị trí Y popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "y", clampPercent(reviewNumber(value, popup.y), popup.y))} /><em>%</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${popup.transparentMedia ? "is-on" : ""}`} onClick={() => updateReviewPopupValue(item.id, popup.id, "transparentMedia", !popup.transparentMedia)}><span /> Nền trong suốt</button>
+                                  <span className="review-chip review-chip-orange">Border {popup.borderWidth}px</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "popup", popup.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          })}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>＋ Thêm popup trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Hiệu ứng <small>motion</small></div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      const effectSummaries = reviewEffectSummary(item);
+                      return (
+                        <div className="review-grid-cell review-section-cell review-effects-cell" key={`review-effects-${item.id}`}>
+                          <div className="review-effect-heading">
+                            <button type="button" className={`review-effect-toggle ${item.zoomEnabled ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "zoomEnabled", !item.zoomEnabled)}><span /> Hiệu ứng zoom</button>
+                            <span className={`review-chip ${item.zoomEnabled ? "review-chip-orange" : "review-chip-muted"}`}>{item.zoomEnabled ? "Đang bật" : "Đang tắt"}</span>
+                          </div>
+                          <div className="review-effect-columns">
+                            <div className="review-effect-group">
+                              <strong>Zoom vào</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Number(item.zoomStart).toFixed(2)} label="Thời gian bắt đầu zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomStart", Math.max(0, reviewNumber(value, item.zoomStart)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><ReviewEditable value={Number(item.zoomEnd).toFixed(2)} label="Thời gian kết thúc zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomEnd", Math.max(0, reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                            </div>
+                            <div className="review-effect-group">
+                              <strong>Zoom ra</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Math.max(0, item.zoomEnd - item.zoomOutDuration).toFixed(2)} label="Thời gian bắt đầu zoom ra" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomOutDuration", Math.max(0, item.zoomEnd - reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><span className="review-readonly-value mono">{formatTime(duration)}</span></div>
+                            </div>
+                          </div>
+                          <div className="review-metric-grid review-effect-metrics">
+                            <div><b>Tỉ lệ zoom</b><ReviewEditable value={Number(item.zoom).toFixed(2)} label="Tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoom", Math.max(1, reviewNumber(value, item.zoom)))} /><em>×</em></div>
+                            <div><b>Zoom vào</b><ReviewEditable value={Number(item.zoomInDuration).toFixed(2)} label="Thời gian tới tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomInDuration", Math.max(0, reviewNumber(value, item.zoomInDuration)))} /><em>s</em></div>
+                            <div><b>Tâm X</b><ReviewEditable value={String(item.centerX)} label="Tâm bản đồ X" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerX", clampPercent(reviewNumber(value, item.centerX), item.centerX))} /><em>%</em></div>
+                            <div><b>Tâm Y</b><ReviewEditable value={String(item.centerY)} label="Tâm bản đồ Y" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerY", clampPercent(reviewNumber(value, item.centerY), item.centerY))} /><em>%</em></div>
+                          </div>
+                          <div className="review-effect-timeline" aria-label={`Timeline hiệu ứng cảnh ${item.number}`}>
+                            <span><b>{formatTime(0)}</b><b>{formatTime(duration / 2)}</b><b>{formatTime(duration)}</b></span>
+                            <div><i className={item.zoomEnabled ? "is-active" : ""} style={{ left: `${Math.min(100, Math.max(0, (item.zoomStart / duration) * 100))}%`, width: `${Math.min(100, Math.max(1, ((item.zoomEnd - item.zoomStart) / duration) * 100))}%` }} /></div>
+                          </div>
+                          <div className="review-active-effects">
+                            <span>Hiệu ứng nền:</span>
+                            {effectSummaries.length ? effectSummaries.map((effect) => <span className="review-chip" key={effect.label}>{effect.label} · {effect.intensity}% · ×{effect.speed}</span>) : <span className="review-chip review-chip-muted">Không có</span>}
+                          </div>
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "effects")}>Mở mục Hiệu ứng trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Chữ viết <small>items</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-text-${item.id}`}>
+                        <span className="review-count-chip">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).length} lớp chữ đang hiện</span>
+                        <div className="review-detail-line">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).map((overlay) => overlay.name || overlay.text).slice(0, 2).join(" · ") || "Chưa có lớp chữ"}</div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Ghi chú <small>review</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-note-${item.id}`}>
+                        <ReviewEditable value={item.reference || "Double-click để thêm ghi chú"} label={`Ghi chú cảnh ${item.number}`} multiline className="review-note-value" onCommit={(value) => updateReviewSceneField(item.id, "reference", value)} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="review-empty-state">
+                    <strong>Chưa có cảnh đang hiện</strong>
+                    <span>Hãy bật hiển thị ít nhất một cảnh để mở Review tổng quan.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <footer className="review-footer">
+              <span><i /> {reviewSceneCountLabel} · Cột mặc định 50% · Ctrl/Alt + cuộn chuột để phóng to/thu nhỏ</span>
+              <span>Thay đổi được cập nhật trực tiếp vào Biên soạn</span>
+            </footer>
+          </section>
         </div>
       )}
     </main>

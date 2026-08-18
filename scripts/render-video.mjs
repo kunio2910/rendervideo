@@ -18,6 +18,11 @@ const sourceDir = process.env.RENDER_SOURCE_DIR
 const renderDir = process.env.RENDER_WORK_DIR
   ? path.resolve(process.env.RENDER_WORK_DIR)
   : path.join(root, "work", "render-current");
+const renderCacheDir = process.env.RENDER_CACHE_DIR
+  ? path.resolve(process.env.RENDER_CACHE_DIR)
+  : path.join(root, "work", "render-cache");
+const assetCacheDir = path.join(renderCacheDir, "assets");
+const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
@@ -44,6 +49,7 @@ const timelineDuration = Math.max(
   ...scenes.map((scene) => Number(scene.end ?? 0) || 0),
 );
 const aspectRatio = project.aspectRatio === "16:9" ? "16:9" : "9:16";
+const renderProfile = project.renderProfile === "fast" ? "fast" : "quality";
 const defaultResolution = aspectRatio === "16:9" ? "1920x1080" : "1080x1920";
 const requestedResolution = String(project.resolution ?? defaultResolution).split("x");
 let outputWidth = Math.max(1, Number.parseInt(requestedResolution[0], 10) || 1);
@@ -56,7 +62,20 @@ if (!resolutionMatchesAspect) {
     .split("x")
     .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
 }
-const fps = Math.max(1, Number(project.fps ?? 30) || 30);
+if (renderProfile === "fast") {
+  const [fastWidth, fastHeight] = (aspectRatio === "16:9" ? "1280x720" : "720x1280")
+    .split("x")
+    .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
+  if (outputWidth > fastWidth || outputHeight > fastHeight) {
+    outputWidth = fastWidth;
+    outputHeight = fastHeight;
+  }
+}
+const requestedFps = Math.max(1, Number(project.fps ?? 30) || 30);
+const fps = renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
+const videoPreset = renderProfile === "fast" ? "veryfast" : "medium";
+const videoCrf = renderProfile === "fast" ? "24" : "20";
+const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
 const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
@@ -205,6 +224,8 @@ const audioVolume = (value, fallback) => {
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
+await fs.mkdir(assetCacheDir, { recursive: true });
+await fs.mkdir(frameSequenceCacheDir, { recursive: true });
 await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
 const escapeXml = (value = "") =>
@@ -248,9 +269,36 @@ const run = (command, args) =>
 
 const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
 
-const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, sequenceName) => {
+const sequenceCacheKey = (...parts) => createHash("sha1")
+  .update(parts.map((part) => String(part)).join("\0"))
+  .digest("hex");
+
+const sequenceCachePaths = (cacheKey) => {
+  const sequenceRoot = path.join(frameSequenceCacheDir, cacheKey);
+  return {
+    sequenceRoot,
+    concatPath: path.join(sequenceRoot, "frames.txt"),
+    metadataPath: path.join(sequenceRoot, "metadata.json"),
+  };
+};
+
+const readCachedFrameSequence = async (cacheKey) => {
+  const paths = sequenceCachePaths(cacheKey);
+  try {
+    const metadata = JSON.parse(await fs.readFile(paths.metadataPath, "utf8"));
+    await fs.access(paths.concatPath);
+    return { ...metadata, path: paths.concatPath };
+  } catch {
+    return null;
+  }
+};
+
+const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, cacheKey) => {
   if (!frames.length) throw new Error("Sprite không có frame để render");
-  const framesRoot = path.join(renderDir, sequenceName);
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
+  const { sequenceRoot, concatPath, metadataPath } = sequenceCachePaths(cacheKey);
+  const framesRoot = path.join(sequenceRoot, "frames");
   await fs.mkdir(framesRoot, { recursive: true });
   const framePaths = [];
   for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
@@ -260,7 +308,6 @@ const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, se
     }).png().toFile(framePath);
     framePaths.push(framePath);
   }
-  const concatPath = path.join(renderDir, `${sequenceName}.txt`);
   const entries = framePaths.flatMap((framePath, frameIndex) => [
     concatFileEntry(framePath),
     `duration ${(Math.max(60, Number(delays[frameIndex]) || 180) / 1000).toFixed(3)}`,
@@ -269,26 +316,49 @@ const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, se
   // previous one, so repeat the last frame to preserve its duration.
   entries.push(concatFileEntry(framePaths[framePaths.length - 1]));
   await fs.writeFile(concatPath, `${entries.join("\n")}\n`, "utf8");
+  await fs.writeFile(metadataPath, JSON.stringify({
+    frameWidth,
+    frameHeight,
+    frameCount: frames.length,
+    delay: Number(delays[0]) || 180,
+  }), "utf8");
   return concatPath;
 };
 
-const writeSpriteFrameSequence = async (frames, frameSize, delay, index) =>
+const writeSpriteFrameSequence = async (frames, frameSize, delay, sourceKey) =>
   writeRawFrameSequence(
     frames,
     frameSize,
     frameSize,
     frames.map(() => delay),
-    `scene-image-${index + 1}-frames`,
+    sequenceCacheKey("sprite", sourceKey, frameSize, delay),
   );
+
+const fileHashCache = new Map();
+const hashFile = async (filename) => {
+  const cached = fileHashCache.get(filename);
+  if (cached) return cached;
+  const promise = fs.readFile(filename).then((buffer) => createHash("sha1").update(buffer).digest("hex"));
+  fileHashCache.set(filename, promise);
+  return promise;
+};
 
 const writeAnimatedImageFrameSequence = async (
   source,
   metadata,
-  sequenceName,
 ) => {
   const frameWidth = Math.max(1, Number(metadata.width) || 1);
   const frameHeight = Math.max(1, Number(metadata.pageHeight) || Number(metadata.height) || 1);
   const pageCount = Math.max(1, Number(metadata.pages) || Math.floor(Number(metadata.height) / frameHeight) || 1);
+  const sourceKey = await hashFile(source);
+  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
+  const delays = Array.from(
+    { length: pageCount },
+    (_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180),
+  );
+  const cacheKey = sequenceCacheKey("animated", sourceKey, frameWidth, frameHeight, pageCount, delays.join(","));
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
   const rawResult = await sharp(source, { animated: true })
     .ensureAlpha()
     .raw()
@@ -300,23 +370,17 @@ const writeAnimatedImageFrameSequence = async (
   const frames = Array.from({ length: pageCount }, (_, frameIndex) => (
     rawResult.data.subarray(frameIndex * frameBytes, (frameIndex + 1) * frameBytes)
   ));
-  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
-  const delays = frames.map((_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180));
   return writeRawFrameSequence(
     frames,
     frameWidth,
     frameHeight,
     delays,
-    sequenceName,
+    cacheKey,
   );
 };
 
-const writeAnimatedWebpFrameSequence = async (source, metadata, index) =>
-  writeAnimatedImageFrameSequence(
-    source,
-    metadata,
-    `scene-image-${index + 1}-webp-frames`,
-  );
+const writeAnimatedWebpFrameSequence = async (source, metadata) =>
+  writeAnimatedImageFrameSequence(source, metadata);
 
 const errorDetail = (error) => {
   if (!(error instanceof Error)) return "unknown error";
@@ -370,7 +434,13 @@ const downloadResource = async (kind, value, fallbackName) => {
     const sourceName = referenceName(trimmed, fallbackName);
     const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
     const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
-    return download(trimmed, path.join(renderDir, `${kind}-${hash}-${safeName}`));
+    const cachedPath = path.join(assetCacheDir, `${kind}-${hash}-${safeName}`);
+    try {
+      await fs.access(cachedPath);
+      return cachedPath;
+    } catch {
+      return download(trimmed, cachedPath);
+    }
   })();
   resourceCache.set(key, promise);
   try {
@@ -528,7 +598,6 @@ const createPopup = async (scene, index) => {
         animatedImage = await writeAnimatedImageFrameSequence(
           resolvedImage,
           imageMetadata,
-          `popup-${index + 1}-frames`,
         );
         animatedImageFrameSequence = true;
       } else {
@@ -583,6 +652,13 @@ const createPopup = async (scene, index) => {
   const cardBackground = transparentMediaOnly
     ? ""
     : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>`;
+  // Keep the render in sync with the editor preview. The preview's media
+  // area always has this light sky/sand background when transparent media is
+  // disabled. Without it, transparent pixels in a PNG/WebP reveal the dark
+  // popup card background during export.
+  const mediaBackground = showVisual && !transparentMedia
+    ? `<g clip-path="url(#imageClip)"><rect width="${imageWidth}" height="${imageHeight}" fill="url(#popupMediaBackground)"/></g>`
+    : "";
   const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
@@ -593,9 +669,11 @@ const createPopup = async (scene, index) => {
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
+        <linearGradient id="popupMediaBackground" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
       </defs>
       ${cardBackground}
+      ${mediaBackground}
       ${hasVisual && !image && !video && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
       <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
@@ -739,6 +817,23 @@ const createSceneImage = async (image, index) => {
   const borderSvg = borderWidth > 0
     ? Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${borderWidth}">${geometry.clip}</g></svg>`)
     : null;
+  const borderFill = String(image?.borderFill ?? "transparent").trim().toLowerCase() === "transparent"
+    ? null
+    : decorationColor(image?.borderFill, null);
+  const fillPath = borderFill ? path.join(renderDir, `scene-image-${index + 1}-fill.png`) : null;
+  if (fillPath && borderFill) {
+    await sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: borderFill,
+      },
+    })
+      .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
+      .png()
+      .toFile(fillPath);
+  }
   const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
   const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
   if (mediaType === "video" || animatedImage) {
@@ -761,7 +856,7 @@ const createSceneImage = async (image, index) => {
         },
       }).composite([{ input: borderSvg }]).png().toFile(borderPath);
     }
-    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
+    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, fillPath, borderPath, width, height };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
@@ -775,7 +870,7 @@ const createSceneImage = async (image, index) => {
     && sourceMetadata?.format === "webp"
     && Number(sourceMetadata.pages) > 1;
   if (animatedWebp) {
-    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata, index);
+    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata);
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -795,30 +890,64 @@ const createSceneImage = async (image, index) => {
       frameSequence: true,
       webpAnimation: true,
       maskPath,
+      fillPath,
       borderPath,
       width,
       height,
     };
   }
   let spriteSheet = { detected: false };
+  let spriteSourceKey = "";
   if (image?.spriteSheet === true) {
     try {
-      spriteSheet = await processSpriteSheetBuffer(await fs.readFile(source), {
-        delay: image?.spriteDelay,
-        returnFrames: true,
-      });
+      const sourceBuffer = await fs.readFile(source);
+      spriteSourceKey = createHash("sha1").update(sourceBuffer).digest("hex");
+      const spriteLookupPath = path.join(
+        frameSequenceCacheDir,
+        `sprite-${sequenceCacheKey("lookup", spriteSourceKey, image?.spriteDelay ?? "auto")}.json`,
+      );
+      try {
+        const cachedLookup = JSON.parse(await fs.readFile(spriteLookupPath, "utf8"));
+        const cachedSequence = await readCachedFrameSequence(cachedLookup.cacheKey);
+        if (cachedSequence) {
+          spriteSheet = {
+            detected: true,
+            frameSize: cachedSequence.frameWidth,
+            delay: cachedSequence.delay,
+            cachedPath: cachedSequence.path,
+          };
+        }
+      } catch {
+        // Cache miss: detect the sprite grid below.
+      }
+      if (!spriteSheet.detected) {
+        spriteSheet = await processSpriteSheetBuffer(sourceBuffer, {
+          delay: image?.spriteDelay,
+          returnFrames: true,
+        });
+        if (spriteSheet.detected) {
+          const cacheKey = sequenceCacheKey(
+            "sprite",
+            spriteSourceKey,
+            spriteSheet.frameSize,
+            spriteSheet.delay,
+          );
+          spriteSheet.cacheKey = cacheKey;
+          await fs.writeFile(spriteLookupPath, JSON.stringify({ cacheKey }), "utf8");
+        }
+      }
     } catch {
       // Unsupported or malformed images continue through the existing static
       // image path instead of changing the behaviour of regular media.
     }
   }
   if (spriteSheet.detected) {
-    const frameSequencePath = await writeSpriteFrameSequence(
-      spriteSheet.frames,
-      spriteSheet.frameSize,
-      spriteSheet.delay,
-      index,
-    );
+    const frameSequencePath = spriteSheet.cachedPath || await writeSpriteFrameSequence(
+        spriteSheet.frames,
+        spriteSheet.frameSize,
+        spriteSheet.delay,
+        spriteSourceKey,
+      );
     const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
     const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
     await sharp(maskSvg).greyscale().png().toFile(maskPath);
@@ -838,6 +967,7 @@ const createSceneImage = async (image, index) => {
       spriteSheet: true,
       frameSequence: true,
       maskPath,
+      fillPath,
       borderPath,
       width,
       height,
@@ -851,7 +981,9 @@ const createSceneImage = async (image, index) => {
     .toBuffer();
   const filename = path.join(renderDir, `scene-image-${index + 1}.png`);
   const border = borderWidth > 0 ? borderSvg : null;
-  const composites = [{ input: resized, top: 0, left: 0 }];
+  const composites = [];
+  if (fillPath) composites.push({ input: fillPath, top: 0, left: 0 });
+  composites.push({ input: resized, top: 0, left: 0 });
   if (border) composites.push({ input: border, top: 0, left: 0 });
   await sharp({
     create: {
@@ -881,10 +1013,12 @@ const createTextOverlay = async (overlay, index) => {
   const paddingX = Math.round(previewPx(9));
   const paddingY = Math.round(previewPx(5));
   const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
-  const requestedBoxWidth = Number(overlay?.boxWidth);
+  const requestedBoxWidth = Number(overlay?.boxWidth ?? overlay?.width);
+  const minimumBoxWidth = overlay?.boxWidth !== undefined ? 0.4 : 0.04;
   const boxWidth = Number.isFinite(requestedBoxWidth)
-    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, 0.4, 1))
+    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, minimumBoxWidth, 1))
     : null;
+  const requestedBoxHeight = Number(overlay?.boxHeight ?? overlay?.height);
   const maxChars = boxWidth
     ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
     : null;
@@ -897,10 +1031,13 @@ const createTextOverlay = async (overlay, index) => {
     Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
   );
   const width = boxWidth ?? intrinsicWidth;
-  const height = Math.max(
+  const intrinsicHeight = Math.max(
     Math.round(previewPx(24)),
     Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
   );
+  const height = Number.isFinite(requestedBoxHeight)
+    ? Math.max(Math.round(previewPx(24)), Math.round(outputHeight * clamp(requestedBoxHeight / 100, 0.03, 0.4)))
+    : intrinsicHeight;
   const radius = Math.min(
     Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
     Math.floor(Math.min(width, height) / 2),
@@ -944,6 +1081,7 @@ const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
   x: subtitleStyle.x ?? 50,
   y: subtitleStyle.y ?? 83,
   boxWidth: subtitleStyle.boxWidth ?? 84,
+  boxHeight: subtitleStyle.boxHeight,
   }, index);
 };
 
@@ -1222,10 +1360,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageAlphaSourceLabel = `sceneImageAlphaSource${imageIndex}`;
     const imageAlphaLabel = `sceneImageAlpha${imageIndex}`;
     const imageMaskLabel = `sceneImageMask${imageIndex}`;
+    const imageFillLabel = `sceneImageFill${imageIndex}`;
+    const imageFilledLabel = `sceneImageFilled${imageIndex}`;
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     if (imageRender.animated) {
+      const hasImageFill = Boolean(imageRender.fillPath);
       const hasImageBorder = Boolean(imageRender.borderPath);
+      const imageMaskInputIndex = sceneImageInputIndex + 1;
+      const imageFillInputIndex = hasImageFill ? sceneImageInputIndex + 2 : null;
+      const imageBorderInputIndex = sceneImageInputIndex + 2 + (hasImageFill ? 1 : 0);
       const imageFit = image.transparent === true
         || imageRender.spriteSheet === true
         || imageRender.webpAnimation === true
@@ -1235,13 +1379,18 @@ for (let index = 0; index < scenes.length; index += 1) {
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
       filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
-      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
+      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${imageMaskInputIndex}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      let imageLayerLabel = imageAssetLabel;
+      if (hasImageFill && imageFillInputIndex !== null) {
+        filter += `[${imageFillInputIndex}:v]format=rgba[${imageFillLabel}];[${imageFillLabel}][${imageAssetLabel}]overlay=0:0:shortest=1[${imageFilledLabel}];`;
+        imageLayerLabel = imageFilledLabel;
+      }
       if (hasImageBorder) {
-        filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}];`;
+        filter += `[${imageBorderInputIndex}:v]format=rgba[${imageBorderLabel}];[${imageLayerLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}bordered];`;
+        imageLayerLabel = `${imageLayerLabel}bordered`;
       }
       filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += hasImageBorder ? 3 : 2;
+      sceneImageInputIndex += 2 + (hasImageFill ? 1 : 0) + (hasImageBorder ? 1 : 0);
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
@@ -1431,6 +1580,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         args.push("-stream_loop", "-1", "-i", image.path);
       }
       args.push("-loop", "1", "-i", image.maskPath);
+      if (image.fillPath) args.push("-loop", "1", "-i", image.fillPath);
       if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
     } else {
       args.push("-loop", "1", "-i", image.path);
@@ -1473,9 +1623,9 @@ for (let index = 0; index < scenes.length; index += 1) {
   args.push(
     "-t", String(duration),
     "-r", String(fps),
-    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+    "-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf,
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+    "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart",
     clip,
   );
@@ -1502,7 +1652,7 @@ await run(ffmpeg, [
   "-i", concatFile,
   "-c:v", "copy",
   "-c:a", "aac",
-  "-b:a", "192k",
+  "-b:a", audioBitrate,
   "-ar", "48000",
   "-ac", "2",
   "-af", "aresample=async=1:first_pts=0",
@@ -1522,7 +1672,7 @@ if (music) {
     "-map", "[a]",
     "-c:v", "copy",
     "-c:a", "aac",
-    "-b:a", "192k",
+    "-b:a", audioBitrate,
     "-t", String(timelineDuration),
     "-movflags", "+faststart",
     outputPath,
