@@ -2324,6 +2324,7 @@ function Home() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewZoom, setReviewZoom] = useState(50);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -2353,6 +2354,7 @@ function Home() {
   const timelinePopupMoved = useRef(false);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineZoomRef = useRef(100);
+  const reviewZoomRef = useRef(50);
   const localRenderJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
@@ -5365,6 +5367,32 @@ function Home() {
   };
 
   const togglePreviewFullscreen = () => setPreviewFullscreen((current) => !current);
+
+  const adjustReviewZoom = (delta: number, viewport?: HTMLDivElement | null) => {
+    const oldZoom = reviewZoomRef.current;
+    const nextZoom = Math.min(150, Math.max(35, oldZoom + delta));
+    if (nextZoom === oldZoom) return;
+    reviewZoomRef.current = nextZoom;
+    if (viewport) {
+      const bounds = viewport.getBoundingClientRect();
+      const pointerOffsetX = bounds.width / 2;
+      const pointerOffsetY = bounds.height / 2;
+      const contentPositionX = viewport.scrollLeft + pointerOffsetX;
+      const contentPositionY = viewport.scrollTop + pointerOffsetY;
+      const scaleRatio = nextZoom / oldZoom;
+      window.requestAnimationFrame(() => {
+        viewport.scrollLeft = Math.max(0, contentPositionX * scaleRatio - pointerOffsetX);
+        viewport.scrollTop = Math.max(0, contentPositionY * scaleRatio - pointerOffsetY);
+      });
+    }
+    setReviewZoom(nextZoom);
+  };
+
+  const handleReviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
+    event.preventDefault();
+    adjustReviewZoom(event.deltaY < 0 ? 10 : -10, event.currentTarget);
+  };
 
   const copySelectedScene = () => {
     if (!scene) return;
@@ -10460,6 +10488,19 @@ function Home() {
               </div>
               <div className="review-top-actions">
                 <span className="review-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <div
+                  className="review-zoom-control"
+                  aria-label="Thu phóng cột cảnh"
+                  title="Cuộn chuột tại đây hoặc dùng Ctrl/Alt + cuộn trong bảng để phóng to, thu nhỏ"
+                  onWheel={(event) => {
+                    event.preventDefault();
+                    adjustReviewZoom(event.deltaY < 0 ? 10 : -10);
+                  }}
+                >
+                  <button type="button" onClick={() => adjustReviewZoom(-10)} disabled={reviewZoom <= 35} aria-label="Thu nhỏ cột cảnh">−</button>
+                  <output>{reviewZoom}%</output>
+                  <button type="button" onClick={() => adjustReviewZoom(10)} disabled={reviewZoom >= 150} aria-label="Phóng to cột cảnh">＋</button>
+                </div>
                 <button type="button" className="button primary review-save-button" onClick={() => void saveProjectNow()}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></svg>
                   Lưu thay đổi
@@ -10482,11 +10523,11 @@ function Home() {
             </div>
 
             <div className="review-body">
-              <div className="review-scroll-area">
+              <div className="review-scroll-area" onWheel={handleReviewWheel}>
                 {visibleScenes.length ? (
                   <div
                     className="review-table-grid"
-                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, minmax(330px, 1fr))` }}
+                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, minmax(${Math.round(165 * reviewZoom / 50)}px, 1fr))` }}
                   >
                     <div className="review-corner">Thông tin cảnh</div>
                     {visibleScenes.map((item) => {
@@ -10724,7 +10765,7 @@ function Home() {
             </div>
 
             <footer className="review-footer">
-              <span><i /> {reviewSceneCountLabel} · Cuộn ngang để xem thêm cảnh · Cuộn dọc để xem thêm thông tin</span>
+              <span><i /> {reviewSceneCountLabel} · Cột mặc định 50% · Ctrl/Alt + cuộn chuột để phóng to/thu nhỏ</span>
               <span>Thay đổi được cập nhật trực tiếp vào Biên soạn</span>
             </footer>
           </section>

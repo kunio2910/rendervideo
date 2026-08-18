@@ -7792,6 +7792,11 @@ body {
 .review-top-actions { flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .review-sync-state { gap: 6px; color: #43825c; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .review-sync-state i { width: 7px; height: 7px; border-radius: 50%; background: #42a66b; box-shadow: 0 0 0 3px rgba(66,166,107,.12); }
+.review-zoom-control { display: inline-flex; align-items: center; min-height: 30px; overflow: hidden; border: 1px solid #e4d3bd; border-radius: 7px; background: #fffaf1; }
+.review-zoom-control button { width: 25px; height: 28px; padding: 0; border: 0; background: transparent; color: #9b6027; cursor: pointer; font-size: 16px; line-height: 1; }
+.review-zoom-control button:hover:not(:disabled) { background: #fff0dc; }
+.review-zoom-control button:disabled { color: #c7b7a5; cursor: not-allowed; }
+.review-zoom-control output { min-width: 42px; color: #765738; font: 800 9px var(--font-mono); text-align: center; }
 .review-save-button { min-height: 34px; padding-inline: 12px; border-color: #c66f1c !important; background: #d96d0e !important; color: #fff !important; font-size: 10px; }
 .review-save-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .review-close-button {
@@ -7977,6 +7982,10 @@ body {
 .studio-shell[data-theme="dark"] .review-topbar,
 .studio-shell[data-theme="dark"] .review-footer { border-color: #304052; background: #172333; }
 .studio-shell[data-theme="dark"] .review-topbar h1 { color: #f3e2c7; }
+.studio-shell[data-theme="dark"] .review-zoom-control { border-color: #42566d; background: #1a2635; }
+.studio-shell[data-theme="dark"] .review-zoom-control button { color: #e4bc79; }
+.studio-shell[data-theme="dark"] .review-zoom-control button:hover:not(:disabled) { background: #2d3a45; }
+.studio-shell[data-theme="dark"] .review-zoom-control output { color: #e4edf5; }
 .studio-shell[data-theme="dark"] .review-topbar p,
 .studio-shell[data-theme="dark"] .review-sync-state { color: #b3c0cc; }
 .studio-shell[data-theme="dark"] .review-notice { border-color: #6e512e; background: #322919; color: #e4c58f; }
