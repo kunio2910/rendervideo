@@ -275,6 +275,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
   assert.match(css, /preview-audio-toggle/);
+  assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
+  assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);
@@ -339,7 +341,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
   assert.match(renderer, /const imageFit = image\.transparent === true \? "contain" : "cover"/);
   assert.match(renderer, /animatedStickerFit/);
-  assert.match(renderer, /sceneImageInputIndex \+= hasImageBorder \? 3 : 2/);
+  assert.match(renderer, /sceneImageInputIndex \+= 2 \+ \(hasImageFill \? 1 : 0\) \+ \(hasImageBorder \? 1 : 0\)/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
   assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);
