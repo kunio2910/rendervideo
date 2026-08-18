@@ -41,12 +41,15 @@ type TextOverlay = {
   borderFill: string;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
 };
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
 type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
   boxWidth: number;
+  boxHeight?: number;
   animation: SubtitleAnimation;
   animationDuration: number;
 };
@@ -858,6 +861,7 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
   const style = String(raw.style ?? base.style);
   const font = String(raw.font ?? base.font);
   const animation = String(raw.animation ?? base.animation);
+  const rawBoxHeight = Number(raw.boxHeight);
   return {
     ...base,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size, base.size, 8))),
@@ -878,6 +882,9 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
     x: clampPercent(raw.x, base.x),
     y: clampPercent(raw.y, base.y),
     boxWidth: Math.min(100, Math.max(40, positiveNumber(raw.boxWidth, base.boxWidth, 40))),
+    ...(Number.isFinite(rawBoxHeight)
+      ? { boxHeight: Math.min(40, Math.max(3, rawBoxHeight)) }
+      : {}),
     animation: ["none", "fade", "pop", "slide-up", "typewriter"].includes(animation)
       ? animation as SubtitleAnimation
       : base.animation,
@@ -1040,6 +1047,12 @@ const normalizeTextOverlay = (
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
+    ...(Number.isFinite(Number(raw.width ?? fallback.width))
+      ? { width: clampPercent(raw.width ?? fallback.width, 60) }
+      : {}),
+    ...(Number.isFinite(Number(raw.height ?? fallback.height))
+      ? { height: clampPercent(raw.height ?? fallback.height, 10) }
+      : {}),
   };
 };
 
@@ -1679,8 +1692,8 @@ function SettingsResourcePanel() {
               <b>ms</b>
             </div>
             <small>Giá trị càng lớn thì chuyển động càng chậm.</small>
-          </label>
-          <label className="field">
+                 </label>
+                 <label className="field">
             <span>Kích thước frame</span>
             <div className="number-with-unit">
               <input
@@ -2245,6 +2258,9 @@ function Home() {
   const [draggingSceneImage, setDraggingSceneImage] = useState(false);
   const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
+  const [draggingSubtitleResize, setDraggingSubtitleResize] = useState(false);
+  const [subtitlePreviewVisible, setSubtitlePreviewVisible] = useState(false);
+  const [subtitleGuideVisible, setSubtitleGuideVisible] = useState(true);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
@@ -2609,6 +2625,10 @@ function Home() {
   const subtitleAnimationClipPath = subtitleStyle.animation === "typewriter"
     ? `inset(0 ${Math.max(0, 100 - subtitleAnimationProgress * 100)}% 0 0)`
     : "none";
+  const subtitleGuideHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+    ? Number(subtitleStyle.boxHeight)
+    : Math.min(16, Math.max(6, subtitleStyle.size / 3));
+  const subtitleGuideMetrics = `Phụ đề mẫu · X ${Number(subtitleStyle.x.toFixed(1))}% · Y ${Number(subtitleStyle.y.toFixed(1))}% · Rộng ${Number(subtitleStyle.boxWidth.toFixed(1))}% · Cao ${Number(subtitleGuideHeight.toFixed(1))}%`;
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -3279,6 +3299,7 @@ function Home() {
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
+    setSubtitlePreviewVisible(true);
     const resumeAt = playTime >= sceneTimelineDuration ? 0 : playTime;
     const activeScene =
       visibleScenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
@@ -3525,6 +3546,18 @@ function Home() {
       return;
     }
     updatePopupValues({ [key]: value } as Partial<PopupConfig>, popupId);
+  };
+
+  const updatePopupHeight = (value: number, popupId = selectedPopupId) => {
+    const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
+    if (!popup) return;
+    const height = Math.min(440, Math.max(170, Number(value) || 170));
+    const defaults = popupSectionDefaults(popup.layout, height);
+    updatePopupValues({
+      height,
+      imageHeight: defaults.imageHeight,
+      contentHeight: defaults.contentHeight,
+    }, popupId);
   };
 
   const updatePopupMedia = (value: string, popupId = selectedPopupId) => {
@@ -5501,6 +5534,7 @@ function Home() {
     event: React.PointerEvent<HTMLDivElement>,
     overlayId = activeTextOverlay?.id,
   ) => {
+    if ((event.target as HTMLElement).closest(".map-text-resize-handle")) return;
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const draggedOverlay = sceneTextOverlays[overlayIndex];
     if (!draggedOverlay) return;
@@ -5557,8 +5591,63 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTextOverlayResize = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    overlayId = activeTextOverlay?.id,
+  ) => {
+    if (playing || !scene || !overlayId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
+    const resizedOverlay = sceneTextOverlays[overlayIndex];
+    if (!resizedOverlay) return;
+    selectPreviewLayer("text", resizedOverlay.id);
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".map-text-overlay");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = Number.isFinite(Number(resizedOverlay.width))
+      ? Number(resizedOverlay.width)
+      : (targetBounds.width / bounds.width) * 100;
+    const startHeight = Number.isFinite(Number(resizedOverlay.height))
+      ? Number(resizedOverlay.height)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingTextOverlay(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== scene.id) return item;
+        const overlays = item.textOverlays ?? [];
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, width: Number(width.toFixed(1)), height: Number(height.toFixed(1)) }
+          : overlay);
+        const nextOverlay = nextOverlays[overlayIndex];
+        return {
+          ...item,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 && nextOverlay ? textOverlaySceneFields(nextOverlay) : {}),
+        };
+      }));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (playing || !scene || !activeSubtitle) return;
+    if (playing || !scene || !subtitlePreviewVisible) return;
+    if ((event.target as HTMLElement).closest(".subtitle-resize-handle, .subtitle-guide-toggle")) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -5606,6 +5695,40 @@ function Home() {
     const move = (moveEvent: PointerEvent) => updatePosition(moveEvent.clientX, moveEvent.clientY);
     const stop = () => {
       setDraggingSubtitle(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const startSubtitleResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (playing || !scene || !subtitlePreviewVisible) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".subtitle-layout-guide");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = subtitleStyle.boxWidth;
+    const startHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+      ? Number(subtitleStyle.boxHeight)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingSubtitleResize(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(40, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      updateSubtitleStyle("boxWidth", Number(width.toFixed(1)));
+      updateSubtitleStyle("boxHeight", Number(height.toFixed(1)));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingSubtitleResize(false);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
     };
@@ -6992,6 +7115,8 @@ function Home() {
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
+                  ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
+                  ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
@@ -7010,6 +7135,15 @@ function Home() {
                 onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
               >
                 {overlay.text}
+                {overlay.id === activeTextOverlay?.id && !playing && (
+                  <button
+                    type="button"
+                    className="map-text-resize-handle"
+                    aria-label="Kéo để thay đổi kích thước chữ viết"
+                    title="Kéo để tăng hoặc giảm chiều rộng, chiều cao"
+                    onPointerDown={(event) => startTextOverlayResize(event, overlay.id)}
+                  />
+                )}
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
@@ -7094,7 +7228,7 @@ function Home() {
                 </div>
               );
             })}
-            {activeSubtitle && (
+            {playing && activeSubtitle && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
                 role="status"
@@ -7107,6 +7241,7 @@ function Home() {
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
                   right: "auto",
                   width: `${subtitleStyle.boxWidth}%`,
+                  ...(Number.isFinite(Number(subtitleStyle.boxHeight)) ? { height: `${subtitleStyle.boxHeight}%` } : {}),
                   maxWidth: "100%",
                   boxSizing: "border-box",
                   color: colorWithAlpha(subtitleStyle.color, (subtitleStyle.opacity / 100) * subtitleAnimationOpacity, "#ffffff"),
@@ -7126,6 +7261,48 @@ function Home() {
                 }}
               >
                 {activeSubtitle.text}
+              </div>
+            )}
+            {subtitlePreviewVisible && !playing && (
+              <div
+                className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""} ${subtitleGuideVisible ? "is-labeled" : "is-label-hidden"}`}
+                style={{
+                  left: `${subtitleStyle.x}%`,
+                  top: `${subtitleStyle.y}%`,
+                  width: `${subtitleStyle.boxWidth}%`,
+                  height: `${subtitleGuideHeight}%`,
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="Vùng chỉnh sửa phụ đề. Kéo để di chuyển."
+                title="Kéo để di chuyển vùng phụ đề"
+                onPointerDown={startSubtitleDrag}
+              >
+                {subtitleGuideVisible && <span>{subtitleGuideMetrics}</span>}
+                <button
+                  type="button"
+                  className="subtitle-guide-toggle"
+                  aria-label={subtitleGuideVisible ? "Ẩn text mẫu phụ đề" : "Hiện text mẫu phụ đề"}
+                  title={subtitleGuideVisible ? "Ẩn text mẫu phụ đề" : "Hiện text mẫu phụ đề"}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSubtitleGuideVisible((visible) => !visible);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                    <circle cx="12" cy="12" r="2.2" />
+                    {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="subtitle-resize-handle"
+                  aria-label="Kéo để thay đổi kích thước phụ đề"
+                  title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
+                  onPointerDown={startSubtitleResize}
+                />
               </div>
             )}
             {playing && sceneIsVisibleInPlayback && (
@@ -7625,6 +7802,16 @@ function Home() {
                       </div>
                       <div className="field-row">
                         <label className="field">
+                          <span>Vị trí X</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Vị trí Y</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
                           <span>Chiều rộng</span>
                           <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
@@ -7860,9 +8047,30 @@ function Home() {
                       <option value="bold">Đậm</option>
                       <option value="italic">Nghiêng</option>
                       <option value="bold-italic">Đậm + nghiêng</option>
-                    </select>
-                  </label>
+                   </select>
+                 </label>
                  </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.x ?? 50} onChange={(event) => updateTextOverlay("x", clampPercent(event.target.value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.y ?? 18} onChange={(event) => updateTextOverlay("y", clampPercent(event.target.value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Chiều rộng</span>
+                    <div className="number-with-unit"><input type="number" min="4" max="100" step="0.1" value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("width", event.target.value === "" ? undefined : Math.min(100, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("height", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Kéo nút ở góc chữ để thay đổi cả chiều rộng và chiều cao. Để trống để dùng kích thước tự động.</small>
                  <div className="field-row">
                    <label className="field">
                      <span>Độ trong suốt</span>
@@ -8542,6 +8750,21 @@ function Home() {
                     <div className="number-with-unit"><input type="number" min="40" max="100" step="1" value={subtitleStyle.boxWidth} onChange={(event) => updateSubtitleStyle("boxWidth", Math.min(100, Math.max(40, Number(event.target.value) || 40)))} /><b>%</b></div>
                   </label>
                 </div>
+                <div className="field-row subtitle-style-fields subtitle-geometry-fields">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.x} onChange={(event) => updateSubtitleStyle("x", clampPercent(event.target.value, subtitleStyle.x))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.y} onChange={(event) => updateSubtitleStyle("y", clampPercent(event.target.value, subtitleStyle.y))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao khung chữ</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSubtitleStyle("boxHeight", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Chỉ hiện vùng chỉnh sửa này sau khi bấm “Xem thử”. Có thể kéo khung hoặc nhập trực tiếp X/Y, rộng/cao.</small>
                 <div className="subtitle-border-heading"><strong>Border / nền phụ đề</strong><small>Điều chỉnh viền, màu viền, độ trong suốt và nền.</small></div>
                 <div className="field-row subtitle-style-fields">
                   <label className="field">
@@ -9159,6 +9382,27 @@ function Home() {
                 </div>
                 <small>Nhập 0 để tắt viền.</small>
               </label>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Vị trí X</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.x ?? 5} onChange={(event) => updatePopup("x", clampPercent(event.target.value, activePopup?.x ?? 5))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Vị trí Y</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.y ?? 55} onChange={(event) => updatePopup("y", clampPercent(event.target.value, activePopup?.y ?? 55))} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Chiều rộng</span>
+                  <div className="number-with-unit"><input type="number" min="55" max="96" step="1" value={activePopup?.width ?? 90} onChange={(event) => updatePopup("width", Math.min(96, Math.max(55, Number(event.target.value) || 55)))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Chiều cao</span>
+                  <div className="number-with-unit"><input type="number" min="170" max="440" step="1" value={activePopup?.height ?? 255} onChange={(event) => updatePopupHeight(Number(event.target.value), activePopup?.id)} /><b>px</b></div>
+                </label>
+              </div>
+              <small className="popup-geometry-help">Kéo Popup hoặc nút ở góc để các thông số này tự cập nhật.</small>
               <label className="field popup-image-field">
                 <span>Ảnh / video popup riêng</span>
                 <input

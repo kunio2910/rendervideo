@@ -1013,10 +1013,12 @@ const createTextOverlay = async (overlay, index) => {
   const paddingX = Math.round(previewPx(9));
   const paddingY = Math.round(previewPx(5));
   const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
-  const requestedBoxWidth = Number(overlay?.boxWidth);
+  const requestedBoxWidth = Number(overlay?.boxWidth ?? overlay?.width);
+  const minimumBoxWidth = overlay?.boxWidth !== undefined ? 0.4 : 0.04;
   const boxWidth = Number.isFinite(requestedBoxWidth)
-    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, 0.4, 1))
+    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, minimumBoxWidth, 1))
     : null;
+  const requestedBoxHeight = Number(overlay?.boxHeight ?? overlay?.height);
   const maxChars = boxWidth
     ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
     : null;
@@ -1029,10 +1031,13 @@ const createTextOverlay = async (overlay, index) => {
     Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
   );
   const width = boxWidth ?? intrinsicWidth;
-  const height = Math.max(
+  const intrinsicHeight = Math.max(
     Math.round(previewPx(24)),
     Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
   );
+  const height = Number.isFinite(requestedBoxHeight)
+    ? Math.max(Math.round(previewPx(24)), Math.round(outputHeight * clamp(requestedBoxHeight / 100, 0.03, 0.4)))
+    : intrinsicHeight;
   const radius = Math.min(
     Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
     Math.floor(Math.min(width, height) / 2),
@@ -1076,6 +1081,7 @@ const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
   x: subtitleStyle.x ?? 50,
   y: subtitleStyle.y ?? 83,
   boxWidth: subtitleStyle.boxWidth ?? 84,
+  boxHeight: subtitleStyle.boxHeight,
   }, index);
 };
 
