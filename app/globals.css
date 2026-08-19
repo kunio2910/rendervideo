@@ -486,6 +486,94 @@ button { color: inherit; }
   outline-offset: 2px;
 }
 .map-text-overlay:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.map-text-overlay.is-playing.text-effect-fade,
+.map-text-overlay.is-playing.text-effect-slide-up,
+.map-text-overlay.is-playing.text-effect-slide-down,
+.map-text-overlay.is-playing.text-effect-slide-left,
+.map-text-overlay.is-playing.text-effect-slide-right,
+.map-text-overlay.is-playing.text-effect-typewriter,
+.map-text-overlay.is-playing.text-effect-word-by-word,
+.map-text-overlay.is-playing.text-effect-zoom,
+.map-text-overlay.is-playing.text-effect-pop,
+.map-text-overlay.is-playing.text-effect-glow,
+.map-text-overlay.is-playing.text-effect-letter-spacing,
+.map-text-overlay.is-playing.text-effect-blur,
+.map-text-overlay.is-playing.text-effect-highlight-sweep,
+.map-text-overlay.is-playing.text-effect-stroke-draw,
+.map-text-overlay.is-playing.text-effect-shake,
+.map-text-overlay.is-playing.text-effect-glitch,
+.map-text-overlay.is-playing.text-effect-shadow-lift,
+.map-text-overlay.is-playing.text-effect-kinetic {
+  animation-duration: var(--text-effect-duration, .6s);
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(.22, .72, .26, 1);
+}
+.map-text-overlay.is-playing.text-effect-fade { animation-name: text-effect-fade; }
+.map-text-overlay.is-playing.text-effect-slide-up { animation-name: text-effect-slide-up; }
+.map-text-overlay.is-playing.text-effect-slide-down { animation-name: text-effect-slide-down; }
+.map-text-overlay.is-playing.text-effect-slide-left { animation-name: text-effect-slide-left; }
+.map-text-overlay.is-playing.text-effect-slide-right { animation-name: text-effect-slide-right; }
+.map-text-overlay.is-playing.text-effect-typewriter,
+.map-text-overlay.is-playing.text-effect-stroke-draw { animation-name: text-effect-reveal; }
+.map-text-overlay.is-playing.text-effect-word-by-word { animation-name: text-effect-reveal; animation-timing-function: steps(5, end); }
+.map-text-overlay.is-playing.text-effect-zoom { animation-name: text-effect-zoom; }
+.map-text-overlay.is-playing.text-effect-pop { animation-name: text-effect-pop; }
+.map-text-overlay.is-playing.text-effect-glow {
+  animation-name: text-effect-glow;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.map-text-overlay.is-playing.text-effect-letter-spacing { animation-name: text-effect-letter-spacing; }
+.map-text-overlay.is-playing.text-effect-blur { animation-name: text-effect-blur; }
+.map-text-overlay.is-playing.text-effect-highlight-sweep { animation-name: text-effect-highlight; }
+.map-text-overlay.is-playing.text-effect-shake {
+  animation-name: text-effect-shake;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+.map-text-overlay.is-playing.text-effect-glitch {
+  animation-name: text-effect-glitch;
+  animation-iteration-count: infinite;
+  animation-timing-function: steps(2, end);
+}
+.map-text-overlay.is-playing.text-effect-shadow-lift { animation-name: text-effect-shadow-lift; }
+.map-text-overlay.is-playing.text-effect-kinetic {
+  animation-name: text-effect-kinetic;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.map-text-overlay.text-effect-highlight-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 25%, rgba(255,255,255,.8) 48%, transparent 70%);
+  background-size: 220% 100%;
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+.map-text-overlay.is-playing.text-effect-highlight-sweep::after {
+  opacity: .9;
+  animation: text-effect-highlight-sweep var(--text-effect-duration, .6s) ease-out both;
+}
+@keyframes text-effect-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes text-effect-slide-up { from { opacity: 0; transform: translate(-50%, -50%) translateY(34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-down { from { opacity: 0; transform: translate(-50%, -50%) translateY(-34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-left { from { opacity: 0; transform: translate(-50%, -50%) translateX(34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-right { from { opacity: 0; transform: translate(-50%, -50%) translateX(-34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-reveal { from { opacity: 0; clip-path: inset(0 100% 0 0); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+@keyframes text-effect-zoom { from { opacity: 0; transform: translate(-50%, -50%) scale(.72); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes text-effect-pop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.72); } 70% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes text-effect-glow { 0%, 100% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 4px currentColor; } 50% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 18px currentColor, 0 0 30px currentColor; } }
+@keyframes text-effect-letter-spacing { from { letter-spacing: .45em; opacity: .35; } to { letter-spacing: 0; opacity: 1; } }
+@keyframes text-effect-blur { from { opacity: .25; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
+@keyframes text-effect-highlight { from { filter: brightness(.8); } 50% { filter: brightness(1.4); } to { filter: brightness(1); } }
+@keyframes text-effect-highlight-sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+@keyframes text-effect-shake { 0%, 100% { transform: translate(-50%, -50%); } 25% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)); } 50% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)); } 75% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)); } }
+@keyframes text-effect-glitch { 0%, 100% { transform: translate(-50%, -50%); text-shadow: 0 2px 5px rgba(0,0,0,.72); } 25% { transform: translate(calc(-50% + 2px), -50%); text-shadow: -2px 0 #ff3b81, 2px 0 #31d8ff; } 50% { transform: translate(calc(-50% - 2px), -50%); clip-path: inset(8% 0 56% 0); } 75% { transform: translate(-50%, calc(-50% + 1px)); clip-path: inset(0); } }
+@keyframes text-effect-shadow-lift { from { text-shadow: 0 2px 5px rgba(0,0,0,.72); } to { text-shadow: 0 13px 16px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.72); } }
+@keyframes text-effect-kinetic { 0%, 100% { transform: translate(-50%, -50%) rotate(0); } 50% { transform: translate(-50%, calc(-50% - 5px)) rotate(-1deg); } }
 .map-text-resize-handle {
   position: absolute;
   right: -7px;
@@ -2310,6 +2398,61 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+.editor-panel-heading {
+  height: auto;
+  min-height: 34px;
+  flex-wrap: wrap;
+  row-gap: 7px;
+}
+.editor-section-shortcuts {
+  order: 3;
+  flex: 0 0 100%;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 0 2px;
+  scrollbar-width: thin;
+}
+.editor-section-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 7px 3px 4px;
+  border: 1px solid var(--studio-line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--studio-muted);
+  cursor: pointer;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.editor-section-shortcut span {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--studio-line);
+  color: var(--studio-muted);
+  font: 700 8px var(--font-mono);
+}
+.editor-section-shortcut b { font-weight: 650; }
+.editor-section-shortcut:hover,
+.editor-section-shortcut:focus-visible,
+.editor-section-shortcut.active {
+  border-color: var(--blue);
+  color: var(--blue-deep);
+  background: var(--blue-soft);
+}
+.editor-section-shortcut.active span,
+.editor-section-shortcut:hover span,
+.editor-section-shortcut:focus-visible span {
+  background: var(--blue);
+  color: white;
 }
 .quick-scene-duration {
   display: inline-flex;
@@ -5248,7 +5391,7 @@ body {
 .scene-image-transition-row { align-items: start; }
 .scene-image-transition-field { min-width: 0; }
 .scene-image-transition-field small,
-.scene-image-transition-duration-field small {
+.scene-image-transition-end-field small {
   display: block;
   min-height: 26px;
   margin-top: 5px;
@@ -5256,7 +5399,7 @@ body {
   font-size: 10px;
   line-height: 1.35;
 }
-.scene-image-transition-duration-field { min-width: 132px; }
+.scene-image-transition-end-field { min-width: 132px; }
 .scene-image-fade-black {
   position: absolute;
   inset: 0;
@@ -6822,6 +6965,29 @@ body {
   background: rgba(3, 8, 14, .84);
 }
 
+.studio-shell[data-theme="dark"] .editor-section-shortcut {
+  border-color: #344457;
+  background: #182432;
+  color: #aebed0;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut span {
+  background: #26374b;
+  color: #b8c8db;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut:hover,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:focus-visible,
+.studio-shell[data-theme="dark"] .editor-section-shortcut.active {
+  border-color: #087cff;
+  background: #163357;
+  color: #78b9ff;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut.active span,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:hover span,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:focus-visible span {
+  background: #087cff;
+  color: white;
+}
+
 .studio-shell[data-theme="dark"] .subtitle-track .subtitle-clip {
   background: #5b421d;
   color: #ffe2a1;
@@ -7310,6 +7476,178 @@ body {
   inset: 0;
   pointer-events: none;
   overflow: hidden;
+}
+
+.scene-start-dark-effect {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 0%,
+    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 42%,
+    rgba(0, 0, 0, var(--scene-start-dark-edge-opacity, 0)) 100%
+  );
+  -webkit-backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+}
+
+.scene-start-dark-effect::before {
+  position: absolute;
+  inset: -12px;
+  content: "";
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0%,
+    transparent var(--scene-start-dark-clear-radius, 145%),
+    #000 calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
+    #000 100%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0%,
+    transparent var(--scene-start-dark-clear-radius, 145%),
+    #000 calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
+    #000 100%
+  );
+}
+
+.scene-start-dark-effect-card {
+  border-color: rgba(68, 53, 37, .24);
+  background: linear-gradient(145deg, #211c18, #473528);
+}
+
+.scene-start-dark-effect-card .scene-visual-effect-heading strong,
+.scene-start-dark-effect-card .scene-visual-effect-heading span {
+  color: #fff2df;
+}
+
+.scene-start-dark-effect-card .scene-visual-effect-heading span {
+  color: #d9c4a8;
+}
+
+.studio-shell[data-theme="dark"] .scene-start-dark-effect-card {
+  border-color: #4c3d31;
+  background: linear-gradient(145deg, #171a1e, #2b241e);
+}
+
+.scene-start-dark-duration-field > span {
+  color: #d9c4a8;
+}
+
+.scene-start-dark-panel-heading {
+  align-items: flex-start;
+}
+.scene-start-dark-panel-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.scene-start-dark-add {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding-inline: 9px;
+  border-color: rgba(255, 224, 180, .55);
+  color: #fff2df;
+  background: rgba(255, 255, 255, .1);
+}
+.scene-start-dark-add:hover,
+.scene-start-dark-add:focus-visible {
+  color: #211c18;
+  background: #ffe0b4;
+}
+.scene-start-dark-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.scene-start-dark-effect-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 224, 180, .26);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, .16);
+}
+.scene-start-dark-effect-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #fff2df;
+  font-size: 11px;
+}
+.scene-start-dark-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid rgba(255, 188, 176, .48);
+  border-radius: 6px;
+  color: #ffd0c7;
+  background: rgba(120, 24, 26, .28);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.scene-start-dark-delete:hover,
+.scene-start-dark-delete:focus-visible {
+  color: #fff;
+  background: #a9433a;
+}
+.scene-start-dark-time-row {
+  margin: 0;
+}
+.scene-start-dark-effect-item .field > span {
+  color: #d9c4a8;
+}
+.scene-start-dark-empty {
+  padding: 12px;
+  border: 1px dashed rgba(255, 224, 180, .42);
+  border-radius: 8px;
+  color: #d9c4a8;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.studio-shell[data-theme="dark"] .scene-start-dark-effect-item {
+  border-color: #4c3d31;
+  background: rgba(0, 0, 0, .2);
+}
+
+/* Keep the compose editor scrollable even when a long accordion is open. */
+@media (min-width: 761px) {
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll::-webkit-scrollbar-thumb {
+    cursor: grab;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll::-webkit-scrollbar-thumb:active {
+    cursor: grabbing;
+  }
 }
 
 .light-flicker-effect {
@@ -8344,3 +8682,49 @@ body {
   height: auto !important;
   aspect-ratio: 9 / 16;
 }
+
+/* Keep the editor panel independently scrollable on narrow touch screens too.
+   The three-column workspace remains horizontally scrollable, while a long
+   open section can still be dragged vertically inside the editor panel. */
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+}
+
+/* Keep the editor quick links compact and wrap them instead of showing a horizontal scrollbar. */
+.editor-section-shortcuts {
+  flex-wrap: wrap;
+  column-gap: 3px;
+  row-gap: 3px;
+  overflow-x: hidden;
+}
+.editor-section-shortcut {
+  gap: 3px;
+  min-height: 21px;
+  padding: 2px 5px 2px 3px;
+  font-size: 8px;
+  line-height: 1.1;
+}
+.editor-section-shortcut span {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  font-size: 7px;
+}
+.editor-section-shortcut b { font-weight: 600; }

@@ -90,11 +90,28 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const textOverlayEffectValues = [
+  "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right",
+  "typewriter", "zoom", "pop", "glow", "letter-spacing", "blur",
+  "highlight-sweep", "stroke-draw", "shake", "glitch", "shadow-lift",
+  "word-by-word", "kinetic",
+];
+const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(String(value))
+  ? String(value)
+  : "none";
 const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
 const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
+const sceneImageTransitionEnd = (image) => {
+  const start = Math.max(0, Number(image?.start ?? 0) || 0);
+  const legacyDuration = Math.max(0.1, Number(image?.transitionDuration ?? 0.5) || 0.5);
+  const end = Number.isFinite(Number(image?.transitionEnd))
+    ? Number(image.transitionEnd)
+    : start + legacyDuration;
+  return Math.max(start + 0.1, end);
+};
 const sceneImageTransitionDuration = (image) => normalizeSceneImageTransition(image?.transition) === "cut"
   ? 0
-  : clamp(Number(image?.transitionDuration ?? 0.5) || 0.5, 0.1, 1.5);
+  : Math.max(0.1, sceneImageTransitionEnd(image) - Math.max(0, Number(image?.start ?? 0) || 0));
 const sceneImageTransitionNeedsOverlap = (transition) =>
   transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
@@ -137,7 +154,33 @@ const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
 };
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
+  const legacyDarkEffect = {
+    id: "scene-dark-1",
+    enabled: raw.sceneStartDarkEnabled === true,
+    start: 0,
+    end: Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2),
+    intensity: clamp(Number(raw.sceneStartDarkIntensity ?? 0) || 0, 0, 100),
+  };
+  const darkEffects = Array.isArray(raw.sceneStartDarkEffects)
+    ? raw.sceneStartDarkEffects.map((item, index) => {
+        const dark = item && typeof item === "object" ? item : {};
+        const start = Math.min(3599.9, Math.max(0, Number(dark.start ?? 0) || 0));
+        const end = Math.min(3600, Math.max(start + 0.1, Number(dark.end ?? start + 1.2) || start + 1.2));
+        return {
+          id: String(dark.id ?? `scene-dark-${index + 1}`),
+          enabled: dark.enabled !== false,
+          start,
+          end,
+          intensity: clamp(Number(dark.intensity ?? 0) || 0, 0, 100),
+        };
+      })
+    : [legacyDarkEffect];
+  const firstDarkEffect = darkEffects[0] ?? legacyDarkEffect;
   return {
+    sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+    sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
+    sceneStartDarkIntensity: firstDarkEffect.intensity,
+    sceneStartDarkEffects: darkEffects,
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
     snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
@@ -1013,6 +1056,7 @@ const createTextOverlay = async (overlay, index) => {
   const borderWidth = Math.round(previewPx(clamp(Number(overlay?.borderWidth ?? 0), 0, 12)));
   const textOpacity = clamp(Number(overlay?.opacity ?? 100) / 100, 0, 1);
   const borderOpacity = clamp(Number(overlay?.borderOpacity ?? 100) / 100, 0, 1);
+  const textEffect = normalizeTextOverlayEffect(overlay?.textEffect ?? overlay?.overlayTextEffect);
   const color = decorationColor(overlay?.color, "#ffffff");
   const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
   const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
@@ -1051,14 +1095,21 @@ const createTextOverlay = async (overlay, index) => {
   );
   const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
   const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  const letterSpacing = textEffect === "letter-spacing" ? Math.round(previewPx(5)) : 0;
   const textNodes = lines.map((line, lineIndex) => {
     const y = paddingY + size * 0.86 + lineIndex * lineHeight;
-    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
+    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
   }).join("");
+  const shadowNodes = textEffect === "shadow-lift"
+    ? lines.map((line, lineIndex) => {
+        const y = paddingY + size * 0.86 + lineIndex * lineHeight + Math.max(2, Math.round(previewPx(7)));
+        return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="#000000" fill-opacity="0.38">${escapeXml(line)}</text>`;
+      }).join("")
+    : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
-      ${textNodes}
+      ${shadowNodes}${textNodes}
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
@@ -1171,7 +1222,12 @@ for (let index = 0; index < scenes.length; index += 1) {
     const image = sceneImageScenes[imageIndex];
     if (!image) return 0;
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
-    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const baseEnd = imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1);
+    const imageTransition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = imageTransition === "cut"
+      ? imageStart
+      : sceneImageTransitionEnd(image);
+    const imageEnd = Math.min(duration, Math.max(baseEnd, ownTransitionEnd));
     const nextImage = sceneImageScenes[imageIndex + 1];
     if (!nextImage) return imageEnd;
     const nextStart = Math.min(duration, Math.max(0, Number(nextImage.start ?? 0) || 0));
@@ -1235,6 +1291,10 @@ for (let index = 0; index < scenes.length; index += 1) {
           borderColor: scene.overlayTextBorderColor,
           borderOpacity: 100,
           borderFill: "#14202e",
+          textEffect: scene.overlayTextEffect,
+          textEffectDuration: scene.overlayTextEffectDuration,
+          start: scene.overlayTextStart,
+          end: scene.overlayTextEnd,
           x: scene.overlayTextX,
           y: scene.overlayTextY,
         }]
@@ -1395,8 +1455,82 @@ for (let index = 0; index < scenes.length; index += 1) {
     const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const textStart = Math.min(duration, Math.max(0, Number(overlay.start) || 0));
+    const textEnd = Math.min(
+      duration,
+      Math.max(textStart + 0.1, Number(overlay.end) || duration),
+    );
+    const textSpan = Math.max(0.1, textEnd - textStart);
+    const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
+    const effectDuration = clamp(
+      Number(overlay.textEffectDuration ?? overlay.overlayTextEffectDuration ?? 0.6) || 0.6,
+      0.05,
+      textSpan,
+    );
+    const progress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
+    const geqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+    const inputIndex = textInputIndices[textIndex];
+    const inputLabel = `textInput${textIndex}`;
     const outputLabel = `texted${textIndex}`;
-    filter += `${composedLabel}[${textInputIndices[textIndex]}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    let overlayInputLabel = inputLabel;
+    const textValue = String(overlay.text ?? "");
+    const wordCount = Math.max(1, textValue.trim().split(/\s+/).filter(Boolean).length);
+    if (effect === "glow") {
+      const sharpLabel = `textSharp${textIndex}`;
+      const glowSourceLabel = `textGlowSource${textIndex}`;
+      const glowLabel = `textGlow${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
+      filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
+      filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
+    } else if (effect === "blur") {
+      const sharpLabel = `textBlurSharp${textIndex}`;
+      const blurSourceLabel = `textBlurSource${textIndex}`;
+      const blurLabel = `textBlurred${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
+      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=${textStart}:d=${effectDuration}:alpha=1[${blurLabel}];`;
+      filter += `[${sharpLabel}][${blurLabel}]overlay=0:0[${inputLabel}];`;
+    } else {
+      let inputFilter = `[${inputIndex}:v]format=rgba`;
+      if (effect === "fade") {
+        const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
+        inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
+      } else if (effect === "typewriter" || effect === "stroke-draw") {
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${geqProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "word-by-word") {
+        const wordProgress = `floor(${geqProgress}*${wordCount})/${wordCount}`;
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${wordProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "highlight-sweep") {
+        inputFilter += `,eq=brightness='0.08*sin(2*PI*(t-${textStart})/${effectDuration})'`;
+      } else if (effect === "glitch") {
+        inputFilter += ",noise=alls=4:allf=t+u";
+      }
+      if (effect === "zoom") {
+        inputFilter += `,scale=w='iw*(0.78+0.22*${progress})':h='ih*(0.78+0.22*${progress})':eval=frame`;
+      } else if (effect === "pop") {
+        inputFilter += `,scale=w='iw*(0.82+0.18*${progress})':h='ih*(0.82+0.18*${progress})':eval=frame`;
+      }
+      filter += `${inputFilter}[${inputLabel}];`;
+    }
+    const baseX = `main_w*${x}-overlay_w/2`;
+    const baseY = `main_h*${y}-overlay_h/2`;
+    const slideDistance = "main_w*0.12";
+    let overlayX = baseX;
+    let overlayY = baseY;
+    if (effect === "slide-left") overlayX = `${baseX}-${slideDistance}*(1-${progress})`;
+    if (effect === "slide-right") overlayX = `${baseX}+${slideDistance}*(1-${progress})`;
+    if (effect === "slide-up") overlayY = `${baseY}+main_h*0.08*(1-${progress})`;
+    if (effect === "slide-down") overlayY = `${baseY}-main_h*0.08*(1-${progress})`;
+    if (effect === "shake") {
+      overlayX = `${baseX}+sin((t-${textStart})*48)*${Math.max(1, Math.round(previewPx(2)))}`;
+      overlayY = `${baseY}+cos((t-${textStart})*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
+    }
+    if (effect === "glitch") {
+      overlayX = `${baseX}+if(lt(mod((t-${textStart})*12,2),1),${Math.max(1, Math.round(previewPx(2)))},-${Math.max(1, Math.round(previewPx(2)))})`;
+    }
+    if (effect === "kinetic") {
+      overlayY = `${baseY}+sin((t-${textStart})*2.8)*main_h*0.012`;
+    }
+    filter += `${composedLabel}[${overlayInputLabel}]overlay=x='${overlayX}':y='${overlayY}':enable='between(t,${textStart},${textEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   };
   const appendSceneImageLayer = (imageIndex) => {
@@ -1665,6 +1799,46 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
     composedLabel = `[${fadeLabel}]`;
   });
+  sceneEffects.sceneStartDarkEffects
+    .filter((darkEffect) => darkEffect.enabled)
+    .forEach((darkEffect, darkIndex) => {
+      const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
+      if (darkStart >= duration) return;
+      const darkEnd = Math.min(
+        duration,
+        Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
+      );
+      const darkDuration = Math.max(0.1, darkEnd - darkStart);
+      const darkHalfDuration = Math.max(0.05, darkDuration / 2);
+      const darkProgress = `if(lt(T,${darkStart}),0,if(lt(T,${darkStart + darkHalfDuration}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0)))`;
+      const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
+      const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
+      const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
+      const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
+      const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
+      const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
+      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.18)/0.82),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
+      const darkMaskExpression = `255*${darkCoverageExpression}`;
+      const darkAlphaExpression = `255*${darkStrength}*${darkCoverageExpression}`;
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
+        `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+      );
+      filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
+      filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
+      filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
+      filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
+      composedLabel = `[${darkMixedLabel}]`;
+      const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkLabel = `sceneStartDarkened${darkIndex}`;
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+        `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
+      );
+      filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
+      composedLabel = `[${darkLabel}]`;
+    });
   filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",

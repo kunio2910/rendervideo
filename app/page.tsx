@@ -22,6 +22,56 @@ import { parseSubtitleFileText } from "./lib/subtitles";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
+type TextOverlayEffect =
+  | "none"
+  | "fade"
+  | "slide-up"
+  | "slide-down"
+  | "slide-left"
+  | "slide-right"
+  | "typewriter"
+  | "zoom"
+  | "pop"
+  | "glow"
+  | "letter-spacing"
+  | "blur"
+  | "highlight-sweep"
+  | "stroke-draw"
+  | "shake"
+  | "glitch"
+  | "shadow-lift"
+  | "word-by-word"
+  | "kinetic";
+
+const TEXT_OVERLAY_EFFECT_OPTIONS: Array<{ value: TextOverlayEffect; label: string }> = [
+  { value: "none", label: "Không hiệu ứng" },
+  { value: "fade", label: "Fade in / out" },
+  { value: "slide-up", label: "Trượt lên" },
+  { value: "slide-down", label: "Trượt xuống" },
+  { value: "slide-left", label: "Trượt sang trái" },
+  { value: "slide-right", label: "Trượt sang phải" },
+  { value: "typewriter", label: "Gõ từng ký tự" },
+  { value: "word-by-word", label: "Hiện từng từ" },
+  { value: "zoom", label: "Zoom vào" },
+  { value: "pop", label: "Pop / Bounce" },
+  { value: "glow", label: "Glow pulse" },
+  { value: "letter-spacing", label: "Giãn khoảng cách chữ" },
+  { value: "blur", label: "Nhòe → rõ nét" },
+  { value: "highlight-sweep", label: "Vệt sáng quét" },
+  { value: "stroke-draw", label: "Vẽ nét viền" },
+  { value: "shake", label: "Rung nhẹ" },
+  { value: "glitch", label: "Glitch" },
+  { value: "shadow-lift", label: "Nâng bóng đổ" },
+  { value: "kinetic", label: "Kinetic text" },
+];
+
+const normalizeTextOverlayEffect = (value: unknown): TextOverlayEffect => {
+  const effect = String(value ?? "none");
+  return TEXT_OVERLAY_EFFECT_OPTIONS.some((option) => option.value === effect)
+    ? effect as TextOverlayEffect
+    : "none";
+};
+
 type TextOverlay = {
   id: string;
   name: string;
@@ -39,6 +89,10 @@ type TextOverlay = {
   borderColor: string;
   borderOpacity: number;
   borderFill: string;
+  textEffect: TextOverlayEffect;
+  textEffectDuration: number;
+  start: number;
+  end: number;
   x: number;
   y: number;
   width?: number;
@@ -47,7 +101,7 @@ type TextOverlay = {
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration" | "start" | "end"> & {
   boxWidth: number;
   boxHeight?: number;
   animation: SubtitleAnimation;
@@ -113,7 +167,7 @@ type SceneImage = {
   start: number;
   duration: number;
   transition: SceneImageTransition;
-  transitionDuration: number;
+  transitionEnd: number;
   visible: boolean;
   editorVisible: boolean;
 };
@@ -188,6 +242,8 @@ type Scene = {
   overlayTextStrokeColor: string;
   overlayTextBorderWidth: number;
   overlayTextBorderColor: string;
+  overlayTextStart?: number;
+  overlayTextEnd?: number;
   overlayTextX: number;
   overlayTextY: number;
   textOverlays: TextOverlay[];
@@ -223,7 +279,19 @@ type Scene = {
   status: "Nháp" | "Đã duyệt";
 };
 
+type SceneDarkEffect = {
+  id: string;
+  enabled: boolean;
+  start: number;
+  end: number;
+  intensity: number;
+};
+
 type SceneEffects = {
+  sceneStartDarkEnabled: boolean;
+  sceneStartDarkDuration: number;
+  sceneStartDarkIntensity: number;
+  sceneStartDarkEffects: SceneDarkEffect[];
   snowEnabled: boolean;
   snowIntensity: number;
   snowSpeed: number;
@@ -241,7 +309,23 @@ type SceneEffects = {
   cloudSpeed: number;
 };
 
+const defaultSceneDarkEffect = (
+  id = "scene-dark-1",
+  overrides: Partial<SceneDarkEffect> = {},
+): SceneDarkEffect => ({
+  id,
+  enabled: false,
+  start: 0,
+  end: 1.2,
+  intensity: 0,
+  ...overrides,
+});
+
 const defaultSceneEffects = (): SceneEffects => ({
+  sceneStartDarkEnabled: false,
+  sceneStartDarkDuration: 1.2,
+  sceneStartDarkIntensity: 0,
+  sceneStartDarkEffects: [defaultSceneDarkEffect()],
   snowEnabled: false,
   snowIntensity: 55,
   snowSpeed: 1,
@@ -674,6 +758,20 @@ type EditorSectionState = {
 
 type EditorSectionKey = keyof EditorSectionState;
 
+const EDITOR_SECTION_SHORTCUTS: Array<{
+  key: EditorSectionKey;
+  number: string;
+  label: string;
+}> = [
+  { key: "visual", number: "01", label: "Hình & nền" },
+  { key: "content", number: "02", label: "Nội dung" },
+  { key: "images", number: "03", label: "Hình ảnh" },
+  { key: "text", number: "04", label: "Chữ viết" },
+  { key: "audio", number: "05", label: "Âm thanh" },
+  { key: "effects", number: "06", label: "Hiệu ứng" },
+  { key: "popup", number: "07", label: "Popup" },
+];
+
 type EditorSectionClipboard =
   | {
       section: "visual";
@@ -726,12 +824,12 @@ type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
-  content: true,
-  audio: true,
-  effects: true,
-  popup: true,
-  text: true,
-  images: true,
+  content: false,
+  audio: false,
+  effects: false,
+  popup: false,
+  text: false,
+  images: false,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -788,10 +886,21 @@ const normalizeSceneImageTransition = (value: unknown): SceneImageTransition => 
   return sceneImageTransitionOptions.some((option) => option.value === transition) ? transition : "cut";
 };
 
-const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "transitionDuration">) =>
+const sceneImageTransitionEnd = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
+  normalizeSceneImageTransition(image.transition) === "cut"
+    ? Math.max(0, positiveNumber(image.start, 0))
+    : Math.max(
+        Math.max(0, positiveNumber(image.start, 0)) + 0.1,
+        positiveNumber(image.transitionEnd, 0.5, 0.1),
+      );
+
+const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
   normalizeSceneImageTransition(image.transition) === "cut"
     ? 0
-    : Math.min(1.5, Math.max(0.1, positiveNumber(image.transitionDuration, 0.5, 0.1)));
+    : Math.max(
+        0.1,
+        sceneImageTransitionEnd(image) - Math.max(0, positiveNumber(image.start, 0)),
+      );
 
 const sceneImageTransitionNeedsOverlap = (transition: SceneImageTransition) =>
   transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
@@ -835,7 +944,7 @@ const defaultSceneImage = (
   start: 0,
   duration: 5,
   transition: "cut",
-  transitionDuration: 0.5,
+  transitionEnd: 0.5,
   visible: true,
   editorVisible: true,
   ...overrides,
@@ -854,6 +963,19 @@ const normalizeSceneImage = (
     : base.shape;
   const url = String(raw.url ?? raw.asset ?? raw.image ?? raw.video ?? base.url);
   const mediaType = raw.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  const start = Math.max(0, positiveNumber(raw.start, base.start));
+  const legacyTransitionDuration = Math.max(
+    0.1,
+    positiveNumber(
+      raw.transitionDuration,
+      Math.max(0.1, base.transitionEnd - base.start),
+      0.1,
+    ),
+  );
+  const transitionEnd = Math.max(
+    start + 0.1,
+    positiveNumber(raw.transitionEnd, start + legacyTransitionDuration),
+  );
   return {
     ...base,
     id: String(raw.id ?? base.id),
@@ -874,10 +996,10 @@ const normalizeSceneImage = (
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
     borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
-    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    start,
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
     transition: normalizeSceneImageTransition(raw.transition ?? base.transition),
-    transitionDuration: Math.min(1.5, Math.max(0.1, positiveNumber(raw.transitionDuration, base.transitionDuration, 0.1))),
+    transitionEnd,
     visible: raw.visible !== false,
     editorVisible: raw.editorVisible !== false,
   };
@@ -911,6 +1033,10 @@ const defaultTextOverlay = (
   borderColor: "#ffffff",
   borderOpacity: 100,
   borderFill: "#14202e",
+  textEffect: "none",
+  textEffectDuration: 0.6,
+  start: 0,
+  end: 3600,
   x: 50,
   y: 18,
   ...overrides,
@@ -1106,6 +1232,13 @@ const normalizeTextOverlay = (
     borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
     borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity ?? raw.overlayTextBorderOpacity, base.borderOpacity))),
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
+    textEffect: normalizeTextOverlayEffect(raw.textEffect ?? raw.overlayTextEffect ?? base.textEffect),
+    textEffectDuration: Math.min(8, Math.max(0.05, positiveNumber(raw.textEffectDuration ?? raw.overlayTextEffectDuration, base.textEffectDuration, 0.05))),
+    start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
+    end: Math.min(3600, Math.max(
+      Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
+      positiveNumber(raw.end ?? raw.overlayTextEnd, base.end, 0.1),
+    )),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
     ...(Number.isFinite(Number(raw.width ?? fallback.width))
@@ -1124,7 +1257,33 @@ const clampVolume = (value: unknown, fallback = 100) => {
 
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
+  const legacyDarkEffect = defaultSceneDarkEffect("scene-dark-1", {
+    enabled: raw.sceneStartDarkEnabled === true,
+    start: 0,
+    end: positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1),
+    intensity: positiveNumber(raw.sceneStartDarkIntensity, 0),
+  });
+  const rawDarkEffects = Array.isArray(raw.sceneStartDarkEffects)
+    ? raw.sceneStartDarkEffects.map((item, index) => {
+        const dark = isRecord(item) ? item : {};
+        const start = Math.min(3599.9, Math.max(0, positiveNumber(dark.start, 0)));
+        const end = Math.min(3600, Math.max(start + 0.1, positiveNumber(dark.end, start + 1.2, 0.1)));
+        return {
+          ...defaultSceneDarkEffect(`scene-dark-${index + 1}`),
+          id: String(dark.id ?? `scene-dark-${index + 1}`),
+          enabled: dark.enabled !== false,
+          start,
+          end,
+          intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
+        };
+      })
+    : [legacyDarkEffect];
+  const firstDarkEffect = rawDarkEffects[0] ?? legacyDarkEffect;
   return {
+    sceneStartDarkEnabled: rawDarkEffects.some((effect) => effect.enabled),
+    sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
+    sceneStartDarkIntensity: firstDarkEffect.intensity,
+    sceneStartDarkEffects: rawDarkEffects,
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
     snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
@@ -1145,15 +1304,30 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
 
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
-): EditorSectionState => ({
-  visual: sections?.visual ?? DEFAULT_EDITOR_SECTIONS.visual,
-  content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
-  audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
-  effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
-  popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
-  text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
-  images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
-});
+): EditorSectionState => {
+  const source = sections ?? DEFAULT_EDITOR_SECTIONS;
+  const firstOpen = (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+    .find((section) => source[section] === true);
+  return firstOpen
+    ? {
+        visual: firstOpen === "visual",
+        content: firstOpen === "content",
+        audio: firstOpen === "audio",
+        effects: firstOpen === "effects",
+        popup: firstOpen === "popup",
+        text: firstOpen === "text",
+        images: firstOpen === "images",
+      }
+    : {
+        visual: false,
+        content: false,
+        audio: false,
+        effects: false,
+        popup: false,
+        text: false,
+        images: false,
+      };
+};
 
 const popupDimensionLayout = (value: unknown): NonNullable<Scene["popupLayout"]> =>
   ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
@@ -1296,6 +1470,10 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextStrokeColor: overlay.strokeColor,
   overlayTextBorderWidth: overlay.borderWidth,
   overlayTextBorderColor: overlay.borderColor,
+  overlayTextEffect: overlay.textEffect,
+  overlayTextEffectDuration: overlay.textEffectDuration,
+  overlayTextStart: overlay.start,
+  overlayTextEnd: overlay.end,
   overlayTextX: overlay.x,
   overlayTextY: overlay.y,
 });
@@ -1398,6 +1576,8 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
             strokeColor: (item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor,
             borderWidth: (item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth,
             borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
+            start: (item as Scene & { overlayTextStart?: unknown }).overlayTextStart,
+            end: (item as Scene & { overlayTextEnd?: unknown }).overlayTextEnd,
             x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
             y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
           }, `${id}-text-1`, { name: "Chữ 1" })]
@@ -2319,6 +2499,47 @@ function Home() {
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
+  const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  const activeEditorSectionRef = useRef<EditorSectionKey | null>(
+    (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+      .find((section) => DEFAULT_EDITOR_SECTIONS[section]) ?? null,
+  );
+  useEffect(() => {
+    activeEditorSectionRef.current = (Object.keys(editorSections) as EditorSectionKey[])
+      .find((section) => editorSections[section]) ?? null;
+  }, [editorSections]);
+  const setEditorSectionOpen = (section: EditorSectionKey, open: boolean) => {
+    if (open) {
+      activeEditorSectionRef.current = section;
+      editorScrollRef.current?.querySelectorAll<HTMLDetailsElement>(
+        "details.editor-accordion[open]",
+      ).forEach((item) => {
+        if (item.dataset.editorSection !== section) item.open = false;
+      });
+      setEditorSections(normalizeEditorSections({ [section]: true }));
+      return;
+    }
+    if (activeEditorSectionRef.current !== section) return;
+    activeEditorSectionRef.current = null;
+    setEditorSections((items) => normalizeEditorSections({
+      ...items,
+      [section]: false,
+    }));
+  };
+  const focusEditorSection = (section: EditorSectionKey) => {
+    setEditorSectionOpen(section, true);
+    window.setTimeout(() => {
+      const target = editorScrollRef.current?.querySelector<HTMLDetailsElement>(
+        `details[data-editor-section="${section}"]`,
+      );
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("timeline-focus");
+      window.setTimeout(() => {
+        target.classList.remove("timeline-focus");
+      }, 1300);
+    }, 40);
+  };
   const [playing, setPlaying] = useState(false);
   const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
@@ -2359,6 +2580,8 @@ function Home() {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
+  const [sceneImageTransitionEndDrafts, setSceneImageTransitionEndDrafts] = useState<Record<string, string>>({});
+  const [textOverlayTimingDrafts, setTextOverlayTimingDrafts] = useState<Record<string, string>>({});
   const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
     imageId: string;
     status: "idle" | "processing" | "success" | "error";
@@ -2559,6 +2782,9 @@ function Home() {
   const activeSceneImageSpriteDelayInput = activeSceneImage
     ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
     : "";
+  const activeSceneImageTransitionEndInput = activeSceneImage
+    ? sceneImageTransitionEndDrafts[activeSceneImage.id] ?? String(activeSceneImage.transitionEnd)
+    : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
@@ -2631,9 +2857,38 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
+  const sceneStartDarkEffectProgress = (effect: SceneDarkEffect) => {
+    const start = Math.max(0, Number(effect.start) || 0);
+    const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+    const phase = Math.min(1, Math.max(0, (sceneLocalTime - start) / (end - start)));
+    return phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
+  };
+  const sceneStartDarkOverlayItems = sceneStartDarkEffects
+    .filter((effect) => {
+      const start = Math.max(0, Number(effect.start) || 0);
+      const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+      return effect.enabled && sceneLocalTime >= start && sceneLocalTime < end;
+    })
+    .map((effect) => {
+      const progress = sceneStartDarkEffectProgress(effect);
+      const strength = 1 - Math.min(100, Math.max(0, Number(effect.intensity) || 0)) / 100;
+      return {
+        effect,
+        clearRadius: Math.max(0, 145 * (1 - progress)),
+        edgeOpacity: Math.min(1, progress * 1.35 * strength),
+        centerOpacity: Math.min(1, Math.max(0, (progress - 0.18) / 0.82) * strength),
+        blur: Math.round(progress * 12),
+      };
+    });
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
-    const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+    const baseEnd = start + Math.max(0.1, Number(image.duration) || 0.1);
+    const transition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = transition === "cut"
+      ? start
+      : sceneImageTransitionEnd(image);
+    const end = Math.min(sceneDuration, Math.max(baseEnd, ownTransitionEnd));
     const nextImage = sceneImages[imageIndex + 1];
     if (!nextImage) return { start, end };
     const nextStart = Math.min(sceneDuration, Math.max(0, Number(nextImage.start) || 0));
@@ -2681,6 +2936,27 @@ function Home() {
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
+  const textOverlayTiming = (overlay: TextOverlay) => {
+    const start = Math.min(sceneDuration, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(
+      sceneDuration,
+      Math.max(start + 0.1, Number(overlay.end) || sceneDuration),
+    );
+    return { start, end };
+  };
+  const previewTextOverlayItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneTextOverlays.filter((overlay) => {
+          const { start, end } = textOverlayTiming(overlay);
+          return overlay.visible !== false
+            && safeTrim(overlay.text)
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneTextOverlays.filter((overlay) =>
+          overlay.editorVisible !== false && overlay.visible !== false && safeTrim(overlay.text),
+        )
+    : [];
   const popupHasMediaInput = (popup: PopupConfig) =>
     (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
     || Boolean(safeTrim(popup.video));
@@ -2772,8 +3048,7 @@ function Home() {
     : null;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
     const candidates: PreviewLayerItem[] = [
-      ...sceneTextOverlays
-        .filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false) && safeTrim(overlay.text))
+      ...previewTextOverlayItems
         .map((overlay, index) => ({
           token: previewLayerToken("text", overlay.id),
           kind: "text" as const,
@@ -2827,14 +3102,17 @@ function Home() {
     previewDecorationItems,
     previewPopupItems,
     previewSceneImageItems,
+    previewTextOverlayItems,
     scene.layerOrder,
     scene.subtitleEnabled,
     scene.subtitles,
-    sceneTextOverlays,
   ]);
   const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
-    return 10 + (index < 0 ? previewLayerItems.length : index);
+    const baseIndex = 10 + (index < 0 ? previewLayerItems.length : index);
+    if (kind === "text") return 100 + baseIndex;
+    if (kind === "subtitle") return 200 + baseIndex;
+    return baseIndex;
   };
   const explicitlySelectedPreviewLayerToken = selectedPopupId
     ? previewLayerToken("popup", selectedPopupId)
@@ -3528,6 +3806,14 @@ function Home() {
       setPlayTime(item.start);
     }
     setPlaying(false);
+    setEditorSectionOpen(
+      targetId === "editor-popup"
+        ? "popup"
+        : targetId === "editor-subtitle"
+          ? "text"
+          : "audio",
+      true,
+    );
     window.setTimeout(() => {
       const target = document.getElementById(targetId);
       const group = target?.closest("details");
@@ -3548,7 +3834,7 @@ function Home() {
     section: "popup" | "text" | "images",
     layerId: string,
   ) => {
-    setEditorSections((items) => ({ ...items, [section]: true }));
+    setEditorSectionOpen(section, true);
     window.setTimeout(() => {
       const target = document.getElementById(`editor-layer-${section}-${layerId}`);
       const group = target?.closest("details");
@@ -3580,7 +3866,7 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      setEditorSections((sections) => ({ ...sections, text: true }));
+      setEditorSectionOpen("text", true);
       return;
     }
     selectPreviewLayer(item.kind, item.id);
@@ -3834,9 +4120,118 @@ function Home() {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
-    setScenes((items) => items.map((item) => targetIds.has(item.id)
-      ? { ...item, effects: { ...item.effects, [key]: value } }
-      : item));
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const current = normalizeSceneEffects(item.effects);
+      const next = { ...current, [key]: value } as SceneEffects;
+      if (key === "sceneStartDarkEffects") {
+        const darkEffects = value as SceneDarkEffect[];
+        const first = darkEffects[0];
+        next.sceneStartDarkEnabled = darkEffects.some((effect) => effect.enabled);
+        next.sceneStartDarkDuration = first ? Math.max(0.1, first.end - first.start) : current.sceneStartDarkDuration;
+        next.sceneStartDarkIntensity = first?.intensity ?? current.sceneStartDarkIntensity;
+      }
+      return { ...item, effects: next };
+    }));
+  };
+
+  type SceneDarkEffectNumberField = "start" | "end" | "intensity";
+  const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
+    `${scene.id}:dark:${effectId}:${field}`;
+  const darkEffectInputValue = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+  ) => effectInputDrafts[darkEffectInputKey(effect.id, field)] ?? String(effect[field]);
+  const updateSceneDarkEffect = <K extends keyof SceneDarkEffect>(
+    effectId: string,
+    key: K,
+    value: SceneDarkEffect[K],
+  ) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const effects = normalizeSceneEffects(item.effects);
+      const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
+        if (effect.id !== effectId) return effect;
+        const next = { ...effect, [key]: value } as SceneDarkEffect;
+        if (next.start > next.end - 0.1) next.end = next.start + 0.1;
+        if (next.end < next.start + 0.1) next.start = Math.max(0, next.end - 0.1);
+        return next;
+      });
+      const first = nextDarkEffects[0];
+      return {
+        ...item,
+        effects: {
+          ...effects,
+          sceneStartDarkEffects: nextDarkEffects,
+          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+          sceneStartDarkDuration: first ? Math.max(0.1, first.end - first.start) : effects.sceneStartDarkDuration,
+          sceneStartDarkIntensity: first?.intensity ?? effects.sceneStartDarkIntensity,
+        },
+      };
+    }));
+  };
+  const updateSceneDarkEffectInput = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+    value: string,
+  ) => {
+    const key = darkEffectInputKey(effect.id, field);
+    setEffectInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    if (field === "start") {
+      updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
+    } else if (field === "end") {
+      updateSceneDarkEffect(effect.id, "end", Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue)));
+    } else {
+      updateSceneDarkEffect(effect.id, "intensity", Math.min(100, Math.max(0, numericValue)));
+    }
+  };
+  const commitSceneDarkEffectInput = (effect: SceneDarkEffect, field: SceneDarkEffectNumberField) => {
+    const key = darkEffectInputKey(effect.id, field);
+    const draft = effectInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateSceneDarkEffectInput(effect, field, String(numericValue));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+  const addSceneDarkEffect = () => {
+    if (!hydrated) return;
+    const nextId = `${scene.id}-dark-${Date.now().toString(36)}`;
+    const currentEffects = sceneEffects.sceneStartDarkEffects;
+    const lastEnd = currentEffects.at(-1)?.end ?? 0;
+    const start = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, lastEnd));
+    const nextEffect = defaultSceneDarkEffect(nextId, {
+      enabled: true,
+      start,
+      end: Math.min(sceneDuration, start + Math.min(1.2, Math.max(0.1, sceneDuration - start))),
+      intensity: 0,
+    });
+    updateSceneEffects("sceneStartDarkEffects", [...currentEffects, nextEffect]);
+    setToast(`Đã thêm hiệu ứng tối ${currentEffects.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+  const deleteSceneDarkEffect = (effectId: string) => {
+    const nextEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
+    updateSceneEffects("sceneStartDarkEffects", nextEffects);
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      (Object.keys(next) as string[]).filter((key) => key.includes(`:dark:${effectId}:`)).forEach((key) => delete next[key]);
+      return next;
+    });
   };
 
   const updateReviewSceneField = <K extends keyof Scene>(
@@ -4253,6 +4648,56 @@ function Home() {
     }));
   };
 
+  type TextOverlayTimingField = "start" | "end";
+  const textOverlayTimingKey = (overlayId: string, field: TextOverlayTimingField) =>
+    `${scene.id}:text:${overlayId}:${field}`;
+  const textOverlayTimingValue = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const draft = textOverlayTimingDrafts[textOverlayTimingKey(overlay.id, field)];
+    if (draft !== undefined) return draft;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const start = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(sceneLimit, Math.max(start + 0.1, Number(overlay.end) || sceneLimit));
+    return String(field === "start" ? start : end);
+  };
+  const updateTextOverlayTimingInput = (
+    overlay: TextOverlay,
+    field: TextOverlayTimingField,
+    value: string,
+  ) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    setTextOverlayTimingDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    if (field === "start") {
+      const nextStart = Math.min(sceneLimit - 0.1, Math.max(0, numericValue));
+      const currentEnd = Math.min(sceneLimit, Math.max(currentStart + 0.1, Number(overlay.end) || sceneLimit));
+      updateTextOverlay("start", nextStart);
+      if (currentEnd < nextStart + 0.1) {
+        updateTextOverlay("end", Math.min(sceneLimit, nextStart + 0.1));
+      }
+    } else {
+      updateTextOverlay("end", Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue)));
+    }
+  };
+  const commitTextOverlayTimingInput = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    const draft = textOverlayTimingDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateTextOverlayTimingInput(overlay, field, String(numericValue));
+      setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setTextOverlayTimingDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+
   const textOverlayLabel = (overlay: TextOverlay, index: number) =>
     safeTrim(overlay.name) || `Chữ ${index + 1}`;
 
@@ -4435,6 +4880,7 @@ function Home() {
   };
 
   type SceneEffectNumberField =
+    | "sceneStartDarkDuration" | "sceneStartDarkIntensity"
     | "snowIntensity" | "snowSpeed"
     | "lightFlickerIntensity" | "lightFlickerSpeed"
     | "rainIntensity" | "rainSpeed"
@@ -4732,7 +5178,7 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, popup: true }));
+    setEditorSectionOpen("popup", true);
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -4744,6 +5190,7 @@ function Home() {
       `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
       {
         name: `Chữ ${currentOverlays.length + 1}`,
+        end: sceneDuration,
         y: Math.min(82, 18 + currentOverlays.length * 8),
       },
     );
@@ -4757,7 +5204,7 @@ function Home() {
       };
     }));
     setSelectedTextOverlayId(nextOverlay.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -4778,7 +5225,7 @@ function Home() {
     setScenes((items) => items.map((item) => item.id === scene.id
       ? { ...item, subtitleEnabled: true, subtitles: [...(item.subtitles ?? []), nextSubtitle] }
       : item));
-    setEditorSections((items) => ({ ...items, audio: true }));
+    setEditorSectionOpen("audio", true);
     setPlayTime(Number((scene.start + start).toFixed(2)));
     setPlaying(false);
     setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
@@ -5025,7 +5472,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm ${mapDecorationTypeLabel(type)}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -5159,7 +5606,7 @@ function Home() {
       ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
       : item));
     setSelectedSceneImageId(nextImage.id);
-    setEditorSections((items) => ({ ...items, images: true }));
+    setEditorSectionOpen("images", true);
   };
 
   const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
@@ -5174,6 +5621,30 @@ function Home() {
             : image),
         }
       : item));
+  };
+
+  const updateSceneImageTransitionEndInput = (value: string) => {
+    const imageId = activeSceneImage?.id;
+    if (!imageId || !activeSceneImage) return;
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    updateSceneImage(
+      "transitionEnd",
+      Math.max(activeSceneImage.start + 0.1, numericValue),
+    );
+  };
+
+  const commitSceneImageTransitionEnd = (imageId: string, value: string) => {
+    const image = sceneImages.find((item) => item.id === imageId);
+    if (!image) return;
+    const numericValue = Number(value);
+    const nextEnd = Number.isFinite(numericValue)
+      ? Math.max(image.start + 0.1, numericValue)
+      : Math.max(image.start + 0.1, image.transitionEnd);
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: String(nextEnd) }));
+    updateSceneImage("transitionEnd", nextEnd);
   };
 
   const updateSceneImageUrl = (url: string) => {
@@ -6596,7 +7067,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm hiệu ứng ${asset.name}`);
     window.setTimeout(() => setToast(""), 2400);
   };
@@ -7056,7 +7527,7 @@ function Home() {
     setSelectedSceneIds([item.id]);
     if (section === "images") setSelectedSceneImageId(layerId);
     if (section === "popup") setSelectedPopupId(layerId);
-    setEditorSections((sections) => ({ ...sections, [section]: true }));
+    setEditorSectionOpen(section, true);
     setReviewOpen(false);
   };
 
@@ -7682,10 +8153,10 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false)).map((overlay) => safeTrim(overlay.text) ? (
+            {sceneIsVisibleInPlayback && previewTextOverlayItems.map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
-                className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
+                className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
@@ -7703,6 +8174,7 @@ function Home() {
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
                   ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
                   ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
                 }}
                 role="button"
                 tabIndex={0}
@@ -8020,6 +8492,19 @@ function Home() {
                 style={{ opacity: fadeBlackOpacity }}
               />
             )}
+            {sceneIsVisibleInPlayback && sceneStartDarkOverlayItems.map((item) => (
+              <div
+                key={`scene-start-dark-${item.effect.id}`}
+                className="scene-start-dark-effect"
+                aria-hidden="true"
+                style={{
+                  ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
+                  ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
+                  ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
+                  ["--scene-start-dark-blur" as string]: `${item.blur}px`,
+                }}
+              />
+            ))}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
@@ -8146,26 +8631,9 @@ function Home() {
         </section>
 
         <aside className={`editor-panel ${!hydrated ? "is-loading" : ""}`}>
-          <div className="panel-heading">
+          <div className="panel-heading editor-panel-heading">
             <h2>Biên soạn</h2>
             <div className="editor-heading-actions">
-              <button
-                type="button"
-                className="accordion-toggle-all"
-                onClick={() => {
-                  const shouldOpen = !Object.values(editorSections).every(Boolean);
-                  setEditorSections({
-                    visual: shouldOpen,
-                    content: shouldOpen,
-                    audio: shouldOpen,
-                    effects: shouldOpen,
-                    popup: shouldOpen,
-                    text: shouldOpen,
-                  });
-                }}
-              >
-                {Object.values(editorSections).every(Boolean) ? "Thu tất cả" : "Mở tất cả"}
-              </button>
               <span className="scene-pill">
                 {selectedSceneIds.length > 1
                   ? `${selectedSceneIds.length} cảnh`
@@ -8184,17 +8652,30 @@ function Home() {
                 <b>s</b>
               </label>
             </div>
+            <nav className="editor-section-shortcuts" aria-label="Đi tới nhanh mục biên soạn">
+              {EDITOR_SECTION_SHORTCUTS.map((shortcut) => (
+                <button
+                  type="button"
+                  key={shortcut.key}
+                  className={`editor-section-shortcut ${editorSections[shortcut.key] ? "active" : ""}`}
+                  title={`Mở mục ${shortcut.label}`}
+                  aria-label={`Mở mục ${shortcut.number} ${shortcut.label}`}
+                  onClick={() => focusEditorSection(shortcut.key)}
+                >
+                  <span>{shortcut.number}</span>
+                  <b>{shortcut.label}</b>
+                </button>
+              ))}
+            </nav>
           </div>
-          <div className="editor-scroll">
+          <div className="editor-scroll" ref={editorScrollRef}>
             <details
               className="editor-accordion editor-accordion-visual"
+              data-editor-section="visual"
               open={editorSections.visual}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  visual: open,
-                }));
+                setEditorSectionOpen("visual", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8268,10 +8749,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-images"
+              data-editor-section="images"
               open={editorSections.images}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({ ...items, images: open }));
+                setEditorSectionOpen("images", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8438,21 +8920,22 @@ function Home() {
                           </select>
                           <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
                         </label>
-                        <label className="field scene-image-transition-duration-field">
-                          <span>Thời lượng hiệu ứng</span>
+                        <label className="field scene-image-transition-end-field">
+                          <span>Thời gian kết thúc hiệu ứng</span>
                           <div className="number-with-unit">
                             <input
                               type="number"
-                              min="0.1"
-                              max="1.5"
+                              inputMode="decimal"
+                              min={Math.max(0.1, activeSceneImage.start + 0.1)}
                               step="0.1"
-                              value={activeSceneImage.transitionDuration}
+                              value={activeSceneImageTransitionEndInput}
                               disabled={activeSceneImage.transition === "cut"}
-                              onChange={(event) => updateSceneImage("transitionDuration", Math.min(1.5, Math.max(0.1, Number(event.target.value) || 0.1)))}
+                              onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)}
+                              onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)}
                             />
                             <b>s</b>
                           </div>
-                          <small>Áp dụng khi hình này bắt đầu xuất hiện.</small>
+                          <small>Tính từ đầu cảnh. Khi chạy đến mốc này, hiệu ứng sẽ tự động kết thúc; không giới hạn 1.5 giây.</small>
                         </label>
                       </div>
                       <div className="field-row">
@@ -8519,7 +9002,13 @@ function Home() {
                         </label>
                       </div>
                       <div className="field-row">
-                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => {
+                          const nextStart = Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0));
+                          updateSceneImage("start", nextStart);
+                          if (activeSceneImage.transitionEnd < nextStart + 0.1) {
+                            updateSceneImage("transitionEnd", nextStart + 0.1);
+                          }
+                        }} /><b>s</b></div></label>
                         <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
@@ -8531,13 +9020,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-scene-content"
+              data-editor-section="content"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  content: open,
-                }));
+                setEditorSectionOpen("content", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8575,13 +9062,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-text"
+              data-editor-section="text"
               open={editorSections.text}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  text: open,
-                }));
+                setEditorSectionOpen("text", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8714,9 +9199,69 @@ function Home() {
                       <option value="bold">Đậm</option>
                       <option value="italic">Nghiêng</option>
                       <option value="bold-italic">Đậm + nghiêng</option>
-                   </select>
+                 </select>
                  </label>
                  </div>
+                <div className="field-row text-effect-controls">
+                  <label className="field">
+                    <span>Hiệu ứng chữ</span>
+                    <select
+                      value={activeTextOverlay?.textEffect ?? "none"}
+                      onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}
+                    >
+                      {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Thời lượng hiệu ứng</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0.05"
+                        max="8"
+                        step="0.05"
+                        value={activeTextOverlay?.textEffectDuration ?? 0.6}
+                        disabled={!activeTextOverlay || activeTextOverlay.textEffect === "none"}
+                        onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))}
+                      />
+                      <b>s</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
+                <div className="field-row text-overlay-timing-fields">
+                  <label className="field">
+                    <span>Thời gian bắt đầu chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "start") : "0"}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "start", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "start")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Thời gian kết thúc chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "end") : String(sceneDuration)}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "end", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "end")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Chữ chỉ hiển thị trong khoảng thời gian này. Khi để mặc định, chữ hiển thị suốt cảnh hiện tại.</small>
                 <div className="field-row">
                   <label className="field">
                     <span>Vị trí X</span>
@@ -9130,13 +9675,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-audio"
+              data-editor-section="audio"
               open={editorSections.audio}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  audio: open,
-                }));
+                setEditorSectionOpen("audio", open);
               }}
             >
               <summary className="editor-group-label">
@@ -9534,13 +10077,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-effects"
+              data-editor-section="effects"
               open={editorSections.effects}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  effects: open,
-                }));
+                setEditorSectionOpen("effects", open);
               }}
             >
               <summary className="editor-group-label">
@@ -9635,6 +10176,82 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
+                <div className="scene-visual-effect-card scene-start-dark-effect-card" aria-label="Hiệu ứng tối dần từ ngoài vào trong">
+                  <div className="scene-visual-effect-heading scene-start-dark-panel-heading">
+                    <div>
+                      <strong>Tối dần từ ngoài vào trong</strong>
+                      <span>Viền tối lan dần vào tâm cảnh, giống hiệu ứng kết thúc phim.</span>
+                    </div>
+                    <button type="button" className="button secondary scene-start-dark-add" onClick={addSceneDarkEffect} disabled={!hydrated}>＋ Thêm hiệu ứng tối</button>
+                  </div>
+                  <div className="scene-start-dark-list">
+                    {sceneEffects.sceneStartDarkEffects.length > 0 ? sceneEffects.sceneStartDarkEffects.map((effect, index) => (
+                      <div className="scene-start-dark-effect-item" key={effect.id}>
+                        <div className="scene-start-dark-effect-item-heading">
+                          <strong>Hiệu ứng tối {index + 1}</strong>
+                          <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneDarkEffect(effect.id)} aria-label={`Xóa hiệu ứng tối ${index + 1}`} title="Xóa hiệu ứng tối">×</button>
+                        </div>
+                        <label className="zoom-effect-toggle">
+                          <input
+                            type="checkbox"
+                            checked={effect.enabled}
+                            disabled={!hydrated}
+                            onChange={(event) => updateSceneDarkEffect(effect.id, "enabled", event.target.checked)}
+                          />
+                          <span aria-hidden="true" />
+                          <span>Bật hiệu ứng tối này</span>
+                        </label>
+                        <div className="field-row scene-start-dark-time-row">
+                          <label className="field">
+                            <span>Thời gian bắt đầu</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "start")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "start", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "start")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                          <label className="field">
+                            <span>Thời gian kết thúc</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "end")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "end", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "end")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                        </div>
+                        <label className="field scene-start-dark-intensity-field">
+                          <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={darkEffectInputValue(effect, "intensity")}
+                              disabled={!hydrated || !effect.enabled}
+                              onChange={(event) => updateSceneDarkEffectInput(effect, "intensity", event.target.value)}
+                              onBlur={() => commitSceneDarkEffectInput(effect, "intensity")}
+                            />
+                            <b>%</b>
+                          </div>
+                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; blur vẫn tăng theo khoảng thời gian.</small>
+                        </label>
+                      </div>
+                    )) : (
+                      <div className="scene-start-dark-empty">Chưa có hiệu ứng tối. Bấm “Thêm hiệu ứng tối” để tạo một lớp.</div>
+                    )}
+                  </div>
                 </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">
@@ -9873,13 +10490,11 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-popup"
+              data-editor-section="popup"
               open={editorSections.popup}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  popup: open,
-                }));
+                setEditorSectionOpen("popup", open);
               }}
             >
               <summary className="editor-group-label">
