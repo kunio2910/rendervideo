@@ -726,12 +726,12 @@ type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
-  content: true,
-  audio: true,
-  effects: true,
-  popup: true,
-  text: true,
-  images: true,
+  content: false,
+  audio: false,
+  effects: false,
+  popup: false,
+  text: false,
+  images: false,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1145,15 +1145,30 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
 
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
-): EditorSectionState => ({
-  visual: sections?.visual ?? DEFAULT_EDITOR_SECTIONS.visual,
-  content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
-  audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
-  effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
-  popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
-  text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
-  images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
-});
+): EditorSectionState => {
+  const source = sections ?? DEFAULT_EDITOR_SECTIONS;
+  const firstOpen = (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+    .find((section) => source[section] === true);
+  return firstOpen
+    ? {
+        visual: firstOpen === "visual",
+        content: firstOpen === "content",
+        audio: firstOpen === "audio",
+        effects: firstOpen === "effects",
+        popup: firstOpen === "popup",
+        text: firstOpen === "text",
+        images: firstOpen === "images",
+      }
+    : {
+        visual: false,
+        content: false,
+        audio: false,
+        effects: false,
+        popup: false,
+        text: false,
+        images: false,
+      };
+};
 
 const popupDimensionLayout = (value: unknown): NonNullable<Scene["popupLayout"]> =>
   ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
@@ -2319,6 +2334,12 @@ function Home() {
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
+  const setEditorSectionOpen = (section: EditorSectionKey, open: boolean) => {
+    setEditorSections((items) => normalizeEditorSections({
+      ...items,
+      [section]: open,
+    }));
+  };
   const [playing, setPlaying] = useState(false);
   const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
@@ -3528,6 +3549,14 @@ function Home() {
       setPlayTime(item.start);
     }
     setPlaying(false);
+    setEditorSectionOpen(
+      targetId === "editor-popup"
+        ? "popup"
+        : targetId === "editor-subtitle"
+          ? "text"
+          : "audio",
+      true,
+    );
     window.setTimeout(() => {
       const target = document.getElementById(targetId);
       const group = target?.closest("details");
@@ -3548,7 +3577,7 @@ function Home() {
     section: "popup" | "text" | "images",
     layerId: string,
   ) => {
-    setEditorSections((items) => ({ ...items, [section]: true }));
+    setEditorSectionOpen(section, true);
     window.setTimeout(() => {
       const target = document.getElementById(`editor-layer-${section}-${layerId}`);
       const group = target?.closest("details");
@@ -3580,7 +3609,7 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      setEditorSections((sections) => ({ ...sections, text: true }));
+      setEditorSectionOpen("text", true);
       return;
     }
     selectPreviewLayer(item.kind, item.id);
@@ -4732,7 +4761,7 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, popup: true }));
+    setEditorSectionOpen("popup", true);
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -4757,7 +4786,7 @@ function Home() {
       };
     }));
     setSelectedTextOverlayId(nextOverlay.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -4778,7 +4807,7 @@ function Home() {
     setScenes((items) => items.map((item) => item.id === scene.id
       ? { ...item, subtitleEnabled: true, subtitles: [...(item.subtitles ?? []), nextSubtitle] }
       : item));
-    setEditorSections((items) => ({ ...items, audio: true }));
+    setEditorSectionOpen("audio", true);
     setPlayTime(Number((scene.start + start).toFixed(2)));
     setPlaying(false);
     setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
@@ -5025,7 +5054,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm ${mapDecorationTypeLabel(type)}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -5159,7 +5188,7 @@ function Home() {
       ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
       : item));
     setSelectedSceneImageId(nextImage.id);
-    setEditorSections((items) => ({ ...items, images: true }));
+    setEditorSectionOpen("images", true);
   };
 
   const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
@@ -6596,7 +6625,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm hiệu ứng ${asset.name}`);
     window.setTimeout(() => setToast(""), 2400);
   };
@@ -7056,7 +7085,7 @@ function Home() {
     setSelectedSceneIds([item.id]);
     if (section === "images") setSelectedSceneImageId(layerId);
     if (section === "popup") setSelectedPopupId(layerId);
-    setEditorSections((sections) => ({ ...sections, [section]: true }));
+    setEditorSectionOpen(section, true);
     setReviewOpen(false);
   };
 
@@ -8149,23 +8178,6 @@ function Home() {
           <div className="panel-heading">
             <h2>Biên soạn</h2>
             <div className="editor-heading-actions">
-              <button
-                type="button"
-                className="accordion-toggle-all"
-                onClick={() => {
-                  const shouldOpen = !Object.values(editorSections).every(Boolean);
-                  setEditorSections({
-                    visual: shouldOpen,
-                    content: shouldOpen,
-                    audio: shouldOpen,
-                    effects: shouldOpen,
-                    popup: shouldOpen,
-                    text: shouldOpen,
-                  });
-                }}
-              >
-                {Object.values(editorSections).every(Boolean) ? "Thu tất cả" : "Mở tất cả"}
-              </button>
               <span className="scene-pill">
                 {selectedSceneIds.length > 1
                   ? `${selectedSceneIds.length} cảnh`
@@ -8191,10 +8203,7 @@ function Home() {
               open={editorSections.visual}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  visual: open,
-                }));
+                setEditorSectionOpen("visual", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8271,7 +8280,7 @@ function Home() {
               open={editorSections.images}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({ ...items, images: open }));
+                setEditorSectionOpen("images", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8534,10 +8543,7 @@ function Home() {
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  content: open,
-                }));
+                setEditorSectionOpen("content", open);
               }}
             >
               <summary className="editor-group-label">
@@ -8578,10 +8584,7 @@ function Home() {
               open={editorSections.text}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  text: open,
-                }));
+                setEditorSectionOpen("text", open);
               }}
             >
               <summary className="editor-group-label">
@@ -9133,10 +9136,7 @@ function Home() {
               open={editorSections.audio}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  audio: open,
-                }));
+                setEditorSectionOpen("audio", open);
               }}
             >
               <summary className="editor-group-label">
@@ -9537,10 +9537,7 @@ function Home() {
               open={editorSections.effects}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  effects: open,
-                }));
+                setEditorSectionOpen("effects", open);
               }}
             >
               <summary className="editor-group-label">
@@ -9876,10 +9873,7 @@ function Home() {
               open={editorSections.popup}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  popup: open,
-                }));
+                setEditorSectionOpen("popup", open);
               }}
             >
               <summary className="editor-group-label">
