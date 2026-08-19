@@ -91,6 +91,8 @@ type TextOverlay = {
   borderFill: string;
   textEffect: TextOverlayEffect;
   textEffectDuration: number;
+  start: number;
+  end: number;
   x: number;
   y: number;
   width?: number;
@@ -99,7 +101,7 @@ type TextOverlay = {
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration" | "start" | "end"> & {
   boxWidth: number;
   boxHeight?: number;
   animation: SubtitleAnimation;
@@ -240,6 +242,8 @@ type Scene = {
   overlayTextStrokeColor: string;
   overlayTextBorderWidth: number;
   overlayTextBorderColor: string;
+  overlayTextStart?: number;
+  overlayTextEnd?: number;
   overlayTextX: number;
   overlayTextY: number;
   textOverlays: TextOverlay[];
@@ -754,6 +758,20 @@ type EditorSectionState = {
 
 type EditorSectionKey = keyof EditorSectionState;
 
+const EDITOR_SECTION_SHORTCUTS: Array<{
+  key: EditorSectionKey;
+  number: string;
+  label: string;
+}> = [
+  { key: "visual", number: "01", label: "Hình & nền" },
+  { key: "content", number: "02", label: "Nội dung" },
+  { key: "images", number: "03", label: "Hình ảnh" },
+  { key: "text", number: "04", label: "Chữ viết" },
+  { key: "audio", number: "05", label: "Âm thanh" },
+  { key: "effects", number: "06", label: "Hiệu ứng" },
+  { key: "popup", number: "07", label: "Popup" },
+];
+
 type EditorSectionClipboard =
   | {
       section: "visual";
@@ -1017,6 +1035,8 @@ const defaultTextOverlay = (
   borderFill: "#14202e",
   textEffect: "none",
   textEffectDuration: 0.6,
+  start: 0,
+  end: 3600,
   x: 50,
   y: 18,
   ...overrides,
@@ -1214,6 +1234,11 @@ const normalizeTextOverlay = (
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
     textEffect: normalizeTextOverlayEffect(raw.textEffect ?? raw.overlayTextEffect ?? base.textEffect),
     textEffectDuration: Math.min(8, Math.max(0.05, positiveNumber(raw.textEffectDuration ?? raw.overlayTextEffectDuration, base.textEffectDuration, 0.05))),
+    start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
+    end: Math.min(3600, Math.max(
+      Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
+      positiveNumber(raw.end ?? raw.overlayTextEnd, base.end, 0.1),
+    )),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
     ...(Number.isFinite(Number(raw.width ?? fallback.width))
@@ -1447,6 +1472,8 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextBorderColor: overlay.borderColor,
   overlayTextEffect: overlay.textEffect,
   overlayTextEffectDuration: overlay.textEffectDuration,
+  overlayTextStart: overlay.start,
+  overlayTextEnd: overlay.end,
   overlayTextX: overlay.x,
   overlayTextY: overlay.y,
 });
@@ -1549,6 +1576,8 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
             strokeColor: (item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor,
             borderWidth: (item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth,
             borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
+            start: (item as Scene & { overlayTextStart?: unknown }).overlayTextStart,
+            end: (item as Scene & { overlayTextEnd?: unknown }).overlayTextEnd,
             x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
             y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
           }, `${id}-text-1`, { name: "Chữ 1" })]
@@ -2497,6 +2526,20 @@ function Home() {
       [section]: false,
     }));
   };
+  const focusEditorSection = (section: EditorSectionKey) => {
+    setEditorSectionOpen(section, true);
+    window.setTimeout(() => {
+      const target = editorScrollRef.current?.querySelector<HTMLDetailsElement>(
+        `details[data-editor-section="${section}"]`,
+      );
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("timeline-focus");
+      window.setTimeout(() => {
+        target.classList.remove("timeline-focus");
+      }, 1300);
+    }, 40);
+  };
   const [playing, setPlaying] = useState(false);
   const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
@@ -2538,6 +2581,7 @@ function Home() {
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
   const [sceneImageTransitionEndDrafts, setSceneImageTransitionEndDrafts] = useState<Record<string, string>>({});
+  const [textOverlayTimingDrafts, setTextOverlayTimingDrafts] = useState<Record<string, string>>({});
   const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
     imageId: string;
     status: "idle" | "processing" | "success" | "error";
@@ -2887,6 +2931,27 @@ function Home() {
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
+  const textOverlayTiming = (overlay: TextOverlay) => {
+    const start = Math.min(sceneDuration, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(
+      sceneDuration,
+      Math.max(start + 0.1, Number(overlay.end) || sceneDuration),
+    );
+    return { start, end };
+  };
+  const previewTextOverlayItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneTextOverlays.filter((overlay) => {
+          const { start, end } = textOverlayTiming(overlay);
+          return overlay.visible !== false
+            && safeTrim(overlay.text)
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneTextOverlays.filter((overlay) =>
+          overlay.editorVisible !== false && overlay.visible !== false && safeTrim(overlay.text),
+        )
+    : [];
   const popupHasMediaInput = (popup: PopupConfig) =>
     (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
     || Boolean(safeTrim(popup.video));
@@ -2978,8 +3043,7 @@ function Home() {
     : null;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
     const candidates: PreviewLayerItem[] = [
-      ...sceneTextOverlays
-        .filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false) && safeTrim(overlay.text))
+      ...previewTextOverlayItems
         .map((overlay, index) => ({
           token: previewLayerToken("text", overlay.id),
           kind: "text" as const,
@@ -3033,14 +3097,17 @@ function Home() {
     previewDecorationItems,
     previewPopupItems,
     previewSceneImageItems,
+    previewTextOverlayItems,
     scene.layerOrder,
     scene.subtitleEnabled,
     scene.subtitles,
-    sceneTextOverlays,
   ]);
   const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
-    return 10 + (index < 0 ? previewLayerItems.length : index);
+    const baseIndex = 10 + (index < 0 ? previewLayerItems.length : index);
+    if (kind === "text") return 100 + baseIndex;
+    if (kind === "subtitle") return 200 + baseIndex;
+    return baseIndex;
   };
   const explicitlySelectedPreviewLayerToken = selectedPopupId
     ? previewLayerToken("popup", selectedPopupId)
@@ -4576,6 +4643,56 @@ function Home() {
     }));
   };
 
+  type TextOverlayTimingField = "start" | "end";
+  const textOverlayTimingKey = (overlayId: string, field: TextOverlayTimingField) =>
+    `${scene.id}:text:${overlayId}:${field}`;
+  const textOverlayTimingValue = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const draft = textOverlayTimingDrafts[textOverlayTimingKey(overlay.id, field)];
+    if (draft !== undefined) return draft;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const start = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(sceneLimit, Math.max(start + 0.1, Number(overlay.end) || sceneLimit));
+    return String(field === "start" ? start : end);
+  };
+  const updateTextOverlayTimingInput = (
+    overlay: TextOverlay,
+    field: TextOverlayTimingField,
+    value: string,
+  ) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    setTextOverlayTimingDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    if (field === "start") {
+      const nextStart = Math.min(sceneLimit - 0.1, Math.max(0, numericValue));
+      const currentEnd = Math.min(sceneLimit, Math.max(currentStart + 0.1, Number(overlay.end) || sceneLimit));
+      updateTextOverlay("start", nextStart);
+      if (currentEnd < nextStart + 0.1) {
+        updateTextOverlay("end", Math.min(sceneLimit, nextStart + 0.1));
+      }
+    } else {
+      updateTextOverlay("end", Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue)));
+    }
+  };
+  const commitTextOverlayTimingInput = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    const draft = textOverlayTimingDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateTextOverlayTimingInput(overlay, field, String(numericValue));
+      setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setTextOverlayTimingDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+
   const textOverlayLabel = (overlay: TextOverlay, index: number) =>
     safeTrim(overlay.name) || `Chữ ${index + 1}`;
 
@@ -5068,6 +5185,7 @@ function Home() {
       `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
       {
         name: `Chữ ${currentOverlays.length + 1}`,
+        end: sceneDuration,
         y: Math.min(82, 18 + currentOverlays.length * 8),
       },
     );
@@ -8030,7 +8148,7 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false)).map((overlay) => safeTrim(overlay.text) ? (
+            {sceneIsVisibleInPlayback && previewTextOverlayItems.map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
                 className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
@@ -8508,7 +8626,7 @@ function Home() {
         </section>
 
         <aside className={`editor-panel ${!hydrated ? "is-loading" : ""}`}>
-          <div className="panel-heading">
+          <div className="panel-heading editor-panel-heading">
             <h2>Biên soạn</h2>
             <div className="editor-heading-actions">
               <span className="scene-pill">
@@ -8529,6 +8647,21 @@ function Home() {
                 <b>s</b>
               </label>
             </div>
+            <nav className="editor-section-shortcuts" aria-label="Đi tới nhanh mục biên soạn">
+              {EDITOR_SECTION_SHORTCUTS.map((shortcut) => (
+                <button
+                  type="button"
+                  key={shortcut.key}
+                  className={`editor-section-shortcut ${editorSections[shortcut.key] ? "active" : ""}`}
+                  title={`Mở mục ${shortcut.label}`}
+                  aria-label={`Mở mục ${shortcut.number} ${shortcut.label}`}
+                  onClick={() => focusEditorSection(shortcut.key)}
+                >
+                  <span>{shortcut.number}</span>
+                  <b>{shortcut.label}</b>
+                </button>
+              ))}
+            </nav>
           </div>
           <div className="editor-scroll" ref={editorScrollRef}>
             <details
@@ -9093,6 +9226,37 @@ function Home() {
                   </label>
                 </div>
                 <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
+                <div className="field-row text-overlay-timing-fields">
+                  <label className="field">
+                    <span>Thời gian bắt đầu chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "start") : "0"}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "start", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "start")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Thời gian kết thúc chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "end") : String(sceneDuration)}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "end", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "end")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Chữ chỉ hiển thị trong khoảng thời gian này. Khi để mặc định, chữ hiển thị suốt cảnh hiện tại.</small>
                 <div className="field-row">
                   <label className="field">
                     <span>Vị trí X</span>

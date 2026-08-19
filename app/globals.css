@@ -2399,6 +2399,61 @@ body {
   align-items: center;
   gap: 7px;
 }
+.editor-panel-heading {
+  height: auto;
+  min-height: 34px;
+  flex-wrap: wrap;
+  row-gap: 7px;
+}
+.editor-section-shortcuts {
+  order: 3;
+  flex: 0 0 100%;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 0 2px;
+  scrollbar-width: thin;
+}
+.editor-section-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 7px 3px 4px;
+  border: 1px solid var(--studio-line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--studio-muted);
+  cursor: pointer;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.editor-section-shortcut span {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--studio-line);
+  color: var(--studio-muted);
+  font: 700 8px var(--font-mono);
+}
+.editor-section-shortcut b { font-weight: 650; }
+.editor-section-shortcut:hover,
+.editor-section-shortcut:focus-visible,
+.editor-section-shortcut.active {
+  border-color: var(--blue);
+  color: var(--blue-deep);
+  background: var(--blue-soft);
+}
+.editor-section-shortcut.active span,
+.editor-section-shortcut:hover span,
+.editor-section-shortcut:focus-visible span {
+  background: var(--blue);
+  color: white;
+}
 .quick-scene-duration {
   display: inline-flex;
   align-items: center;
@@ -6908,6 +6963,29 @@ body {
 
 .studio-shell[data-theme="dark"] .subtitle-overlay {
   background: rgba(3, 8, 14, .84);
+}
+
+.studio-shell[data-theme="dark"] .editor-section-shortcut {
+  border-color: #344457;
+  background: #182432;
+  color: #aebed0;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut span {
+  background: #26374b;
+  color: #b8c8db;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut:hover,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:focus-visible,
+.studio-shell[data-theme="dark"] .editor-section-shortcut.active {
+  border-color: #087cff;
+  background: #163357;
+  color: #78b9ff;
+}
+.studio-shell[data-theme="dark"] .editor-section-shortcut.active span,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:hover span,
+.studio-shell[data-theme="dark"] .editor-section-shortcut:focus-visible span {
+  background: #087cff;
+  color: white;
 }
 
 .studio-shell[data-theme="dark"] .subtitle-track .subtitle-clip {

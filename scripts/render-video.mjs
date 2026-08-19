@@ -1293,6 +1293,8 @@ for (let index = 0; index < scenes.length; index += 1) {
           borderFill: "#14202e",
           textEffect: scene.overlayTextEffect,
           textEffectDuration: scene.overlayTextEffectDuration,
+          start: scene.overlayTextStart,
+          end: scene.overlayTextEnd,
           x: scene.overlayTextX,
           y: scene.overlayTextY,
         }]
@@ -1453,14 +1455,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const textStart = Math.min(duration, Math.max(0, Number(overlay.start) || 0));
+    const textEnd = Math.min(
+      duration,
+      Math.max(textStart + 0.1, Number(overlay.end) || duration),
+    );
+    const textSpan = Math.max(0.1, textEnd - textStart);
     const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
     const effectDuration = clamp(
       Number(overlay.textEffectDuration ?? overlay.overlayTextEffectDuration ?? 0.6) || 0.6,
       0.05,
-      Math.max(0.05, duration),
+      textSpan,
     );
-    const progress = `min(1,max(0,t/${effectDuration}))`;
-    const geqProgress = `min(1,max(0,T/${effectDuration}))`;
+    const progress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
+    const geqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
     const inputIndex = textInputIndices[textIndex];
     const inputLabel = `textInput${textIndex}`;
     const outputLabel = `texted${textIndex}`;
@@ -1472,27 +1480,27 @@ for (let index = 0; index < scenes.length; index += 1) {
       const glowSourceLabel = `textGlowSource${textIndex}`;
       const glowLabel = `textGlow${textIndex}`;
       filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
-      filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*t/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
+      filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
       filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
     } else if (effect === "blur") {
       const sharpLabel = `textBlurSharp${textIndex}`;
       const blurSourceLabel = `textBlurSource${textIndex}`;
       const blurLabel = `textBlurred${textIndex}`;
       filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
-      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=0:d=${effectDuration}:alpha=1[${blurLabel}];`;
+      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=${textStart}:d=${effectDuration}:alpha=1[${blurLabel}];`;
       filter += `[${sharpLabel}][${blurLabel}]overlay=0:0[${inputLabel}];`;
     } else {
       let inputFilter = `[${inputIndex}:v]format=rgba`;
       if (effect === "fade") {
-        const fadeOutStart = Math.max(0, duration - effectDuration);
-        inputFilter += `,fade=t=in:st=0:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
+        const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
+        inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
       } else if (effect === "typewriter" || effect === "stroke-draw") {
         inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${geqProgress}),alpha(X,Y),0)'`;
       } else if (effect === "word-by-word") {
         const wordProgress = `floor(${geqProgress}*${wordCount})/${wordCount}`;
         inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${wordProgress}),alpha(X,Y),0)'`;
       } else if (effect === "highlight-sweep") {
-        inputFilter += `,eq=brightness='0.08*sin(2*PI*t/${effectDuration})'`;
+        inputFilter += `,eq=brightness='0.08*sin(2*PI*(t-${textStart})/${effectDuration})'`;
       } else if (effect === "glitch") {
         inputFilter += ",noise=alls=4:allf=t+u";
       }
@@ -1513,16 +1521,16 @@ for (let index = 0; index < scenes.length; index += 1) {
     if (effect === "slide-up") overlayY = `${baseY}+main_h*0.08*(1-${progress})`;
     if (effect === "slide-down") overlayY = `${baseY}-main_h*0.08*(1-${progress})`;
     if (effect === "shake") {
-      overlayX = `${baseX}+sin(t*48)*${Math.max(1, Math.round(previewPx(2)))}`;
-      overlayY = `${baseY}+cos(t*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
+      overlayX = `${baseX}+sin((t-${textStart})*48)*${Math.max(1, Math.round(previewPx(2)))}`;
+      overlayY = `${baseY}+cos((t-${textStart})*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
     }
     if (effect === "glitch") {
-      overlayX = `${baseX}+if(lt(mod(t*12,2),1),${Math.max(1, Math.round(previewPx(2)))},-${Math.max(1, Math.round(previewPx(2)))})`;
+      overlayX = `${baseX}+if(lt(mod((t-${textStart})*12,2),1),${Math.max(1, Math.round(previewPx(2)))},-${Math.max(1, Math.round(previewPx(2)))})`;
     }
     if (effect === "kinetic") {
-      overlayY = `${baseY}+sin(t*2.8)*main_h*0.012`;
+      overlayY = `${baseY}+sin((t-${textStart})*2.8)*main_h*0.012`;
     }
-    filter += `${composedLabel}[${overlayInputLabel}]overlay=x='${overlayX}':y='${overlayY}'[${outputLabel}];`;
+    filter += `${composedLabel}[${overlayInputLabel}]overlay=x='${overlayX}':y='${overlayY}':enable='between(t,${textStart},${textEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   };
   const appendSceneImageLayer = (imageIndex) => {
