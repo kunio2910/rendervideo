@@ -22,6 +22,56 @@ import { parseSubtitleFileText } from "./lib/subtitles";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
+type TextOverlayEffect =
+  | "none"
+  | "fade"
+  | "slide-up"
+  | "slide-down"
+  | "slide-left"
+  | "slide-right"
+  | "typewriter"
+  | "zoom"
+  | "pop"
+  | "glow"
+  | "letter-spacing"
+  | "blur"
+  | "highlight-sweep"
+  | "stroke-draw"
+  | "shake"
+  | "glitch"
+  | "shadow-lift"
+  | "word-by-word"
+  | "kinetic";
+
+const TEXT_OVERLAY_EFFECT_OPTIONS: Array<{ value: TextOverlayEffect; label: string }> = [
+  { value: "none", label: "Không hiệu ứng" },
+  { value: "fade", label: "Fade in / out" },
+  { value: "slide-up", label: "Trượt lên" },
+  { value: "slide-down", label: "Trượt xuống" },
+  { value: "slide-left", label: "Trượt sang trái" },
+  { value: "slide-right", label: "Trượt sang phải" },
+  { value: "typewriter", label: "Gõ từng ký tự" },
+  { value: "word-by-word", label: "Hiện từng từ" },
+  { value: "zoom", label: "Zoom vào" },
+  { value: "pop", label: "Pop / Bounce" },
+  { value: "glow", label: "Glow pulse" },
+  { value: "letter-spacing", label: "Giãn khoảng cách chữ" },
+  { value: "blur", label: "Nhòe → rõ nét" },
+  { value: "highlight-sweep", label: "Vệt sáng quét" },
+  { value: "stroke-draw", label: "Vẽ nét viền" },
+  { value: "shake", label: "Rung nhẹ" },
+  { value: "glitch", label: "Glitch" },
+  { value: "shadow-lift", label: "Nâng bóng đổ" },
+  { value: "kinetic", label: "Kinetic text" },
+];
+
+const normalizeTextOverlayEffect = (value: unknown): TextOverlayEffect => {
+  const effect = String(value ?? "none");
+  return TEXT_OVERLAY_EFFECT_OPTIONS.some((option) => option.value === effect)
+    ? effect as TextOverlayEffect
+    : "none";
+};
+
 type TextOverlay = {
   id: string;
   name: string;
@@ -39,6 +89,8 @@ type TextOverlay = {
   borderColor: string;
   borderOpacity: number;
   borderFill: string;
+  textEffect: TextOverlayEffect;
+  textEffectDuration: number;
   x: number;
   y: number;
   width?: number;
@@ -47,7 +99,7 @@ type TextOverlay = {
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration"> & {
   boxWidth: number;
   boxHeight?: number;
   animation: SubtitleAnimation;
@@ -941,6 +993,8 @@ const defaultTextOverlay = (
   borderColor: "#ffffff",
   borderOpacity: 100,
   borderFill: "#14202e",
+  textEffect: "none",
+  textEffectDuration: 0.6,
   x: 50,
   y: 18,
   ...overrides,
@@ -1136,6 +1190,8 @@ const normalizeTextOverlay = (
     borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
     borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity ?? raw.overlayTextBorderOpacity, base.borderOpacity))),
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
+    textEffect: normalizeTextOverlayEffect(raw.textEffect ?? raw.overlayTextEffect ?? base.textEffect),
+    textEffectDuration: Math.min(8, Math.max(0.05, positiveNumber(raw.textEffectDuration ?? raw.overlayTextEffectDuration, base.textEffectDuration, 0.05))),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
     ...(Number.isFinite(Number(raw.width ?? fallback.width))
@@ -1344,6 +1400,8 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextStrokeColor: overlay.strokeColor,
   overlayTextBorderWidth: overlay.borderWidth,
   overlayTextBorderColor: overlay.borderColor,
+  overlayTextEffect: overlay.textEffect,
+  overlayTextEffectDuration: overlay.textEffectDuration,
   overlayTextX: overlay.x,
   overlayTextY: overlay.y,
 });
@@ -7810,7 +7868,7 @@ function Home() {
             {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false && (playing || overlay.editorVisible !== false)).map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
-                className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
+                className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
@@ -7828,6 +7886,7 @@ function Home() {
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
                   ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
                   ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
                 }}
                 role="button"
                 tabIndex={0}
@@ -8836,9 +8895,38 @@ function Home() {
                       <option value="bold">Đậm</option>
                       <option value="italic">Nghiêng</option>
                       <option value="bold-italic">Đậm + nghiêng</option>
-                   </select>
+                 </select>
                  </label>
                  </div>
+                <div className="field-row text-effect-controls">
+                  <label className="field">
+                    <span>Hiệu ứng chữ</span>
+                    <select
+                      value={activeTextOverlay?.textEffect ?? "none"}
+                      onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}
+                    >
+                      {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Thời lượng hiệu ứng</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0.05"
+                        max="8"
+                        step="0.05"
+                        value={activeTextOverlay?.textEffectDuration ?? 0.6}
+                        disabled={!activeTextOverlay || activeTextOverlay.textEffect === "none"}
+                        onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))}
+                      />
+                      <b>s</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
                 <div className="field-row">
                   <label className="field">
                     <span>Vị trí X</span>

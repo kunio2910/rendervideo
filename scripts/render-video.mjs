@@ -90,6 +90,15 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const textOverlayEffectValues = [
+  "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right",
+  "typewriter", "zoom", "pop", "glow", "letter-spacing", "blur",
+  "highlight-sweep", "stroke-draw", "shake", "glitch", "shadow-lift",
+  "word-by-word", "kinetic",
+];
+const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(String(value))
+  ? String(value)
+  : "none";
 const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
 const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
 const sceneImageTransitionEnd = (image) => {
@@ -1024,6 +1033,7 @@ const createTextOverlay = async (overlay, index) => {
   const borderWidth = Math.round(previewPx(clamp(Number(overlay?.borderWidth ?? 0), 0, 12)));
   const textOpacity = clamp(Number(overlay?.opacity ?? 100) / 100, 0, 1);
   const borderOpacity = clamp(Number(overlay?.borderOpacity ?? 100) / 100, 0, 1);
+  const textEffect = normalizeTextOverlayEffect(overlay?.textEffect ?? overlay?.overlayTextEffect);
   const color = decorationColor(overlay?.color, "#ffffff");
   const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
   const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
@@ -1062,14 +1072,21 @@ const createTextOverlay = async (overlay, index) => {
   );
   const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
   const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  const letterSpacing = textEffect === "letter-spacing" ? Math.round(previewPx(5)) : 0;
   const textNodes = lines.map((line, lineIndex) => {
     const y = paddingY + size * 0.86 + lineIndex * lineHeight;
-    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
+    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
   }).join("");
+  const shadowNodes = textEffect === "shadow-lift"
+    ? lines.map((line, lineIndex) => {
+        const y = paddingY + size * 0.86 + lineIndex * lineHeight + Math.max(2, Math.round(previewPx(7)));
+        return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="#000000" fill-opacity="0.38">${escapeXml(line)}</text>`;
+      }).join("")
+    : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
-      ${textNodes}
+      ${shadowNodes}${textNodes}
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
@@ -1251,6 +1268,8 @@ for (let index = 0; index < scenes.length; index += 1) {
           borderColor: scene.overlayTextBorderColor,
           borderOpacity: 100,
           borderFill: "#14202e",
+          textEffect: scene.overlayTextEffect,
+          textEffectDuration: scene.overlayTextEffectDuration,
           x: scene.overlayTextX,
           y: scene.overlayTextY,
         }]
@@ -1411,8 +1430,76 @@ for (let index = 0; index < scenes.length; index += 1) {
     const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
+    const effectDuration = clamp(
+      Number(overlay.textEffectDuration ?? overlay.overlayTextEffectDuration ?? 0.6) || 0.6,
+      0.05,
+      Math.max(0.05, duration),
+    );
+    const progress = `min(1,max(0,t/${effectDuration}))`;
+    const geqProgress = `min(1,max(0,T/${effectDuration}))`;
+    const inputIndex = textInputIndices[textIndex];
+    const inputLabel = `textInput${textIndex}`;
     const outputLabel = `texted${textIndex}`;
-    filter += `${composedLabel}[${textInputIndices[textIndex]}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    let overlayInputLabel = inputLabel;
+    const textValue = String(overlay.text ?? "");
+    const wordCount = Math.max(1, textValue.trim().split(/\s+/).filter(Boolean).length);
+    if (effect === "glow") {
+      const sharpLabel = `textSharp${textIndex}`;
+      const glowSourceLabel = `textGlowSource${textIndex}`;
+      const glowLabel = `textGlow${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
+      filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*t/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
+      filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
+    } else if (effect === "blur") {
+      const sharpLabel = `textBlurSharp${textIndex}`;
+      const blurSourceLabel = `textBlurSource${textIndex}`;
+      const blurLabel = `textBlurred${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
+      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=0:d=${effectDuration}:alpha=1[${blurLabel}];`;
+      filter += `[${sharpLabel}][${blurLabel}]overlay=0:0[${inputLabel}];`;
+    } else {
+      let inputFilter = `[${inputIndex}:v]format=rgba`;
+      if (effect === "fade") {
+        const fadeOutStart = Math.max(0, duration - effectDuration);
+        inputFilter += `,fade=t=in:st=0:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
+      } else if (effect === "typewriter" || effect === "stroke-draw") {
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${geqProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "word-by-word") {
+        const wordProgress = `floor(${geqProgress}*${wordCount})/${wordCount}`;
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${wordProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "highlight-sweep") {
+        inputFilter += `,eq=brightness='0.08*sin(2*PI*t/${effectDuration})'`;
+      } else if (effect === "glitch") {
+        inputFilter += ",noise=alls=4:allf=t+u";
+      }
+      if (effect === "zoom") {
+        inputFilter += `,scale=w='iw*(0.78+0.22*${progress})':h='ih*(0.78+0.22*${progress})':eval=frame`;
+      } else if (effect === "pop") {
+        inputFilter += `,scale=w='iw*(0.82+0.18*${progress})':h='ih*(0.82+0.18*${progress})':eval=frame`;
+      }
+      filter += `${inputFilter}[${inputLabel}];`;
+    }
+    const baseX = `main_w*${x}-overlay_w/2`;
+    const baseY = `main_h*${y}-overlay_h/2`;
+    const slideDistance = "main_w*0.12";
+    let overlayX = baseX;
+    let overlayY = baseY;
+    if (effect === "slide-left") overlayX = `${baseX}-${slideDistance}*(1-${progress})`;
+    if (effect === "slide-right") overlayX = `${baseX}+${slideDistance}*(1-${progress})`;
+    if (effect === "slide-up") overlayY = `${baseY}+main_h*0.08*(1-${progress})`;
+    if (effect === "slide-down") overlayY = `${baseY}-main_h*0.08*(1-${progress})`;
+    if (effect === "shake") {
+      overlayX = `${baseX}+sin(t*48)*${Math.max(1, Math.round(previewPx(2)))}`;
+      overlayY = `${baseY}+cos(t*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
+    }
+    if (effect === "glitch") {
+      overlayX = `${baseX}+if(lt(mod(t*12,2),1),${Math.max(1, Math.round(previewPx(2)))},-${Math.max(1, Math.round(previewPx(2)))})`;
+    }
+    if (effect === "kinetic") {
+      overlayY = `${baseY}+sin(t*2.8)*main_h*0.012`;
+    }
+    filter += `${composedLabel}[${overlayInputLabel}]overlay=x='${overlayX}':y='${overlayY}'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   };
   const appendSceneImageLayer = (imageIndex) => {

@@ -486,6 +486,94 @@ button { color: inherit; }
   outline-offset: 2px;
 }
 .map-text-overlay:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.map-text-overlay.is-playing.text-effect-fade,
+.map-text-overlay.is-playing.text-effect-slide-up,
+.map-text-overlay.is-playing.text-effect-slide-down,
+.map-text-overlay.is-playing.text-effect-slide-left,
+.map-text-overlay.is-playing.text-effect-slide-right,
+.map-text-overlay.is-playing.text-effect-typewriter,
+.map-text-overlay.is-playing.text-effect-word-by-word,
+.map-text-overlay.is-playing.text-effect-zoom,
+.map-text-overlay.is-playing.text-effect-pop,
+.map-text-overlay.is-playing.text-effect-glow,
+.map-text-overlay.is-playing.text-effect-letter-spacing,
+.map-text-overlay.is-playing.text-effect-blur,
+.map-text-overlay.is-playing.text-effect-highlight-sweep,
+.map-text-overlay.is-playing.text-effect-stroke-draw,
+.map-text-overlay.is-playing.text-effect-shake,
+.map-text-overlay.is-playing.text-effect-glitch,
+.map-text-overlay.is-playing.text-effect-shadow-lift,
+.map-text-overlay.is-playing.text-effect-kinetic {
+  animation-duration: var(--text-effect-duration, .6s);
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(.22, .72, .26, 1);
+}
+.map-text-overlay.is-playing.text-effect-fade { animation-name: text-effect-fade; }
+.map-text-overlay.is-playing.text-effect-slide-up { animation-name: text-effect-slide-up; }
+.map-text-overlay.is-playing.text-effect-slide-down { animation-name: text-effect-slide-down; }
+.map-text-overlay.is-playing.text-effect-slide-left { animation-name: text-effect-slide-left; }
+.map-text-overlay.is-playing.text-effect-slide-right { animation-name: text-effect-slide-right; }
+.map-text-overlay.is-playing.text-effect-typewriter,
+.map-text-overlay.is-playing.text-effect-stroke-draw { animation-name: text-effect-reveal; }
+.map-text-overlay.is-playing.text-effect-word-by-word { animation-name: text-effect-reveal; animation-timing-function: steps(5, end); }
+.map-text-overlay.is-playing.text-effect-zoom { animation-name: text-effect-zoom; }
+.map-text-overlay.is-playing.text-effect-pop { animation-name: text-effect-pop; }
+.map-text-overlay.is-playing.text-effect-glow {
+  animation-name: text-effect-glow;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.map-text-overlay.is-playing.text-effect-letter-spacing { animation-name: text-effect-letter-spacing; }
+.map-text-overlay.is-playing.text-effect-blur { animation-name: text-effect-blur; }
+.map-text-overlay.is-playing.text-effect-highlight-sweep { animation-name: text-effect-highlight; }
+.map-text-overlay.is-playing.text-effect-shake {
+  animation-name: text-effect-shake;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+.map-text-overlay.is-playing.text-effect-glitch {
+  animation-name: text-effect-glitch;
+  animation-iteration-count: infinite;
+  animation-timing-function: steps(2, end);
+}
+.map-text-overlay.is-playing.text-effect-shadow-lift { animation-name: text-effect-shadow-lift; }
+.map-text-overlay.is-playing.text-effect-kinetic {
+  animation-name: text-effect-kinetic;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.map-text-overlay.text-effect-highlight-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 25%, rgba(255,255,255,.8) 48%, transparent 70%);
+  background-size: 220% 100%;
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+.map-text-overlay.is-playing.text-effect-highlight-sweep::after {
+  opacity: .9;
+  animation: text-effect-highlight-sweep var(--text-effect-duration, .6s) ease-out both;
+}
+@keyframes text-effect-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes text-effect-slide-up { from { opacity: 0; transform: translate(-50%, -50%) translateY(34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-down { from { opacity: 0; transform: translate(-50%, -50%) translateY(-34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-left { from { opacity: 0; transform: translate(-50%, -50%) translateX(34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-slide-right { from { opacity: 0; transform: translate(-50%, -50%) translateX(-34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes text-effect-reveal { from { opacity: 0; clip-path: inset(0 100% 0 0); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+@keyframes text-effect-zoom { from { opacity: 0; transform: translate(-50%, -50%) scale(.72); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes text-effect-pop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.72); } 70% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes text-effect-glow { 0%, 100% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 4px currentColor; } 50% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 18px currentColor, 0 0 30px currentColor; } }
+@keyframes text-effect-letter-spacing { from { letter-spacing: .45em; opacity: .35; } to { letter-spacing: 0; opacity: 1; } }
+@keyframes text-effect-blur { from { opacity: .25; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
+@keyframes text-effect-highlight { from { filter: brightness(.8); } 50% { filter: brightness(1.4); } to { filter: brightness(1); } }
+@keyframes text-effect-highlight-sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+@keyframes text-effect-shake { 0%, 100% { transform: translate(-50%, -50%); } 25% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)); } 50% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)); } 75% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)); } }
+@keyframes text-effect-glitch { 0%, 100% { transform: translate(-50%, -50%); text-shadow: 0 2px 5px rgba(0,0,0,.72); } 25% { transform: translate(calc(-50% + 2px), -50%); text-shadow: -2px 0 #ff3b81, 2px 0 #31d8ff; } 50% { transform: translate(calc(-50% - 2px), -50%); clip-path: inset(8% 0 56% 0); } 75% { transform: translate(-50%, calc(-50% + 1px)); clip-path: inset(0); } }
+@keyframes text-effect-shadow-lift { from { text-shadow: 0 2px 5px rgba(0,0,0,.72); } to { text-shadow: 0 13px 16px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.72); } }
+@keyframes text-effect-kinetic { 0%, 100% { transform: translate(-50%, -50%) rotate(0); } 50% { transform: translate(-50%, calc(-50% - 5px)) rotate(-1deg); } }
 .map-text-resize-handle {
   position: absolute;
   right: -7px;
