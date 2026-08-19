@@ -7319,9 +7319,33 @@ body {
   pointer-events: none;
   background: radial-gradient(
     circle at center,
+    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 0%,
+    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 42%,
+    rgba(0, 0, 0, var(--scene-start-dark-edge-opacity, 0)) 100%
+  );
+  -webkit-backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+}
+
+.scene-start-dark-effect::before {
+  position: absolute;
+  inset: -12px;
+  content: "";
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  backdrop-filter: blur(var(--scene-start-dark-blur, 0px));
+  -webkit-mask-image: radial-gradient(
+    circle at center,
     transparent 0%,
     transparent var(--scene-start-dark-clear-radius, 145%),
-    rgba(0, 0, 0, .92) calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
+    #000 calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
+    #000 100%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0%,
+    transparent var(--scene-start-dark-clear-radius, 145%),
+    #000 calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
     #000 100%
   );
 }
@@ -7347,6 +7371,37 @@ body {
 
 .scene-start-dark-duration-field > span {
   color: #d9c4a8;
+}
+
+/* Keep the compose editor scrollable even when a long accordion is open. */
+@media (min-width: 761px) {
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll::-webkit-scrollbar-thumb {
+    cursor: grab;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll::-webkit-scrollbar-thumb:active {
+    cursor: grabbing;
+  }
 }
 
 .light-flicker-effect {
@@ -8380,4 +8435,28 @@ body {
   width: min(100%, 360px) !important;
   height: auto !important;
   aspect-ratio: 9 / 16;
+}
+
+/* Keep the editor panel independently scrollable on narrow touch screens too.
+   The three-column workspace remains horizontally scrollable, while a long
+   open section can still be dragged vertically inside the editor panel. */
+@media (max-width: 760px) {
+  .studio-shell[data-studio-tab="compose"] .editor-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .editor-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
 }

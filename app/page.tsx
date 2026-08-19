@@ -2683,6 +2683,9 @@ function Home() {
     ? Math.min(1, Math.max(0, sceneLocalTime / Math.max(0.1, sceneEffects.sceneStartDarkDuration)))
     : 0;
   const sceneStartDarkClearRadius = Math.max(0, 145 * (1 - sceneStartDarkProgress));
+  const sceneStartDarkEdgeOpacity = Math.min(1, sceneStartDarkProgress * 1.35);
+  const sceneStartDarkCenterOpacity = Math.min(1, Math.max(0, (sceneStartDarkProgress - 0.18) / 0.82));
+  const sceneStartDarkBlur = Math.round(sceneStartDarkProgress * 12);
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
     const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
@@ -8087,6 +8090,9 @@ function Home() {
                 aria-hidden="true"
                 style={{
                   ["--scene-start-dark-clear-radius" as string]: `${sceneStartDarkClearRadius}%`,
+                  ["--scene-start-dark-edge-opacity" as string]: String(sceneStartDarkEdgeOpacity),
+                  ["--scene-start-dark-center-opacity" as string]: String(sceneStartDarkCenterOpacity),
+                  ["--scene-start-dark-blur" as string]: `${sceneStartDarkBlur}px`,
                 }}
               />
             )}

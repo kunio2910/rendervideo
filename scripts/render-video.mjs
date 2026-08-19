@@ -1670,11 +1670,26 @@ for (let index = 0; index < scenes.length; index += 1) {
   if (sceneEffects.sceneStartDarkEnabled && sceneEffects.sceneStartDarkDuration > 0) {
     const darkDuration = Math.min(duration, sceneEffects.sceneStartDarkDuration);
     if (darkDuration > 0) {
+      const darkSharpLabel = "sceneStartDarkSharp";
+      const darkBlurSourceLabel = "sceneStartDarkBlurSource";
+      const darkBlurredLabel = "sceneStartDarkBlurred";
+      const darkMixedLabel = "sceneStartDarkMixed";
+      const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkMaskExpression = `if(lt(T,${darkDuration}),255*max(max(0,(T/${darkDuration}-0.18)/0.82),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-T/${darkDuration}))/max(1,min(W,H)*0.12),0,1)),255)`;
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
+        `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+      );
+      filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
+      filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
+      filter += `[${darkMaskInputIndex}:v]format=gray[sceneStartDarkMask];`;
+      filter += `[${darkSharpLabel}][${darkBlurredLabel}][sceneStartDarkMask]maskedmerge[${darkMixedLabel}];`;
+      composedLabel = `[${darkMixedLabel}]`;
       const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
       const darkLabel = "sceneStartDarkened";
       weatherInputSpecs.push(
         `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
-        `geq=r='0':g='0':b='0':a='if(lt(T,${darkDuration}),255*clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-T/${darkDuration}))/max(1,min(W,H)*0.12),0,1),255)'`,
+        `geq=r='0':g='0':b='0':a='${darkMaskExpression}'`,
       );
       filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
       composedLabel = `[${darkLabel}]`;
