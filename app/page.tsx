@@ -224,6 +224,8 @@ type Scene = {
 };
 
 type SceneEffects = {
+  sceneStartDarkEnabled: boolean;
+  sceneStartDarkDuration: number;
   snowEnabled: boolean;
   snowIntensity: number;
   snowSpeed: number;
@@ -242,6 +244,8 @@ type SceneEffects = {
 };
 
 const defaultSceneEffects = (): SceneEffects => ({
+  sceneStartDarkEnabled: false,
+  sceneStartDarkDuration: 1.2,
   snowEnabled: false,
   snowIntensity: 55,
   snowSpeed: 1,
@@ -1125,6 +1129,8 @@ const clampVolume = (value: unknown, fallback = 100) => {
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
   return {
+    sceneStartDarkEnabled: raw.sceneStartDarkEnabled === true,
+    sceneStartDarkDuration: Math.min(6, Math.max(0.1, positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1))),
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
     snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
@@ -2334,10 +2340,31 @@ function Home() {
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
+  const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  const activeEditorSectionRef = useRef<EditorSectionKey | null>(
+    (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+      .find((section) => DEFAULT_EDITOR_SECTIONS[section]) ?? null,
+  );
+  useEffect(() => {
+    activeEditorSectionRef.current = (Object.keys(editorSections) as EditorSectionKey[])
+      .find((section) => editorSections[section]) ?? null;
+  }, [editorSections]);
   const setEditorSectionOpen = (section: EditorSectionKey, open: boolean) => {
+    if (open) {
+      activeEditorSectionRef.current = section;
+      editorScrollRef.current?.querySelectorAll<HTMLDetailsElement>(
+        "details.editor-accordion[open]",
+      ).forEach((item) => {
+        if (item.dataset.editorSection !== section) item.open = false;
+      });
+      setEditorSections(normalizeEditorSections({ [section]: true }));
+      return;
+    }
+    if (activeEditorSectionRef.current !== section) return;
+    activeEditorSectionRef.current = null;
     setEditorSections((items) => normalizeEditorSections({
       ...items,
-      [section]: open,
+      [section]: false,
     }));
   };
   const [playing, setPlaying] = useState(false);
@@ -2652,6 +2679,10 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneStartDarkProgress = sceneEffects.sceneStartDarkEnabled
+    ? Math.min(1, Math.max(0, sceneLocalTime / Math.max(0.1, sceneEffects.sceneStartDarkDuration)))
+    : 0;
+  const sceneStartDarkClearRadius = Math.max(0, 145 * (1 - sceneStartDarkProgress));
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
     const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
@@ -4464,6 +4495,7 @@ function Home() {
   };
 
   type SceneEffectNumberField =
+    | "sceneStartDarkDuration"
     | "snowIntensity" | "snowSpeed"
     | "lightFlickerIntensity" | "lightFlickerSpeed"
     | "rainIntensity" | "rainSpeed"
@@ -8049,6 +8081,15 @@ function Home() {
                 style={{ opacity: fadeBlackOpacity }}
               />
             )}
+            {sceneIsVisibleInPlayback && sceneStartDarkProgress > 0 && (
+              <div
+                className="scene-start-dark-effect"
+                aria-hidden="true"
+                style={{
+                  ["--scene-start-dark-clear-radius" as string]: `${sceneStartDarkClearRadius}%`,
+                }}
+              />
+            )}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
@@ -8197,9 +8238,10 @@ function Home() {
               </label>
             </div>
           </div>
-          <div className="editor-scroll">
+          <div className="editor-scroll" ref={editorScrollRef}>
             <details
               className="editor-accordion editor-accordion-visual"
+              data-editor-section="visual"
               open={editorSections.visual}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -8277,6 +8319,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-images"
+              data-editor-section="images"
               open={editorSections.images}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -8540,6 +8583,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-scene-content"
+              data-editor-section="content"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -8581,6 +8625,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-text"
+              data-editor-section="text"
               open={editorSections.text}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -9133,6 +9178,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-audio"
+              data-editor-section="audio"
               open={editorSections.audio}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -9534,6 +9580,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-effects"
+              data-editor-section="effects"
               open={editorSections.effects}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
@@ -9632,6 +9679,36 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
+                <div className="scene-visual-effect-card scene-start-dark-effect-card" aria-label="Hiệu ứng tối dần từ ngoài vào trong">
+                  <div className="scene-visual-effect-heading">
+                    <strong>Tối dần từ ngoài vào trong</strong>
+                    <span>Viền tối lan dần vào tâm cảnh, giống hiệu ứng kết thúc phim.</span>
+                  </div>
+                  <label className="zoom-effect-toggle">
+                    <input
+                      type="checkbox"
+                      checked={sceneEffects.sceneStartDarkEnabled}
+                      disabled={!hydrated}
+                      onChange={(event) => updateSceneEffects("sceneStartDarkEnabled", event.target.checked)}
+                    />
+                    <span aria-hidden="true" />
+                    <span>Bật hiệu ứng tối dần khi bắt đầu cảnh</span>
+                  </label>
+                  <label className="field scene-start-dark-duration-field">
+                    <span>Thời lượng hiệu ứng</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={effectInputValue("sceneStartDarkDuration", sceneEffects.sceneStartDarkDuration)}
+                        disabled={!sceneEffects.sceneStartDarkEnabled}
+                        onChange={(event) => updateEffectInput("sceneStartDarkDuration", event.target.value)}
+                        onBlur={() => commitEffectInput("sceneStartDarkDuration")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
                 </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">
@@ -9870,6 +9947,7 @@ function Home() {
             </details>
             <details
               className="editor-accordion editor-accordion-popup"
+              data-editor-section="popup"
               open={editorSections.popup}
               onToggle={(event) => {
                 const open = event.currentTarget.open;

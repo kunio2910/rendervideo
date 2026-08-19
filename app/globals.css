@@ -7312,6 +7312,43 @@ body {
   overflow: hidden;
 }
 
+.scene-start-dark-effect {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at center,
+    transparent 0%,
+    transparent var(--scene-start-dark-clear-radius, 145%),
+    rgba(0, 0, 0, .92) calc(var(--scene-start-dark-clear-radius, 145%) + 8%),
+    #000 100%
+  );
+}
+
+.scene-start-dark-effect-card {
+  border-color: rgba(68, 53, 37, .24);
+  background: linear-gradient(145deg, #211c18, #473528);
+}
+
+.scene-start-dark-effect-card .scene-visual-effect-heading strong,
+.scene-start-dark-effect-card .scene-visual-effect-heading span {
+  color: #fff2df;
+}
+
+.scene-start-dark-effect-card .scene-visual-effect-heading span {
+  color: #d9c4a8;
+}
+
+.studio-shell[data-theme="dark"] .scene-start-dark-effect-card {
+  border-color: #4c3d31;
+  background: linear-gradient(145deg, #171a1e, #2b241e);
+}
+
+.scene-start-dark-duration-field > span {
+  color: #d9c4a8;
+}
+
 .light-flicker-effect {
   z-index: 2;
   opacity: var(--light-flicker-opacity, .26);

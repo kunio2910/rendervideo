@@ -138,6 +138,8 @@ const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
   return {
+    sceneStartDarkEnabled: raw.sceneStartDarkEnabled === true,
+    sceneStartDarkDuration: clamp(Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2, 0.1, 6),
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
     snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
@@ -1665,6 +1667,19 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
     composedLabel = `[${fadeLabel}]`;
   });
+  if (sceneEffects.sceneStartDarkEnabled && sceneEffects.sceneStartDarkDuration > 0) {
+    const darkDuration = Math.min(duration, sceneEffects.sceneStartDarkDuration);
+    if (darkDuration > 0) {
+      const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkLabel = "sceneStartDarkened";
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+        `geq=r='0':g='0':b='0':a='if(lt(T,${darkDuration}),255*clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-T/${darkDuration}))/max(1,min(W,H)*0.12),0,1),255)'`,
+      );
+      filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
+      composedLabel = `[${darkLabel}]`;
+    }
+  }
   filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
