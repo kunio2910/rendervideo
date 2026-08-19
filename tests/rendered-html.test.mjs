@@ -166,6 +166,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
+  assert.match(page, /replayPlayback/);
+  assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
   assert.match(page, /id="editor-narration"/);
   assert.match(page, /value=\{scene\.narration\}/);
@@ -283,6 +285,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
   assert.match(css, /preview-audio-toggle/);
+  assert.match(css, /preview-replay-button/);
   assert.match(page, /Math\.min\(REVIEW_ZOOM_MAX/);
   assert.match(page, /localStorage\.setItem\(LOCAL_REVIEW_ZOOM_KEY/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
@@ -374,6 +377,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /holdDuration/);
   assert.match(page, /Thời gian giữ tối/);
   assert.match(page, /editor-section-shortcuts/);
+  assert.match(page, /reviewEffectConfiguration/);
+  assert.match(page, /reviewTextEffectLabel/);
+  assert.match(page, /review-text-detail-list/);
+  assert.match(page, /Hiệu ứng tối/);
+  assert.match(page, /Chuyển hình/);
   assert.match(renderer, /orderedLayerTokens/);
   assert.match(renderer, /layerToken = \(kind, id\)/);
   assert.match(renderer, /appendSceneImageLayer/);

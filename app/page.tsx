@@ -2556,6 +2556,7 @@ function Home() {
   const [playing, setPlaying] = useState(false);
   const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
+  const [playbackRestartToken, setPlaybackRestartToken] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [layerListDrag, setLayerListDrag] = useState<{
@@ -3733,7 +3734,7 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, sceneTimelineDuration, scenes, visibleScenes]);
+  }, [playing, playbackRestartToken, sceneTimelineDuration, scenes, visibleScenes]);
 
   useEffect(() => {
     narrationAudio.current?.pause();
@@ -3963,6 +3964,26 @@ function Home() {
       ? startAt
       : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
+    setPlaying(true);
+  };
+
+  const replayPlayback = () => {
+    const firstScene = visibleScenes[0];
+    if (!firstScene) {
+      setToast("Chưa có cảnh đang hiện để chạy lại");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+    setRulerEnabled(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+    setPlayTime(firstScene.start);
+    setSelectedId(firstScene.id);
+    setSelectedSceneIds([firstScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedDecorationId("");
+    setSelectedSceneImageId("");
+    setPlaybackRestartToken((value) => value + 1);
     setPlaying(true);
   };
 
@@ -7537,6 +7558,21 @@ function Home() {
       speed,
     }));
   };
+  const reviewEffectConfiguration = (item: Scene) => {
+    const effects = normalizeSceneEffects(item.effects);
+    const entries = [
+      ["Tuyết", effects.snowEnabled, effects.snowIntensity, effects.snowSpeed],
+      ["Mưa", effects.rainEnabled, effects.rainIntensity, effects.rainSpeed],
+      ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
+      ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
+      ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+    ] as const;
+    return entries.map(([label, enabled, intensity, speed]) => ({ label, enabled, intensity, speed }));
+  };
+  const reviewTextEffectLabel = (value: unknown) =>
+    TEXT_OVERLAY_EFFECT_OPTIONS.find((option) => option.value === value)?.label ?? "Không hiệu ứng";
+  const reviewImageTransitionLabel = (value: unknown) =>
+    sceneImageTransitionOptions.find((option) => option.value === value)?.label ?? "Cắt trực tiếp";
 
   const renderReviewVisibility = (
     visible: boolean,
@@ -7933,6 +7969,17 @@ function Home() {
               >
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
+              </button>
+              <button
+                type="button"
+                className="preview-replay-button"
+                disabled={!hydrated || !visibleScenes.length}
+                aria-label="Chạy lại từ đầu"
+                title="Chạy lại toàn bộ video từ đầu"
+                onClick={replayPlayback}
+              >
+                <span aria-hidden="true">↻</span>
+                <b>Chạy lại</b>
               </button>
               <button
                 type="button"
@@ -11790,6 +11837,10 @@ function Home() {
                     {visibleScenes.map((item) => {
                       const duration = Math.max(0.1, item.end - item.start);
                       const effectSummaries = reviewEffectSummary(item);
+                      const effectConfigurations = reviewEffectConfiguration(item);
+                      const sceneEffects = normalizeSceneEffects(item.effects);
+                      const darkEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.enabled);
+                      const imageTransitions = (item.sceneImages ?? []).filter((image) => normalizeSceneImageTransition(image.transition) !== "cut");
                       return (
                         <div className="review-grid-cell review-section-cell review-effects-cell" key={`review-effects-${item.id}`}>
                           <div className="review-effect-heading">
@@ -11822,18 +11873,76 @@ function Home() {
                             <span>Hiệu ứng nền:</span>
                             {effectSummaries.length ? effectSummaries.map((effect) => <span className="review-chip" key={effect.label}>{effect.label} · {effect.intensity}% · ×{effect.speed}</span>) : <span className="review-chip review-chip-muted">Không có</span>}
                           </div>
+                          <div className="review-effect-detail-list">
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Chi tiết nền:</b>{" "}
+                              {effectConfigurations.map((effect) => (
+                                <span key={effect.label} className={`review-effect-status ${effect.enabled ? "is-on" : "is-off"}`}>
+                                  {effect.label} {effect.enabled ? `${effect.intensity}% · ×${effect.speed}` : "tắt"}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Hiệu ứng tối:</b>{" "}
+                              {darkEffects.length ? darkEffects.map((effect, index) => (
+                                <span key={effect.id} className="review-effect-status is-on">
+                                  #{index + 1} {formatTime(effect.start)}–{formatTime(effect.end)} · giữ {Number(effect.holdDuration ?? 0).toFixed(1)}s · cường độ {effect.intensity}%
+                                </span>
+                              )) : <span className="review-effect-status is-off">tắt</span>}
+                            </div>
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Chuyển hình:</b>{" "}
+                              {imageTransitions.length ? imageTransitions.map((image) => (
+                                <span key={image.id} className="review-effect-status is-on">
+                                  {image.name || "Hình ảnh"}: {reviewImageTransitionLabel(image.transition)} · {formatTime(image.start)}–{formatTime(image.transitionEnd)}
+                                </span>
+                              )) : <span className="review-effect-status is-off">Cắt trực tiếp hoặc chưa có hình</span>}
+                            </div>
+                          </div>
                           <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "effects")}>Mở mục Hiệu ứng trong Biên soạn</button>
                         </div>
                       );
                     })}
 
                     <div className="review-row-label">Chữ viết <small>items</small></div>
-                    {visibleScenes.map((item) => (
-                      <div className="review-grid-cell review-basic-cell" key={`review-text-${item.id}`}>
-                        <span className="review-count-chip">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).length} lớp chữ đang hiện</span>
-                        <div className="review-detail-line">{(item.textOverlays ?? []).filter((overlay) => overlay.visible !== false).map((overlay) => overlay.name || overlay.text).slice(0, 2).join(" · ") || "Chưa có lớp chữ"}</div>
-                      </div>
-                    ))}
+                    {visibleScenes.map((item) => {
+                      const textOverlays = item.textOverlays ?? [];
+                      const visibleTextOverlays = textOverlays.filter((overlay) => overlay.visible !== false);
+                      const decorations = item.mapDecorations ?? [];
+                      return (
+                        <div className="review-grid-cell review-basic-cell review-text-cell" key={`review-text-${item.id}`}>
+                          <div className="review-text-summary">
+                            <span className="review-count-chip">{visibleTextOverlays.length}/{textOverlays.length} lớp chữ đang hiện</span>
+                            <span className="review-detail-line">{visibleTextOverlays.map((overlay) => overlay.name || overlay.text).slice(0, 2).join(" · ") || "Chưa có lớp chữ"}</span>
+                          </div>
+                          {textOverlays.length ? (
+                            <div className="review-text-detail-list">
+                              {textOverlays.map((overlay, index) => (
+                                <article className={`review-text-detail ${overlay.visible === false ? "is-hidden" : ""}`} key={overlay.id}>
+                                  <div className="review-text-detail-heading">
+                                    <strong>{overlay.name || `Chữ ${index + 1}`}</strong>
+                                    <span className={`review-chip ${overlay.visible === false ? "review-chip-muted" : "review-chip-orange"}`}>
+                                      {overlay.visible === false ? "Đang ẩn" : "Đang hiện"}
+                                    </span>
+                                  </div>
+                                  <p>{safeTrim(overlay.text) || "Chưa có nội dung chữ"}</p>
+                                  <div className="review-detail-line">Thời gian {formatTime(overlay.start)}–{formatTime(overlay.end)} · {overlay.size}px · {overlay.style} · {overlay.font}</div>
+                                  <div className="review-detail-line">Hiệu ứng: {reviewTextEffectLabel(overlay.textEffect)} · {Number(overlay.textEffectDuration ?? 0.6).toFixed(2)}s · Opacity {overlay.opacity}%</div>
+                                  <div className="review-detail-line">Vị trí X {Number(overlay.x).toFixed(1)}% · Y {Number(overlay.y).toFixed(1)}% · khung {Number(overlay.width ?? 60).toFixed(1)}% × {Number(overlay.height ?? 10).toFixed(1)}%</div>
+                                  <div className="review-detail-line">Màu {overlay.color} · viền {overlay.strokeWidth}px {overlay.strokeColor} · nền {overlay.borderWidth}px {overlay.borderOpacity}%</div>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="review-empty-layer">Chưa có lớp chữ trong cảnh này.</div>
+                          )}
+                          <div className="review-detail-line review-decoration-summary">
+                            <b>Trang trí bản đồ:</b>{" "}
+                            {decorations.length ? decorations.map((decoration) => `${decoration.name || mapDecorationTypeLabel(decoration.type)} · ${mapDecorationTypeLabel(decoration.type)} · X${Number(decoration.x).toFixed(0)} Y${Number(decoration.y).toFixed(0)} · ${decoration.opacity}%`).join(" | ") : "Chưa có"}
+                          </div>
+                        </div>
+                      );
+                    })}
 
                     <div className="review-row-label">Ghi chú <small>review</small></div>
                     {visibleScenes.map((item) => (
