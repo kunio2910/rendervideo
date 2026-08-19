@@ -1608,7 +1608,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${imageLayerLabel}]${imageTransitionFilter}format=rgba[${transitionedLabel}];`;
       imageLayerLabel = transitionedLabel;
     }
-    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
+    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':enable='gte(t,${imageStart})*lt(t,${imageEnd})'[sceneImageComposed${imageIndex}];`;
     composedLabel = `[sceneImageComposed${imageIndex}]`;
   };
   const appendDecorationLayer = (decorationIndex) => {
@@ -1825,7 +1825,8 @@ for (let index = 0; index < scenes.length; index += 1) {
       const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
       const darkHoldStart = darkStart + darkHalfDuration;
       const darkHoldEnd = darkHoldStart + darkHoldDuration;
-      const darkProgress = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+      const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+      const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
       const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
       const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
       const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
@@ -1833,9 +1834,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
       const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
       const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
-      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.18)/0.82),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
+      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
       const darkMaskExpression = `255*${darkCoverageExpression}`;
-      const darkAlphaExpression = `255*${darkStrength}*${darkCoverageExpression}`;
+      const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
       weatherInputSpecs.push(
         `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
         `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,

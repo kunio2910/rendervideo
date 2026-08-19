@@ -53,6 +53,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /indexedDB/);
   assert.match(page, /timelineProgress/);
   assert.match(page, /timeline-playhead-layer/);
+  assert.match(page, /timelineEffectItems/);
+  assert.match(page, /effect-clip/);
   assert.match(page, /startTimelineScrub/);
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
@@ -213,7 +215,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
-  assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera|editor-effects/);
+  assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera/);
   assert.match(css, /zoom-focus-target/);
   assert.match(page, /event\.key === " "/);
   assert.match(page, /const moveSelectedMapLayer/);
@@ -369,6 +371,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /sceneImagePreviewTransition/);
   assert.match(page, /scene-image-fade-black/);
   assert.match(page, /sceneStartDarkEffectProgress/);
+  assert.match(page, /easedProgress = progress \* progress \* \(3 - 2 \* progress\)/);
+  assert.match(page, /scene-start-dark-mid-opacity/);
   assert.match(page, /elapsed < halfDuration/);
   assert.match(page, /elapsed < halfDuration \+ holdDuration/);
   assert.match(page, /sceneLocalTime < end/);
@@ -390,11 +394,14 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /sceneImageFadeBlack/);
   assert.match(renderer, /boxblur=luma_radius/);
   assert.match(renderer, /darkHalfDuration/);
+  assert.match(renderer, /darkProgressRaw/);
+  assert.match(renderer, /3-2\*\(\$\{darkProgressRaw\}\)/);
   assert.match(renderer, /darkHoldDuration/);
   assert.match(renderer, /darkHoldStart/);
-  assert.match(renderer, /darkProgress = `if\(lt\(T/);
+  assert.match(renderer, /darkProgressRaw = `if\(lt\(T/);
   assert.match(renderer, /\$\{darkEnd\}-T/);
   assert.match(renderer, /subtitleOffset/);
+  assert.match(renderer, /enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
   assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);

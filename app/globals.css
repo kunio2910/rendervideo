@@ -1016,6 +1016,13 @@ button { color: inherit; }
 .camera-c, .popup-clip { background: #cee5fb; }
 .voice-clip { background: #d8efe1; }
 .music-clip { background: #cbe8d5; }
+.effect-clip { cursor: pointer; }
+.effect-clip-zoom { background: #ffe4a6; color: #8d5a15; }
+.effect-clip-dark { background: #d8c8c2; color: #624744; }
+.effect-clip-transition { background: #f5cfad; color: #995120; }
+.effect-clip-weather { background: #cde1f2; color: #346586; }
+.effect-clip.selected { border: 2px solid var(--blue); box-shadow: 0 2px 7px rgba(35,137,255,.2); }
+.timeline-track-empty { position: absolute; inset: 0 auto auto 8px; padding-top: 14px; color: #a89a8b; font-size: 8px; }
 .popup-clip { cursor: pointer; }
 .popup-clip.selected { border: 2px solid var(--blue); color: #115ca8; box-shadow: 0 2px 7px rgba(35,137,255,.2); }
 .playhead { position: absolute; top: 0; bottom: -3px; width: 1px; background: var(--blue); pointer-events: none; transition: left .25s ease; }
@@ -2031,6 +2038,11 @@ body {
 .popup-clip { background: #322242; color: #d79cff; border-color: #65427f; }
 .voice-clip { background: #12392f; color: #7de0c1; border-color: #286855; }
 .music-clip { background: #233143; color: #a7b6ca; border-color: #40536b; }
+.effect-clip-zoom { background: #59451f; color: #f2c681; border-color: #886b30; }
+.effect-clip-dark { background: #3d3030; color: #e2b8ad; border-color: #76504b; }
+.effect-clip-transition { background: #543725; color: #f2b27b; border-color: #8d5d37; }
+.effect-clip-weather { background: #203a51; color: #9ed0f2; border-color: #3f6a8c; }
+.timeline-track-empty { color: #7f91a4; }
 
 @media (max-width: 1250px) {
   .workspace { grid-template-columns: 276px minmax(380px, 1fr) 396px; }
@@ -4550,6 +4562,26 @@ body {
   border-color: #d9cfbd;
   background: #f4efe5;
   color: #907f63;
+}
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .effect-clip-zoom {
+  border-color: #ebc36e;
+  background: #fff0c9;
+  color: #8c5914;
+}
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .effect-clip-dark {
+  border-color: #bfa9a2;
+  background: #e9ded9;
+  color: #664944;
+}
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .effect-clip-transition {
+  border-color: #e2ad7b;
+  background: #f9dcc0;
+  color: #995120;
+}
+.studio-shell[data-theme="light"][data-studio-tab="compose"] .effect-clip-weather {
+  border-color: #9fc7e3;
+  background: #dcecf8;
+  color: #346586;
 }
 
 .studio-shell[data-theme="light"][data-studio-tab="compose"] .music-clip.is-empty {
@@ -7537,7 +7569,9 @@ body {
   background: radial-gradient(
     circle at center,
     rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 0%,
-    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 42%,
+    rgba(0, 0, 0, var(--scene-start-dark-center-opacity, 0)) 23%,
+    rgba(0, 0, 0, var(--scene-start-dark-mid-opacity, 0)) 46%,
+    rgba(0, 0, 0, var(--scene-start-dark-edge-opacity, 0)) 72%,
     rgba(0, 0, 0, var(--scene-start-dark-edge-opacity, 0)) 100%
   );
   -webkit-backdrop-filter: blur(var(--scene-start-dark-blur, 0px));

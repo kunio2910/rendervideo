@@ -2896,13 +2896,17 @@ function Home() {
     })
     .map((effect) => {
       const progress = sceneStartDarkEffectProgress(effect);
+      const easedProgress = progress * progress * (3 - 2 * progress);
       const strength = 1 - Math.min(100, Math.max(0, Number(effect.intensity) || 0)) / 100;
+      const edgeOpacity = Math.min(0.74, easedProgress * 0.9 * strength);
+      const centerOpacity = Math.min(0.46, Math.max(0, (easedProgress - 0.7) / 0.3) * 0.46 * strength);
       return {
         effect,
-        clearRadius: Math.max(0, 145 * (1 - progress)),
-        edgeOpacity: Math.min(1, progress * 1.35 * strength),
-        centerOpacity: Math.min(1, Math.max(0, (progress - 0.18) / 0.82) * strength),
-        blur: Math.round(progress * 12),
+        clearRadius: Math.max(0, 150 * (1 - easedProgress)),
+        edgeOpacity,
+        midOpacity: Math.min(0.62, edgeOpacity * 0.8 + centerOpacity * 0.2),
+        centerOpacity,
+        blur: Math.round(easedProgress * 8),
       };
     });
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
@@ -3034,7 +3038,7 @@ function Home() {
           return image.visible !== false
             && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
-            && sceneLocalTime <= end;
+            && sceneLocalTime < end;
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
@@ -3824,7 +3828,7 @@ function Home() {
 
   const openTimelineEditor = (
     item: Scene | null,
-    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle",
+    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle" | "editor-effects",
   ) => {
     if (item) {
       setSelectedId(item.id);
@@ -3840,11 +3844,14 @@ function Home() {
         ? "popup"
         : targetId === "editor-subtitle"
           ? "text"
+          : targetId === "editor-effects"
+            ? "effects"
           : "audio",
       true,
     );
     window.setTimeout(() => {
-      const target = document.getElementById(targetId);
+      const target = document.getElementById(targetId)
+        ?? (targetId === "editor-effects" ? document.querySelector('[data-editor-section="effects"]') : null);
       const group = target?.closest("details");
       if (group instanceof HTMLDetailsElement) group.open = true;
       target?.scrollIntoView({
@@ -7608,6 +7615,72 @@ function Home() {
   };
 
   const reviewSceneCountLabel = `${visibleScenes.length} cảnh đang hiện`;
+  const timelineEffectItems = visibleScenes.flatMap((item) => {
+    const sceneLength = Math.max(0.1, item.end - item.start);
+    const clampSceneTime = (value: unknown, fallback = 0) => Math.min(
+      sceneLength,
+      Math.max(0, Number.isFinite(Number(value)) ? Number(value) : fallback),
+    );
+    const effects = normalizeSceneEffects(item.effects);
+    const entries: Array<{
+      id: string;
+      scene: Scene;
+      start: number;
+      end: number;
+      label: string;
+      kind: "zoom" | "dark" | "transition" | "weather";
+    }> = [];
+    const addEntry = (
+      id: string,
+      start: number,
+      end: number,
+      label: string,
+      kind: "zoom" | "dark" | "transition" | "weather",
+    ) => {
+      const safeStart = clampSceneTime(start);
+      const safeEnd = clampSceneTime(end, safeStart + 0.1);
+      if (safeEnd <= safeStart) return;
+      entries.push({ id: `${item.id}-${id}`, scene: item, start: item.start + safeStart, end: item.start + safeEnd, label, kind });
+    };
+    if (item.zoomEnabled !== false) {
+      addEntry(
+        "zoom",
+        item.zoomStart,
+        item.zoomEnd,
+        `Zoom ${Number(item.zoom ?? 1).toFixed(1)}×`,
+        "zoom",
+      );
+    }
+    effects.sceneStartDarkEffects.filter((effect) => effect.enabled).forEach((effect, index) => {
+      addEntry(
+        `dark-${effect.id}`,
+        effect.start,
+        effect.end,
+        `Tối ${index + 1} · giữ ${Number(effect.holdDuration ?? 0).toFixed(1)}s`,
+        "dark",
+      );
+    });
+    (item.sceneImages ?? [])
+      .filter((image) => image.visible !== false && normalizeSceneImageTransition(image.transition) !== "cut")
+      .forEach((image, index) => {
+        addEntry(
+          `transition-${image.id || index}`,
+          image.start,
+          sceneImageTransitionEnd(image),
+          `${image.name || `Hình ${index + 1}`} · ${sceneImageTransitionOptions.find((option) => option.value === image.transition)?.label ?? "Chuyển hình"}`,
+          "transition",
+        );
+      });
+    const weatherLabels = [
+      effects.snowEnabled ? "Tuyết" : "",
+      effects.rainEnabled ? "Mưa" : "",
+      effects.cloudEnabled ? "Mây" : "",
+      effects.lightFlickerEnabled ? "Chớp" : "",
+      effects.thunderEnabled ? "Sấm" : "",
+    ].filter(Boolean);
+    if (weatherLabels.length) addEntry("weather", 0, sceneLength, `Nền · ${weatherLabels.join(" · ")}`, "weather");
+    return entries;
+  });
 
   return (
     <main
@@ -8587,6 +8660,7 @@ function Home() {
                 style={{
                   ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
                   ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
+                  ["--scene-start-dark-mid-opacity" as string]: String(item.midOpacity),
                   ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
                   ["--scene-start-dark-blur" as string]: `${item.blur}px`,
                 }}
@@ -11157,6 +11231,31 @@ function Home() {
                         </button>
                       );
                     })}
+                </div>
+              </div>
+              <div className="track effects-track">
+                <strong>Hiệu ứng</strong>
+                <div className="track-content grid">
+                  {timelineEffectItems.length ? timelineEffectItems.map((effect) => (
+                    <button
+                      key={effect.id}
+                      type="button"
+                      className={`clip effect-clip effect-clip-${effect.kind} ${!playing && effect.scene.id === selectedId ? "selected" : ""}`}
+                      style={{
+                        left: timelinePercent(effect.start),
+                        width: timelinePercent(effect.end - effect.start),
+                      }}
+                      title={`${effect.label} · ${formatTime(effect.start)} – ${formatTime(effect.end)}`}
+                      onClick={() => {
+                        openTimelineEditor(effect.scene, "editor-effects");
+                        setPlayTime(effect.start);
+                      }}
+                    >
+                      <span className="timeline-clip-label">{effect.label}</span>
+                    </button>
+                  )) : (
+                    <span className="timeline-track-empty">Chưa có hiệu ứng</span>
+                  )}
                 </div>
               </div>
               <div
