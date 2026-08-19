@@ -6950,6 +6950,22 @@ body {
   margin-top: 8px;
 }
 
+.subtitle-global-timing-row {
+  margin: 11px 0 0;
+}
+
+.subtitle-global-timing-row .field {
+  max-width: 280px;
+}
+
+.subtitle-global-timing-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--studio-muted);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
 .subtitle-track .subtitle-clip {
   background: #f4d18c;
   color: #6f4a13;

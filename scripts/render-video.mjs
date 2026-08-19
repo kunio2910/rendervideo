@@ -159,6 +159,7 @@ const normalizeSceneEffects = (value) => {
     enabled: raw.sceneStartDarkEnabled === true,
     start: 0,
     end: Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2),
+    holdDuration: 0,
     intensity: clamp(Number(raw.sceneStartDarkIntensity ?? 0) || 0, 0, 100),
   };
   const darkEffects = Array.isArray(raw.sceneStartDarkEffects)
@@ -166,11 +167,16 @@ const normalizeSceneEffects = (value) => {
         const dark = item && typeof item === "object" ? item : {};
         const start = Math.min(3599.9, Math.max(0, Number(dark.start ?? 0) || 0));
         const end = Math.min(3600, Math.max(start + 0.1, Number(dark.end ?? start + 1.2) || start + 1.2));
+        const holdDuration = Math.min(
+          Math.max(0, end - start - 0.1),
+          Math.max(0, Number(dark.holdDuration ?? 0) || 0),
+        );
         return {
           id: String(dark.id ?? `scene-dark-${index + 1}`),
           enabled: dark.enabled !== false,
           start,
           end,
+          holdDuration,
           intensity: clamp(Number(dark.intensity ?? 0) || 0, 0, 100),
         };
       })
@@ -1317,6 +1323,7 @@ for (let index = 0; index < scenes.length; index += 1) {
           && end > start;
       })
     : [];
+  const subtitleOffset = clamp(Number(scene.subtitleStart ?? 0) || 0, 0, duration);
   const subtitleRenders = [];
   for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
     const subtitle = subtitleCues[subtitleIndex];
@@ -1728,10 +1735,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   };
   const appendSubtitleLayer = (subtitleIndex) => {
     const { scene: subtitle, style, rendered: renderedOverlay } = subtitleRenders[subtitleIndex];
-    const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
+    const cueStart = Math.max(0, Number(subtitle.start) || 0);
+    const subtitleStart = Math.min(duration, subtitleOffset + cueStart);
     const subtitleEnd = Math.min(
       duration,
-      Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+      Math.max(subtitleStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
     );
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
     const inputIndex = subtitleInputStartIndex + subtitleIndex;
@@ -1809,8 +1817,15 @@ for (let index = 0; index < scenes.length; index += 1) {
         Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
       );
       const darkDuration = Math.max(0.1, darkEnd - darkStart);
-      const darkHalfDuration = Math.max(0.05, darkDuration / 2);
-      const darkProgress = `if(lt(T,${darkStart}),0,if(lt(T,${darkStart + darkHalfDuration}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0)))`;
+      const darkHoldDuration = Math.min(
+        Math.max(0, darkDuration - 0.1),
+        Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
+      );
+      const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
+      const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
+      const darkHoldStart = darkStart + darkHalfDuration;
+      const darkHoldEnd = darkHoldStart + darkHoldDuration;
+      const darkProgress = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
       const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
       const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
       const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;

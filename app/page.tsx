@@ -251,6 +251,7 @@ type Scene = {
   sceneImages: SceneImage[];
   layerOrder?: string[];
   subtitleEnabled: boolean;
+  subtitleStart: number;
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
   popupDuration: number;
@@ -284,6 +285,7 @@ type SceneDarkEffect = {
   enabled: boolean;
   start: number;
   end: number;
+  holdDuration: number;
   intensity: number;
 };
 
@@ -317,6 +319,7 @@ const defaultSceneDarkEffect = (
   enabled: false,
   start: 0,
   end: 1.2,
+  holdDuration: 0,
   intensity: 0,
   ...overrides,
 });
@@ -492,6 +495,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   sceneImages: [],
   layerOrder: [],
   subtitleEnabled: true,
+  subtitleStart: 0,
   subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
   popupDuration: 3,
@@ -1268,12 +1272,17 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
         const dark = isRecord(item) ? item : {};
         const start = Math.min(3599.9, Math.max(0, positiveNumber(dark.start, 0)));
         const end = Math.min(3600, Math.max(start + 0.1, positiveNumber(dark.end, start + 1.2, 0.1)));
+        const holdDuration = Math.min(
+          Math.max(0, end - start - 0.1),
+          Math.max(0, positiveNumber(dark.holdDuration, 0)),
+        );
         return {
           ...defaultSceneDarkEffect(`scene-dark-${index + 1}`),
           id: String(dark.id ?? `scene-dark-${index + 1}`),
           enabled: dark.enabled !== false,
           start,
           end,
+          holdDuration,
           intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
         };
       })
@@ -1639,6 +1648,10 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       overlayTextY: firstTextOverlay.y,
       textOverlays,
       subtitleEnabled: item.subtitleEnabled !== false,
+      subtitleStart: Math.min(
+        sceneDuration,
+        Math.max(0, positiveNumber((item as Scene & { subtitleStart?: unknown }).subtitleStart, 0)),
+      ),
       subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
       voiceStart: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
@@ -2861,8 +2874,18 @@ function Home() {
   const sceneStartDarkEffectProgress = (effect: SceneDarkEffect) => {
     const start = Math.max(0, Number(effect.start) || 0);
     const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
-    const phase = Math.min(1, Math.max(0, (sceneLocalTime - start) / (end - start)));
-    return phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
+    const duration = end - start;
+    const holdDuration = Math.min(
+      Math.max(0, duration - 0.1),
+      Math.max(0, Number(effect.holdDuration) || 0),
+    );
+    const transitionDuration = Math.max(0.1, duration - holdDuration);
+    const halfDuration = transitionDuration / 2;
+    const elapsed = sceneLocalTime - start;
+    if (elapsed <= 0 || elapsed >= duration) return 0;
+    if (elapsed < halfDuration) return elapsed / halfDuration;
+    if (elapsed < halfDuration + holdDuration) return 1;
+    return Math.max(0, (duration - elapsed) / halfDuration);
   };
   const sceneStartDarkOverlayItems = sceneStartDarkEffects
     .filter((effect) => {
@@ -3035,10 +3058,15 @@ function Home() {
     : 0;
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
-        const start = Math.min(sceneDuration, Math.max(0, Number(subtitle.start) || 0));
+        const subtitleOffset = Math.min(
+          sceneDuration,
+          Math.max(0, Number(scene.subtitleStart) || 0),
+        );
+        const cueStart = Math.max(0, Number(subtitle.start) || 0);
+        const start = Math.min(sceneDuration, subtitleOffset + cueStart);
         const end = Math.min(
           sceneDuration,
-          Math.max(start + 0.1, Number(subtitle.end) || start + 0.1),
+          Math.max(start + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
         );
         return subtitle.visible !== false
           && safeTrim(subtitle.text)
@@ -4135,7 +4163,7 @@ function Home() {
     }));
   };
 
-  type SceneDarkEffectNumberField = "start" | "end" | "intensity";
+  type SceneDarkEffectNumberField = "start" | "end" | "holdDuration" | "intensity";
   const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
     `${scene.id}:dark:${effectId}:${field}`;
   const darkEffectInputValue = (
@@ -4159,6 +4187,10 @@ function Home() {
         const next = { ...effect, [key]: value } as SceneDarkEffect;
         if (next.start > next.end - 0.1) next.end = next.start + 0.1;
         if (next.end < next.start + 0.1) next.start = Math.max(0, next.end - 0.1);
+        next.holdDuration = Math.min(
+          Math.max(0, next.end - next.start - 0.1),
+          Math.max(0, Number(next.holdDuration) || 0),
+        );
         return next;
       });
       const first = nextDarkEffects[0];
@@ -4189,6 +4221,12 @@ function Home() {
       updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
     } else if (field === "end") {
       updateSceneDarkEffect(effect.id, "end", Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue)));
+    } else if (field === "holdDuration") {
+      updateSceneDarkEffect(
+        effect.id,
+        "holdDuration",
+        Math.min(Math.max(0, effect.end - effect.start - 0.1), Math.max(0, numericValue)),
+      );
     } else {
       updateSceneDarkEffect(effect.id, "intensity", Math.min(100, Math.max(0, numericValue)));
     }
@@ -4218,6 +4256,7 @@ function Home() {
       enabled: true,
       start,
       end: Math.min(sceneDuration, start + Math.min(1.2, Math.max(0.1, sceneDuration - start))),
+      holdDuration: 0,
       intensity: 0,
     });
     updateSceneEffects("sceneStartDarkEffects", [...currentEffects, nextEffect]);
@@ -6914,6 +6953,7 @@ function Home() {
               transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
+             subtitleStart: item.subtitleStart,
              subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
              subtitles: (item.subtitles ?? []).map((subtitle) => ({
               id: subtitle.id,
@@ -9995,6 +10035,27 @@ function Home() {
                   </label>
                 </div>
               </div>
+              <div className="field-row subtitle-global-timing-row">
+                <label className="field">
+                  <span>Thời gian bắt đầu phát tất cả phụ đề</span>
+                  <div className="number-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max={sceneDuration}
+                      step="0.1"
+                      value={scene.subtitleStart}
+                      disabled={!hydrated}
+                      onChange={(event) => updateScene(
+                        "subtitleStart",
+                        Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)),
+                      )}
+                    />
+                    <b>s</b>
+                  </div>
+                  <small>Dịch toàn bộ cue phụ đề theo thời gian này; thời gian bắt đầu/kết thúc từng câu vẫn giữ nguyên.</small>
+                </label>
+              </div>
               <label className="zoom-effect-toggle">
                 <input
                   type="checkbox"
@@ -10231,6 +10292,20 @@ function Home() {
                               <b>giây</b>
                             </div>
                           </label>
+                          <label className="field">
+                            <span>Thời gian giữ tối</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "holdDuration")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "holdDuration", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "holdDuration")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
                         </div>
                         <label className="field scene-start-dark-intensity-field">
                           <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
@@ -10245,7 +10320,7 @@ function Home() {
                             />
                             <b>%</b>
                           </div>
-                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; blur vẫn tăng theo khoảng thời gian.</small>
+                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; sau khi tối hẳn, hiệu ứng sẽ giữ theo thời gian đã nhập rồi mới reverse.</small>
                         </label>
                       </div>
                     )) : (
@@ -11003,10 +11078,13 @@ function Home() {
                     .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
                     .map(({ item, subtitle }) => {
                       const sceneLength = Math.max(0.1, item.end - item.start);
-                      const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
+                      const subtitleOffset = Math.min(sceneLength, Math.max(0, Number(item.subtitleStart) || 0));
+                      const cueStart = Math.max(0, Number(subtitle.start) || 0);
+                      const subtitleStart = Math.min(sceneLength, subtitleOffset + cueStart);
+                      if (subtitleStart >= sceneLength) return null;
                       const subtitleEnd = Math.min(
                         sceneLength,
-                        Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+                        Math.max(subtitleStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
                       );
                       const subtitleGlobalStart = item.start + subtitleStart;
                       const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);

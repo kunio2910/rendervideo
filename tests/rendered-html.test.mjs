@@ -366,8 +366,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /sceneImagePreviewTransition/);
   assert.match(page, /scene-image-fade-black/);
   assert.match(page, /sceneStartDarkEffectProgress/);
-  assert.match(page, /phase <= 0\.5 \? phase \* 2/);
+  assert.match(page, /elapsed < halfDuration/);
+  assert.match(page, /elapsed < halfDuration \+ holdDuration/);
   assert.match(page, /sceneLocalTime < end/);
+  assert.match(page, /subtitleStart/);
+  assert.match(page, /Thời gian bắt đầu phát tất cả phụ đề/);
+  assert.match(page, /holdDuration/);
+  assert.match(page, /Thời gian giữ tối/);
   assert.match(page, /editor-section-shortcuts/);
   assert.match(renderer, /orderedLayerTokens/);
   assert.match(renderer, /layerToken = \(kind, id\)/);
@@ -377,8 +382,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /sceneImageFadeBlack/);
   assert.match(renderer, /boxblur=luma_radius/);
   assert.match(renderer, /darkHalfDuration/);
+  assert.match(renderer, /darkHoldDuration/);
+  assert.match(renderer, /darkHoldStart/);
   assert.match(renderer, /darkProgress = `if\(lt\(T/);
   assert.match(renderer, /\$\{darkEnd\}-T/);
+  assert.match(renderer, /subtitleOffset/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
   assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);
