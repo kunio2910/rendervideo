@@ -275,10 +275,19 @@ type Scene = {
   status: "Nháp" | "Đã duyệt";
 };
 
+type SceneDarkEffect = {
+  id: string;
+  enabled: boolean;
+  start: number;
+  end: number;
+  intensity: number;
+};
+
 type SceneEffects = {
   sceneStartDarkEnabled: boolean;
   sceneStartDarkDuration: number;
   sceneStartDarkIntensity: number;
+  sceneStartDarkEffects: SceneDarkEffect[];
   snowEnabled: boolean;
   snowIntensity: number;
   snowSpeed: number;
@@ -296,10 +305,23 @@ type SceneEffects = {
   cloudSpeed: number;
 };
 
+const defaultSceneDarkEffect = (
+  id = "scene-dark-1",
+  overrides: Partial<SceneDarkEffect> = {},
+): SceneDarkEffect => ({
+  id,
+  enabled: false,
+  start: 0,
+  end: 1.2,
+  intensity: 0,
+  ...overrides,
+});
+
 const defaultSceneEffects = (): SceneEffects => ({
   sceneStartDarkEnabled: false,
   sceneStartDarkDuration: 1.2,
   sceneStartDarkIntensity: 0,
+  sceneStartDarkEffects: [defaultSceneDarkEffect()],
   snowEnabled: false,
   snowIntensity: 55,
   snowSpeed: 1,
@@ -1210,10 +1232,33 @@ const clampVolume = (value: unknown, fallback = 100) => {
 
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
+  const legacyDarkEffect = defaultSceneDarkEffect("scene-dark-1", {
+    enabled: raw.sceneStartDarkEnabled === true,
+    start: 0,
+    end: positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1),
+    intensity: positiveNumber(raw.sceneStartDarkIntensity, 0),
+  });
+  const rawDarkEffects = Array.isArray(raw.sceneStartDarkEffects)
+    ? raw.sceneStartDarkEffects.map((item, index) => {
+        const dark = isRecord(item) ? item : {};
+        const start = Math.min(3599.9, Math.max(0, positiveNumber(dark.start, 0)));
+        const end = Math.min(3600, Math.max(start + 0.1, positiveNumber(dark.end, start + 1.2, 0.1)));
+        return {
+          ...defaultSceneDarkEffect(`scene-dark-${index + 1}`),
+          id: String(dark.id ?? `scene-dark-${index + 1}`),
+          enabled: dark.enabled !== false,
+          start,
+          end,
+          intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
+        };
+      })
+    : [legacyDarkEffect];
+  const firstDarkEffect = rawDarkEffects[0] ?? legacyDarkEffect;
   return {
-    sceneStartDarkEnabled: raw.sceneStartDarkEnabled === true,
-    sceneStartDarkDuration: Math.min(6, Math.max(0.1, positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1))),
-    sceneStartDarkIntensity: Math.min(100, Math.max(0, positiveNumber(raw.sceneStartDarkIntensity, 0))),
+    sceneStartDarkEnabled: rawDarkEffects.some((effect) => effect.enabled),
+    sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
+    sceneStartDarkIntensity: firstDarkEffect.intensity,
+    sceneStartDarkEffects: rawDarkEffects,
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
     snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
@@ -2768,14 +2813,25 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
-  const sceneStartDarkProgress = sceneEffects.sceneStartDarkEnabled
-    ? Math.min(1, Math.max(0, sceneLocalTime / Math.max(0.1, sceneEffects.sceneStartDarkDuration)))
-    : 0;
-  const sceneStartDarkStrength = 1 - sceneEffects.sceneStartDarkIntensity / 100;
-  const sceneStartDarkClearRadius = Math.max(0, 145 * (1 - sceneStartDarkProgress));
-  const sceneStartDarkEdgeOpacity = Math.min(1, sceneStartDarkProgress * 1.35 * sceneStartDarkStrength);
-  const sceneStartDarkCenterOpacity = Math.min(1, Math.max(0, (sceneStartDarkProgress - 0.18) / 0.82) * sceneStartDarkStrength);
-  const sceneStartDarkBlur = Math.round(sceneStartDarkProgress * 12);
+  const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
+  const sceneStartDarkEffectProgress = (effect: SceneDarkEffect) => {
+    const start = Math.max(0, Number(effect.start) || 0);
+    const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+    return Math.min(1, Math.max(0, (sceneLocalTime - start) / (end - start)));
+  };
+  const sceneStartDarkOverlayItems = sceneStartDarkEffects
+    .filter((effect) => effect.enabled && sceneLocalTime >= Math.max(0, Number(effect.start) || 0))
+    .map((effect) => {
+      const progress = sceneStartDarkEffectProgress(effect);
+      const strength = 1 - Math.min(100, Math.max(0, Number(effect.intensity) || 0)) / 100;
+      return {
+        effect,
+        clearRadius: Math.max(0, 145 * (1 - progress)),
+        edgeOpacity: Math.min(1, progress * 1.35 * strength),
+        centerOpacity: Math.min(1, Math.max(0, (progress - 0.18) / 0.82) * strength),
+        blur: Math.round(progress * 12),
+      };
+    });
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
     const baseEnd = start + Math.max(0.1, Number(image.duration) || 0.1);
@@ -3992,9 +4048,118 @@ function Home() {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
-    setScenes((items) => items.map((item) => targetIds.has(item.id)
-      ? { ...item, effects: { ...item.effects, [key]: value } }
-      : item));
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const current = normalizeSceneEffects(item.effects);
+      const next = { ...current, [key]: value } as SceneEffects;
+      if (key === "sceneStartDarkEffects") {
+        const darkEffects = value as SceneDarkEffect[];
+        const first = darkEffects[0];
+        next.sceneStartDarkEnabled = darkEffects.some((effect) => effect.enabled);
+        next.sceneStartDarkDuration = first ? Math.max(0.1, first.end - first.start) : current.sceneStartDarkDuration;
+        next.sceneStartDarkIntensity = first?.intensity ?? current.sceneStartDarkIntensity;
+      }
+      return { ...item, effects: next };
+    }));
+  };
+
+  type SceneDarkEffectNumberField = "start" | "end" | "intensity";
+  const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
+    `${scene.id}:dark:${effectId}:${field}`;
+  const darkEffectInputValue = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+  ) => effectInputDrafts[darkEffectInputKey(effect.id, field)] ?? String(effect[field]);
+  const updateSceneDarkEffect = <K extends keyof SceneDarkEffect>(
+    effectId: string,
+    key: K,
+    value: SceneDarkEffect[K],
+  ) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const effects = normalizeSceneEffects(item.effects);
+      const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
+        if (effect.id !== effectId) return effect;
+        const next = { ...effect, [key]: value } as SceneDarkEffect;
+        if (next.start > next.end - 0.1) next.end = next.start + 0.1;
+        if (next.end < next.start + 0.1) next.start = Math.max(0, next.end - 0.1);
+        return next;
+      });
+      const first = nextDarkEffects[0];
+      return {
+        ...item,
+        effects: {
+          ...effects,
+          sceneStartDarkEffects: nextDarkEffects,
+          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+          sceneStartDarkDuration: first ? Math.max(0.1, first.end - first.start) : effects.sceneStartDarkDuration,
+          sceneStartDarkIntensity: first?.intensity ?? effects.sceneStartDarkIntensity,
+        },
+      };
+    }));
+  };
+  const updateSceneDarkEffectInput = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+    value: string,
+  ) => {
+    const key = darkEffectInputKey(effect.id, field);
+    setEffectInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    if (field === "start") {
+      updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
+    } else if (field === "end") {
+      updateSceneDarkEffect(effect.id, "end", Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue)));
+    } else {
+      updateSceneDarkEffect(effect.id, "intensity", Math.min(100, Math.max(0, numericValue)));
+    }
+  };
+  const commitSceneDarkEffectInput = (effect: SceneDarkEffect, field: SceneDarkEffectNumberField) => {
+    const key = darkEffectInputKey(effect.id, field);
+    const draft = effectInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateSceneDarkEffectInput(effect, field, String(numericValue));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+  const addSceneDarkEffect = () => {
+    if (!hydrated) return;
+    const nextId = `${scene.id}-dark-${Date.now().toString(36)}`;
+    const currentEffects = sceneEffects.sceneStartDarkEffects;
+    const lastEnd = currentEffects.at(-1)?.end ?? 0;
+    const start = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, lastEnd));
+    const nextEffect = defaultSceneDarkEffect(nextId, {
+      enabled: true,
+      start,
+      end: Math.min(sceneDuration, start + Math.min(1.2, Math.max(0.1, sceneDuration - start))),
+      intensity: 0,
+    });
+    updateSceneEffects("sceneStartDarkEffects", [...currentEffects, nextEffect]);
+    setToast(`Đã thêm hiệu ứng tối ${currentEffects.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+  const deleteSceneDarkEffect = (effectId: string) => {
+    const nextEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
+    updateSceneEffects("sceneStartDarkEffects", nextEffects);
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      (Object.keys(next) as string[]).filter((key) => key.includes(`:dark:${effectId}:`)).forEach((key) => delete next[key]);
+      return next;
+    });
   };
 
   const updateReviewSceneField = <K extends keyof Scene>(
@@ -8204,18 +8369,19 @@ function Home() {
                 style={{ opacity: fadeBlackOpacity }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneStartDarkProgress > 0 && (
+            {sceneIsVisibleInPlayback && sceneStartDarkOverlayItems.map((item) => (
               <div
+                key={`scene-start-dark-${item.effect.id}`}
                 className="scene-start-dark-effect"
                 aria-hidden="true"
                 style={{
-                  ["--scene-start-dark-clear-radius" as string]: `${sceneStartDarkClearRadius}%`,
-                  ["--scene-start-dark-edge-opacity" as string]: String(sceneStartDarkEdgeOpacity),
-                  ["--scene-start-dark-center-opacity" as string]: String(sceneStartDarkCenterOpacity),
-                  ["--scene-start-dark-blur" as string]: `${sceneStartDarkBlur}px`,
+                  ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
+                  ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
+                  ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
+                  ["--scene-start-dark-blur" as string]: `${item.blur}px`,
                 }}
               />
-            )}
+            ))}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
@@ -9843,55 +10009,80 @@ function Home() {
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
                 </div>
                 <div className="scene-visual-effect-card scene-start-dark-effect-card" aria-label="Hiệu ứng tối dần từ ngoài vào trong">
-                  <div className="scene-visual-effect-heading">
-                    <strong>Tối dần từ ngoài vào trong</strong>
-                    <span>Viền tối lan dần vào tâm cảnh, giống hiệu ứng kết thúc phim.</span>
+                  <div className="scene-visual-effect-heading scene-start-dark-panel-heading">
+                    <div>
+                      <strong>Tối dần từ ngoài vào trong</strong>
+                      <span>Viền tối lan dần vào tâm cảnh, giống hiệu ứng kết thúc phim.</span>
+                    </div>
+                    <button type="button" className="button secondary scene-start-dark-add" onClick={addSceneDarkEffect} disabled={!hydrated}>＋ Thêm hiệu ứng tối</button>
                   </div>
-                  <label className="zoom-effect-toggle">
-                    <input
-                      type="checkbox"
-                      checked={sceneEffects.sceneStartDarkEnabled}
-                      disabled={!hydrated}
-                      onChange={(event) => updateSceneEffects("sceneStartDarkEnabled", event.target.checked)}
-                    />
-                    <span aria-hidden="true" />
-                    <span>Bật hiệu ứng tối dần khi bắt đầu cảnh</span>
-                  </label>
-                  <label className="field scene-start-dark-duration-field">
-                    <span>Thời lượng hiệu ứng</span>
-                    <div className="number-with-unit">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={effectInputValue("sceneStartDarkDuration", sceneEffects.sceneStartDarkDuration)}
-                        disabled={!sceneEffects.sceneStartDarkEnabled}
-                        onChange={(event) => updateEffectInput("sceneStartDarkDuration", event.target.value)}
-                        onBlur={() => commitEffectInput("sceneStartDarkDuration")}
-                      />
-                      <b>giây</b>
-                    </div>
-                  </label>
-                  <label className="field scene-start-dark-intensity-field">
-                    <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
-                    <div className="number-with-unit">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={effectInputValue("sceneStartDarkIntensity", sceneEffects.sceneStartDarkIntensity)}
-                        disabled={!sceneEffects.sceneStartDarkEnabled}
-                        onChange={(event) => updateEffectInput("sceneStartDarkIntensity", event.target.value)}
-                        onBlur={() => commitEffectInput("sceneStartDarkIntensity")}
-                      />
-                      <b>%</b>
-                    </div>
-                    <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; hiệu ứng blur vẫn chạy theo thời gian.</small>
-                  </label>
+                  <div className="scene-start-dark-list">
+                    {sceneEffects.sceneStartDarkEffects.length > 0 ? sceneEffects.sceneStartDarkEffects.map((effect, index) => (
+                      <div className="scene-start-dark-effect-item" key={effect.id}>
+                        <div className="scene-start-dark-effect-item-heading">
+                          <strong>Hiệu ứng tối {index + 1}</strong>
+                          <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneDarkEffect(effect.id)} aria-label={`Xóa hiệu ứng tối ${index + 1}`} title="Xóa hiệu ứng tối">×</button>
+                        </div>
+                        <label className="zoom-effect-toggle">
+                          <input
+                            type="checkbox"
+                            checked={effect.enabled}
+                            disabled={!hydrated}
+                            onChange={(event) => updateSceneDarkEffect(effect.id, "enabled", event.target.checked)}
+                          />
+                          <span aria-hidden="true" />
+                          <span>Bật hiệu ứng tối này</span>
+                        </label>
+                        <div className="field-row scene-start-dark-time-row">
+                          <label className="field">
+                            <span>Thời gian bắt đầu</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "start")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "start", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "start")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                          <label className="field">
+                            <span>Thời gian kết thúc</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "end")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "end", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "end")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                        </div>
+                        <label className="field scene-start-dark-intensity-field">
+                          <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={darkEffectInputValue(effect, "intensity")}
+                              disabled={!hydrated || !effect.enabled}
+                              onChange={(event) => updateSceneDarkEffectInput(effect, "intensity", event.target.value)}
+                              onBlur={() => commitSceneDarkEffectInput(effect, "intensity")}
+                            />
+                            <b>%</b>
+                          </div>
+                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; blur vẫn tăng theo khoảng thời gian.</small>
+                        </label>
+                      </div>
+                    )) : (
+                      <div className="scene-start-dark-empty">Chưa có hiệu ứng tối. Bấm “Thêm hiệu ứng tối” để tạo một lớp.</div>
+                    )}
+                  </div>
                 </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">

@@ -7461,6 +7461,86 @@ body {
   color: #d9c4a8;
 }
 
+.scene-start-dark-panel-heading {
+  align-items: flex-start;
+}
+.scene-start-dark-panel-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.scene-start-dark-add {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding-inline: 9px;
+  border-color: rgba(255, 224, 180, .55);
+  color: #fff2df;
+  background: rgba(255, 255, 255, .1);
+}
+.scene-start-dark-add:hover,
+.scene-start-dark-add:focus-visible {
+  color: #211c18;
+  background: #ffe0b4;
+}
+.scene-start-dark-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.scene-start-dark-effect-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 224, 180, .26);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, .16);
+}
+.scene-start-dark-effect-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #fff2df;
+  font-size: 11px;
+}
+.scene-start-dark-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid rgba(255, 188, 176, .48);
+  border-radius: 6px;
+  color: #ffd0c7;
+  background: rgba(120, 24, 26, .28);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.scene-start-dark-delete:hover,
+.scene-start-dark-delete:focus-visible {
+  color: #fff;
+  background: #a9433a;
+}
+.scene-start-dark-time-row {
+  margin: 0;
+}
+.scene-start-dark-effect-item .field > span {
+  color: #d9c4a8;
+}
+.scene-start-dark-empty {
+  padding: 12px;
+  border: 1px dashed rgba(255, 224, 180, .42);
+  border-radius: 8px;
+  color: #d9c4a8;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.studio-shell[data-theme="dark"] .scene-start-dark-effect-item {
+  border-color: #4c3d31;
+  background: rgba(0, 0, 0, .2);
+}
+
 /* Keep the compose editor scrollable even when a long accordion is open. */
 @media (min-width: 761px) {
   .studio-shell[data-studio-tab="compose"] .editor-panel {
