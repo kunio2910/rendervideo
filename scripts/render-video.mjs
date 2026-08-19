@@ -92,9 +92,17 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
 const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
+const sceneImageTransitionEnd = (image) => {
+  const start = Math.max(0, Number(image?.start ?? 0) || 0);
+  const legacyDuration = Math.max(0.1, Number(image?.transitionDuration ?? 0.5) || 0.5);
+  const end = Number.isFinite(Number(image?.transitionEnd))
+    ? Number(image.transitionEnd)
+    : start + legacyDuration;
+  return Math.max(start + 0.1, end);
+};
 const sceneImageTransitionDuration = (image) => normalizeSceneImageTransition(image?.transition) === "cut"
   ? 0
-  : clamp(Number(image?.transitionDuration ?? 0.5) || 0.5, 0.1, 1.5);
+  : Math.max(0.1, sceneImageTransitionEnd(image) - Math.max(0, Number(image?.start ?? 0) || 0));
 const sceneImageTransitionNeedsOverlap = (transition) =>
   transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
@@ -140,6 +148,7 @@ const normalizeSceneEffects = (value) => {
   return {
     sceneStartDarkEnabled: raw.sceneStartDarkEnabled === true,
     sceneStartDarkDuration: clamp(Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2, 0.1, 6),
+    sceneStartDarkIntensity: clamp(Number(raw.sceneStartDarkIntensity ?? 0) || 0, 0, 100),
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
     snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
@@ -1173,7 +1182,12 @@ for (let index = 0; index < scenes.length; index += 1) {
     const image = sceneImageScenes[imageIndex];
     if (!image) return 0;
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
-    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const baseEnd = imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1);
+    const imageTransition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = imageTransition === "cut"
+      ? imageStart
+      : sceneImageTransitionEnd(image);
+    const imageEnd = Math.min(duration, Math.max(baseEnd, ownTransitionEnd));
     const nextImage = sceneImageScenes[imageIndex + 1];
     if (!nextImage) return imageEnd;
     const nextStart = Math.min(duration, Math.max(0, Number(nextImage.start ?? 0) || 0));
@@ -1675,7 +1689,10 @@ for (let index = 0; index < scenes.length; index += 1) {
       const darkBlurredLabel = "sceneStartDarkBlurred";
       const darkMixedLabel = "sceneStartDarkMixed";
       const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
-      const darkMaskExpression = `if(lt(T,${darkDuration}),255*max(max(0,(T/${darkDuration}-0.18)/0.82),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-T/${darkDuration}))/max(1,min(W,H)*0.12),0,1)),255)`;
+      const darkStrength = 1 - clamp(Number(sceneEffects.sceneStartDarkIntensity ?? 0) || 0, 0, 100) / 100;
+      const darkCoverageExpression = `if(lt(T,${darkDuration}),max(max(0,(T/${darkDuration}-0.18)/0.82),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-T/${darkDuration}))/max(1,min(W,H)*0.12),0,1)),1)`;
+      const darkMaskExpression = `255*${darkCoverageExpression}`;
+      const darkAlphaExpression = `255*${darkStrength}*${darkCoverageExpression}`;
       weatherInputSpecs.push(
         `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
         `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
@@ -1689,7 +1706,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       const darkLabel = "sceneStartDarkened";
       weatherInputSpecs.push(
         `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
-        `geq=r='0':g='0':b='0':a='${darkMaskExpression}'`,
+        `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
       );
       filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
       composedLabel = `[${darkLabel}]`;

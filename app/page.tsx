@@ -113,7 +113,7 @@ type SceneImage = {
   start: number;
   duration: number;
   transition: SceneImageTransition;
-  transitionDuration: number;
+  transitionEnd: number;
   visible: boolean;
   editorVisible: boolean;
 };
@@ -226,6 +226,7 @@ type Scene = {
 type SceneEffects = {
   sceneStartDarkEnabled: boolean;
   sceneStartDarkDuration: number;
+  sceneStartDarkIntensity: number;
   snowEnabled: boolean;
   snowIntensity: number;
   snowSpeed: number;
@@ -246,6 +247,7 @@ type SceneEffects = {
 const defaultSceneEffects = (): SceneEffects => ({
   sceneStartDarkEnabled: false,
   sceneStartDarkDuration: 1.2,
+  sceneStartDarkIntensity: 0,
   snowEnabled: false,
   snowIntensity: 55,
   snowSpeed: 1,
@@ -792,10 +794,21 @@ const normalizeSceneImageTransition = (value: unknown): SceneImageTransition => 
   return sceneImageTransitionOptions.some((option) => option.value === transition) ? transition : "cut";
 };
 
-const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "transitionDuration">) =>
+const sceneImageTransitionEnd = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
+  normalizeSceneImageTransition(image.transition) === "cut"
+    ? Math.max(0, positiveNumber(image.start, 0))
+    : Math.max(
+        Math.max(0, positiveNumber(image.start, 0)) + 0.1,
+        positiveNumber(image.transitionEnd, 0.5, 0.1),
+      );
+
+const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
   normalizeSceneImageTransition(image.transition) === "cut"
     ? 0
-    : Math.min(1.5, Math.max(0.1, positiveNumber(image.transitionDuration, 0.5, 0.1)));
+    : Math.max(
+        0.1,
+        sceneImageTransitionEnd(image) - Math.max(0, positiveNumber(image.start, 0)),
+      );
 
 const sceneImageTransitionNeedsOverlap = (transition: SceneImageTransition) =>
   transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
@@ -839,7 +852,7 @@ const defaultSceneImage = (
   start: 0,
   duration: 5,
   transition: "cut",
-  transitionDuration: 0.5,
+  transitionEnd: 0.5,
   visible: true,
   editorVisible: true,
   ...overrides,
@@ -858,6 +871,19 @@ const normalizeSceneImage = (
     : base.shape;
   const url = String(raw.url ?? raw.asset ?? raw.image ?? raw.video ?? base.url);
   const mediaType = raw.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  const start = Math.max(0, positiveNumber(raw.start, base.start));
+  const legacyTransitionDuration = Math.max(
+    0.1,
+    positiveNumber(
+      raw.transitionDuration,
+      Math.max(0.1, base.transitionEnd - base.start),
+      0.1,
+    ),
+  );
+  const transitionEnd = Math.max(
+    start + 0.1,
+    positiveNumber(raw.transitionEnd, start + legacyTransitionDuration),
+  );
   return {
     ...base,
     id: String(raw.id ?? base.id),
@@ -878,10 +904,10 @@ const normalizeSceneImage = (
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
     borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
-    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    start,
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
     transition: normalizeSceneImageTransition(raw.transition ?? base.transition),
-    transitionDuration: Math.min(1.5, Math.max(0.1, positiveNumber(raw.transitionDuration, base.transitionDuration, 0.1))),
+    transitionEnd,
     visible: raw.visible !== false,
     editorVisible: raw.editorVisible !== false,
   };
@@ -1131,6 +1157,7 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
   return {
     sceneStartDarkEnabled: raw.sceneStartDarkEnabled === true,
     sceneStartDarkDuration: Math.min(6, Math.max(0.1, positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1))),
+    sceneStartDarkIntensity: Math.min(100, Math.max(0, positiveNumber(raw.sceneStartDarkIntensity, 0))),
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
     snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
@@ -2407,6 +2434,7 @@ function Home() {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
+  const [sceneImageTransitionEndDrafts, setSceneImageTransitionEndDrafts] = useState<Record<string, string>>({});
   const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
     imageId: string;
     status: "idle" | "processing" | "success" | "error";
@@ -2607,6 +2635,9 @@ function Home() {
   const activeSceneImageSpriteDelayInput = activeSceneImage
     ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
     : "";
+  const activeSceneImageTransitionEndInput = activeSceneImage
+    ? sceneImageTransitionEndDrafts[activeSceneImage.id] ?? String(activeSceneImage.transitionEnd)
+    : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
@@ -2682,13 +2713,19 @@ function Home() {
   const sceneStartDarkProgress = sceneEffects.sceneStartDarkEnabled
     ? Math.min(1, Math.max(0, sceneLocalTime / Math.max(0.1, sceneEffects.sceneStartDarkDuration)))
     : 0;
+  const sceneStartDarkStrength = 1 - sceneEffects.sceneStartDarkIntensity / 100;
   const sceneStartDarkClearRadius = Math.max(0, 145 * (1 - sceneStartDarkProgress));
-  const sceneStartDarkEdgeOpacity = Math.min(1, sceneStartDarkProgress * 1.35);
-  const sceneStartDarkCenterOpacity = Math.min(1, Math.max(0, (sceneStartDarkProgress - 0.18) / 0.82));
+  const sceneStartDarkEdgeOpacity = Math.min(1, sceneStartDarkProgress * 1.35 * sceneStartDarkStrength);
+  const sceneStartDarkCenterOpacity = Math.min(1, Math.max(0, (sceneStartDarkProgress - 0.18) / 0.82) * sceneStartDarkStrength);
   const sceneStartDarkBlur = Math.round(sceneStartDarkProgress * 12);
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
-    const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+    const baseEnd = start + Math.max(0.1, Number(image.duration) || 0.1);
+    const transition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = transition === "cut"
+      ? start
+      : sceneImageTransitionEnd(image);
+    const end = Math.min(sceneDuration, Math.max(baseEnd, ownTransitionEnd));
     const nextImage = sceneImages[imageIndex + 1];
     if (!nextImage) return { start, end };
     const nextStart = Math.min(sceneDuration, Math.max(0, Number(nextImage.start) || 0));
@@ -4498,7 +4535,7 @@ function Home() {
   };
 
   type SceneEffectNumberField =
-    | "sceneStartDarkDuration"
+    | "sceneStartDarkDuration" | "sceneStartDarkIntensity"
     | "snowIntensity" | "snowSpeed"
     | "lightFlickerIntensity" | "lightFlickerSpeed"
     | "rainIntensity" | "rainSpeed"
@@ -5238,6 +5275,30 @@ function Home() {
             : image),
         }
       : item));
+  };
+
+  const updateSceneImageTransitionEndInput = (value: string) => {
+    const imageId = activeSceneImage?.id;
+    if (!imageId || !activeSceneImage) return;
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    updateSceneImage(
+      "transitionEnd",
+      Math.max(activeSceneImage.start + 0.1, numericValue),
+    );
+  };
+
+  const commitSceneImageTransitionEnd = (imageId: string, value: string) => {
+    const image = sceneImages.find((item) => item.id === imageId);
+    if (!image) return;
+    const numericValue = Number(value);
+    const nextEnd = Number.isFinite(numericValue)
+      ? Math.max(image.start + 0.1, numericValue)
+      : Math.max(image.start + 0.1, image.transitionEnd);
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: String(nextEnd) }));
+    updateSceneImage("transitionEnd", nextEnd);
   };
 
   const updateSceneImageUrl = (url: string) => {
@@ -8496,21 +8557,22 @@ function Home() {
                           </select>
                           <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
                         </label>
-                        <label className="field scene-image-transition-duration-field">
-                          <span>Thời lượng hiệu ứng</span>
+                        <label className="field scene-image-transition-end-field">
+                          <span>Thời gian kết thúc hiệu ứng</span>
                           <div className="number-with-unit">
                             <input
                               type="number"
-                              min="0.1"
-                              max="1.5"
+                              inputMode="decimal"
+                              min={Math.max(0.1, activeSceneImage.start + 0.1)}
                               step="0.1"
-                              value={activeSceneImage.transitionDuration}
+                              value={activeSceneImageTransitionEndInput}
                               disabled={activeSceneImage.transition === "cut"}
-                              onChange={(event) => updateSceneImage("transitionDuration", Math.min(1.5, Math.max(0.1, Number(event.target.value) || 0.1)))}
+                              onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)}
+                              onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)}
                             />
                             <b>s</b>
                           </div>
-                          <small>Áp dụng khi hình này bắt đầu xuất hiện.</small>
+                          <small>Tính từ đầu cảnh. Khi chạy đến mốc này, hiệu ứng sẽ tự động kết thúc; không giới hạn 1.5 giây.</small>
                         </label>
                       </div>
                       <div className="field-row">
@@ -8577,7 +8639,13 @@ function Home() {
                         </label>
                       </div>
                       <div className="field-row">
-                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => {
+                          const nextStart = Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0));
+                          updateSceneImage("start", nextStart);
+                          if (activeSceneImage.transitionEnd < nextStart + 0.1) {
+                            updateSceneImage("transitionEnd", nextStart + 0.1);
+                          }
+                        }} /><b>s</b></div></label>
                         <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
@@ -9705,8 +9773,11 @@ function Home() {
                     <span>Thời lượng hiệu ứng</span>
                     <div className="number-with-unit">
                       <input
-                        type="text"
+                        type="number"
                         inputMode="decimal"
+                        min="0"
+                        max="100"
+                        step="1"
                         value={effectInputValue("sceneStartDarkDuration", sceneEffects.sceneStartDarkDuration)}
                         disabled={!sceneEffects.sceneStartDarkEnabled}
                         onChange={(event) => updateEffectInput("sceneStartDarkDuration", event.target.value)}
@@ -9714,6 +9785,24 @@ function Home() {
                       />
                       <b>giây</b>
                     </div>
+                  </label>
+                  <label className="field scene-start-dark-intensity-field">
+                    <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={effectInputValue("sceneStartDarkIntensity", sceneEffects.sceneStartDarkIntensity)}
+                        disabled={!sceneEffects.sceneStartDarkEnabled}
+                        onChange={(event) => updateEffectInput("sceneStartDarkIntensity", event.target.value)}
+                        onBlur={() => commitEffectInput("sceneStartDarkIntensity")}
+                      />
+                      <b>%</b>
+                    </div>
+                    <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; hiệu ứng blur vẫn chạy theo thời gian.</small>
                   </label>
                 </div>
                   <div className="scene-visual-effects">

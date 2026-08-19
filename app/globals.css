@@ -5248,7 +5248,7 @@ body {
 .scene-image-transition-row { align-items: start; }
 .scene-image-transition-field { min-width: 0; }
 .scene-image-transition-field small,
-.scene-image-transition-duration-field small {
+.scene-image-transition-end-field small {
   display: block;
   min-height: 26px;
   margin-top: 5px;
@@ -5256,7 +5256,7 @@ body {
   font-size: 10px;
   line-height: 1.35;
 }
-.scene-image-transition-duration-field { min-width: 132px; }
+.scene-image-transition-end-field { min-width: 132px; }
 .scene-image-fade-black {
   position: absolute;
   inset: 0;
