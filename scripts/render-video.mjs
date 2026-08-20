@@ -26,6 +26,13 @@ const assetCacheDir = path.join(renderCacheDir, "assets");
 const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
+// A scene can contain many looped PNG/video inputs (for example, dozens of
+// subtitle cues). FFmpeg's automatic filter threading and input queues can
+// then retain a frame per input until the graph drains, which may exhaust
+// memory near the end of a long scene. Keep the graph bounded by default,
+// while allowing advanced local setups to opt into larger values.
+const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? 1) || 1);
+const ffmpegInputQueueSize = Math.max(1, Number(process.env.FFMPEG_INPUT_QUEUE_SIZE ?? 2) || 2);
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
 let renderCursor = 0;
@@ -545,6 +552,48 @@ const resolveAudio = async (value, required = false) => {
     }
   }
   return findLocalResource("audio", value, localCandidates(value));
+};
+
+const sceneAudioTracksForRender = (scene, duration) => {
+  const rawTracks = Array.isArray(scene.audioTracks)
+    ? scene.audioTracks
+    : String(scene.voiceFile ?? "").trim()
+      ? [{
+          id: "legacy-voice",
+          name: "Thuyết minh",
+          source: scene.voiceFile,
+          volume: scene.voiceVolume,
+          start: scene.voiceStart,
+          end: duration,
+          visible: true,
+        }]
+      : [];
+  return rawTracks
+    .filter((track) => track && track.visible !== false && String(track.source ?? track.url ?? track.file ?? "").trim())
+    .map((track, trackIndex) => {
+      const start = clamp(Number(track.start ?? 0) || 0, 0, Math.max(0, duration - 0.1));
+      const end = clamp(Number(track.end ?? duration) || duration, start + 0.1, duration);
+      return {
+        id: String(track.id ?? `audio-${trackIndex + 1}`),
+        name: String(track.name ?? `Âm thanh ${trackIndex + 1}`),
+        source: String(track.source ?? track.url ?? track.file ?? "").trim(),
+        volume: audioVolume(track.volume, trackIndex === 0 ? 95 : 100),
+        start,
+        end,
+      };
+    });
+};
+
+const resolveSceneAudioTrack = async (track, sceneIndex, trackIndex) => {
+  try {
+    const resolved = await resolveAudio(track.source, true);
+    if (!resolved) throw new Error(`Không tìm thấy ${track.source}`);
+    return { ...track, path: resolved };
+  } catch (error) {
+    throw new Error(
+      `Không thể tải âm thanh “${track.name}” của cảnh ${sceneIndex + 1}: ${errorDetail(error)}`,
+    );
+  }
 };
 
 const resolveVideo = async (value, fallbackName, required = false) => {
@@ -1214,9 +1263,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createSceneImage(image, index * 100 + imageIndex);
     if (rendered) sceneImageRenders.push({ scene: image, rendered });
   }
-  const voice = await resolveVoice(scene, index);
-  const voiceVolume = audioVolume(scene.voiceVolume, 95);
-  const voiceStart = clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
+  const sceneAudioTracks = sceneAudioTracksForRender(scene, duration);
+  const resolvedSceneAudioTracks = [];
+  for (let audioTrackIndex = 0; audioTrackIndex < sceneAudioTracks.length; audioTrackIndex += 1) {
+    resolvedSceneAudioTracks.push(await resolveSceneAudioTrack(sceneAudioTracks[audioTrackIndex], index, audioTrackIndex));
+  }
+  // Legacy names remain available for diagnostics and source-level compatibility checks.
+  const voice = resolvedSceneAudioTracks[0]?.path ?? null;
+  const voiceVolume = resolvedSceneAudioTracks[0]?.volume ?? audioVolume(scene.voiceVolume, 95);
+  const voiceStart = resolvedSceneAudioTracks[0]?.start ?? clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));
   const zoomStartFrames = Math.min(
@@ -1737,7 +1792,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
   };
-  orderedLayerTokens.forEach((token) => {
+  const appendOrderedLayerToken = (token) => {
     const separatorIndex = token.indexOf(":");
     const kind = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
     const id = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : "";
@@ -1756,7 +1811,70 @@ for (let index = 0; index < scenes.length; index += 1) {
     } else if (kind === "subtitle") {
       subtitleRenders.forEach((_, index) => appendSubtitleLayer(index));
     }
-  });
+  };
+  const appendSceneStartDarkEffects = () => {
+    sceneEffects.sceneStartDarkEffects
+      .filter((darkEffect) => darkEffect.enabled)
+      .forEach((darkEffect, darkIndex) => {
+        const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
+        if (darkStart >= duration) return;
+        const darkEnd = Math.min(
+          duration,
+          Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
+        );
+        const darkDuration = Math.max(0.1, darkEnd - darkStart);
+        const darkHoldDuration = Math.min(
+          Math.max(0, darkDuration - 0.1),
+          Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
+        );
+        const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
+        const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
+        const darkHoldStart = darkStart + darkHalfDuration;
+        const darkHoldEnd = darkHoldStart + darkHoldDuration;
+        const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+        const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
+        const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
+        const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
+        const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
+        const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
+        const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
+        const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
+        const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
+        const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
+        const darkMaskExpression = `255*${darkCoverageExpression}`;
+        const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
+        weatherInputSpecs.push(
+          `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
+          `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+        );
+        filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
+        filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
+        filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
+        filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
+        composedLabel = `[${darkMixedLabel}]`;
+        const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
+        const darkLabel = `sceneStartDarkened${darkIndex}`;
+        weatherInputSpecs.push(
+          `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+          `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
+        );
+        filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
+        composedLabel = `[${darkLabel}]`;
+      });
+  };
+  // Match the preview stacking context: base layers first, dark effect next,
+  // then text/subtitles, with fade-black transitions applied last.
+  orderedLayerTokens
+    .filter((token) => !token.startsWith("text:") && !token.startsWith("subtitle:"))
+    .forEach(appendOrderedLayerToken);
+  appendSceneStartDarkEffects();
+  orderedLayerTokens
+    .filter((token) => token.startsWith("text:"))
+    .forEach(appendOrderedLayerToken);
+  orderedLayerTokens
+    .filter((token) => token.startsWith("subtitle:"))
+    .forEach(appendOrderedLayerToken);
+
   sceneImageRenders.forEach(({ scene: image }, imageIndex) => {
     if (normalizeSceneImageTransition(image.transition) !== "fade-black") return;
     const fadeStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
@@ -1773,117 +1891,111 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
     composedLabel = `[${fadeLabel}]`;
   });
-  sceneEffects.sceneStartDarkEffects
-    .filter((darkEffect) => darkEffect.enabled)
-    .forEach((darkEffect, darkIndex) => {
-      const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
-      if (darkStart >= duration) return;
-      const darkEnd = Math.min(
-        duration,
-        Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
-      );
-      const darkDuration = Math.max(0.1, darkEnd - darkStart);
-      const darkHoldDuration = Math.min(
-        Math.max(0, darkDuration - 0.1),
-        Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
-      );
-      const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
-      const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
-      const darkHoldStart = darkStart + darkHalfDuration;
-      const darkHoldEnd = darkHoldStart + darkHoldDuration;
-      const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
-      const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
-      const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
-      const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
-      const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
-      const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
-      const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
-      const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
-      const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
-      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
-      const darkMaskExpression = `255*${darkCoverageExpression}`;
-      const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
-      weatherInputSpecs.push(
-        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
-        `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
-      );
-      filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
-      filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
-      filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
-      filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
-      composedLabel = `[${darkMixedLabel}]`;
-      const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
-      const darkLabel = `sceneStartDarkened${darkIndex}`;
-      weatherInputSpecs.push(
-        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
-        `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
-      );
-      filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
-      composedLabel = `[${darkLabel}]`;
-    });
   filter += `${composedLabel}copy[composed]`;
-  const args = [
-    "-y",
-    ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
-  ];
+  const args = ["-y"];
+  const addInput = (...inputArgs) => {
+    const inputIndex = inputArgs.indexOf("-i");
+    const boundedInputArgs = inputIndex < 0
+      ? inputArgs
+      : [
+          ...inputArgs.slice(0, inputIndex),
+          "-t", String(duration),
+          ...inputArgs.slice(inputIndex),
+        ];
+    args.push(
+      "-thread_queue_size", String(ffmpegInputQueueSize),
+      ...boundedInputArgs,
+    );
+  };
+  addInput(
+    ...(backgroundIsVideo
+      ? ["-stream_loop", "-1", "-i", sceneBackground]
+      : ["-loop", "1", "-i", sceneBackground]),
+  );
   textOverlayRenders.forEach(({ rendered: overlay }) => {
-    args.push("-loop", "1", "-i", overlay.path);
+    addInput("-loop", "1", "-i", overlay.path);
   });
   decorationRenders.forEach(({ rendered: decoration }) => {
     if (decoration.animated) {
-      args.push("-stream_loop", "-1", "-i", decoration.path);
+      addInput("-stream_loop", "-1", "-i", decoration.path);
     } else {
-      args.push("-loop", "1", "-i", decoration.path);
+      addInput("-loop", "1", "-i", decoration.path);
     }
   });
   sceneImageRenders.forEach(({ rendered: image }) => {
     if (image.animated) {
       if (image.frameSequence) {
-        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
       } else {
-        args.push("-stream_loop", "-1", "-i", image.path);
+        addInput("-stream_loop", "-1", "-i", image.path);
       }
-      args.push("-loop", "1", "-i", image.maskPath);
-      if (image.fillPath) args.push("-loop", "1", "-i", image.fillPath);
-      if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
+      addInput("-loop", "1", "-i", image.maskPath);
+      if (image.fillPath) addInput("-loop", "1", "-i", image.fillPath);
+      if (image.borderPath) addInput("-loop", "1", "-i", image.borderPath);
     } else {
-      args.push("-loop", "1", "-i", image.path);
+      addInput("-loop", "1", "-i", image.path);
     }
   });
   popupRenders.forEach(({ rendered: popup }) => {
-    args.push("-loop", "1", "-i", popup.path);
+    addInput("-loop", "1", "-i", popup.path);
     if (popup.video) {
       if (popup.videoFrameSequence) {
-        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
+        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
       } else {
-        args.push("-stream_loop", "-1", "-i", popup.video);
+        addInput("-stream_loop", "-1", "-i", popup.video);
       }
-      args.push("-loop", "1", "-i", popup.borderPath);
+      addInput("-loop", "1", "-i", popup.borderPath);
     }
   });
   subtitleRenders.forEach(({ rendered: subtitle }) => {
-    args.push("-loop", "1", "-i", subtitle.path);
+    addInput("-loop", "1", "-i", subtitle.path);
   });
   weatherInputSpecs.forEach((source) => {
-    args.push("-f", "lavfi", "-i", source);
+    addInput("-f", "lavfi", "-i", source);
   });
   const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
-  if (voice) {
-    args.push("-i", voice);
+  if (resolvedSceneAudioTracks.length) {
+    resolvedSceneAudioTracks.forEach((track) => addInput("-i", track.path));
   } else {
-    args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
+    addInput("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   }
-  args.push(
-    "-filter_complex", filter,
-    "-map", "[composed]",
-  );
   const voiceDelayFilter = voice && voiceStart > 0
     ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
     : "";
-  const audioFilter = voice
-    ? `${voiceDelayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
-    : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
-  args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
+  let audioMapArgs;
+  if (resolvedSceneAudioTracks.length) {
+    const audioLabels = [];
+    const audioChains = resolvedSceneAudioTracks.map((track, trackIndex) => {
+      const inputIndex = audioInputIndex + trackIndex;
+      const label = `sceneAudio${trackIndex}`;
+      const clipDuration = Math.max(0.1, track.end - track.start);
+      const delayFilter = trackIndex === 0
+        ? voiceDelayFilter
+        : track.start > 0
+          ? `adelay=${Math.round(track.start * 1000)}:all=1,`
+          : "";
+      const volumeFilter = trackIndex === 0
+        ? `volume=${voiceVolume.toFixed(3)}`
+        : `volume=${track.volume.toFixed(3)}`;
+      audioLabels.push(`[${label}]`);
+      return `[${inputIndex}:a:0]atrim=start=0:end=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `${delayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,${volumeFilter}[${label}]`;
+    });
+    filter += `;${audioChains.join(";")};${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${duration}[sceneAudioMixed]`;
+    audioMapArgs = ["-map", "[sceneAudioMixed]"];
+  } else {
+    audioMapArgs = [
+      "-map", `${audioInputIndex}:a:0`,
+      "-af", "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad",
+    ];
+  }
+  args.push(
+    "-filter_threads", String(ffmpegFilterThreads),
+    "-filter_complex_threads", String(ffmpegFilterThreads),
+    "-filter_complex", filter,
+    "-map", "[composed]",
+  );
+  args.push(...audioMapArgs);
   args.push(
     "-t", String(duration),
     "-r", String(fps),
