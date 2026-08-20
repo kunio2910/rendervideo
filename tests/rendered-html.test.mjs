@@ -434,6 +434,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /darkHoldStart/);
   assert.match(renderer, /darkProgressRaw = `if\(lt\(T/);
   assert.match(renderer, /\$\{darkEnd\}-T/);
+  assert.match(renderer, /orderedLayerTokens[\s\S]*?appendSceneStartDarkEffects\(\);[\s\S]*?token\.startsWith\("text:"\)/);
+  assert.match(renderer, /token\.startsWith\("subtitle:"\)[\s\S]*?sceneImageRenders\.forEach\(\(\{ scene: image \}, imageIndex\)/);
   assert.match(renderer, /subtitleOffset/);
   assert.match(renderer, /enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
