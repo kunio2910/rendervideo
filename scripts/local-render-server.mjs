@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { alignSubtitles } from "./align-subtitles.mjs";
+import { getResourceCacheSummary, syncProjectResourceCache } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
 const root = process.cwd();
@@ -18,6 +19,7 @@ const ffmpegPath = process.env.FFMPEG_PATH ||
 const jobs = new Map();
 let activeJobId = null;
 let activeSubtitleAlignment = false;
+let activeCacheSync = false;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -146,12 +148,55 @@ const server = http.createServer(async (request, response) => {
     const ready = await ffmpegReady();
     sendJson(response, ready ? 200 : 503, {
       ready,
-      busy: Boolean(activeJobId),
+      busy: Boolean(activeJobId || activeCacheSync),
       ffmpegPath,
       message: ready
-        ? "Dịch vụ render cục bộ đã sẵn sàng"
+        ? activeCacheSync
+          ? "Dịch vụ đang tải trước tài nguyên URL"
+          : "Dịch vụ render cục bộ đã sẵn sàng"
         : "Chưa tìm thấy FFmpeg. Hãy chạy npm run render:setup",
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/cache") {
+    try {
+      sendJson(response, 200, await getResourceCacheSummary(renderCacheRoot));
+    } catch (error) {
+      sendJson(response, 500, { error: error instanceof Error ? error.message : "Không thể đọc thư viện cache" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/cache/sync") {
+    if (activeJobId) {
+      sendJson(response, 409, { error: "Đang render video. Hãy chờ render hoàn tất trước khi tải trước tài nguyên." });
+      return;
+    }
+    if (activeCacheSync) {
+      sendJson(response, 409, { error: "Đang có một lượt tải trước tài nguyên URL." });
+      return;
+    }
+    activeCacheSync = true;
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const body = await webRequest.json();
+      const project = body?.project;
+      if (!project || typeof project !== "object" || !Array.isArray(project.scenes)) {
+        throw new Error("Thiếu JSON dự án để quét URL tài nguyên");
+      }
+      const report = await syncProjectResourceCache(project, renderCacheRoot);
+      sendJson(response, 200, report);
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Không thể tải trước tài nguyên URL" });
+    } finally {
+      activeCacheSync = false;
+    }
     return;
   }
 
@@ -318,8 +363,10 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (request.method === "POST" && url.pathname === "/api/render") {
-    if (activeJobId) {
-      sendJson(response, 409, { error: "Đang có một video được render. Vui lòng chờ hoàn tất." });
+    if (activeJobId || activeCacheSync) {
+      sendJson(response, 409, { error: activeCacheSync
+        ? "Đang tải trước tài nguyên URL. Vui lòng chờ hoàn tất."
+        : "Đang có một video được render. Vui lòng chờ hoàn tất." });
       return;
     }
     if (!(await ffmpegReady())) {

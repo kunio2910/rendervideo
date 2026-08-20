@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { cacheRemoteResource, isRemoteResourceUrl, resourceKey } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
@@ -446,40 +447,7 @@ const errorDetail = (error) => {
 
 const resourceCache = new Map();
 
-const isRemote = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
-
-const referenceName = (value, fallbackName) => {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return fallbackName;
-  if (isRemote(trimmed)) {
-    try {
-      const name = path.basename(decodeURIComponent(new URL(trimmed).pathname));
-      if (name && name !== ".") return name;
-    } catch {}
-  }
-  return path.basename(trimmed.replaceAll("\\", "/")) || fallbackName;
-};
-
-const resourceKey = (kind, value, fallbackName) => {
-  const trimmed = String(value ?? "").trim();
-  const name = referenceName(trimmed, fallbackName).toLowerCase();
-  // Reuse a resource when scenes refer to the same filename.
-  if (name && name !== fallbackName.toLowerCase()) return `${kind}:name:${name}`;
-  return `${kind}:url:${trimmed}`;
-};
-
-const download = async (url, filename) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`Cannot download ${url}: ${response.status}`);
-    await fs.writeFile(filename, Buffer.from(await response.arrayBuffer()));
-    return filename;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
+const isRemote = isRemoteResourceUrl;
 
 const downloadResource = async (kind, value, fallbackName) => {
   const trimmed = String(value ?? "").trim();
@@ -487,16 +455,14 @@ const downloadResource = async (kind, value, fallbackName) => {
   const cached = resourceCache.get(key);
   if (cached) return cached;
   const promise = (async () => {
-    const sourceName = referenceName(trimmed, fallbackName);
-    const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
-    const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
-    const cachedPath = path.join(assetCacheDir, `${kind}-${hash}-${safeName}`);
-    try {
-      await fs.access(cachedPath);
-      return cachedPath;
-    } catch {
-      return download(trimmed, cachedPath);
-    }
+    const resource = await cacheRemoteResource({
+      cacheRoot: renderCacheDir,
+      kind,
+      value: trimmed,
+      fallbackName,
+    });
+    console.log(`${resource.cached ? "Cache hit" : "Cached URL"}: ${trimmed}`);
+    return resource.path;
   })();
   resourceCache.set(key, promise);
   try {
