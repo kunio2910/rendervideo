@@ -1771,7 +1771,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
   };
-  orderedLayerTokens.forEach((token) => {
+  const appendOrderedLayerToken = (token) => {
     const separatorIndex = token.indexOf(":");
     const kind = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
     const id = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : "";
@@ -1790,7 +1790,70 @@ for (let index = 0; index < scenes.length; index += 1) {
     } else if (kind === "subtitle") {
       subtitleRenders.forEach((_, index) => appendSubtitleLayer(index));
     }
-  });
+  };
+  const appendSceneStartDarkEffects = () => {
+    sceneEffects.sceneStartDarkEffects
+      .filter((darkEffect) => darkEffect.enabled)
+      .forEach((darkEffect, darkIndex) => {
+        const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
+        if (darkStart >= duration) return;
+        const darkEnd = Math.min(
+          duration,
+          Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
+        );
+        const darkDuration = Math.max(0.1, darkEnd - darkStart);
+        const darkHoldDuration = Math.min(
+          Math.max(0, darkDuration - 0.1),
+          Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
+        );
+        const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
+        const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
+        const darkHoldStart = darkStart + darkHalfDuration;
+        const darkHoldEnd = darkHoldStart + darkHoldDuration;
+        const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+        const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
+        const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
+        const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
+        const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
+        const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
+        const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
+        const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
+        const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
+        const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
+        const darkMaskExpression = `255*${darkCoverageExpression}`;
+        const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
+        weatherInputSpecs.push(
+          `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
+          `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+        );
+        filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
+        filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
+        filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
+        filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
+        composedLabel = `[${darkMixedLabel}]`;
+        const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
+        const darkLabel = `sceneStartDarkened${darkIndex}`;
+        weatherInputSpecs.push(
+          `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+          `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
+        );
+        filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
+        composedLabel = `[${darkLabel}]`;
+      });
+  };
+  // Match the preview stacking context: base layers first, dark effect next,
+  // then text/subtitles, with fade-black transitions applied last.
+  orderedLayerTokens
+    .filter((token) => !token.startsWith("text:") && !token.startsWith("subtitle:"))
+    .forEach(appendOrderedLayerToken);
+  appendSceneStartDarkEffects();
+  orderedLayerTokens
+    .filter((token) => token.startsWith("text:"))
+    .forEach(appendOrderedLayerToken);
+  orderedLayerTokens
+    .filter((token) => token.startsWith("subtitle:"))
+    .forEach(appendOrderedLayerToken);
+
   sceneImageRenders.forEach(({ scene: image }, imageIndex) => {
     if (normalizeSceneImageTransition(image.transition) !== "fade-black") return;
     const fadeStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
@@ -1807,54 +1870,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
     composedLabel = `[${fadeLabel}]`;
   });
-  sceneEffects.sceneStartDarkEffects
-    .filter((darkEffect) => darkEffect.enabled)
-    .forEach((darkEffect, darkIndex) => {
-      const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
-      if (darkStart >= duration) return;
-      const darkEnd = Math.min(
-        duration,
-        Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
-      );
-      const darkDuration = Math.max(0.1, darkEnd - darkStart);
-      const darkHoldDuration = Math.min(
-        Math.max(0, darkDuration - 0.1),
-        Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
-      );
-      const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
-      const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
-      const darkHoldStart = darkStart + darkHalfDuration;
-      const darkHoldEnd = darkHoldStart + darkHoldDuration;
-      const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
-      const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
-      const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
-      const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
-      const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
-      const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
-      const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
-      const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
-      const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
-      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
-      const darkMaskExpression = `255*${darkCoverageExpression}`;
-      const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
-      weatherInputSpecs.push(
-        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
-        `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
-      );
-      filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
-      filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
-      filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
-      filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
-      composedLabel = `[${darkMixedLabel}]`;
-      const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
-      const darkLabel = `sceneStartDarkened${darkIndex}`;
-      weatherInputSpecs.push(
-        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
-        `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
-      );
-      filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
-      composedLabel = `[${darkLabel}]`;
-    });
   filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
