@@ -249,6 +249,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-layer-item/);
   assert.match(css, /preview-layer-avatar/);
   assert.match(css, /time-field-hint/);
+  assert.match(css, /editor-field-group-advanced/);
+  assert.match(css, /editor-field-feedback/);
+  assert.match(css, /editor-reset-button/);
   assert.match(css, /pointer-events: none !important/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
@@ -386,6 +389,15 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /className="time-field-hint"/);
   assert.match(page, /previewLayerAvatar/);
   assert.match(page, /preview-layer-avatar/);
+  assert.match(page, /const EditorFieldGroup/);
+  assert.match(page, /editor-field-group-advanced/);
+  assert.match(page, /title="Thời gian hiển thị"/);
+  assert.match(page, /activeSceneImage\.transition !== "cut"/);
+  assert.match(page, /activeSceneImage\.borderWidth > 0/);
+  assert.match(page, /zoomEnabled &&/);
+  assert.match(page, /effect\.enabled &&/);
+  assert.match(page, /sceneEffects\.snowEnabled &&/);
+  assert.match(page, /editor-reset-button/);
   assert.match(page, /holdDuration/);
   assert.match(page, /Thời gian giữ tối/);
   assert.match(page, /editor-section-shortcuts/);

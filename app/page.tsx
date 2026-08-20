@@ -188,7 +188,7 @@ type PreviewLayerItem = {
   icon: string;
 };
 
-const TimeFieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
+const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
   <span className="field-label-with-hint">
     <span>{children}</span>
     <span
@@ -202,6 +202,52 @@ const TimeFieldLabel = ({ children, hint }: { children: ReactNode; hint: string 
     </span>
   </span>
 );
+
+const TimeFieldLabel = FieldLabel;
+
+type EditorFieldGroupProps = {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  advanced?: boolean;
+  className?: string;
+  action?: ReactNode;
+};
+
+const EditorFieldGroup = ({
+  title,
+  description = "",
+  children,
+  advanced = false,
+  className = "",
+  action,
+}: EditorFieldGroupProps) => {
+  const heading = (
+    <div className="editor-field-group-heading">
+      <span className="editor-field-group-marker" aria-hidden="true">{advanced ? "＋" : "•"}</span>
+      <span>
+        <strong>{title}</strong>
+        {description && <small>{description}</small>}
+      </span>
+      {action && <span className="editor-field-group-action">{action}</span>}
+      {advanced && <b>Nâng cao</b>}
+    </div>
+  );
+  if (advanced) {
+    return (
+      <details className={`editor-field-group editor-field-group-advanced ${className}`.trim()}>
+        <summary>{heading}</summary>
+        <div className="editor-field-group-content">{children}</div>
+      </details>
+    );
+  }
+  return (
+    <section className={`editor-field-group ${className}`.trim()}>
+      {heading}
+      <div className="editor-field-group-content">{children}</div>
+    </section>
+  );
+};
 
 const previewLayerToken = (kind: PreviewLayerKind, id: string) => `${kind}:${id}`;
 
@@ -4759,6 +4805,14 @@ function Home() {
     }));
   };
 
+  const resetActiveTextOverlayGeometry = () => {
+    if (!activeTextOverlay) return;
+    updateTextOverlay("x", 50);
+    updateTextOverlay("y", 18);
+    updateTextOverlay("width", undefined);
+    updateTextOverlay("height", undefined);
+  };
+
   type TextOverlayTimingField = "start" | "end";
   const textOverlayTimingKey = (overlayId: string, field: TextOverlayTimingField) =>
     `${scene.id}:text:${overlayId}:${field}`;
@@ -5732,6 +5786,15 @@ function Home() {
             : image),
         }
       : item));
+  };
+
+  const resetActiveSceneImageGeometry = () => {
+    if (!activeSceneImage) return;
+    const defaults = defaultSceneImage(activeSceneImage.id);
+    updateSceneImage("x", defaults.x);
+    updateSceneImage("y", defaults.y);
+    updateSceneImage("width", defaults.width);
+    updateSceneImage("height", defaults.height);
   };
 
   const updateSceneImageEndTime = (value: number) => {
@@ -8898,8 +8961,12 @@ function Home() {
                 <span>01</span><strong>Hình ảnh & nền</strong>{editorSectionActions("visual")}<i />
               </summary>
               <div className="editor-accordion-content">
+            <EditorFieldGroup
+              title="Nền của cảnh"
+              description="Ảnh hoặc video phủ toàn bộ cảnh đang chọn."
+            >
             <label className="field background-field">
-              <span>Background chủ đề cảnh {scene.number}</span>
+              <FieldLabel hint="Tài nguyên này chỉ làm nền cho cảnh hiện tại và không thay đổi avatar của cảnh.">Background chủ đề cảnh {scene.number}</FieldLabel>
               <input
                 type="text"
                 inputMode="url"
@@ -8927,22 +8994,6 @@ function Home() {
               )}
               <small>Nhập URL hoặc tên file ảnh/clip riêng cho cảnh (.jpg, .png, .webp, .mp4, .webm, .mov). URL sẽ được renderer tự tải về.</small>
             </label>
-            <label className="field scene-avatar-field">
-              <span>Ảnh avatar cho Cảnh {scene.number}</span>
-              <input
-                type="text"
-                inputMode="url"
-                placeholder="https://example.com/avatar.jpg"
-                value={scene.avatar ?? ""}
-                onChange={(event) => updateScene("avatar", event.target.value)}
-              />
-              {sceneAvatarPreviewSource && (
-                <div className="image-url-preview scene-avatar-preview">
-                  <img src={sceneAvatarPreviewSource} alt={`Ảnh avatar Cảnh ${scene.number}`} />
-                </div>
-              )}
-              <small>Ảnh này chỉ dùng làm avatar/thumbnail của Cảnh trong danh sách, không thay thế background khi render.</small>
-            </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
@@ -8961,6 +9012,29 @@ function Home() {
                 {activePopup?.visible !== false ? "◉ Ẩn popup" : "⊘ Hiện popup"}
               </button>
             </div>
+            </EditorFieldGroup>
+            <EditorFieldGroup
+              title="Ảnh đại diện cảnh"
+              description="Thumbnail dùng trong danh sách cảnh, không xuất hiện trong video."
+              advanced
+            >
+              <label className="field scene-avatar-field">
+                <FieldLabel hint="Ảnh này chỉ dùng làm avatar/thumbnail trong danh sách cảnh.">Ảnh avatar cho Cảnh {scene.number}</FieldLabel>
+                <input
+                  type="text"
+                  inputMode="url"
+                  placeholder="https://example.com/avatar.jpg"
+                  value={scene.avatar ?? ""}
+                  onChange={(event) => updateScene("avatar", event.target.value)}
+                />
+                {sceneAvatarPreviewSource && (
+                  <div className="image-url-preview scene-avatar-preview">
+                    <img src={sceneAvatarPreviewSource} alt={`Ảnh avatar Cảnh ${scene.number}`} />
+                  </div>
+                )}
+                <small>Ảnh này chỉ dùng làm avatar/thumbnail của Cảnh trong danh sách, không thay thế background khi render.</small>
+              </label>
+            </EditorFieldGroup>
               </div>
             </details>
             <details
@@ -9061,174 +9135,122 @@ function Home() {
                   )}
                   {activeSceneImage && (
                     <div className="scene-image-controls">
-                      <div className="scene-image-sprite-action-row">
-                        <label className="field scene-image-sprite-speed-field">
-                          <TimeFieldLabel hint="Khoảng trễ giữa hai khung hình của sprite; giá trị lớn hơn làm chuyển động chậm hơn.">Tốc độ chuyển động (ms/frame)</TimeFieldLabel>
-                          <div className="number-with-unit">
-                            <input
-                              type="number"
-                              min="60"
-                              max="1000"
-                              step="10"
-                              value={activeSceneImageSpriteDelayInput}
-                              disabled={sceneImageSpriteNotice.status === "processing"}
-                              onChange={(event) => updateSceneImageSpriteDelay(event.target.value)}
-                              onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)}
-                            />
-                            <b>ms</b>
-                          </div>
-                          <small>Giá trị lớn hơn sẽ làm chuyển động chậm hơn.</small>
+                      <EditorFieldGroup title="Nội dung" description="Nguồn hình ảnh hoặc video của layer đang chọn.">
+                        <label className="field">
+                          <FieldLabel hint="Có thể nhập URL hoặc tên file đã có trong thư viện tài nguyên.">URL hình ảnh hoặc video</FieldLabel>
+                          <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
                         </label>
-                        <button
-                          type="button"
-                          className="button ghost scene-image-sprite-button"
-                          disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
-                          onClick={() => {
+                        {Boolean(safeTrim(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle">
+                            <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
+                            <span />
+                            Giữ nền trong suốt cho lớp media
+                          </label>
+                        )}
+                      </EditorFieldGroup>
+
+                      <EditorFieldGroup title="Thời gian hiển thị" description="Các mốc tuyệt đối tính từ đầu cảnh.">
+                        <div className="field-row">
+                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={Math.max(0, sceneDuration - 0.1)} step="0.1" value={activeSceneImage.start} onChange={(event) => {
+                            const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, Number(event.target.value) || 0));
+                            updateSceneImage("start", nextStart);
+                            if (activeSceneImage.transitionEnd < nextStart + 0.1) {
+                              updateSceneImage("transitionEnd", Math.min(sceneDuration, nextStart + 0.1));
+                            }
+                          }} /><b>s</b></div></label>
+                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><input type="number" min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step="0.1" value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onChange={(event) => updateSceneImageEndTime(Number(event.target.value))} /><b>s</b></div></label>
+                        </div>
+                        <div className="editor-field-feedback" role="status">
+                          Hiển thị từ {formatTime(activeSceneImage.start)} đến {formatTime(Math.min(sceneDuration, activeSceneImage.start + activeSceneImage.duration))} · tổng {formatTime(Math.min(sceneDuration - activeSceneImage.start, activeSceneImage.duration))}
+                        </div>
+                      </EditorFieldGroup>
+
+                      <EditorFieldGroup
+                        title="Vị trí & kích thước"
+                        description="Có thể kéo trực tiếp layer trên bản đồ để cập nhật các giá trị này."
+                        action={<button type="button" className="editor-reset-button" onClick={resetActiveSceneImageGeometry}>↺ Mặc định</button>}
+                      >
+                        <div className="field-row">
+                          <label className="field"><FieldLabel hint="Vị trí ngang theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Vị trí dọc theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div></label>
+                        </div>
+                        <div className="field-row">
+                          <label className="field"><FieldLabel hint="Chiều rộng của layer tính theo phần trăm khung bản đồ.">Chiều rộng</FieldLabel><div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Chiều cao của layer tính theo phần trăm khung bản đồ.">Chiều cao</FieldLabel><div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div></label>
+                        </div>
+                        <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
+                      </EditorFieldGroup>
+
+                      <EditorFieldGroup title="Khung & hiển thị" description="Kiểu cắt, độ mờ và đường viền của layer." advanced>
+                        <div className="field-row">
+                          <label className="field">
+                            <FieldLabel hint="Hình dạng dùng để cắt phần hiển thị của media.">Kiểu khung</FieldLabel>
+                            <select value={activeSceneImage.shape} onChange={(event) => updateSceneImage("shape", event.target.value as SceneImageShape)}>
+                              {sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          </label>
+                          <label className="field"><FieldLabel hint="100% là hiển thị hoàn toàn; 0% là trong suốt.">Độ mờ</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" value={activeSceneImage.opacity} onChange={(event) => updateSceneImage("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div></label>
+                        </div>
+                        <div className="field-row">
+                          <label className="field"><FieldLabel hint="Đặt bằng 0 để tắt toàn bộ đường viền.">Độ dày border</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div></label>
+                          {activeSceneImage.borderWidth > 0 && (
+                            <label className="field color-field"><FieldLabel hint="Màu của đường viền quanh layer.">Màu border</FieldLabel><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
+                          )}
+                        </div>
+                        {activeSceneImage.borderWidth > 0 && (
+                          <label className="field color-field scene-image-border-fill-field">
+                            <FieldLabel hint="Để trống hoặc nhập transparent nếu không muốn có màu nền trong border.">Màu nền bên trong border</FieldLabel>
+                            <div className="color-input-row">
+                              <input className="text-color-picker" type="color" value={normalizeHexColor(activeSceneImage.borderFill, "#ffffff")} onChange={(event) => updateSceneImage("borderFill", event.target.value)} />
+                              <input className="text-color-code" type="text" inputMode="text" maxLength={11} value={activeSceneImage.borderFill === "transparent" ? "" : activeSceneImage.borderFill} placeholder="transparent / #FFFFFF" onChange={(event) => updateSceneImage("borderFill", event.target.value || "transparent")} onBlur={(event) => updateSceneImage("borderFill", normalizeSceneImageBorderFill(event.target.value))} />
+                            </div>
+                          </label>
+                        )}
+                      </EditorFieldGroup>
+
+                      <EditorFieldGroup title="Chuyển hình" description="Cách layer đi vào và mốc kết thúc hiệu ứng." advanced>
+                        <div className="field-row scene-image-transition-row">
+                          <label className="field scene-image-transition-field">
+                            <FieldLabel hint="Chọn cách hình ảnh xuất hiện khi bắt đầu hiển thị.">Hiệu ứng chuyển hình</FieldLabel>
+                            <select value={activeSceneImage.transition} onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}>
+                              {sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                            <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
+                          </label>
+                          {activeSceneImage.transition !== "cut" && (
+                            <label className="field scene-image-transition-end-field">
+                              <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel>
+                              <div className="number-with-unit"><input type="number" inputMode="decimal" min={Math.max(0.1, activeSceneImage.start + 0.1)} step="0.1" value={activeSceneImageTransitionEndInput} onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)} onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)} /><b>s</b></div>
+                            </label>
+                          )}
+                        </div>
+                      </EditorFieldGroup>
+
+                      <EditorFieldGroup title="Sprite động" description="Chuyển sprite sheet thành hình động; không cần dùng với ảnh hoặc video thông thường." advanced>
+                        {activeSceneImage.spriteSheet && (
+                          <label className="field scene-image-sprite-speed-field">
+                            <TimeFieldLabel hint="Khoảng trễ giữa hai khung hình của sprite; giá trị lớn hơn làm chuyển động chậm hơn.">Tốc độ chuyển động</TimeFieldLabel>
+                            <div className="number-with-unit"><input type="number" min="60" max="1000" step="10" value={activeSceneImageSpriteDelayInput} disabled={sceneImageSpriteNotice.status === "processing"} onChange={(event) => updateSceneImageSpriteDelay(event.target.value)} onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)} /><b>ms/frame</b></div>
+                          </label>
+                        )}
+                        <div className="scene-image-sprite-action-row">
+                          <button type="button" className="button ghost scene-image-sprite-button" disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"} onClick={() => {
                             const delay = commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput);
                             void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, delay);
-                          }}
-                        >
-                          {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
-                            ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
-                            : activeSceneImage.spriteSheet
-                              ? "Chuy\u1ec3n l\u1ea1i h\u00ecnh \u0111\u1ed9ng"
-                              : "Chuy\u1ec3n sprite th\u00e0nh h\u00ecnh \u0111\u1ed9ng"}
-                        </button>
-                        {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.message && (
-                          <small className={`scene-image-sprite-notice ${sceneImageSpriteNotice.status}`}>
-                            {sceneImageSpriteNotice.message}
-                          </small>
-                        )}
-                      </div>
-                      <label className="field scene-image-sprite-file-field">
-                        <span>Hoặc chọn file sprite từ máy</span>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp,image/gif,image/apng"
-                          disabled={sceneImageSpriteNotice.status === "processing"}
-                          onChange={(event) => {
+                          }}>
+                            {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing" ? "Đang chuyển thành hình động…" : activeSceneImage.spriteSheet ? "Chuyển lại hình động" : "Chuyển sprite thành hình động"}
+                          </button>
+                          {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.message && <small className={`scene-image-sprite-notice ${sceneImageSpriteNotice.status}`}>{sceneImageSpriteNotice.message}</small>}
+                        </div>
+                        <label className="field scene-image-sprite-file-field">
+                          <FieldLabel hint="Hệ thống tự nhận diện lưới khung hình trong file sprite.">Hoặc chọn file sprite từ máy</FieldLabel>
+                          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/apng" disabled={sceneImageSpriteNotice.status === "processing"} onChange={(event) => {
                             const file = event.currentTarget.files?.[0] ?? null;
                             void handleSceneImageSpriteFile(file);
                             event.currentTarget.value = "";
-                          }}
-                        />
-                        <small>Ảnh sẽ được tự nhận diện lưới cột × hàng và tự thêm vào tài nguyên render.</small>
-                      </label>
-                      <label className="field">
-                        <span>URL hình ảnh hoặc video</span>
-                        <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
-                      </label>
-                      <label className="popup-transparent-toggle">
-                        <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
-                        <span />
-                        Giữ nền trong suốt cho lớp media
-                      </label>
-                      <div className="field-row scene-image-transition-row">
-                        <label className="field scene-image-transition-field">
-                          <span>Hiệu ứng chuyển hình</span>
-                          <select
-                            value={activeSceneImage.transition}
-                            onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}
-                          >
-                            {sceneImageTransitionOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                          <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
+                          }} />
                         </label>
-                        <label className="field scene-image-transition-end-field">
-                          <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel>
-                          <div className="number-with-unit">
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min={Math.max(0.1, activeSceneImage.start + 0.1)}
-                              step="0.1"
-                              value={activeSceneImageTransitionEndInput}
-                              disabled={activeSceneImage.transition === "cut"}
-                              onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)}
-                              onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)}
-                            />
-                            <b>s</b>
-                          </div>
-                          <small>Tính từ đầu cảnh. Khi chạy đến mốc này, hiệu ứng sẽ tự động kết thúc; không giới hạn 1.5 giây.</small>
-                        </label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field">
-                          <span>Kiểu khung</span>
-                          <select value={activeSceneImage.shape} onChange={(event) => updateSceneImage("shape", event.target.value as SceneImageShape)}>
-                            {sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                          </select>
-                        </label>
-                        <label className="field">
-                          <span>Độ mờ (%)</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="100" value={activeSceneImage.opacity} onChange={(event) => updateSceneImage("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div>
-                        </label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field">
-                          <span>Vị trí X</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div>
-                        </label>
-                        <label className="field">
-                          <span>Vị trí Y</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div>
-                        </label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field">
-                          <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
-                        </label>
-                        <label className="field">
-                          <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
-                        </label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field">
-                          <span>Border</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
-                        </label>
-                        <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field color-field scene-image-border-fill-field">
-                          <span>Màu nền bên trong border</span>
-                          <div className="color-input-row">
-                            <input
-                              className="text-color-picker"
-                              type="color"
-                              value={normalizeHexColor(activeSceneImage.borderFill, "#ffffff")}
-                              onChange={(event) => updateSceneImage("borderFill", event.target.value)}
-                            />
-                            <input
-                              className="text-color-code"
-                              type="text"
-                              inputMode="text"
-                              maxLength={11}
-                              value={activeSceneImage.borderFill === "transparent" ? "" : activeSceneImage.borderFill}
-                              placeholder="transparent / #FFFFFF"
-                              onChange={(event) => updateSceneImage("borderFill", event.target.value || "transparent")}
-                              onBlur={(event) => updateSceneImage("borderFill", normalizeSceneImageBorderFill(event.target.value))}
-                            />
-                          </div>
-                          <small>Để trống hoặc nhập transparent để giữ nền trong suốt.</small>
-                        </label>
-                      </div>
-                      <div className="field-row">
-                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={Math.max(0, sceneDuration - 0.1)} step="0.1" value={activeSceneImage.start} onChange={(event) => {
-                          const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, Number(event.target.value) || 0));
-                          updateSceneImage("start", nextStart);
-                          if (activeSceneImage.transitionEnd < nextStart + 0.1) {
-                            updateSceneImage("transitionEnd", Math.min(sceneDuration, nextStart + 0.1));
-                          }
-                        }} /><b>s</b></div></label>
-                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><input type="number" min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step="0.1" value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onChange={(event) => updateSceneImageEndTime(Number(event.target.value))} /><b>s</b></div></label>
-                      </div>
-                      <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
-                      <small>Kéo trực tiếp lớp trên bản đồ để di chuyển. Kéo nút ở góc lớp để tăng hoặc giảm kích thước.</small>
+                      </EditorFieldGroup>
                     </div>
                   )}
                 </div>
@@ -9247,8 +9269,9 @@ function Home() {
                 <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
+            <EditorFieldGroup title="Thông tin cơ bản" description="Tên và độ dài tổng thể của cảnh đang chọn.">
             <label className="field">
-              <span>Thời lượng cảnh</span>
+              <TimeFieldLabel hint="Độ dài toàn bộ cảnh; các layer, âm thanh và hiệu ứng dùng mốc thời gian nằm trong khoảng này.">Thời lượng cảnh</TimeFieldLabel>
               <div className="number-with-unit">
                 <input
                   type="number"
@@ -9266,7 +9289,7 @@ function Home() {
               </small>
             </label>
             <label className="field">
-              <span>Tên Cảnh</span>
+              <FieldLabel hint="Tên giúp nhận biết cảnh trong danh sách và không trực tiếp xuất hiện trong video.">Tên Cảnh</FieldLabel>
               <input
                 value={scene.sceneName}
                 placeholder={`Cảnh ${scene.number}`}
@@ -9274,6 +9297,7 @@ function Home() {
               />
               <small>Tên này hiển thị ở danh sách cảnh và khu vực xem trước.</small>
             </label>
+            </EditorFieldGroup>
               </div>
             </details>
             <details
@@ -9289,8 +9313,9 @@ function Home() {
                 <span>04</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
               </summary>
               <div className="editor-accordion-content">
+                <EditorFieldGroup title="Nội dung chữ" description="Chọn layer và nhập nội dung hiển thị trên bản đồ.">
                 <label className="field">
-                  <span>Nội dung chữ viết</span>
+                  <FieldLabel hint="Nội dung của layer chữ đang chọn; mỗi layer có thể chỉnh riêng.">Nội dung chữ viết</FieldLabel>
                   <textarea
                     value={activeTextOverlay?.text ?? ""}
                     placeholder="Nhập chữ hiển thị trên bản đồ..."
@@ -9390,9 +9415,11 @@ function Home() {
                   </div>
                   <small>Kéo trực tiếp dòng chữ trên khung bản đồ để di chuyển vị trí.</small>
                 </label>
+                </EditorFieldGroup>
+                <EditorFieldGroup title="Kiểu chữ cơ bản" description="Cỡ chữ và kiểu nhấn mạnh thường dùng.">
                 <div className="field-row">
                   <label className="field">
-                    <span>Cỡ chữ</span>
+                    <FieldLabel hint="Kích thước chữ tính theo pixel trong khung xem trước.">Cỡ chữ</FieldLabel>
                     <div className="number-with-unit">
                       <input
                         type="number"
@@ -9406,7 +9433,7 @@ function Home() {
                     </div>
                   </label>
                   <label className="field">
-                    <span>Kiểu chữ</span>
+                    <FieldLabel hint="Chọn chữ thường, đậm, nghiêng hoặc kết hợp.">Kiểu chữ</FieldLabel>
                     <select
                       value={activeTextOverlay?.style ?? "normal"}
                       onChange={(event) => updateTextOverlay("style", event.target.value as TextOverlay["style"])}
@@ -9418,9 +9445,11 @@ function Home() {
                  </select>
                  </label>
                  </div>
+                </EditorFieldGroup>
+                <EditorFieldGroup title="Hiệu ứng chữ" description="Chuyển động khi chữ xuất hiện; bỏ qua nếu chọn Không hiệu ứng." advanced>
                 <div className="field-row text-effect-controls">
                   <label className="field">
-                    <span>Hiệu ứng chữ</span>
+                    <FieldLabel hint="Hiệu ứng được đồng bộ giữa xem trước và video render.">Hiệu ứng chữ</FieldLabel>
                     <select
                       value={activeTextOverlay?.textEffect ?? "none"}
                       onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}
@@ -9430,23 +9459,16 @@ function Home() {
                       ))}
                     </select>
                   </label>
-                  <label className="field">
-                    <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
-                    <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="0.05"
-                        max="8"
-                        step="0.05"
-                        value={activeTextOverlay?.textEffectDuration ?? 0.6}
-                        disabled={!activeTextOverlay || activeTextOverlay.textEffect === "none"}
-                        onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))}
-                      />
-                      <b>s</b>
-                    </div>
-                  </label>
+                  {activeTextOverlay?.textEffect !== "none" && (
+                    <label className="field">
+                      <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
+                      <div className="number-with-unit"><input type="number" min="0.05" max="8" step="0.05" value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))} /><b>s</b></div>
+                    </label>
+                  )}
                 </div>
                 <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
+                </EditorFieldGroup>
+                <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và kết thúc tuyệt đối tính từ đầu cảnh.">
                 <div className="field-row text-overlay-timing-fields">
                   <label className="field">
                     <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; chữ bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu chữ</TimeFieldLabel>
@@ -9478,27 +9500,40 @@ function Home() {
                   </label>
                 </div>
                 <small>Chữ chỉ hiển thị trong khoảng thời gian này. Khi để mặc định, chữ hiển thị suốt cảnh hiện tại.</small>
+                {activeTextOverlay && (
+                  <div className="editor-field-feedback" role="status">
+                    Hiển thị từ {formatTime(activeTextOverlay.start)} đến {formatTime(activeTextOverlay.end)} · tổng {formatTime(Math.max(0.1, activeTextOverlay.end - activeTextOverlay.start))}
+                  </div>
+                )}
+                </EditorFieldGroup>
+                <EditorFieldGroup
+                  title="Vị trí & kích thước"
+                  description="Kéo chữ trên bản đồ hoặc nhập trực tiếp các giá trị phần trăm."
+                  action={<button type="button" className="editor-reset-button" onClick={resetActiveTextOverlayGeometry}>↺ Mặc định</button>}
+                >
                 <div className="field-row">
                   <label className="field">
-                    <span>Vị trí X</span>
+                    <FieldLabel hint="Vị trí ngang theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel>
                     <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.x ?? 50} onChange={(event) => updateTextOverlay("x", clampPercent(event.target.value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
                   </label>
                   <label className="field">
-                    <span>Vị trí Y</span>
+                    <FieldLabel hint="Vị trí dọc theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel>
                     <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.y ?? 18} onChange={(event) => updateTextOverlay("y", clampPercent(event.target.value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
                   </label>
                 </div>
                 <div className="field-row">
                   <label className="field">
-                    <span>Chiều rộng</span>
+                    <FieldLabel hint="Để trống nếu muốn chiều rộng tự động theo nội dung.">Chiều rộng</FieldLabel>
                     <div className="number-with-unit"><input type="number" min="4" max="100" step="0.1" value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("width", event.target.value === "" ? undefined : Math.min(100, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
                   </label>
                   <label className="field">
-                    <span>Chiều cao</span>
+                    <FieldLabel hint="Để trống nếu muốn chiều cao tự động theo nội dung.">Chiều cao</FieldLabel>
                     <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("height", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
                   </label>
                 </div>
                 <small>Kéo nút ở góc chữ để thay đổi cả chiều rộng và chiều cao. Để trống để dùng kích thước tự động.</small>
+                </EditorFieldGroup>
+                <EditorFieldGroup title="Màu sắc & đường viền" description="Font, màu, độ trong suốt, stroke và nền khung chữ." advanced>
                  <div className="field-row">
                    <label className="field">
                      <span>Độ trong suốt</span>
@@ -9641,10 +9676,12 @@ function Home() {
                     </div>
                   </label>
                 </div>
-                <div className="field text-position-readout">
+                 <div className="field text-position-readout">
                   <span>Vị trí hiện tại</span>
-                    <b>X {Math.round(activeTextOverlay?.x ?? 50)}% · Y {Math.round(activeTextOverlay?.y ?? 18)}%</b>
-                </div>
+                     <b>X {Math.round(activeTextOverlay?.x ?? 50)}% · Y {Math.round(activeTextOverlay?.y ?? 18)}%</b>
+                 </div>
+                </EditorFieldGroup>
+                <EditorFieldGroup title="Trang trí & hiệu ứng động" description="Chữ 3D, sticker, icon và tài nguyên GIF/WebM/APNG." advanced>
                 <div className="map-decoration-manager">
                   <div className="text-overlay-list-heading">
                     <span>Trang trí trên bản đồ</span>
@@ -9859,10 +9896,12 @@ function Home() {
                         </label>
                       </div>
                       <div className="field-row">
-                        <label className="field">
-                          <span>Độ nổi 3D</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="16" step="1" value={activeDecoration.depth} onChange={(event) => updateMapDecoration("depth", Math.min(16, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
-                        </label>
+                        {activeDecoration.type === "text-3d" && (
+                          <label className="field">
+                            <FieldLabel hint="Độ sâu bóng tạo cảm giác nổi cho chữ 3D.">Độ nổi 3D</FieldLabel>
+                            <div className="number-with-unit"><input type="number" min="0" max="16" step="1" value={activeDecoration.depth} onChange={(event) => updateMapDecoration("depth", Math.min(16, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
+                          </label>
+                        )}
                         <label className="field">
                           <span>Hiệu ứng động</span>
                           <select value={activeDecoration.animation} onChange={(event) => updateMapDecoration("animation", event.target.value as MapDecorationAnimation)}>
@@ -9875,10 +9914,12 @@ function Home() {
                           </select>
                         </label>
                       </div>
-                      <div className="field-row">
-                        <label className="field color-field"><span>Màu chính</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.color, "#ffd166")} onChange={(event) => updateMapDecoration("color", event.target.value)} /></label>
-                        <label className="field color-field"><span>Màu chiều sâu</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.accentColor, "#7c3aed")} onChange={(event) => updateMapDecoration("accentColor", event.target.value)} /></label>
-                      </div>
+                      {(activeDecoration.type === "text-3d" || activeDecoration.type === "icon" || activeDecoration.type === "effect") && (
+                        <div className="field-row">
+                          <label className="field color-field"><span>Màu chính</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.color, "#ffd166")} onChange={(event) => updateMapDecoration("color", event.target.value)} /></label>
+                          {activeDecoration.type === "text-3d" && <label className="field color-field"><span>Màu chiều sâu</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.accentColor, "#7c3aed")} onChange={(event) => updateMapDecoration("accentColor", event.target.value)} /></label>}
+                        </div>
+                      )}
                       <div className="field-row">
                         <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeDecoration.start} onChange={(event) => updateMapDecoration("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
                         <label className="field"><TimeFieldLabel hint="Độ dài tương đối của hiệu ứng, tính từ mốc bắt đầu.">Thời lượng</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeDecoration.duration)} onChange={(event) => updateMapDecoration("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
@@ -9887,6 +9928,7 @@ function Home() {
                     </div>
                   )}
                 </div>
+                </EditorFieldGroup>
               </div>
             </details>
             <details
@@ -9902,8 +9944,9 @@ function Home() {
                 <span>05</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
               </summary>
               <div className="editor-accordion-content">
+            <EditorFieldGroup title="Nhạc nền" description="Nhạc dùng chung cho video và mức âm lượng phát nền.">
             <label className="field audio-field" id="editor-music">
-              <span>Nhạc nền chủ đề</span>
+              <FieldLabel hint="Có thể nhập URL, tên file hoặc chọn file âm thanh từ máy.">Nhạc nền chủ đề</FieldLabel>
               <div className="audio-input-row">
                 <input
                   type="text"
@@ -9934,7 +9977,7 @@ function Home() {
                 </label>
               </div>
               <div className="field audio-volume-field">
-                <span>Âm lượng nhạc nền (%)</span>
+                <FieldLabel hint="Mức âm lượng của nhạc nền so với âm lượng gốc.">Âm lượng nhạc nền</FieldLabel>
                 <div className="number-with-unit">
                   <input
                     type="number"
@@ -9950,8 +9993,10 @@ function Home() {
               </div>
               <small>Để trống nếu clip không có nhạc nền.</small>
             </label>
+            </EditorFieldGroup>
+            <EditorFieldGroup title="Thuyết minh" description="Nội dung, file giọng đọc và mốc bắt đầu phát trong cảnh.">
             <label className="field narration-field" id="editor-narration">
-              <span>Lời thuyết minh dùng để tạo phụ đề</span>
+              <FieldLabel hint="Văn bản này được dùng để tạo và căn thời gian phụ đề.">Lời thuyết minh dùng để tạo phụ đề</FieldLabel>
               <textarea
                 rows={4}
                 value={scene.narration}
@@ -9961,7 +10006,7 @@ function Home() {
               <small>Nội dung này được dùng để Whisper/fallback tạo timestamp phụ đề. Có thể khác với lời thuyết minh ghi chú trong Popup.</small>
             </label>
             <label className="field audio-field" id="editor-audio">
-              <span>File âm thanh thuyết minh</span>
+              <FieldLabel hint="File giọng đọc riêng của cảnh; có thể dùng URL, tên file hoặc chọn từ máy.">File âm thanh thuyết minh</FieldLabel>
               <div className="audio-input-row">
                 <input
                   type="text"
@@ -10021,7 +10066,7 @@ function Home() {
                 <small>0 giây = phát ngay khi cảnh bắt đầu.</small>
               </div>
               <div className="field audio-volume-field">
-                <span>Âm lượng thuyết minh (%)</span>
+                <FieldLabel hint="Mức âm lượng của giọng đọc so với file gốc.">Âm lượng thuyết minh</FieldLabel>
                 <div className="number-with-unit">
                   <input
                     type="number"
@@ -10040,6 +10085,8 @@ function Home() {
               )}
               <small>Nhập tên file hoặc URL. URL âm thanh sẽ được tự tải khi render và dùng lại nếu nhiều cảnh trùng URL/tên file.</small>
             </label>
+            </EditorFieldGroup>
+            <EditorFieldGroup title="Phụ đề" description="Tạo, nhập và rà soát timestamp của từng câu.">
             <div className="subtitle-editor" id="editor-subtitle">
               <div className="subtitle-editor-heading">
                 <div>
@@ -10126,6 +10173,7 @@ function Home() {
                   </p>
                 </>
               )}
+              <EditorFieldGroup title="Kiểu chữ phụ đề" description="Font, màu, nền, vị trí và hiệu ứng xuất hiện dùng chung cho các cue." advanced>
               <div className="subtitle-style-editor">
                 <div className="subtitle-style-heading">
                   <strong>Tùy chỉnh chữ xuất hiện</strong>
@@ -10211,6 +10259,7 @@ function Home() {
                   </label>
                 </div>
               </div>
+              </EditorFieldGroup>
               <div className="field-row subtitle-global-timing-row">
                 <label className="field">
                   <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; toàn bộ cue phụ đề được dịch bắt đầu từ thời điểm này.">Thời gian bắt đầu phát tất cả phụ đề</TimeFieldLabel>
@@ -10310,6 +10359,7 @@ function Home() {
                 <div className="text-overlay-empty">Chưa có câu phụ đề. Bấm “Thêm câu” để tạo cue đầu tiên.</div>
               )}
             </div>
+            </EditorFieldGroup>
               </div>
             </details>
             <details
@@ -10340,6 +10390,8 @@ function Home() {
                     <span aria-hidden="true" />
                     <span>Bật hiệu ứng zoom bản đồ</span>
                   </label>
+                  {zoomEnabled && (
+                    <>
                   <div className="field-row zoom-settings-fields">
                     <label className="field">
                       <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng zoom bắt đầu từ thời điểm này.">Thời gian bắt đầu zoom</TimeFieldLabel>
@@ -10413,7 +10465,10 @@ function Home() {
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                    </>
+                  )}
                 </div>
+                <EditorFieldGroup title="Hiệu ứng môi trường" description="Tối viền, thời tiết và ánh sáng phụ trợ cho cảnh." advanced>
                 <div className="scene-visual-effect-card scene-start-dark-effect-card" aria-label="Hiệu ứng tối dần từ ngoài vào trong">
                   <div className="scene-visual-effect-heading scene-start-dark-panel-heading">
                     <div>
@@ -10439,6 +10494,8 @@ function Home() {
                           <span aria-hidden="true" />
                           <span>Bật hiệu ứng tối này</span>
                         </label>
+                        {effect.enabled && (
+                          <>
                         <div className="field-row scene-start-dark-time-row">
                           <label className="field">
                             <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối bắt đầu từ thời điểm này.">Thời gian bắt đầu</TimeFieldLabel>
@@ -10498,6 +10555,8 @@ function Home() {
                           </div>
                           <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; sau khi tối hẳn, hiệu ứng sẽ giữ theo thời gian đã nhập rồi mới reverse.</small>
                         </label>
+                          </>
+                        )}
                       </div>
                     )) : (
                       <div className="scene-start-dark-empty">Chưa có hiệu ứng tối. Bấm “Thêm hiệu ứng tối” để tạo một lớp.</div>
@@ -10520,6 +10579,7 @@ function Home() {
                         <span aria-hidden="true" />
                         <span>Bật tuyết rơi</span>
                       </label>
+                      {sceneEffects.snowEnabled && (
                       <div className="field-row">
                         <label className="field">
                           <span>Cường độ</span>
@@ -10550,6 +10610,7 @@ function Home() {
                           </div>
                         </label>
                       </div>
+                      )}
                     </div>
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -10566,6 +10627,7 @@ function Home() {
                         <span aria-hidden="true" />
                         <span>Bật ánh sáng nhấp nháy</span>
                       </label>
+                      {sceneEffects.lightFlickerEnabled && (
                       <div className="field-row">
                         <label className="field">
                           <span>Cường độ</span>
@@ -10596,6 +10658,7 @@ function Home() {
                           </div>
                         </label>
                       </div>
+                      )}
                     </div>
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -10612,6 +10675,7 @@ function Home() {
                         <span aria-hidden="true" />
                         <span>Bật mưa</span>
                       </label>
+                      {sceneEffects.rainEnabled && (
                       <div className="field-row">
                         <label className="field">
                           <span>Cường độ</span>
@@ -10642,6 +10706,7 @@ function Home() {
                           </div>
                         </label>
                       </div>
+                      )}
                     </div>
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -10658,6 +10723,7 @@ function Home() {
                         <span aria-hidden="true" />
                         <span>Bật sấm chớp</span>
                       </label>
+                      {sceneEffects.thunderEnabled && (
                       <div className="field-row">
                         <label className="field">
                           <span>Cường độ</span>
@@ -10688,6 +10754,7 @@ function Home() {
                           </div>
                         </label>
                       </div>
+                      )}
                     </div>
                     <div className="scene-visual-effect-card">
                       <div className="scene-visual-effect-heading">
@@ -10704,6 +10771,7 @@ function Home() {
                         <span aria-hidden="true" />
                         <span>Bật đám mây</span>
                       </label>
+                      {sceneEffects.cloudEnabled && (
                       <div className="field-row">
                         <label className="field">
                           <span>Cường độ</span>
@@ -10734,9 +10802,11 @@ function Home() {
                           </div>
                         </label>
                       </div>
+                      )}
                     </div>
                   </div>
                   <small className="zoom-settings-help">Các hiệu ứng được áp dụng cho cảnh đang chọn và xuất cùng thông số trong JSON render.</small>
+                </EditorFieldGroup>
               </div>
             </details>
             <details
@@ -10752,6 +10822,7 @@ function Home() {
                 <span>07</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
               </summary>
               <div className="editor-accordion-content">
+            <EditorFieldGroup title="Danh sách popup" description="Chọn popup để chỉnh, kéo để đổi thứ tự hoặc dùng các nút thao tác nhanh.">
             <div className="popup-manager" aria-label="Danh sách popup trong cảnh">
               <div className="popup-manager-heading">
                 <strong>{scenePopups.length} popup{scenePopups.length > 1 ? "s" : ""}</strong>
@@ -10831,21 +10902,23 @@ function Home() {
               </div>
               <small className="popup-size-help">Trong khung xem trước, kéo vạch xanh ở cuối Hình ảnh hoặc Nội dung để chỉnh riêng chiều cao. Nút ↺ sẽ đặt lại kích thước mặc định.</small>
             </div>
+            </EditorFieldGroup>
             {activePopup ? (
             <div className="popup-motion-settings-card" id="editor-popup">
               <div className="motion-settings-title">
                 <strong>Popup {Math.max(1, scenePopups.findIndex((item) => item.id === activePopup?.id) + 1)}</strong>
                 <span>Thời gian và hiệu ứng xuất hiện</span>
               </div>
+              <EditorFieldGroup title="Nội dung" description="Tiêu đề, mô tả và lời thuyết minh của popup.">
               <label className="field">
-                <span>Tiêu đề</span>
+                <FieldLabel hint="Dòng tiêu đề nổi bật ở đầu popup.">Tiêu đề</FieldLabel>
                 <input
                   value={activePopup?.title ?? ""}
                   onChange={(event) => updatePopup("title", event.target.value)}
                 />
               </label>
               <label className="field">
-                <span>Nội dung cảnh</span>
+                <FieldLabel hint="Phần mô tả chính hiển thị bên trong popup.">Nội dung cảnh</FieldLabel>
                 <textarea
                   value={activePopup?.body ?? ""}
                   onChange={(event) => updatePopup("body", event.target.value)}
@@ -10853,13 +10926,15 @@ function Home() {
                 <small>{(activePopup?.body ?? "").length}/180 ký tự</small>
               </label>
               <label className="field">
-                <span>Lời thuyết minh</span>
+                <FieldLabel hint="Ghi chú lời đọc riêng của popup; không thay thế file âm thanh của cảnh.">Lời thuyết minh</FieldLabel>
                 <textarea
                   value={activePopup?.narration ?? ""}
                   onChange={(event) => updatePopup("narration", event.target.value)}
                 />
                 <small>{popupWordCount} từ · Ước tính {popupVoiceEstimate} giây</small>
               </label>
+              </EditorFieldGroup>
+              <EditorFieldGroup title="Thiết kế" description="Bố cục, màu sắc, hiệu ứng chữ và đường viền." advanced>
               <div className="popup-design-grid">
                 <label className="field">
                   <span>Bố cục popup</span>
@@ -10901,7 +10976,7 @@ function Home() {
                 </label>
               </div>
               <label className="field popup-border-field">
-                <span>Độ dày viền popup</span>
+                <FieldLabel hint="Đặt bằng 0 để tắt đường viền popup.">Độ dày viền popup</FieldLabel>
                 <div className="number-with-unit">
                   <input
                     type="number"
@@ -10915,6 +10990,8 @@ function Home() {
                 </div>
                 <small>Nhập 0 để tắt viền.</small>
               </label>
+              </EditorFieldGroup>
+              <EditorFieldGroup title="Vị trí & kích thước" description="Có thể kéo popup và tay nắm trong Xem trước để cập nhật tự động." advanced>
               <div className="field-row popup-geometry-fields">
                 <label className="field">
                   <span>Vị trí X</span>
@@ -10936,8 +11013,11 @@ function Home() {
                 </label>
               </div>
               <small className="popup-geometry-help">Kéo Popup hoặc nút ở góc để các thông số này tự cập nhật.</small>
+              </EditorFieldGroup>
+              {(activePopup?.layout ?? "image-top") !== "content-only" && (
+              <EditorFieldGroup title="Ảnh / video" description="Media minh họa riêng của popup.">
               <label className="field popup-image-field">
-                <span>Ảnh / video popup riêng</span>
+                <FieldLabel hint="Có thể nhập URL hoặc tên file ảnh/video trong thư viện tài nguyên.">Ảnh / video popup riêng</FieldLabel>
                 <input
                   type="text"
                   inputMode="url"
@@ -10945,16 +11025,17 @@ function Home() {
                   value={activePopupMediaValue}
                   onChange={(event) => updatePopupMedia(event.target.value)}
                 />
-                <label className="popup-transparent-toggle">
-                  <input
-                    type="checkbox"
-                    checked={activePopup?.transparentMedia === true}
-                    onChange={(event) => updatePopup("transparentMedia", event.target.checked)}
-                  />
-                  <span />
-                  Giữ nền trong suốt cho ảnh / video popup
-                </label>
+                {Boolean(activePopupMediaValue) && (
+                  <label className="popup-transparent-toggle">
+                    <input type="checkbox" checked={activePopup?.transparentMedia === true} onChange={(event) => updatePopup("transparentMedia", event.target.checked)} />
+                    <span />
+                    Giữ nền trong suốt cho ảnh / video popup
+                  </label>
+                )}
               </label>
+              </EditorFieldGroup>
+              )}
+              <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và độ dài popup trong cảnh.">
               <label className="field">
                 <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; popup bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu xuất hiện popup</TimeFieldLabel>
                 <div className="number-with-unit">
@@ -10993,6 +11074,11 @@ function Home() {
                 </div>
                 </div>
               </label>
+              <div className="editor-field-feedback" role="status">
+                Hiển thị từ {formatTime(activePopup?.start ?? 0)} đến {formatTime(Math.min(sceneDuration, (activePopup?.start ?? 0) + (activePopup?.duration ?? 0.1)))} · tổng {formatTime(activePopup?.duration ?? 0.1)}
+              </div>
+              </EditorFieldGroup>
+              <EditorFieldGroup title="Hiệu ứng mở & đóng" description="Cách popup xuất hiện và biến mất trong video." advanced>
               <div className="field-row">
               <label className="field">
                 <span>Hiệu ứng mở</span>
@@ -11023,6 +11109,7 @@ function Home() {
                 </select>
               </label>
               </div>
+              </EditorFieldGroup>
             </div>
             ) : (
               <div className="popup-empty-state">
