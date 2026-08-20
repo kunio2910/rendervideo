@@ -324,6 +324,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
 
   assert.match(page, /assetPreviewUrls/);
   assert.match(page, /syncLocalResourceCache/);
+  assert.match(page, /buildRenderPayload/);
+  assert.match(page, /Render cảnh đang chọn/);
+  assert.match(page, /Render toàn clip/);
+  assert.match(page, /Video đã render · Nối nhanh/);
+  assert.match(page, /selectedRenderedClipIds/);
+  assert.match(page, /startLocalConcat/);
+  assert.match(page, /rendered-clips-card/);
   assert.match(page, /Tải trước URL để render nhanh hơn/);
   assert.match(page, /localResourceCache/);
   assert.match(page, /imageVisible: imageEnabled/);
@@ -416,6 +423,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /resolveBackground/);
   assert.match(renderer, /cacheRemoteResource/);
   assert.match(localServer, /\/api\/cache\/sync/);
+  assert.match(localServer, /\/api\/rendered-clips/);
+  assert.match(localServer, /\/api\/concat/);
+  assert.match(localServer, /runConcatJob/);
+  assert.match(localServer, /"-c", "copy"/);
+  assert.match(localServer, /inspectVideo/);
+  assert.match(localServer, /compatibilityKey/);
   assert.match(localServer, /syncProjectResourceCache/);
   assert.match(resourceCache, /collectProjectRemoteResources/);
   assert.match(resourceCache, /cacheRemoteResource/);

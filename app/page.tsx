@@ -851,6 +851,35 @@ type LocalRenderState = {
   log?: string;
 };
 
+type RenderedClip = {
+  id: string;
+  name: string;
+  scope: "scene" | "project" | "joined" | string;
+  sceneName?: string;
+  createdAt: string;
+  size: number;
+  duration: number;
+  compatibilityKey?: string;
+  downloadUrl: string;
+  profile?: {
+    video?: {
+      codec?: string;
+      width?: number;
+      height?: number;
+      fps?: number;
+    };
+    audio?: { codec?: string } | null;
+  } | null;
+};
+
+type LocalConcatState = {
+  status: "idle" | "joining" | "completed" | "failed";
+  progress: number;
+  message: string;
+  downloadUrl?: string;
+  log?: string;
+};
+
 type LocalResourceCacheState = {
   status: "idle" | "syncing" | "ready" | "failed";
   message: string;
@@ -3067,6 +3096,14 @@ function Home() {
     progress: 0,
     message: "Chưa kết nối dịch vụ render cục bộ",
   });
+  const [renderedClips, setRenderedClips] = useState<RenderedClip[]>([]);
+  const [selectedRenderedClipIds, setSelectedRenderedClipIds] = useState<string[]>([]);
+  const [concatVideoName, setConcatVideoName] = useState("video-noi");
+  const [localConcatState, setLocalConcatState] = useState<LocalConcatState>({
+    status: "idle",
+    progress: 0,
+    message: "Chọn ít nhất 2 video đã render để nối nhanh.",
+  });
   const [localResourceCache, setLocalResourceCache] = useState<LocalResourceCacheState>({
     status: "idle",
     message: "Chưa đọc thư viện URL đã tải trước",
@@ -3144,6 +3181,7 @@ function Home() {
   const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
+  const localConcatJobId = useRef("");
 
   // Keep the latest timeline position available to media readiness callbacks.
   // Audio files can finish loading after the playhead has already advanced.
@@ -8120,6 +8158,25 @@ function Home() {
     ],
   );
 
+  const buildRenderPayload = (scope: "project" | "scene") => {
+    if (scope === "project") {
+      return { ...exportPayload, renderScope: "project" as const };
+    }
+    const sceneIndex = scenes.findIndex((item) => item.id === scene.id);
+    const selectedScenePayload = exportPayload.scenes[sceneIndex];
+    if (!selectedScenePayload) return null;
+    const sceneDuration = Math.max(0.1, Number(selectedScenePayload.end) - Number(selectedScenePayload.start));
+    const sceneName = safeTrim(scene.sceneName) || `Cảnh ${scene.number}`;
+    return {
+      ...exportPayload,
+      title: `${projectTitle} - ${sceneName}`,
+      duration: sceneDuration,
+      renderScope: "scene" as const,
+      renderedSceneName: sceneName,
+      scenes: [{ ...selectedScenePayload, start: 0, end: sceneDuration }],
+    };
+  };
+
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: "application/json",
@@ -8354,15 +8411,18 @@ function Home() {
     }
   };
 
-  const runRenderPreflight = async () => {
+  const runRenderPreflight = async (scope: "project" | "scene" = "project") => {
     const checks: PreflightCheck[] = [];
     const selectedFileNames = new Set(localRenderFiles.map((file) => file.name));
-    if (!visibleScenes.length) {
+    const renderScenes = scope === "scene" ? [scene] : visibleScenes;
+    if (!renderScenes.length) {
       checks.push({
         id: "visible-scenes",
-        label: "Cảnh đang hiện",
+        label: scope === "scene" ? "Cảnh đang chọn" : "Cảnh đang hiện",
         status: "error",
-        detail: "Táº¥t cáº£ cáº£nh Ä‘ang bá»‹ áº©n; hÃ£y hiá»‡n Ã­t nháº¥t má»™t cáº£nh Ä‘á»ƒ render.",
+        detail: scope === "scene"
+          ? "Không tìm thấy cảnh đang chọn để render."
+          : "Tất cả cảnh đang bị ẩn; hãy hiện ít nhất một cảnh để render.",
       });
     }
     const addSourceCheck = (
@@ -8418,7 +8478,7 @@ function Home() {
     } else {
       checks.push({ id: "background-music", label: "Nhạc nền", status: "warning", detail: "Không dùng nhạc nền." });
     }
-    visibleScenes.forEach((item) => {
+    renderScenes.forEach((item) => {
       addSourceCheck(
         `scene-${item.id}-background`,
         `Background cảnh ${item.number}`,
@@ -8466,12 +8526,12 @@ function Home() {
         id: "ffmpeg",
         label: "FFmpeg cục bộ",
         status: "ok",
-        detail: result.busy ? "Đã kết nối nhưng dịch vụ đang render một video khác." : "Dịch vụ đã sẵn sàng.",
+        detail: result.busy ? "Đã kết nối nhưng dịch vụ đang bận render hoặc nối video khác." : "Dịch vụ đã sẵn sàng.",
       });
       setLocalRenderState((state) => ({
         ...state,
         status: "idle",
-        message: result.busy ? "Dịch vụ đang render một video khác" : "Dịch vụ render đã sẵn sàng",
+        message: result.busy ? "Dịch vụ đang render hoặc nối video khác" : "Dịch vụ render đã sẵn sàng",
       }));
     } catch (error) {
       checks.push({
@@ -8492,8 +8552,17 @@ function Home() {
     return !checks.some((check) => check.status === "error");
   };
 
-  const startLocalRender = async () => {
-    const canRender = await runRenderPreflight();
+  const startLocalRender = async (scope: "project" | "scene" = "project") => {
+    const renderPayload = buildRenderPayload(scope);
+    if (!renderPayload) {
+      setLocalRenderState({
+        status: "failed",
+        progress: 0,
+        message: "Không tìm thấy cảnh đang chọn để render.",
+      });
+      return;
+    }
+    const canRender = await runRenderPreflight(scope);
     if (!canRender) {
       const shouldContinue = window.confirm("Chưa đủ tài nguyên, bạn có muốn tiếp tục ?");
       if (!shouldContinue) {
@@ -8508,7 +8577,7 @@ function Home() {
     });
     try {
       const form = new FormData();
-      form.append("project", JSON.stringify(exportPayload));
+      form.append("project", JSON.stringify(renderPayload));
       localRenderFiles.forEach((file) => form.append("media", file, file.name));
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/render`, {
         method: "POST",
@@ -8527,10 +8596,13 @@ function Home() {
           setLocalRenderState({
             status: "completed",
             progress: 100,
-            message: "Render hoàn tất. Video đã sẵn sàng để tải xuống.",
+            message: scope === "scene"
+              ? "Đã render cảnh đang chọn. Video đã được thêm vào thư viện nối nhanh."
+              : "Render hoàn tất. Video đã được thêm vào thư viện nối nhanh.",
             downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
           });
           localRenderJobId.current = "";
+          void refreshRenderedClips();
           return;
         }
         if (status.status === "cancelled") {
@@ -8589,6 +8661,121 @@ function Home() {
         status: "rendering",
         message: error instanceof Error ? error.message : "Không thể dừng render",
       }));
+    }
+  };
+
+  async function refreshRenderedClips() {
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/rendered-clips`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể đọc thư viện video đã render");
+      const clips = Array.isArray(result.clips) ? result.clips as RenderedClip[] : [];
+      setRenderedClips(clips);
+      setSelectedRenderedClipIds((selectedIds) => selectedIds.filter((id) => clips.some((clip) => clip.id === id)));
+    } catch {
+      // Dịch vụ có thể chưa khởi động; trạng thái render phía trên sẽ hướng dẫn người dùng.
+    }
+  }
+
+  const selectedRenderedClips = useMemo(
+    () => selectedRenderedClipIds
+      .map((id) => renderedClips.find((clip) => clip.id === id))
+      .filter((clip): clip is RenderedClip => Boolean(clip)),
+    [renderedClips, selectedRenderedClipIds],
+  );
+  const selectedRenderedClipsCompatible = selectedRenderedClips.length > 1
+    && Boolean(selectedRenderedClips[0]?.compatibilityKey)
+    && selectedRenderedClips.every((clip) => clip.compatibilityKey === selectedRenderedClips[0]?.compatibilityKey)
+    && selectedRenderedClips.every((clip) => clip.scope !== "joined");
+
+  const toggleRenderedClipSelection = (clipId: string) => {
+    setSelectedRenderedClipIds((ids) => ids.includes(clipId)
+      ? ids.filter((id) => id !== clipId)
+      : [...ids, clipId]);
+  };
+
+  const moveSelectedRenderedClip = (clipId: string, direction: -1 | 1) => {
+    setSelectedRenderedClipIds((ids) => {
+      const index = ids.indexOf(clipId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) return ids;
+      const next = [...ids];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+
+  const renderClipProfileLabel = (clip: RenderedClip) => {
+    const video = clip.profile?.video;
+    if (!video?.width || !video.height) return "Chưa đọc được codec; không thể nối nhanh";
+    const fps = video.fps ? ` · ${video.fps} FPS` : "";
+    const audio = clip.profile?.audio?.codec ? ` · ${String(clip.profile.audio.codec).toUpperCase()}` : "";
+    return `${video.width}×${video.height}${fps} · ${String(video.codec || "video").toUpperCase()}${audio}`;
+  };
+
+  const startLocalConcat = async () => {
+    if (selectedRenderedClips.length < 2) {
+      setLocalConcatState({ status: "failed", progress: 0, message: "Hãy chọn ít nhất 2 video để nối.", log: "" });
+      return;
+    }
+    if (!selectedRenderedClipsCompatible) {
+      setLocalConcatState({
+        status: "failed",
+        progress: 0,
+        message: "Các video được chọn khác codec, kích thước, FPS hoặc âm thanh; hãy render cùng một cấu hình trước khi nối nhanh.",
+        log: "",
+      });
+      return;
+    }
+    setLocalConcatState({ status: "joining", progress: 2, message: "Đang gửi danh sách video để nối nhanh…" });
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/concat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clipIds: selectedRenderedClips.map((clip) => clip.id),
+          name: safeTrim(concatVideoName) || "video-noi",
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể bắt đầu nối video");
+      const jobId = String(result.jobId);
+      localConcatJobId.current = jobId;
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+        const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/concat/${jobId}`);
+        const status = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(status.error || "Không đọc được tiến độ nối video");
+        if (status.status === "completed") {
+          localConcatJobId.current = "";
+          setLocalConcatState({
+            status: "completed",
+            progress: 100,
+            message: status.message || "Đã nối video.",
+            downloadUrl: status.downloadUrl ? `${LOCAL_RENDERER_URL}${status.downloadUrl}` : undefined,
+          });
+          setSelectedRenderedClipIds([]);
+          void refreshRenderedClips();
+          return;
+        }
+        if (status.status === "failed") {
+          localConcatJobId.current = "";
+          throw Object.assign(new Error(status.message || "Nối video thất bại"), { log: status.log });
+        }
+        setLocalConcatState({
+          status: "joining",
+          progress: Number(status.progress) || 5,
+          message: status.message || "Đang nối video…",
+        });
+      }
+    } catch (error) {
+      localConcatJobId.current = "";
+      setLocalConcatState({
+        status: "failed",
+        progress: 0,
+        message: error instanceof Error ? error.message : "Không thể nối video",
+        log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
+      });
     }
   };
 
@@ -14062,6 +14249,7 @@ function Home() {
                     setShowLocalRenderer(true);
                     void runRenderPreflight();
                     void refreshLocalResourceCache();
+                    void refreshRenderedClips();
                   }}
                 >
                   ▶ Render video mới
@@ -14526,6 +14714,93 @@ function Home() {
               </section>
               </div>
 
+              <section className={`rendered-clips-card ${localConcatState.status}`} aria-live="polite">
+                <div className="rendered-clips-heading">
+                  <div>
+                    <h3>Video đã render · Nối nhanh</h3>
+                    <p>Render từng cảnh, chọn theo thứ tự mong muốn rồi nối bằng FFmpeg mà không mã hóa lại.</p>
+                  </div>
+                  <button className="button ghost" type="button" onClick={() => void refreshRenderedClips()}>↻ Làm mới</button>
+                </div>
+
+                <div className="rendered-clips-join-bar">
+                  <label>
+                    <span>Tên video sau khi nối</span>
+                    <input
+                      value={concatVideoName}
+                      onChange={(event) => setConcatVideoName(event.target.value)}
+                      placeholder="video-noi"
+                    />
+                  </label>
+                  <div>
+                    <strong>{selectedRenderedClips.length} video đã chọn</strong>
+                    <small>{selectedRenderedClips.some((clip) => clip.scope === "joined")
+                      ? "Video đã nối không dùng để nối nhanh lần nữa; hãy chọn các clip render gốc."
+                      : selectedRenderedClips.length > 1 && !selectedRenderedClipsCompatible
+                      ? "Các video đang khác cấu hình, chưa thể nối nhanh."
+                      : "Thứ tự chọn là thứ tự xuất hiện trong video."}</small>
+                  </div>
+                  <button
+                    className="button primary"
+                    type="button"
+                    disabled={localConcatState.status === "joining" || selectedRenderedClips.length < 2 || !selectedRenderedClipsCompatible}
+                    onClick={() => void startLocalConcat()}
+                  >
+                    {localConcatState.status === "joining"
+                      ? "Đang nối…"
+                      : selectedRenderedClips.length ? `⚡ Nối ${selectedRenderedClips.length} video` : "⚡ Nối video"}
+                  </button>
+                </div>
+
+                {localConcatState.status !== "idle" && (
+                  <div className="rendered-clips-progress">
+                    <div><strong>{localConcatState.message}</strong><span>{Math.round(localConcatState.progress)}%</span></div>
+                    <i style={{ width: `${localConcatState.progress}%` }} />
+                    {localConcatState.downloadUrl && <a href={localConcatState.downloadUrl}>↓ Tải video đã nối</a>}
+                  </div>
+                )}
+
+                {renderedClips.length ? (
+                  <ol className="rendered-clips-list">
+                    {renderedClips.map((clip) => {
+                      const selectionIndex = selectedRenderedClipIds.indexOf(clip.id);
+                      const isSelected = selectionIndex >= 0;
+                      const scopeLabel = clip.scope === "scene"
+                        ? "Cảnh riêng"
+                        : clip.scope === "joined" ? "Video đã nối" : "Toàn clip";
+                      return (
+                        <li key={clip.id} className={isSelected ? "selected" : ""}>
+                          <label className="rendered-clip-select">
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleRenderedClipSelection(clip.id)} />
+                            <span>{isSelected ? selectionIndex + 1 : "·"}</span>
+                          </label>
+                          <div className="rendered-clip-info">
+                            <strong title={clip.name}>{clip.name}</strong>
+                            <small>{scopeLabel}{clip.sceneName ? ` · ${clip.sceneName}` : ""} · {formatTime(clip.duration)}</small>
+                            <em>{renderClipProfileLabel(clip)}</em>
+                          </div>
+                          <div className="rendered-clip-actions">
+                            {isSelected && <>
+                              <button type="button" disabled={selectionIndex === 0} onClick={() => moveSelectedRenderedClip(clip.id, -1)} aria-label="Đưa lên">↑</button>
+                              <button type="button" disabled={selectionIndex === selectedRenderedClipIds.length - 1} onClick={() => moveSelectedRenderedClip(clip.id, 1)} aria-label="Đưa xuống">↓</button>
+                            </>}
+                            <a href={`${LOCAL_RENDERER_URL}${clip.downloadUrl}`} download={clip.name} aria-label={`Tải ${clip.name}`}>⇩</a>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                ) : (
+                  <p className="local-render-note rendered-clips-empty">Chưa có video nào trong thư viện. Hãy render toàn clip hoặc từng cảnh trước.</p>
+                )}
+                {localConcatState.log && (
+                  <details className="local-render-log rendered-clips-log">
+                    <summary>Chi tiết lỗi nối video</summary>
+                    <pre>{localConcatState.log}</pre>
+                  </details>
+                )}
+              </section>
+
               {localRenderState.log && (
                 <details className="local-render-log">
                   <summary>Chi tiết lỗi</summary>
@@ -14547,7 +14822,8 @@ function Home() {
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
                   ↓ Tải video MP4
                 </a>
-              ) : localRenderState.status === "rendering" || localRenderState.status === "cancelling" ? (
+              ) : null}
+              {localRenderState.status === "rendering" || localRenderState.status === "cancelling" ? (
                 <button
                   className="button settings-danger-button"
                   type="button"
@@ -14557,13 +14833,22 @@ function Home() {
                   {localRenderState.status === "cancelling" ? "Đang dừng…" : "Dừng render"}
                 </button>
               ) : (
-                <button
-                  className="button primary"
-                  disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling" || localResourceCache.status === "syncing"}
-                  onClick={() => void startLocalRender()}
-                >
-                  {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Bắt đầu render"}
-                </button>
+                <>
+                  <button
+                    className="button ghost local-render-scene-button"
+                    disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling" || localResourceCache.status === "syncing"}
+                    onClick={() => void startLocalRender("scene")}
+                  >
+                    {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Render cảnh đang chọn"}
+                  </button>
+                  <button
+                    className="button primary"
+                    disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling" || localResourceCache.status === "syncing"}
+                    onClick={() => void startLocalRender("project")}
+                  >
+                    {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Render toàn clip"}
+                  </button>
+                </>
               )}
             </div>
           </div>
