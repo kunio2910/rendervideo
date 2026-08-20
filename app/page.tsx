@@ -216,6 +216,78 @@ type SceneStructureItem = {
   thumbnailIsVideo: boolean;
 };
 
+type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect" | "audio";
+
+type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script";
+
+type SceneStructureTemplate = {
+  kind: SceneStructureTemplateKind;
+  label: string;
+  description: string;
+  icon: string;
+  duration: number;
+};
+
+type SceneStructureTemplatePointerDrag = {
+  kind: SceneStructureTemplateKind;
+  pointerId: number;
+  originX: number;
+  originY: number;
+  active: boolean;
+};
+
+const SCENE_STRUCTURE_TEMPLATES: SceneStructureTemplate[] = [
+  {
+    kind: "image",
+    label: "Hình ảnh",
+    description: "Tạo lớp hình hoặc video mới",
+    icon: "IMG",
+    duration: 5,
+  },
+  {
+    kind: "text",
+    label: "Chữ viết",
+    description: "Tạo một lớp chữ trên bản đồ",
+    icon: "T",
+    duration: 3,
+  },
+  {
+    kind: "popup",
+    label: "Popup",
+    description: "Tạo popup nội dung mới",
+    icon: "P",
+    duration: 3,
+  },
+  {
+    kind: "effect",
+    label: "Hiệu ứng",
+    description: "Tạo hiệu ứng ánh sáng mới",
+    icon: "✦",
+    duration: 3,
+  },
+  {
+    kind: "audio",
+    label: "Âm thanh",
+    description: "Tạo một track âm thanh mới",
+    icon: "AU",
+    duration: 5,
+  },
+];
+
+const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
+  value: SceneStructureViewMode;
+  label: string;
+  icon: string;
+  description: string;
+}> = [
+  { value: "timeline", label: "Timeline", icon: "↔", description: "Sơ đồ thời gian hiện tại" },
+  { value: "list", label: "Danh sách", icon: "☰", description: "Danh sách cảnh gọn" },
+  { value: "storyboard", label: "Storyboard", icon: "▦", description: "Mạch hình ảnh của clip" },
+  { value: "table", label: "Bảng", icon: "▤", description: "So sánh thuộc tính" },
+  { value: "tree", label: "Cây", icon: "⌘", description: "Cấu trúc thành phần" },
+  { value: "script", label: "Kịch bản", icon: "✓", description: "Nội dung và kiểm tra" },
+];
+
 const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
   <span className="field-label-with-hint">
     <span>{children}</span>
@@ -298,6 +370,30 @@ const isAnimatedEffectFile = (file: File | { name: string; type?: string }) => {
     || /\.(gif|apng|webm)$/.test(name);
 };
 
+type SceneAudioTrack = {
+  id: string;
+  name: string;
+  source: string;
+  volume: number;
+  start: number;
+  end: number;
+  visible: boolean;
+};
+
+const defaultSceneAudioTrack = (
+  id: string,
+  overrides: Partial<SceneAudioTrack> = {},
+): SceneAudioTrack => ({
+  id,
+  name: "Thuyết minh",
+  source: "",
+  volume: 95,
+  start: 0,
+  end: 5,
+  visible: true,
+  ...overrides,
+});
+
 type Scene = {
   id: string;
   number: number;
@@ -344,6 +440,7 @@ type Scene = {
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
   popupDuration: number;
+  audioTracks: SceneAudioTrack[];
   voiceFile: string;
   voiceStart: number;
   voiceVolume: number;
@@ -589,6 +686,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   subtitles: [],
   popupDuration: 3,
   popupStart: 0.5,
+  audioTracks: [defaultSceneAudioTrack(`${id}-audio-1`, { end: 5 })],
   voiceFile: "",
   voiceStart: 0,
   voiceVolume: 95,
@@ -704,6 +802,14 @@ const SCENE_STRUCTURE_ZOOM_MIN = 75;
 const SCENE_STRUCTURE_ZOOM_MAX = 200;
 const SCENE_STRUCTURE_ZOOM_STEP = 25;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
+const FFMPEG_SETUP_COMMANDS = [
+  "node --version",
+  "npm --version",
+  "npm install",
+  "npm run render:setup",
+].join("\r\n");
+const FFMPEG_START_COMMAND = "npm run render:local";
+const FFMPEG_HEALTH_COMMAND = `curl ${LOCAL_RENDERER_URL}/api/health`;
 
 const clampReviewZoom = (value: unknown) => {
   const numeric = Number(value);
@@ -904,6 +1010,7 @@ type EditorSectionClipboard =
       voiceFile: string;
       voiceStart: number;
       voiceVolume: number;
+      audioTracks: SceneAudioTrack[];
       backgroundMusic: string;
       backgroundMusicVolume: number;
     }
@@ -1368,6 +1475,47 @@ const clampVolume = (value: unknown, fallback = 100) => {
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
 };
 
+const normalizeSceneAudioTrack = (
+  value: unknown,
+  id: string,
+  sceneDuration: number,
+  fallback: Partial<SceneAudioTrack> = {},
+): SceneAudioTrack => {
+  const raw = isRecord(value) ? value : {};
+  const base = defaultSceneAudioTrack(id, fallback);
+  const safeDuration = Math.max(0.1, Number(sceneDuration) || 0.1);
+  const start = Math.min(
+    Math.max(0, safeDuration - 0.1),
+    Math.max(0, positiveNumber(raw.start, base.start)),
+  );
+  const end = Math.min(
+    safeDuration,
+    Math.max(start + 0.1, positiveNumber(raw.end, base.end, 0.1)),
+  );
+  return {
+    id: String(raw.id ?? id),
+    name: String(raw.name ?? base.name),
+    source: String(raw.source ?? raw.url ?? raw.file ?? base.source),
+    volume: clampVolume(raw.volume, base.volume),
+    start: Number(start.toFixed(2)),
+    end: Number(end.toFixed(2)),
+    visible: raw.visible !== false,
+  };
+};
+
+const sceneAudioTrackKey = (sceneId: string, trackId: string) => `${sceneId}::${trackId}`;
+
+const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Scene => {
+  const primary = audioTracks[0];
+  return {
+    ...scene,
+    audioTracks,
+    voiceFile: primary?.source ?? "",
+    voiceStart: primary?.start ?? 0,
+    voiceVolume: primary?.volume ?? 95,
+  };
+};
+
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
   const legacyDarkEffect = defaultSceneDarkEffect("scene-dark-1", {
@@ -1716,6 +1864,27 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
         { duration: sceneDuration, name: `Hình ảnh ${imageIndex + 1}` },
       ))
       : [];
+    const rawAudioTracks = (item as Scene & { audioTracks?: unknown }).audioTracks;
+    const legacyAudioTrack = defaultSceneAudioTrack(`${id}-audio-1`, {
+      name: "Thuyết minh",
+      source: String(item.voiceFile ?? ""),
+      volume: clampVolume(item.voiceVolume, 95),
+      start: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
+      end: sceneDuration,
+    });
+    const audioTracks = Array.isArray(rawAudioTracks)
+      ? rawAudioTracks.filter(isRecord).map((rawAudio, audioIndex) => normalizeSceneAudioTrack(
+          rawAudio,
+          String((rawAudio as { id?: unknown }).id ?? `${id}-audio-${audioIndex + 1}`),
+          sceneDuration,
+          audioIndex === 0 ? legacyAudioTrack : {
+            name: `Âm thanh ${audioIndex + 1}`,
+            volume: 100,
+            end: sceneDuration,
+          },
+        ))
+      : [normalizeSceneAudioTrack(legacyAudioTrack, legacyAudioTrack.id, sceneDuration, legacyAudioTrack)];
+    const primaryAudioTrack = audioTracks[0];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
     const rawSubtitleStyle = (item as Scene & { subtitleStyle?: unknown }).subtitleStyle;
     const subtitles = Array.isArray(rawSubtitles)
@@ -1763,8 +1932,10 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ),
       subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
-      voiceStart: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
-      voiceVolume: clampVolume(item.voiceVolume, 95),
+      audioTracks,
+      voiceFile: primaryAudioTrack?.source ?? "",
+      voiceStart: primaryAudioTrack?.start ?? 0,
+      voiceVolume: primaryAudioTrack?.volume ?? 95,
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
     };
@@ -2222,6 +2393,114 @@ function SettingsWorkspace({
     || String(selectedClip.previewBackground ?? "").trim()
     || String(selectedClip.background ?? "").trim()
     || String(firstScene?.image ?? "").trim();
+  const selectedSceneImages = selectedScene?.sceneImages ?? [];
+  const selectedSceneTexts = selectedScene?.textOverlays ?? [];
+  const selectedScenePopups = selectedScene ? scenePopupList(selectedScene) : [];
+  const selectedSceneDecorations = selectedScene?.mapDecorations ?? [];
+  const selectedSceneSubtitles = selectedScene?.subtitles ?? [];
+  const selectedSceneAudioTracks = selectedScene?.audioTracks ?? [];
+  const selectedSceneEffectLabels = selectedScene ? [
+    selectedScene.zoomEnabled !== false ? "Zoom camera" : "",
+    ...(selectedScene.effects?.sceneStartDarkEffects ?? [])
+      .filter((effect) => effect.enabled)
+      .map((_, index) => `Tối dần ${index + 1}`),
+    selectedScene.effects?.snowEnabled ? "Tuyết" : "",
+    selectedScene.effects?.lightFlickerEnabled ? "Ánh sáng chớp" : "",
+    selectedScene.effects?.rainEnabled ? "Mưa" : "",
+    selectedScene.effects?.thunderEnabled ? "Sấm chớp" : "",
+    selectedScene.effects?.cloudEnabled ? "Mây" : "",
+  ].filter(Boolean) : [];
+  const selectedSceneMediaSources = selectedScene ? [
+    selectedScene.avatar,
+    selectedScene.image,
+    selectedScene.background,
+    ...selectedSceneAudioTracks.map((item) => item.source),
+    ...selectedSceneImages.map((item) => item.url),
+    ...selectedScenePopups.flatMap((item) => [item.image, item.video]),
+    ...selectedSceneDecorations.map((item) => item.asset),
+  ].map(safeTrim).filter(Boolean) : [];
+  const selectedSceneMediaCount = new Set(selectedSceneMediaSources).size;
+  const selectedSceneVisibleLayerCount = selectedScene
+    ? selectedSceneImages.filter((item) => item.visible !== false).length
+      + selectedSceneTexts.filter((item) => item.visible !== false).length
+      + selectedScenePopups.filter((item) => item.visible !== false).length
+      + selectedSceneDecorations.filter((item) => item.visible !== false).length
+      + (selectedScene.subtitleEnabled !== false && selectedSceneSubtitles.some((item) => item.visible !== false) ? 1 : 0)
+    : 0;
+  const selectedSceneResourceRows = selectedScene ? [
+    {
+      id: `${selectedScene.id}-resource-background`,
+      icon: "BG",
+      kind: "Nền cảnh",
+      name: isVideoMedia(selectedScene.background) ? "Background video" : "Background hình ảnh",
+      source: safeTrim(selectedScene.background) || "Dùng background mặc định của clip",
+      meta: `${selectedScene.backgroundVisible !== false ? "Đang hiển thị" : "Đang ẩn"} · phủ toàn cảnh`,
+      visible: selectedScene.backgroundVisible !== false,
+    },
+    ...selectedSceneAudioTracks.map((item, index) => ({
+      id: item.id,
+      icon: "AU",
+      kind: "Âm thanh",
+      name: safeTrim(item.name) || `Âm thanh ${index + 1}`,
+      source: safeTrim(item.source) || "Chưa chọn file âm thanh",
+      meta: `${formatTime(item.start)}–${formatTime(item.end)} · âm lượng ${item.volume}%`,
+      visible: item.visible !== false,
+    })),
+    ...selectedSceneImages.map((item) => ({
+      id: item.id,
+      icon: item.mediaType === "video" ? "VD" : "IMG",
+      kind: "Hình ảnh / video",
+      name: item.name || "Layer hình ảnh",
+      source: safeTrim(item.url) || "Chưa nhập URL hoặc tên file",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${Math.round(item.width)}% × ${Math.round(item.height)}% · opacity ${Math.round(item.opacity)}%`,
+      visible: item.visible !== false,
+    })),
+    ...selectedScenePopups.map((item, index) => ({
+      id: item.id,
+      icon: "P",
+      kind: "Popup",
+      name: item.title || `Popup ${index + 1}`,
+      source: safeTrim(item.video) || safeTrim(item.image) || safeTrim(item.body) || "Chưa có media hoặc nội dung",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${item.layout || "bố cục mặc định"} · ${item.theme || "chủ đề mặc định"}`,
+      visible: item.visible !== false,
+    })),
+    ...selectedSceneTexts.map((item, index) => ({
+      id: item.id,
+      icon: "T",
+      kind: "Chữ viết",
+      name: item.name || `Chữ ${index + 1}`,
+      source: safeTrim(item.text) || "Chưa có nội dung chữ",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.end)} · ${item.textEffect || "không hiệu ứng"} · cỡ ${item.size}px`,
+      visible: item.visible !== false,
+    })),
+    ...selectedSceneDecorations.map((item, index) => ({
+      id: item.id,
+      icon: item.type === "effect" ? "FX" : "DC",
+      kind: item.type === "effect" ? "Hiệu ứng" : "Trang trí",
+      name: item.name || `Trang trí ${index + 1}`,
+      source: safeTrim(item.asset) || safeTrim(item.text) || item.symbol || "Không có tệp đính kèm",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${item.animation || "không chuyển động"} · opacity ${Math.round(item.opacity)}%`,
+      visible: item.visible !== false,
+    })),
+    ...(selectedSceneSubtitles.length ? [{
+      id: `${selectedScene.id}-resource-subtitles`,
+      icon: "CC",
+      kind: "Phụ đề",
+      name: `${selectedSceneSubtitles.length} dòng phụ đề`,
+      source: selectedSceneSubtitles.map((item) => item.text).filter(Boolean).join(" · ") || "Chưa có nội dung",
+      meta: `${selectedScene.subtitleEnabled !== false ? "Đang bật" : "Đang tắt"} · ${selectedSceneSubtitles.filter((item) => item.visible !== false).length} dòng đang hiển thị · ${selectedScene.subtitleStyle.animation || "không hiệu ứng"}`,
+      visible: selectedScene.subtitleEnabled !== false,
+    }] : []),
+    ...(selectedSceneEffectLabels.length ? [{
+      id: `${selectedScene.id}-resource-effects`,
+      icon: "FX",
+      kind: "Hiệu ứng cảnh",
+      name: `${selectedSceneEffectLabels.length} hiệu ứng đang bật`,
+      source: selectedSceneEffectLabels.join(" · "),
+      meta: "Được đồng bộ với Preview, Timeline và bộ render",
+      visible: true,
+    }] : []),
+  ] : [];
 
   return (
     <>
@@ -2433,7 +2712,7 @@ function SettingsWorkspace({
                           <small>
                             {item.background || "Nền mặc định"}
                             {item.popup ? " · Popup" : ""}
-                            {item.voiceFile ? " · Thuyết minh" : ""}
+                            {(item.audioTracks ?? []).some((track) => track.visible !== false && safeTrim(track.source)) ? ` · ${(item.audioTracks ?? []).filter((track) => track.visible !== false && safeTrim(track.source)).length} âm thanh` : ""}
                           </small>
                         </span>
                         <span className="settings-scene-arrow" aria-hidden="true">›</span>
@@ -2473,15 +2752,49 @@ function SettingsWorkspace({
                           <div><span>Trạng thái</span><b>{selectedScene.status}</b></div>
                         </div>
                       </section>
-                      <section>
-                        <h5>Tài nguyên</h5>
-                        <div className="settings-info-grid">
-                          <div className="wide"><span>Ảnh cảnh</span><b>{selectedScene.image || "Chưa có"}</b></div>
-                          <div className="wide"><span>Background</span><b>{selectedScene.background || "Mặc định"}</b></div>
-                          <div className="wide"><span>Video popup</span><b>{selectedScene.popupVideo || "Chưa có"}</b></div>
-                          <div className="wide"><span>Âm thanh thuyết minh</span><b>{selectedScene.voiceFile || "Chưa có"}</b></div>
-                          <div><span>Âm lượng</span><b>{selectedScene.voiceVolume}%</b></div>
+                      <section className="settings-scene-resources">
+                        <h5>Thông tin tài nguyên cảnh</h5>
+                        <div className="settings-scene-resource-summary">
+                          <div><strong>{selectedSceneMediaCount}</strong><span>Tệp / URL</span></div>
+                          <div><strong>{selectedSceneResourceRows.length}</strong><span>Mục tài nguyên</span></div>
+                          <div><strong>{selectedSceneVisibleLayerCount}</strong><span>Layer đang hiện</span></div>
+                          <div><strong>{selectedScene.layerOrder?.length ?? 0}</strong><span>Thứ tự layer</span></div>
                         </div>
+                        <div className="settings-info-grid settings-resource-facts">
+                          <div className="wide"><span>Ảnh đại diện</span><b>{selectedScene.avatar || "Chưa có"}</b></div>
+                          <div className="wide"><span>Ảnh cảnh / popup cũ</span><b>{selectedScene.image || "Chưa có"}</b></div>
+                          <div className="wide"><span>Background</span><b>{selectedScene.background || "Mặc định của clip"}</b></div>
+                          <div className="wide"><span>Video popup cũ</span><b>{selectedScene.popupVideo || "Chưa có"}</b></div>
+                          <div className="wide"><span>Âm thanh trong cảnh</span><b>{selectedSceneAudioTracks.length} track</b></div>
+                          <div><span>Đang phát</span><b>{selectedSceneAudioTracks.filter((track) => track.visible !== false && safeTrim(track.source)).length}</b></div>
+                          <div><span>Audio chính</span><b>{selectedSceneAudioTracks[0]?.name || "Chưa có"}</b></div>
+                          <div><span>Hình / video trên bản đồ</span><b>{selectedSceneImages.length}</b></div>
+                          <div><span>Popup</span><b>{selectedScenePopups.length}</b></div>
+                          <div><span>Chữ viết</span><b>{selectedSceneTexts.length}</b></div>
+                          <div><span>Trang trí / hiệu ứng</span><b>{selectedSceneDecorations.length}</b></div>
+                          <div><span>Phụ đề</span><b>{selectedSceneSubtitles.length} dòng</b></div>
+                          <div><span>Hiệu ứng cảnh đang bật</span><b>{selectedSceneEffectLabels.length}</b></div>
+                        </div>
+                        <details className="settings-resource-breakdown" open>
+                          <summary>
+                            <span>Chi tiết layer và thời gian</span>
+                            <b>{selectedSceneResourceRows.length} mục</b>
+                          </summary>
+                          <div className="settings-resource-row-list">
+                            {selectedSceneResourceRows.map((resource) => (
+                              <article key={resource.id} className={resource.visible ? "is-visible" : "is-hidden"}>
+                                <span className="settings-resource-row-icon" aria-hidden="true">{resource.icon}</span>
+                                <div>
+                                  <span>{resource.kind}</span>
+                                  <strong>{resource.name}</strong>
+                                  <code title={resource.source}>{resource.source}</code>
+                                  <small>{resource.meta}</small>
+                                </div>
+                                <em>{resource.visible ? "Hiện" : "Ẩn"}</em>
+                              </article>
+                            ))}
+                          </div>
+                        </details>
                       </section>
                       <section>
                         <h5>Popup</h5>
@@ -2598,6 +2911,8 @@ function Home() {
   const [renamingDecorationName, setRenamingDecorationName] = useState("");
   const [renamingSceneImageId, setRenamingSceneImageId] = useState("");
   const [renamingSceneImageName, setRenamingSceneImageName] = useState("");
+  const [renamingAudioTrackId, setRenamingAudioTrackId] = useState("");
+  const [renamingAudioTrackName, setRenamingAudioTrackName] = useState("");
   const [selectedSceneIds, setSelectedSceneIds] = useState<string[]>([
     initialScenes[0].id,
   ]);
@@ -2734,11 +3049,16 @@ function Home() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
   const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
+  const [sceneStructureViewMode, setSceneStructureViewMode] = useState<SceneStructureViewMode>("timeline");
   const [sceneStructureZoom, setSceneStructureZoom] = useState(100);
   const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
+  const [sceneStructureSceneDragId, setSceneStructureSceneDragId] = useState("");
+  const [sceneStructureSceneDragOverId, setSceneStructureSceneDragOverId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
+  const [sceneStructureDraggedTemplate, setSceneStructureDraggedTemplate] = useState<SceneStructureTemplateKind | "">("");
+  const [sceneStructureDropTime, setSceneStructureDropTime] = useState<number | null>(null);
   const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
@@ -2759,6 +3079,7 @@ function Home() {
   const animationFrame = useRef<number | null>(null);
   const subtitleFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const sceneAudioPlayers = useRef<Array<{ audio: HTMLAudioElement; startTimer?: number; stopTimer?: number }>>([]);
   const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -2774,6 +3095,10 @@ function Home() {
   const reviewZoomRef = useRef(readReviewZoomPreference());
   const rulerToggleRef = useRef<HTMLButtonElement | null>(null);
   const rulerPopoverRef = useRef<HTMLDivElement | null>(null);
+  const sceneStructureTemplateDidDrag = useRef(false);
+  const sceneStructureTemplatePointerDrag = useRef<SceneStructureTemplatePointerDrag | null>(null);
+  const sceneStructureTemplateMouseCleanup = useRef<(() => void) | null>(null);
+  const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
 
@@ -2985,11 +3310,14 @@ function Home() {
   const sceneAvatarPreviewSource = assetPreviewSource(scene.avatar ?? "");
   const backgroundIsVideo = isVideoMedia(backgroundValue);
   const backgroundVideoPreviewSource = backgroundIsVideo ? backgroundPreviewSource : "";
-  const narrationPreviewSource =
-    audioPreview[scene.id] || assetPreviewSource(scene.voiceFile);
+  const sceneDuration = Math.max(0.1, scene.end - scene.start);
+  const sceneAudioTracks = Array.isArray(scene.audioTracks) ? scene.audioTracks : [];
+  const audioTrackPreviewSource = (track: SceneAudioTrack, index: number) =>
+    audioPreview[sceneAudioTrackKey(scene.id, track.id)]
+      || (index === 0 ? audioPreview[scene.id] : "")
+      || assetPreviewSource(track.source);
   const musicPreviewSource =
     backgroundMusicPreview || assetPreviewSource(backgroundMusic);
-  const sceneDuration = Math.max(0.1, scene.end - scene.start);
   const sceneLocalTime = Math.min(
     sceneDuration,
     Math.max(0, playTime - scene.start),
@@ -3060,11 +3388,6 @@ function Home() {
     }
     return { transition, progress };
   };
-  const sceneVoiceStart = Math.min(
-    sceneDuration,
-    Math.max(0, Number(scene.voiceStart ?? 0) || 0),
-  );
-  const sceneVoiceReady = sceneLocalTime >= sceneVoiceStart;
   useEffect(() => {
     const video = backgroundVideoRef.current;
     if (playing || !video || !backgroundVideoPreviewSource) return;
@@ -3321,6 +3644,7 @@ function Home() {
   const sceneStructureImages = sceneStructureScene.sceneImages ?? [];
   const sceneStructureTexts = sceneStructureScene.textOverlays ?? [];
   const sceneStructureDecorations = sceneStructureScene.mapDecorations ?? [];
+  const sceneStructureAudioTracks = sceneStructureScene.audioTracks ?? [];
   const sceneStructureEffects = normalizeSceneEffects(sceneStructureScene.effects);
   const sceneStructureBackgroundValue = safeTrim(sceneStructureScene.background) || legacyBackgroundPreview;
   const sceneStructureBackgroundSource = assetPreviewSource(sceneStructureBackgroundValue);
@@ -3437,7 +3761,7 @@ function Home() {
       });
     });
   sceneStructureImages
-    .filter((image) => image.visible !== false && safeTrim(image.url))
+    .filter((image) => image.visible !== false)
     .forEach((image, index) => {
       const timing = clampSceneStructureTiming(image.start, image.start + image.duration);
       const transitionLabel = sceneImageTransitionOptions.find((option) => option.value === image.transition)?.label;
@@ -3447,7 +3771,9 @@ function Home() {
         kind: "image",
         id: image.id,
         label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
-        detail: transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh"),
+        detail: safeTrim(image.url)
+          ? transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh")
+          : "Chưa nhập URL hình ảnh hoặc video",
         icon: "IMG",
         ...timing,
         timingMode: "both",
@@ -3525,21 +3851,25 @@ function Home() {
       thumbnailIsVideo: false,
     });
   }
-  if (narrationEnabled && (safeTrim(sceneStructureScene.voiceFile) || safeTrim(sceneStructureScene.narration) || safeTrim(sceneStructureScene.voice))) {
-    addSceneStructureItem({
-      token: "audio:voice",
-      kind: "audio",
-      id: "voice",
-      label: "Thuyết minh",
-      detail: fileNameOnly(sceneStructureScene.voiceFile) || "Giọng đọc của cảnh",
-      icon: "≋",
-      start: Number(sceneStructureScene.voiceStart ?? 0),
-      end: sceneStructureDuration,
-      timingMode: "start",
-      canHide: false,
-      thumbnail: "",
-      thumbnailIsVideo: false,
-    });
+  if (narrationEnabled) {
+    sceneStructureAudioTracks
+      .filter((track) => track.visible !== false)
+      .forEach((track, index) => {
+        addSceneStructureItem({
+          token: `audio:${track.id}`,
+          kind: "audio",
+          id: track.id,
+          label: safeTrim(track.name) || `Âm thanh ${index + 1}`,
+          detail: fileNameOnly(track.source) || "Chưa chọn file âm thanh",
+          icon: "≋",
+          start: track.start,
+          end: track.end,
+          timingMode: "both",
+          canHide: true,
+          thumbnail: "",
+          thumbnailIsVideo: false,
+        });
+      });
   }
 
   const sceneStructureFirstToken = sceneStructureItems[0]?.token ?? "";
@@ -4204,42 +4534,84 @@ function Home() {
   }, [playing, playbackRestartToken, sceneStructureOpen, sceneStructureScene.end, sceneTimelineDuration, scenes, visibleScenes]);
 
   useEffect(() => {
-    narrationAudio.current?.pause();
-    narrationAudio.current = null;
-    if (!playing || !narrationEnabled || previewAudioMuted || !sceneIsVisibleInPlayback || !sceneVoiceReady) return;
-    const source = narrationPreviewSource;
-    if (!source) return;
-    const audio = new Audio(source);
-    narrationAudio.current = audio;
-    audio.preload = "auto";
-    audio.volume = clampVolume(scene.voiceVolume, 95) / 100;
-    const sceneDuration = Math.max(0.1, scene.end - scene.start);
-    let cancelled = false;
-    let started = false;
-    const startAudio = () => {
-      if (cancelled || started || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
-      const elapsed = Math.max(0, playTimeRef.current - scene.start - sceneVoiceStart);
-      if (elapsed >= Math.max(0, sceneDuration - sceneVoiceStart)) return;
-      audio.currentTime = Math.min(elapsed, Math.max(0, audio.duration - 0.01));
-      started = true;
-      void audio.play().catch(() => {
-        // A local path that has not been uploaded is previewed silently.
-      });
-    };
-    audio.addEventListener("loadedmetadata", startAudio);
-    audio.addEventListener("canplay", startAudio);
-    audio.load();
-    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startAudio();
-    return () => {
-      cancelled = true;
-      audio.removeEventListener("loadedmetadata", startAudio);
-      audio.removeEventListener("canplay", startAudio);
+    sceneAudioPlayers.current.forEach(({ audio, startTimer, stopTimer }) => {
+      if (startTimer) window.clearTimeout(startTimer);
+      if (stopTimer) window.clearTimeout(stopTimer);
       audio.pause();
       audio.removeAttribute("src");
       audio.load();
-      if (narrationAudio.current === audio) narrationAudio.current = null;
+    });
+    sceneAudioPlayers.current = [];
+    narrationAudio.current = null;
+    if (!playing || !narrationEnabled || previewAudioMuted || !sceneIsVisibleInPlayback) return;
+
+    const tracks = sceneAudioTracks.length
+      ? sceneAudioTracks
+      : [defaultSceneAudioTrack(`${scene.id}-audio-legacy`, {
+          source: scene.voiceFile,
+          volume: scene.voiceVolume,
+          start: scene.voiceStart,
+          end: sceneDuration,
+        })];
+    let cancelled = false;
+    const players = tracks.flatMap((track, index) => {
+      if (track.visible === false || !safeTrim(track.source) || track.end <= track.start) return [];
+      const previewKey = sceneAudioTrackKey(scene.id, track.id);
+      const source = audioPreview[previewKey]
+        || (index === 0 ? audioPreview[scene.id] : "")
+        || (isRemoteUrl(track.source)
+          ? track.source
+          : assetPreviewUrls[fileNameOnly(track.source)] ?? "");
+      if (!source) return [];
+      const audio = new Audio(source);
+      const player: { audio: HTMLAudioElement; startTimer?: number; stopTimer?: number } = { audio };
+      audio.preload = "auto";
+      audio.volume = clampVolume(track.volume, 100) / 100;
+
+      const launch = () => {
+        if (cancelled) return;
+        let started = false;
+        const startAudio = () => {
+          if (cancelled || started || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+          const localNow = Math.max(0, playTimeRef.current - scene.start);
+          if (localNow >= track.end) return;
+          const elapsed = Math.max(0, localNow - track.start);
+          audio.currentTime = Math.min(elapsed, Math.max(0, audio.duration - 0.01));
+          started = true;
+          void audio.play().catch(() => {
+            // A local path that has not been uploaded is previewed silently.
+          });
+          player.stopTimer = window.setTimeout(() => audio.pause(), Math.max(0, track.end - localNow) * 1000);
+        };
+        audio.addEventListener("loadedmetadata", startAudio, { once: true });
+        audio.addEventListener("canplay", startAudio, { once: true });
+        audio.load();
+        if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startAudio();
+      };
+
+      const localNow = Math.max(0, playTimeRef.current - scene.start);
+      if (localNow < track.start) {
+        player.startTimer = window.setTimeout(launch, Math.max(0, track.start - localNow) * 1000);
+      } else if (localNow < track.end) {
+        launch();
+      }
+      return [player];
+    });
+    sceneAudioPlayers.current = players;
+    narrationAudio.current = players[0]?.audio ?? null;
+    return () => {
+      cancelled = true;
+      players.forEach(({ audio, startTimer, stopTimer }) => {
+        if (startTimer) window.clearTimeout(startTimer);
+        if (stopTimer) window.clearTimeout(stopTimer);
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      });
+      if (sceneAudioPlayers.current === players) sceneAudioPlayers.current = [];
+      narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, previewAudioMuted, narrationPreviewSource, scene.start, scene.end, scene.voiceStart, scene.voiceVolume, sceneIsVisibleInPlayback, sceneVoiceReady, sceneVoiceStart]);
+  }, [playing, selectedId, narrationEnabled, previewAudioMuted, scene.id, scene.start, scene.end, scene.voiceFile, scene.voiceStart, scene.voiceVolume, sceneAudioTracks, sceneDuration, sceneIsVisibleInPlayback, audioPreview, assetPreviewUrls, playbackRestartToken]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
@@ -4800,6 +5172,32 @@ function Home() {
     setPlayTime((current) => Math.min(current, Number(nextTotal.toFixed(2))));
   };
 
+  const updateReviewAudioTrackValue = <K extends keyof SceneAudioTrack>(
+    sceneId: string,
+    trackId: string,
+    key: K,
+    value: SceneAudioTrack[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const duration = Math.max(0.1, item.end - item.start);
+      const nextTracks = (item.audioTracks ?? []).map((track) => {
+        if (track.id !== trackId) return track;
+        if (key === "start") {
+          const start = Math.min(Math.max(0, duration - 0.1), Math.max(0, Number(value) || 0));
+          return { ...track, start, end: Math.max(start + 0.1, track.end) };
+        }
+        if (key === "end") {
+          return { ...track, end: Math.min(duration, Math.max(track.start + 0.1, Number(value) || track.start + 0.1)) };
+        }
+        if (key === "volume") return { ...track, volume: clampVolume(value, track.volume) };
+        return { ...track, [key]: value };
+      });
+      return syncLegacyVoiceFields(item, nextTracks);
+    }));
+  };
+
   const updateReviewSceneImageValue = <K extends keyof SceneImage>(
     sceneId: string,
     imageId: string,
@@ -4980,6 +5378,7 @@ function Home() {
               voiceFile: scene.voiceFile ?? "",
               voiceStart: Math.max(0, Number(scene.voiceStart ?? 0) || 0),
               voiceVolume: clampVolume(scene.voiceVolume, 95),
+              audioTracks: (scene.audioTracks ?? []).map((track) => ({ ...track })),
               backgroundMusic,
               backgroundMusicVolume,
             }
@@ -5050,6 +5449,7 @@ function Home() {
             voiceFile: data.voiceFile,
             voiceStart: data.voiceStart,
             voiceVolume: data.voiceVolume,
+            audioTracks: data.audioTracks.map((track) => ({ ...track })),
           };
         case "effects":
           return {
@@ -5530,6 +5930,10 @@ function Home() {
           ...image,
           id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-image-${imageIndex + 1}`,
         })),
+        audioTracks: (item.audioTracks ?? []).map((track, audioIndex) => ({
+          ...track,
+          id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-audio-${audioIndex + 1}`,
+        })),
       })),
     };
     setProjects((items) => [
@@ -5590,8 +5994,9 @@ function Home() {
   const addScene = () => {
     const last = scenes.at(-1) ?? createEmptyScene();
     const number = scenes.length + 1;
+    const nextId = `scene-${Date.now().toString(36)}-${number}`;
     const next: Scene = {
-      id: `scene-${Date.now().toString(36)}-${number}`,
+      id: nextId,
       number,
       sceneName: `Cảnh ${number}`,
       title: "",
@@ -5633,6 +6038,7 @@ function Home() {
       subtitles: [],
       popupDuration: 2,
       popupStart: 0.5,
+      audioTracks: [defaultSceneAudioTrack(`${nextId}-audio-1`, { end: 3 })],
       voiceFile: "",
       voiceStart: 0,
       voiceVolume: 95,
@@ -5683,6 +6089,10 @@ function Home() {
         ...subtitle,
         id: `${copiedId}-subtitle-${index + 1}`,
       })),
+      audioTracks: (source.audioTracks ?? []).map((track, index) => ({
+        ...track,
+        id: `${copiedId}-audio-${index + 1}`,
+      })),
     };
     const nextScenes = [...scenes];
     nextScenes.splice(insertIndex, 0, copied);
@@ -5696,6 +6106,104 @@ function Home() {
     setPlayTime(copied.start);
     setToast("Đã nhân bản cảnh");
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const addSceneAudioTrack = (startValue = 0, endValue = sceneDuration) => {
+    if (!scene) return "";
+    const currentTracks = scene.audioTracks ?? [];
+    const start = Math.min(
+      Math.max(0, sceneDuration - 0.1),
+      Math.max(0, Number(startValue) || 0),
+    );
+    const end = Math.min(
+      sceneDuration,
+      Math.max(start + 0.1, Number(endValue) || sceneDuration),
+    );
+    const id = `${scene.id}-audio-${currentTracks.length + 1}-${Date.now().toString(36)}`;
+    const nextTrack = defaultSceneAudioTrack(id, {
+      name: currentTracks.length === 0 ? "Thuyết minh" : `Âm thanh ${currentTracks.length + 1}`,
+      volume: currentTracks.length === 0 ? 95 : 100,
+      start: Number(start.toFixed(2)),
+      end: Number(end.toFixed(2)),
+    });
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? syncLegacyVoiceFields(item, [...(item.audioTracks ?? []), nextTrack])
+      : item));
+    setRenamingAudioTrackId(nextTrack.id);
+    setRenamingAudioTrackName(nextTrack.name);
+    setToast("Đã thêm track âm thanh mới");
+    window.setTimeout(() => setToast(""), 2000);
+    return nextTrack.id;
+  };
+
+  const updateSceneAudioTrack = <K extends keyof SceneAudioTrack>(
+    trackId: string,
+    key: K,
+    value: SceneAudioTrack[K],
+  ) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const duration = Math.max(0.1, item.end - item.start);
+      const nextTracks = (item.audioTracks ?? []).map((track) => {
+        if (track.id !== trackId) return track;
+        if (key === "start") {
+          const start = Math.min(
+            Math.max(0, duration - 0.1),
+            Math.max(0, Number(value) || 0),
+          );
+          return { ...track, start: Number(start.toFixed(2)), end: Math.max(start + 0.1, track.end) };
+        }
+        if (key === "end") {
+          const end = Math.min(duration, Math.max(track.start + 0.1, Number(value) || track.start + 0.1));
+          return { ...track, end: Number(end.toFixed(2)) };
+        }
+        if (key === "volume") return { ...track, volume: clampVolume(value, track.volume) };
+        return { ...track, [key]: value };
+      });
+      return syncLegacyVoiceFields(item, nextTracks);
+    }));
+  };
+
+  const startSceneAudioTrackRename = (track: SceneAudioTrack, index: number) => {
+    setRenamingAudioTrackId(track.id);
+    setRenamingAudioTrackName(safeTrim(track.name) || `Âm thanh ${index + 1}`);
+  };
+
+  const finishSceneAudioTrackRename = () => {
+    if (!renamingAudioTrackId) return;
+    const trackIndex = sceneAudioTracks.findIndex((track) => track.id === renamingAudioTrackId);
+    const nextName = safeTrim(renamingAudioTrackName) || `Âm thanh ${Math.max(1, trackIndex + 1)}`;
+    updateSceneAudioTrack(renamingAudioTrackId, "name", nextName);
+    setRenamingAudioTrackId("");
+    setRenamingAudioTrackName("");
+  };
+
+  const cancelSceneAudioTrackRename = () => {
+    setRenamingAudioTrackId("");
+    setRenamingAudioTrackName("");
+  };
+
+  const deleteSceneAudioTrack = (trackId: string) => {
+    if (!scene) return;
+    const key = sceneAudioTrackKey(scene.id, trackId);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? syncLegacyVoiceFields(item, (item.audioTracks ?? []).filter((track) => track.id !== trackId))
+      : item));
+    setAudioFiles((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+    setAudioPreview((items) => {
+      const next = { ...items };
+      if (next[key]) URL.revokeObjectURL(next[key]);
+      delete next[key];
+      return next;
+    });
+    if (renamingAudioTrackId === trackId) cancelSceneAudioTrackRename();
+    setToast("Đã xóa âm thanh · Ctrl+Z để hoàn tác");
+    window.setTimeout(() => setToast(""), 2400);
   };
 
   const addPopup = () => {
@@ -5847,14 +6355,19 @@ function Home() {
   const generateSubtitlesFromNarration = async () => {
     if (!scene) return;
     const narration = String(scene.narration || "").trim();
-    const selectedAudio = audioFiles[scene.id]
-      ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(scene.voiceFile));
+    const primaryAudioTrack = (scene.audioTracks ?? [])[0];
+    const primaryAudioSource = primaryAudioTrack?.source ?? scene.voiceFile;
+    const selectedAudio = (primaryAudioTrack
+      ? audioFiles[sceneAudioTrackKey(scene.id, primaryAudioTrack.id)]
+      : undefined)
+      ?? audioFiles[scene.id]
+      ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(primaryAudioSource));
     if (!narration) {
       setToast("Hãy nhập Lời thuyết minh trước khi tạo phụ đề");
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
-    if (!selectedAudio && !isRemoteUrl(scene.voiceFile)) {
+    if (!selectedAudio && !isRemoteUrl(primaryAudioSource)) {
       setToast("Hãy chọn file audio cho cảnh trước khi tạo phụ đề");
       window.setTimeout(() => setToast(""), 2600);
       return;
@@ -5871,7 +6384,7 @@ function Home() {
       form.append("text", narration);
       form.append("duration", String(targetDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
-      else form.append("audioUrl", safeTrim(scene.voiceFile));
+      else form.append("audioUrl", safeTrim(primaryAudioSource));
       setSubtitleAlignState((current) => current.sceneId === targetSceneId
         ? { ...current, progress: 12 }
         : current);
@@ -7404,7 +7917,21 @@ function Home() {
           const firstPopup = popups[0] ?? popupConfigFromScene(item, `${item.id}-popup-1`);
           const image = imageEnabled ? assetReference(firstPopup.image) : "";
           const sceneBackground = assetReference(item.background ?? "");
-          const voiceFile = narrationEnabled ? assetReference(item.voiceFile) : "";
+          const audioTrackPayloads = narrationEnabled
+            ? (item.audioTracks ?? []).map((track) => ({
+                id: track.id,
+                name: track.name,
+                source: assetReference(track.source),
+                volume: Math.round(clampVolume(track.volume, 100)),
+                start: Math.max(0, Number(track.start) || 0),
+                end: Math.min(Math.max(0.1, item.end - item.start), Math.max(Number(track.start) + 0.1, Number(track.end) || 0.1)),
+                visible: track.visible !== false,
+              }))
+            : [];
+          const primaryAudioTrack = audioTrackPayloads[0];
+          const voiceFile = narrationEnabled
+            ? assetReference(primaryAudioTrack?.source || item.voiceFile)
+            : "";
           const popupPayloads = popups.map((popup) => ({
             id: popup.id,
             title: popup.title,
@@ -7491,8 +8018,10 @@ function Home() {
             backgroundVisible: item.backgroundVisible !== false,
             ...(image ? { image } : {}),
             narration: narrationEnabled ? item.narration : "",
+            audioTracks: audioTrackPayloads,
             ...(voiceFile ? { voiceFile } : {}),
-            voiceVolume: Math.round(clampVolume(item.voiceVolume, 95)),
+            voiceStart: primaryAudioTrack?.start ?? Math.max(0, Number(item.voiceStart) || 0),
+            voiceVolume: primaryAudioTrack?.volume ?? Math.round(clampVolume(item.voiceVolume, 95)),
             popupIn: firstPopup.in,
             popupOut: firstPopup.out,
             popupWidth: firstPopup.width,
@@ -7560,6 +8089,7 @@ function Home() {
         item.image ?? "",
         item.popupVideo ?? "",
         item.voiceFile ?? "",
+        ...(item.audioTracks ?? []).filter((track) => track.visible !== false).map((track) => track.source ?? ""),
         ...(item.mapDecorations ?? []).map((decoration) => decoration.asset ?? ""),
         ...(item.sceneImages ?? []).map((image) => image.url ?? ""),
         ...(item.popups ?? []).flatMap((popup) => [popup.image, popup.video]),
@@ -7766,7 +8296,24 @@ function Home() {
         false,
       );
       addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
-      addSourceCheck(`scene-${item.id}-audio`, `Âm thanh cảnh ${item.number}`, narrationEnabled ? item.voiceFile : "", narrationEnabled);
+      const visibleAudioTracks = narrationEnabled
+        ? (item.audioTracks ?? []).filter((track) => track.visible !== false)
+        : [];
+      if (narrationEnabled && visibleAudioTracks.length) {
+        visibleAudioTracks.forEach((track, trackIndex) => addSourceCheck(
+          `scene-${item.id}-audio-${track.id}`,
+          `${safeTrim(track.name) || `Âm thanh ${trackIndex + 1}`} · cảnh ${item.number}`,
+          track.source,
+          true,
+        ));
+      } else if (narrationEnabled) {
+        checks.push({
+          id: `scene-${item.id}-audio`,
+          label: `Âm thanh cảnh ${item.number}`,
+          status: "warning",
+          detail: "Cảnh không có track âm thanh đang hiển thị.",
+        });
+      }
       (item.mapDecorations ?? []).forEach((decoration, decorationIndex) => {
         if (decoration.visible === false || !safeTrim(decoration.asset)) return;
         addSourceCheck(
@@ -7973,6 +8520,12 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const copyFfmpegCommands = async (commands: string, label: string) => {
+    await navigator.clipboard.writeText(commands);
+    setToast(`Đã sao chép ${label}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const focusJsonPreview = () => {
     setJsonPreviewCleared(false);
     document.getElementById("export-json-preview")?.focus();
@@ -8173,9 +8726,100 @@ function Home() {
     return entries;
   });
 
+  const sceneStructureSceneStats = (item: Scene) => ({
+    images: (item.sceneImages ?? []).length,
+    popups: scenePopupList(item).filter(popupHasContent).length,
+    texts: (item.textOverlays ?? []).filter((overlay) => safeTrim(overlay.text)).length,
+    audio: (item.audioTracks ?? []).filter((track) => track.visible !== false && safeTrim(track.source)).length,
+    subtitles: (item.subtitles ?? []).filter((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text)).length,
+    effects: [
+      item.zoomEnabled !== false,
+      normalizeSceneEffects(item.effects).sceneStartDarkEffects.some((effect) => effect.enabled),
+      normalizeSceneEffects(item.effects).snowEnabled,
+      normalizeSceneEffects(item.effects).rainEnabled,
+      normalizeSceneEffects(item.effects).cloudEnabled,
+      normalizeSceneEffects(item.effects).lightFlickerEnabled,
+      normalizeSceneEffects(item.effects).thunderEnabled,
+    ].filter(Boolean).length,
+  });
+
+  const sceneStructureSceneIssues = (item: Scene) => {
+    const issues: string[] = [];
+    const duration = Math.max(0.1, item.end - item.start);
+    const hasVisual = safeTrim(item.background)
+      || safeTrim(item.avatar)
+      || (item.sceneImages ?? []).some((image) => image.visible !== false && safeTrim(image.url));
+    const visibleAudio = (item.audioTracks ?? []).filter((track) => track.visible !== false);
+    if (!hasVisual) issues.push("Chưa có hình đại diện hoặc hình ảnh");
+    if (!visibleAudio.some((track) => safeTrim(track.source))) issues.push("Chưa có âm thanh đang hiện");
+    if (item.subtitleEnabled !== false && !(item.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) {
+      issues.push("Chưa có phụ đề");
+    }
+    if (visibleAudio.some((track) => track.start < 0 || track.end > duration || track.end <= track.start)) {
+      issues.push("Mốc âm thanh chưa hợp lệ");
+    }
+    return issues;
+  };
+
+  const selectSceneStructureScene = (item: Scene) => {
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
+    setSceneStructureSceneId(item.id);
+    setSelectedSceneStructureToken("");
+    setSelectedId(item.id);
+    setSelectedSceneIds([item.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
+    setSelectedDecorationId("");
+    setPlayTime(item.start);
+  };
+
+  const finishSceneStructureSceneDrop = (targetId: string) => {
+    if (!sceneStructureSceneDragId || sceneStructureSceneDragId === targetId) {
+      setSceneStructureSceneDragId("");
+      setSceneStructureSceneDragOverId("");
+      return;
+    }
+    setScenes((items) => reflowSceneTimeline(reorderById(items, sceneStructureSceneDragId, targetId)));
+    setSceneStructureSceneDragId("");
+    setSceneStructureSceneDragOverId("");
+    setToast("Đã cập nhật thứ tự cảnh");
+    window.setTimeout(() => setToast(""), 1800);
+  };
+
+  const sceneStructureSceneDragProps = (item: Scene) => ({
+    draggable: true,
+    onDragStart: (event: React.DragEvent<HTMLElement>) => {
+      setSceneStructureSceneDragId(item.id);
+      setSceneStructureSceneDragOverId("");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", item.id);
+    },
+    onDragOver: (event: React.DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setSceneStructureSceneDragOverId(item.id);
+    },
+    onDrop: (event: React.DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      finishSceneStructureSceneDrop(item.id);
+    },
+    onDragEnd: () => {
+      setSceneStructureSceneDragId("");
+      setSceneStructureSceneDragOverId("");
+    },
+  });
+
   const openSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateMouseCleanup.current = null;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
     setPreviewFullscreen(false);
     setReviewOpen(false);
     setSceneStructureSceneId(scene.id);
@@ -8187,7 +8831,299 @@ function Home() {
   const closeSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateMouseCleanup.current = null;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+    setSceneStructureSceneDragId("");
+    setSceneStructureSceneDragOverId("");
     setSceneStructureOpen(false);
+  };
+
+  const sceneStructureDropTimeFromClientX = (clientX: number, target: HTMLElement) => {
+    const bounds = target.getBoundingClientRect();
+    const horizontalPadding = 24;
+    const timelineLeft = bounds.left + horizontalPadding;
+    const timelineWidth = Math.max(1, bounds.width - horizontalPadding * 2);
+    const ratio = Math.min(1, Math.max(0, (clientX - timelineLeft) / timelineWidth));
+    const snapped = Math.round(ratio * sceneStructureDuration * 10) / 10;
+    return Number(Math.min(
+      Math.max(0, sceneStructureDuration - 0.1),
+      Math.max(0, snapped),
+    ).toFixed(2));
+  };
+
+  const sceneStructurePlayheadTime = () => Math.min(
+    Math.max(0, sceneStructureDuration - 0.1),
+    Math.max(0, playTime - sceneStructureScene.start),
+  );
+
+  const insertSceneStructureTemplate = (
+    kind: SceneStructureTemplateKind,
+    startValue: number,
+  ) => {
+    const template = SCENE_STRUCTURE_TEMPLATES.find((item) => item.kind === kind);
+    if (!template) return;
+    const start = Number(Math.min(
+      Math.max(0, sceneStructureDuration - 0.1),
+      Math.max(0, Number(startValue) || 0),
+    ).toFixed(2));
+    const duration = Number(Math.max(
+      0.1,
+      Math.min(template.duration, sceneStructureDuration - start),
+    ).toFixed(2));
+    const end = Number(Math.min(sceneStructureDuration, start + duration).toFixed(2));
+    const timestamp = Date.now().toString(36);
+    const imageIndex = sceneStructureImages.length + 1;
+    const textIndex = sceneStructureTexts.length + 1;
+    const popupIndex = sceneStructurePopups.length + 1;
+    const decorationIndex = sceneStructureDecorations.length + 1;
+    const audioIndex = sceneStructureAudioTracks.length + 1;
+    const createdId = kind === "image"
+      ? `${sceneStructureScene.id}-image-${imageIndex}-${timestamp}`
+      : kind === "text"
+        ? `${sceneStructureScene.id}-text-${textIndex}-${timestamp}`
+        : kind === "popup"
+          ? `${sceneStructureScene.id}-popup-${popupIndex}-${timestamp}`
+          : kind === "audio"
+            ? `${sceneStructureScene.id}-audio-${audioIndex}-${timestamp}`
+            : `${sceneStructureScene.id}-decoration-${decorationIndex}-${timestamp}`;
+    const layerKind = kind === "effect" ? "decoration" : kind;
+    const createdToken = `${layerKind}:${createdId}`;
+
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const currentLayerOrder = Array.isArray(currentScene.layerOrder) ? currentScene.layerOrder : [];
+      const nextLayerOrder = [
+        ...currentLayerOrder.filter((token) => token !== createdToken),
+        createdToken,
+      ];
+      if (kind === "image") {
+        const nextImage = defaultSceneImage(createdId, {
+          name: `Hình ảnh ${imageIndex}`,
+          start,
+          duration,
+          transitionEnd: Number(Math.min(end, start + 0.5).toFixed(2)),
+          y: 50 + Math.min(18, (imageIndex - 1) * 5),
+        });
+        return {
+          ...currentScene,
+          sceneImages: [...(currentScene.sceneImages ?? []), nextImage],
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (kind === "text") {
+        const nextOverlay = defaultTextOverlay(createdId, {
+          name: `Chữ ${textIndex}`,
+          text: "Nhập chữ",
+          start,
+          end,
+          y: Math.min(82, 18 + (textIndex - 1) * 8),
+        });
+        const nextOverlays = [...(currentScene.textOverlays ?? []), nextOverlay];
+        return {
+          ...currentScene,
+          textOverlays: nextOverlays,
+          ...(nextOverlays.length === 1 ? textOverlaySceneFields(nextOverlay) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (kind === "popup") {
+        const nextPopup = defaultPopupConfig(createdId, {
+          title: `Popup ${popupIndex}`,
+          body: "Nhập nội dung popup",
+          start,
+          duration,
+          y: Math.min(75, 55 + (popupIndex - 1) * 6),
+        });
+        const nextPopups = [...scenePopupList(currentScene), nextPopup];
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(nextPopups.length === 1 ? popupSceneFields(nextPopup) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (kind === "audio") {
+        const nextTrack = defaultSceneAudioTrack(createdId, {
+          name: audioIndex === 1 ? "Thuyết minh" : `Âm thanh ${audioIndex}`,
+          volume: audioIndex === 1 ? 95 : 100,
+          start,
+          end,
+        });
+        return syncLegacyVoiceFields({ ...currentScene, layerOrder: nextLayerOrder }, [
+          ...(currentScene.audioTracks ?? []),
+          nextTrack,
+        ]);
+      }
+      const nextDecoration = defaultMapDecoration(createdId, "effect", {
+        name: `Hiệu ứng ${decorationIndex}`,
+        symbol: "✦",
+        effect: "sparkles",
+        start,
+        duration,
+        y: Math.min(78, 45 + (decorationIndex - 1) * 5),
+      });
+      return {
+        ...currentScene,
+        mapDecorations: [...(currentScene.mapDecorations ?? []), nextDecoration],
+        layerOrder: nextLayerOrder,
+      };
+    }));
+
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
+    setSelectedSceneStructureToken(createdToken);
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setSelectedPopupId(kind === "popup" ? createdId : "");
+    setSelectedTextOverlayId(kind === "text" ? createdId : "");
+    setSelectedSceneImageId(kind === "image" ? createdId : "");
+    setSelectedDecorationId(kind === "effect" ? createdId : "");
+    if (kind === "audio") {
+      setRenamingAudioTrackId(createdId);
+      setRenamingAudioTrackName(audioIndex === 1 ? "Thuyết minh" : `Âm thanh ${audioIndex}`);
+    }
+    setPlayTime(Number((sceneStructureScene.start + start).toFixed(2)));
+    setSceneStructureStartDraft(formatPreciseTime(start));
+    setSceneStructureEndDraft(formatPreciseTime(end));
+    setToast(kind === "image"
+      ? "Đã thêm Hình ảnh · nhập URL trong Biên soạn"
+      : kind === "audio"
+        ? "Đã thêm Âm thanh · chọn file trong Biên soạn"
+        : `Đã thêm ${template.label} tại ${formatPreciseTime(start)}`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const sceneStructureTemplateDropAtPoint = (clientX: number, clientY: number) => {
+    const target = sceneStructureFlowContentRef.current;
+    if (!target) return null;
+    const bounds = target.getBoundingClientRect();
+    const isInside = clientX >= bounds.left
+      && clientX <= bounds.right
+      && clientY >= bounds.top
+      && clientY <= bounds.bottom;
+    return isInside ? sceneStructureDropTimeFromClientX(clientX, target) : null;
+  };
+
+  const beginSceneStructureTemplatePointerDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    kind: SceneStructureTemplateKind,
+  ) => {
+    if (sceneStructurePreviewMode || event.pointerType === "mouse") return;
+    sceneStructureTemplateDidDrag.current = false;
+    sceneStructureTemplatePointerDrag.current = {
+      kind,
+      pointerId: event.pointerId,
+      originX: event.clientX,
+      originY: event.clientY,
+      active: false,
+    };
+    setSceneStructureDropTime(null);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const beginSceneStructureTemplateMouseDrag = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    kind: SceneStructureTemplateKind,
+  ) => {
+    if (sceneStructurePreviewMode || event.button !== 0) return;
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateDidDrag.current = false;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    let active = false;
+    let handleMove: (moveEvent: MouseEvent) => void;
+    let handleUp: (upEvent: MouseEvent) => void;
+    const cleanup = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      if (sceneStructureTemplateMouseCleanup.current === cleanup) {
+        sceneStructureTemplateMouseCleanup.current = null;
+      }
+    };
+    handleMove = (moveEvent) => {
+      if (!active) {
+        const distance = Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY);
+        if (distance < 7) return;
+        active = true;
+        sceneStructureTemplateDidDrag.current = true;
+        setSceneStructureDraggedTemplate(kind);
+      }
+      moveEvent.preventDefault();
+      setSceneStructureDropTime(sceneStructureTemplateDropAtPoint(moveEvent.clientX, moveEvent.clientY));
+    };
+    handleUp = (upEvent) => {
+      cleanup();
+      if (!active) {
+        sceneStructureTemplateDidDrag.current = false;
+        return;
+      }
+      const dropTime = sceneStructureTemplateDropAtPoint(upEvent.clientX, upEvent.clientY);
+      setSceneStructureDraggedTemplate("");
+      setSceneStructureDropTime(null);
+      if (dropTime !== null) insertSceneStructureTemplate(kind, dropTime);
+      window.setTimeout(() => {
+        sceneStructureTemplateDidDrag.current = false;
+      }, 0);
+    };
+    sceneStructureTemplateMouseCleanup.current = cleanup;
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
+
+  const moveSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.active) {
+      const distance = Math.hypot(event.clientX - drag.originX, event.clientY - drag.originY);
+      if (distance < 7) return;
+      drag.active = true;
+      sceneStructureTemplateDidDrag.current = true;
+      setSceneStructureDraggedTemplate(drag.kind);
+    }
+    event.preventDefault();
+    setSceneStructureDropTime(sceneStructureTemplateDropAtPoint(event.clientX, event.clientY));
+  };
+
+  const endSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const wasActive = drag.active;
+    const dropTime = wasActive
+      ? sceneStructureTemplateDropAtPoint(event.clientX, event.clientY)
+      : null;
+    sceneStructureTemplatePointerDrag.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+    if (!wasActive) {
+      sceneStructureTemplateDidDrag.current = false;
+      return;
+    }
+    event.preventDefault();
+    if (dropTime !== null) insertSceneStructureTemplate(drag.kind, dropTime);
+    window.setTimeout(() => {
+      sceneStructureTemplateDidDrag.current = false;
+    }, 0);
+  };
+
+  const cancelSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+  };
+
+  const addSceneStructureTemplateAtPlayhead = (kind: SceneStructureTemplateKind) => {
+    if (sceneStructureTemplateDidDrag.current) return;
+    insertSceneStructureTemplate(kind, sceneStructurePlayheadTime());
   };
 
   const selectSceneStructureItem = (item: SceneStructureItem) => {
@@ -8304,8 +9240,11 @@ function Home() {
             : decoration),
         };
       }
-      if (item.kind === "audio" && item.id === "voice") {
-        return { ...currentScene, voiceStart: roundedStart };
+      if (item.kind === "audio") {
+        const nextTracks = (currentScene.audioTracks ?? []).map((track) => track.id === item.id
+          ? { ...track, start: roundedStart, end: roundedEnd }
+          : track);
+        return syncLegacyVoiceFields(currentScene, nextTracks);
       }
       if (item.kind === "effect" && item.id === "zoom") {
         return { ...currentScene, zoomStart: roundedStart, zoomEnd: roundedEnd };
@@ -8392,6 +9331,11 @@ function Home() {
         };
       }
       if (item.kind === "subtitle") return { ...currentScene, subtitleEnabled: false };
+      if (item.kind === "audio") {
+        return syncLegacyVoiceFields(currentScene, (currentScene.audioTracks ?? []).map((track) => track.id === item.id
+          ? { ...track, visible: false }
+          : track));
+      }
       if (item.kind === "effect" && item.id === "zoom") return { ...currentScene, zoomEnabled: false };
       if (item.kind === "effect" && item.id.startsWith("dark:")) {
         const effectId = item.id.slice("dark:".length);
@@ -8483,15 +9427,11 @@ function Home() {
           layerOrder: nextLayerOrder,
         };
       }
-      if (item.kind === "audio" && item.id === "voice") {
-        return {
-          ...currentScene,
-          narration: "",
-          voice: "",
-          voiceFile: "",
-          voiceStart: 0,
-          layerOrder: nextLayerOrder,
-        };
+      if (item.kind === "audio") {
+        return syncLegacyVoiceFields(
+          { ...currentScene, layerOrder: nextLayerOrder },
+          (currentScene.audioTracks ?? []).filter((track) => track.id !== item.id),
+        );
       }
       if (item.kind === "effect" && item.id === "zoom") {
         return { ...currentScene, zoomEnabled: false, layerOrder: nextLayerOrder };
@@ -8947,9 +9887,9 @@ function Home() {
               value={projectId}
               onChange={(event) => switchProject(event.target.value)}
             >
-              {[...projects.filter((item) => item.id !== projectId), currentProject].map(
-                (item) => <option key={item.id} value={item.id}>{item.title}</option>,
-              )}
+              {projectItems.map((item) => (
+                <option key={item.id} value={item.id}>{item.title}</option>
+              ))}
             </select>
           </label>
           <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
@@ -11102,7 +12042,15 @@ function Home() {
               <small>Để trống nếu clip không có nhạc nền.</small>
             </label>
             </EditorFieldGroup>
-            <EditorFieldGroup title="Thuyết minh" description="Nội dung, file giọng đọc và mốc bắt đầu phát trong cảnh.">
+            <EditorFieldGroup
+              title="Thuyết minh & âm thanh cảnh"
+              description="Nội dung dùng tạo phụ đề và các track âm thanh phát độc lập trong cảnh."
+              action={(
+                <button type="button" className="scene-audio-add-button" onClick={() => addSceneAudioTrack()}>
+                  ＋ Thêm âm thanh
+                </button>
+              )}
+            >
             <label className="field narration-field" id="editor-narration">
               <FieldLabel hint="Văn bản này được dùng để tạo và căn thời gian phụ đề.">Lời thuyết minh dùng để tạo phụ đề</FieldLabel>
               <textarea
@@ -11113,86 +12061,138 @@ function Home() {
               />
               <small>Nội dung này được dùng để Whisper/fallback tạo timestamp phụ đề. Có thể khác với lời thuyết minh ghi chú trong Popup.</small>
             </label>
-            <label className="field audio-field" id="editor-audio">
-              <FieldLabel hint="File giọng đọc riêng của cảnh; có thể dùng URL, tên file hoặc chọn từ máy.">File âm thanh thuyết minh</FieldLabel>
-              <div className="audio-input-row">
-                <input
-                  type="text"
-                  inputMode="url"
-                  value={scene.voiceFile}
-                placeholder="voice.mp3 hoặc https://example.com/voice.mp3"
-                  onChange={(event) => {
-                    updateScene("voiceFile", event.target.value);
-                    setAudioFiles((items) => {
-                      if (!items[scene.id]) return items;
-                      const next = { ...items };
-                      delete next[scene.id];
-                      return next;
-                    });
-                    setAudioPreview((items) => {
-                      if (!items[scene.id]) return items;
-                      URL.revokeObjectURL(items[scene.id]);
-                      const next = { ...items };
-                      delete next[scene.id];
-                      return next;
-                    });
-                  }}
-                />
-                <label className="file-picker">
-                  Chọn file
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      updateScene("voiceFile", `audio/${file.name}`);
-                      setAudioFiles((items) => ({ ...items, [scene.id]: file }));
-                      void addAssetsToLibrary([file]);
-                      setAudioPreview((items) => {
-                        if (items[scene.id]) URL.revokeObjectURL(items[scene.id]);
-                        return { ...items, [scene.id]: URL.createObjectURL(file) };
-                      });
-                    }}
-                  />
-                </label>
-              </div>
-              <div className="field audio-volume-field">
-                <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; âm thanh bắt đầu phát từ thời điểm này.">Thời gian bắt đầu phát âm thanh (giây)</TimeFieldLabel>
-                <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max={sceneDuration}
-                    step="0.1"
-                    aria-label="Thời gian bắt đầu phát âm thanh (giây)"
-                    value={scene.voiceStart ?? 0}
-                    onChange={(event) => updateScene("voiceStart", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))}
-                  />
-                  <b>s</b>
-                </div>
-                <small>0 giây = phát ngay khi cảnh bắt đầu.</small>
-              </div>
-              <div className="field audio-volume-field">
-                <FieldLabel hint="Mức âm lượng của giọng đọc so với file gốc.">Âm lượng thuyết minh</FieldLabel>
-                <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    aria-label="Âm lượng thuyết minh (%)"
-                    value={scene.voiceVolume}
-                    onChange={(event) => updateScene("voiceVolume", clampVolume(event.target.value, 95))}
-                  />
-                  <b>%</b>
+            <div className="scene-audio-editor" id="editor-audio">
+              <div className="scene-audio-list-heading">
+                <div>
+                  <strong>{sceneAudioTracks.length} âm thanh</strong>
+                  <small>Track đầu tiên được dùng để tạo phụ đề; tất cả track đang hiện sẽ được phát và render.</small>
                 </div>
               </div>
-              {audioPreview[scene.id] && (
-                <audio className="audio-preview" controls src={audioPreview[scene.id]} />
+              {sceneAudioTracks.length ? (
+                <div className="scene-audio-list">
+                  {sceneAudioTracks.map((track, index) => {
+                    const inputKey = sceneAudioTrackKey(scene.id, track.id);
+                    const previewSource = audioTrackPreviewSource(track, index);
+                    return (
+                      <article key={track.id} className={`scene-audio-item ${track.visible === false ? "is-hidden" : ""}`}>
+                        <header className="scene-audio-item-heading">
+                          <span className="scene-audio-item-index">{String(index + 1).padStart(2, "0")}</span>
+                          <div className="scene-audio-item-title">
+                            {renamingAudioTrackId === track.id ? (
+                              <input
+                                type="text"
+                                value={renamingAudioTrackName}
+                                autoFocus
+                                aria-label="Tên âm thanh"
+                                onChange={(event) => setRenamingAudioTrackName(event.target.value)}
+                                onBlur={finishSceneAudioTrackRename}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    finishSceneAudioTrackRename();
+                                  } else if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    cancelSceneAudioTrackRename();
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <strong>{safeTrim(track.name) || `Âm thanh ${index + 1}`}</strong>
+                            )}
+                            <small>{index === 0 ? "Dùng tạo phụ đề" : fileNameOnly(track.source) || "Chưa chọn file"}</small>
+                          </div>
+                          <div className="scene-audio-item-actions">
+                            <button type="button" onClick={() => startSceneAudioTrackRename(track, index)} title="Đổi tên âm thanh" aria-label="Đổi tên âm thanh">✎</button>
+                            <button
+                              type="button"
+                              className={track.visible === false ? "is-off" : ""}
+                              onClick={() => updateSceneAudioTrack(track.id, "visible", track.visible === false)}
+                              title={track.visible === false ? "Hiện âm thanh trong Preview và video" : "Ẩn âm thanh khỏi Preview và video"}
+                              aria-label={track.visible === false ? "Hiện âm thanh" : "Ẩn âm thanh"}
+                            >
+                              {track.visible === false ? "◌" : "◉"}
+                            </button>
+                            <button type="button" className="danger" onClick={() => deleteSceneAudioTrack(track.id)} title="Xóa âm thanh" aria-label="Xóa âm thanh">×</button>
+                          </div>
+                        </header>
+
+                        <label className="field audio-field">
+                          <FieldLabel hint="Có thể nhập URL, tên file hoặc chọn file âm thanh từ máy.">URL hoặc file âm thanh</FieldLabel>
+                          <div className="audio-input-row">
+                            <input
+                              type="text"
+                              inputMode="url"
+                              value={track.source}
+                              placeholder="audio.mp3 hoặc https://example.com/audio.mp3"
+                              onChange={(event) => {
+                                updateSceneAudioTrack(track.id, "source", event.target.value);
+                                setAudioFiles((items) => {
+                                  const next = { ...items };
+                                  delete next[inputKey];
+                                  if (index === 0) delete next[scene.id];
+                                  return next;
+                                });
+                                setAudioPreview((items) => {
+                                  const next = { ...items };
+                                  if (next[inputKey]) URL.revokeObjectURL(next[inputKey]);
+                                  delete next[inputKey];
+                                  if (index === 0 && next[scene.id]) {
+                                    URL.revokeObjectURL(next[scene.id]);
+                                    delete next[scene.id];
+                                  }
+                                  return next;
+                                });
+                              }}
+                            />
+                            <label className="file-picker">
+                              Chọn file
+                              <input
+                                type="file"
+                                accept="audio/*"
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  event.currentTarget.value = "";
+                                  if (!file) return;
+                                  updateSceneAudioTrack(track.id, "source", `audio/${file.name}`);
+                                  setAudioFiles((items) => ({ ...items, [inputKey]: file }));
+                                  void addAssetsToLibrary([file]);
+                                  setAudioPreview((items) => {
+                                    if (items[inputKey]) URL.revokeObjectURL(items[inputKey]);
+                                    return { ...items, [inputKey]: URL.createObjectURL(file) };
+                                  });
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </label>
+
+                        <div className="scene-audio-timing-grid">
+                          <label className="field">
+                            <span>Cường độ âm thanh</span>
+                            <div className="number-with-unit"><input type="number" step="1" value={track.volume} onChange={(event) => updateSceneAudioTrack(track.id, "volume", Number(event.target.value))} /><b>%</b></div>
+                          </label>
+                          <label className="field">
+                            <TimeFieldLabel hint="Mốc tính từ đầu cảnh; 0 giây nghĩa là phát ngay.">Bắt đầu</TimeFieldLabel>
+                            <div className="number-with-unit"><input type="number" step="0.1" value={track.start} onChange={(event) => updateSceneAudioTrack(track.id, "start", Number(event.target.value))} /><b>s</b></div>
+                          </label>
+                          <label className="field">
+                            <TimeFieldLabel hint="Âm thanh sẽ dừng tại mốc này, kể cả khi file gốc còn dài.">Kết thúc</TimeFieldLabel>
+                            <div className="number-with-unit"><input type="number" step="0.1" value={track.end} onChange={(event) => updateSceneAudioTrack(track.id, "end", Number(event.target.value))} /><b>s</b></div>
+                          </label>
+                        </div>
+                        {previewSource && <audio className="audio-preview" controls preload="metadata" src={previewSource} />}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="scene-audio-empty">
+                  <strong>Cảnh chưa có âm thanh</strong>
+                  <span>Bấm “Thêm âm thanh” để tạo track đầu tiên.</span>
+                  <button type="button" className="button" onClick={() => addSceneAudioTrack()}>＋ Thêm âm thanh</button>
+                </div>
               )}
-              <small>Nhập tên file hoặc URL. URL âm thanh sẽ được tự tải khi render và dùng lại nếu nhiều cảnh trùng URL/tên file.</small>
-            </label>
+            </div>
             </EditorFieldGroup>
             <EditorFieldGroup title="Phụ đề" description="Tạo, nhập và rà soát timestamp của từng câu.">
             <div className="subtitle-editor" id="editor-subtitle">
@@ -12417,29 +13417,40 @@ function Home() {
                 </div>
               </div>
               <div className="track narration-track">
-                <strong>Thuyết minh</strong>
+                <strong>Âm thanh</strong>
                 <div className="track-content grid">
-                  {narrationEnabled && visibleScenes.map((item) => (
-                    <Fragment key={`${item.id}-narration`}>
-                    <button
-                      key={item.id}
-                      className="clip voice-clip"
-                      onClick={() => openTimelineEditor(item, "editor-audio")}
-                      style={{
-                        left: timelinePercent(item.start),
-                        width: timelinePercent(item.end - item.start),
-                      }}
-                    >
-                      🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
-                    </button>
-                    <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
-                      {formatTime(item.start)}
-                    </span>
-                    <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
-                      {formatTime(item.end)}
-                    </span>
-                    </Fragment>
-                  ))}
+                  {narrationEnabled && visibleScenes.flatMap((item) => (item.audioTracks ?? [])
+                    .filter((track) => track.visible !== false)
+                    .map((track, trackIndex) => {
+                      const sceneLength = Math.max(0.1, item.end - item.start);
+                      const localStart = Math.min(sceneLength, Math.max(0, Number(track.start) || 0));
+                      const localEnd = Math.min(sceneLength, Math.max(localStart + 0.1, Number(track.end) || sceneLength));
+                      const globalStart = item.start + localStart;
+                      const globalEnd = item.start + localEnd;
+                      return (
+                        <Fragment key={`${item.id}-${track.id}`}>
+                          <button
+                            type="button"
+                            className="clip voice-clip"
+                            onClick={() => openTimelineEditor(item, "editor-audio")}
+                            style={{
+                              left: timelinePercent(globalStart),
+                              width: timelinePercent(globalEnd - globalStart),
+                              zIndex: 2 + trackIndex,
+                            }}
+                            title={`${track.name || `Âm thanh ${trackIndex + 1}`} · ${formatTime(globalStart)} – ${formatTime(globalEnd)} · ${track.volume}%`}
+                          >
+                            🎙 {track.name || fileNameOnly(track.source) || `Âm thanh ${trackIndex + 1}`}
+                          </button>
+                          <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(globalStart) }}>
+                            {formatTime(globalStart)}
+                          </span>
+                          <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(globalEnd) }}>
+                            {formatTime(globalEnd)}
+                          </span>
+                        </Fragment>
+                      );
+                    }))}
                 </div>
               </div>
               <div className="track effects-track">
@@ -12701,6 +13712,83 @@ function Home() {
                       ) : (
                         <p className="export-empty-note">Chưa chạy kiểm tra. Hãy kiểm tra trước khi bắt đầu render.</p>
                       )}
+                    </section>
+
+                    <div className="export-section-label">CÀI ĐẶT FFMPEG BẰNG CMD</div>
+                    <section className="export-ffmpeg-guide" aria-labelledby="ffmpeg-guide-heading">
+                      <div className="export-ffmpeg-guide-heading">
+                        <div>
+                          <span className="export-card-icon ffmpeg-icon" aria-hidden="true">›_</span>
+                          <div>
+                            <h3 id="ffmpeg-guide-heading">Chuẩn bị máy để xuất video</h3>
+                            <p>Chỉ thiết lập một lần trên mỗi thiết bị Windows.</p>
+                          </div>
+                        </div>
+                        <a href="https://nodejs.org/" target="_blank" rel="noreferrer">Node.js LTS 22+</a>
+                      </div>
+
+                      <ol className="export-ffmpeg-steps">
+                        <li>
+                          <span>01</span>
+                          <div>
+                            <strong>Mở CMD trong thư mục dự án</strong>
+                            <p>Dùng <code>cd /d</code> để đi tới thư mục <b>rendervideo</b> đã tải về.</p>
+                            <code className="export-ffmpeg-inline-command">cd /d "C:\duong-dan\rendervideo"</code>
+                          </div>
+                        </li>
+                        <li>
+                          <span>02</span>
+                          <div>
+                            <strong>Cài gói Node và FFmpeg cục bộ</strong>
+                            <p>Nếu CMD không nhận lệnh <code>node</code>, hãy cài Node.js LTS rồi mở lại CMD.</p>
+                            <div className="export-ffmpeg-command-box">
+                              <pre>{FFMPEG_SETUP_COMMANDS}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh cài FFmpeg"
+                                title="Sao chép lệnh cài đặt"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_SETUP_COMMANDS, "lệnh cài FFmpeg")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                        <li>
+                          <span>03</span>
+                          <div>
+                            <strong>Khởi động dịch vụ render</strong>
+                            <p>Chạy lệnh dưới đây và giữ nguyên cửa sổ CMD trong suốt quá trình render.</p>
+                            <div className="export-ffmpeg-command-box compact">
+                              <pre>{FFMPEG_START_COMMAND}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh khởi động render"
+                                title="Sao chép lệnh khởi động"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_START_COMMAND, "lệnh khởi động render")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                        <li>
+                          <span>04</span>
+                          <div>
+                            <strong>Kiểm tra kết nối</strong>
+                            <p>Mở một CMD khác để kiểm tra, hoặc bấm “Kiểm tra lại” ở panel phía trên.</p>
+                            <div className="export-ffmpeg-command-box compact">
+                              <pre>{FFMPEG_HEALTH_COMMAND}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh kiểm tra FFmpeg"
+                                title="Sao chép lệnh kiểm tra"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_HEALTH_COMMAND, "lệnh kiểm tra FFmpeg")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                      </ol>
+                      <div className="export-ffmpeg-note">
+                        <span aria-hidden="true">i</span>
+                        <p><strong>Không cần cài lại mỗi lần.</strong> Những lần sau chỉ chạy <code>npm run render:local</code> trước khi xuất video.</p>
+                      </div>
                     </section>
                     <p className="export-help">Các file trong thư viện tài nguyên sẽ được dùng lại cho những lần render tiếp theo.</p>
                   </div>
@@ -13021,11 +14109,82 @@ function Home() {
               </div>
             </header>
 
+            <nav className="scene-structure-viewbar" aria-label="Chế độ xem Cấu trúc cảnh">
+              <div className="scene-structure-view-tabs" role="tablist">
+                {SCENE_STRUCTURE_VIEW_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={sceneStructureViewMode === option.value}
+                    className={sceneStructureViewMode === option.value ? "active" : ""}
+                    title={option.description}
+                    onClick={() => {
+                      setPlaying(false);
+                      setSceneStructurePreviewMode(false);
+                      setSceneStructureViewMode(option.value);
+                      setSceneStructureDropTime(null);
+                    }}
+                  >
+                    <span aria-hidden="true">{option.icon}</span>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <span className="scene-structure-view-hint">
+                {SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.description}
+              </span>
+            </nav>
+
             <div className="scene-structure-body">
+              <aside className="scene-structure-library" aria-label="Thư viện thành phần cảnh">
+                <div className="scene-structure-library-heading">
+                  <span>THÊM THÀNH PHẦN</span>
+                  <strong>Thư viện thẻ</strong>
+                  <p>{sceneStructureViewMode === "timeline" ? "Kéo thẻ vào đúng mốc trên sơ đồ. Bấm thẻ để thêm tại playhead." : "Bấm thẻ để thêm vào cảnh đang chọn; chuyển sang Timeline nếu muốn kéo đến đúng mốc."}</p>
+                </div>
+                <div className="scene-structure-template-list">
+                  {SCENE_STRUCTURE_TEMPLATES.map((template) => (
+                    <button
+                      type="button"
+                      key={template.kind}
+                      draggable={false}
+                      disabled={sceneStructurePreviewMode}
+                      data-draggable={sceneStructureViewMode === "timeline" ? "true" : "false"}
+                      className={`scene-structure-template-card scene-structure-template-${template.kind} ${sceneStructureDraggedTemplate === template.kind ? "is-dragging" : ""}`}
+                      title={sceneStructureViewMode === "timeline" ? `Kéo để thêm ${template.label} hoặc bấm để thêm tại playhead` : `Bấm để thêm ${template.label} vào cảnh đang chọn`}
+                      aria-label={`Thêm ${template.label} vào cảnh đang chọn.`}
+                      onClick={() => addSceneStructureTemplateAtPlayhead(template.kind)}
+                      onMouseDown={(event) => {
+                        if (sceneStructureViewMode === "timeline") beginSceneStructureTemplateMouseDrag(event, template.kind);
+                      }}
+                      onPointerDown={(event) => {
+                        if (sceneStructureViewMode === "timeline") beginSceneStructureTemplatePointerDrag(event, template.kind);
+                      }}
+                      onPointerMove={moveSceneStructureTemplatePointerDrag}
+                      onPointerUp={endSceneStructureTemplatePointerDrag}
+                      onPointerCancel={cancelSceneStructureTemplatePointerDrag}
+                    >
+                      <span className="scene-structure-template-icon" aria-hidden="true">{template.icon}</span>
+                      <span className="scene-structure-template-copy">
+                        <strong>{template.label}</strong>
+                        <small>{template.description}</small>
+                      </span>
+                      <span className="scene-structure-template-grip" aria-hidden="true">⠿</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="scene-structure-library-note">
+                  <span aria-hidden="true">↳</span>
+                  <p><strong>Đồng bộ tức thì</strong>Thẻ mới xuất hiện trong Biên soạn, Timeline, JSON và Preview.</p>
+                </div>
+              </aside>
               <div className="scene-structure-flow-panel">
+                {sceneStructureViewMode === "timeline" ? (
                 <div className="scene-structure-flow-scroll">
                   <div
-                    className="scene-structure-flow-content"
+                    ref={sceneStructureFlowContentRef}
+                    className={`scene-structure-flow-content ${sceneStructureDropTime !== null ? "is-template-drop-target" : ""}`}
                     style={{
                       minWidth: `${Math.round(1040 * sceneStructureZoom / 100)}px`,
                       minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px`,
@@ -13050,6 +14209,16 @@ function Home() {
                     <div className="scene-structure-phase-grid" aria-hidden="true">
                       <span /><span /><span />
                     </div>
+                    {sceneStructureDropTime !== null && (
+                      <div
+                        className="scene-structure-template-drop-indicator"
+                        aria-hidden="true"
+                        style={{ left: `${Math.min(100, Math.max(0, sceneStructureDropTime / sceneStructureDuration * 100))}%` }}
+                      >
+                        <b>{formatPreciseTime(sceneStructureDropTime)}</b>
+                        <span>Thả để thêm</span>
+                      </div>
+                    )}
                     <div
                       className="scene-structure-playhead"
                       aria-hidden="true"
@@ -13124,6 +14293,180 @@ function Home() {
                     </footer>
                   </div>
                 </div>
+                ) : (
+                  <div
+                    className={`scene-structure-alt-scroll scene-structure-alt-${sceneStructureViewMode}`}
+                  >
+                    <div
+                      className="scene-structure-alt-content"
+                      style={{ minWidth: `${Math.round((sceneStructureViewMode === "table" ? 980 : 760) * sceneStructureZoom / 100)}px` }}
+                    >
+                      <header className="scene-structure-alt-heading">
+                        <div>
+                          <span>{SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.icon}</span>
+                          <div>
+                            <strong>{SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.label}</strong>
+                            <small>{scenes.length} cảnh · kéo thả để thay đổi thứ tự</small>
+                          </div>
+                        </div>
+                        <b>{formatPreciseTime(Math.max(0, ...scenes.map((item) => item.end)))}</b>
+                      </header>
+
+                      {sceneStructureViewMode === "list" && (
+                        <div className="scene-structure-scene-list">
+                          {scenes.map((item) => {
+                            const stats = sceneStructureSceneStats(item);
+                            const issues = sceneStructureSceneIssues(item);
+                            const thumbnailValue = safeTrim(item.avatar) || safeTrim(item.background) || safeTrim(item.sceneImages?.[0]?.url) || safeTrim(item.image);
+                            const thumbnailSource = assetPreviewSource(thumbnailValue);
+                            return (
+                              <article
+                                key={item.id}
+                                {...sceneStructureSceneDragProps(item)}
+                                className={`scene-structure-scene-row ${item.id === sceneStructureScene.id ? "active" : ""} ${item.id === sceneStructureSceneDragOverId ? "drag-over" : ""}`}
+                                onClick={() => selectSceneStructureScene(item)}
+                              >
+                                <span className="scene-structure-scene-grip" aria-hidden="true">⠿</span>
+                                <span className="scene-structure-scene-number">{String(item.number).padStart(2, "0")}</span>
+                                <span className="scene-structure-scene-thumb">
+                                  {thumbnailSource ? <img src={thumbnailSource} alt="" /> : <i>SC</i>}
+                                </span>
+                                <span className="scene-structure-scene-main">
+                                  <ReviewEditable value={item.sceneName || `Cảnh ${item.number}`} label={`Tên cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)} />
+                                  <small>{formatPreciseTime(item.start)} → {formatPreciseTime(item.end)} · {(item.end - item.start).toFixed(1)}s</small>
+                                </span>
+                                <span className="scene-structure-scene-stats">
+                                  <b>IMG {stats.images}</b><b>POP {stats.popups}</b><b>TXT {stats.texts}</b><b>AU {stats.audio}</b>
+                                </span>
+                                <span className={`scene-structure-scene-health ${issues.length ? "has-issues" : "is-ready"}`} title={issues.join(" · ") || "Sẵn sàng"}>
+                                  {issues.length ? `${issues.length} cảnh báo` : "Sẵn sàng"}
+                                </span>
+                                <button
+                                  type="button"
+                                  className={`scene-structure-scene-visible ${item.sceneVisible !== false ? "is-on" : ""}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    updateReviewSceneField(item.id, "sceneVisible", item.sceneVisible === false);
+                                  }}
+                                >
+                                  {item.sceneVisible !== false ? "Hiện" : "Ẩn"}
+                                </button>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {sceneStructureViewMode === "storyboard" && (
+                        <div
+                          className="scene-structure-storyboard-grid"
+                          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(220 * sceneStructureZoom / 100)}px, 1fr))` }}
+                        >
+                          {scenes.map((item) => {
+                            const stats = sceneStructureSceneStats(item);
+                            const issues = sceneStructureSceneIssues(item);
+                            const thumbnailValue = safeTrim(item.avatar) || safeTrim(item.background) || safeTrim(item.sceneImages?.[0]?.url) || safeTrim(item.image);
+                            const thumbnailSource = assetPreviewSource(thumbnailValue);
+                            return (
+                              <article
+                                key={item.id}
+                                {...sceneStructureSceneDragProps(item)}
+                                className={`scene-structure-story-card ${item.id === sceneStructureScene.id ? "active" : ""} ${item.id === sceneStructureSceneDragOverId ? "drag-over" : ""}`}
+                                onClick={() => selectSceneStructureScene(item)}
+                              >
+                                <div className="scene-structure-story-media">
+                                  {thumbnailSource ? <img src={thumbnailSource} alt="" /> : <span>Chưa có avatar</span>}
+                                  <b>{String(item.number).padStart(2, "0")}</b>
+                                  <i>{(item.end - item.start).toFixed(1)}s</i>
+                                </div>
+                                <div className="scene-structure-story-copy">
+                                  <ReviewEditable value={item.sceneName || `Cảnh ${item.number}`} label={`Tên cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)} />
+                                  <p>{safeTrim(item.narration).slice(0, 110) || safeTrim(scenePopupList(item)[0]?.body).slice(0, 110) || "Cảnh chưa có nội dung mô tả."}</p>
+                                  <div><span>IMG {stats.images}</span><span>POP {stats.popups}</span><span>AU {stats.audio}</span><span>SUB {stats.subtitles}</span></div>
+                                  <small className={issues.length ? "has-issues" : "is-ready"}>{issues.length ? issues.join(" · ") : "Sẵn sàng render"}</small>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {sceneStructureViewMode === "table" && (
+                        <div className="scene-structure-table-wrap">
+                          <table className="scene-structure-table">
+                            <thead><tr><th>STT</th><th>Tên cảnh</th><th>Bắt đầu</th><th>Thời lượng</th><th>Hình</th><th>Popup</th><th>Chữ</th><th>Âm thanh</th><th>Phụ đề</th><th>Hiệu ứng</th><th>Trạng thái</th></tr></thead>
+                            <tbody>
+                              {scenes.map((item) => {
+                                const stats = sceneStructureSceneStats(item);
+                                const issues = sceneStructureSceneIssues(item);
+                                return (
+                                  <tr
+                                    key={item.id}
+                                    {...sceneStructureSceneDragProps(item)}
+                                    className={`${item.id === sceneStructureScene.id ? "active" : ""} ${item.id === sceneStructureSceneDragOverId ? "drag-over" : ""}`}
+                                    onClick={() => selectSceneStructureScene(item)}
+                                  >
+                                    <td><span className="scene-structure-table-grip">⠿</span> {String(item.number).padStart(2, "0")}</td>
+                                    <td><ReviewEditable value={item.sceneName || `Cảnh ${item.number}`} label={`Tên cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)} /></td>
+                                    <td>{formatPreciseTime(item.start)}</td>
+                                    <td><ReviewEditable value={(item.end - item.start).toFixed(2)} numeric label={`Thời lượng cảnh ${item.number}`} onCommit={(value) => updateReviewSceneDuration(item.id, value)} /> s</td>
+                                    <td>{stats.images}</td><td>{stats.popups}</td><td>{stats.texts}</td><td>{stats.audio}</td><td>{stats.subtitles}</td><td>{stats.effects}</td>
+                                    <td><span className={issues.length ? "scene-structure-table-warning" : "scene-structure-table-ready"}>{issues.length ? `${issues.length} cảnh báo` : "Sẵn sàng"}</span></td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {sceneStructureViewMode === "tree" && (
+                        <div className="scene-structure-tree-list">
+                          {scenes.map((item) => {
+                            const effects = normalizeSceneEffects(item.effects);
+                            const treePopups = scenePopupList(item).filter(popupHasContent);
+                            return (
+                              <details key={item.id} open={item.id === sceneStructureScene.id} className={item.id === sceneStructureScene.id ? "active" : ""}>
+                                <summary onClick={() => selectSceneStructureScene(item)}>
+                                  <span>▾</span><b>{String(item.number).padStart(2, "0")}</b><strong>{item.sceneName || `Cảnh ${item.number}`}</strong><small>{(item.end - item.start).toFixed(1)}s</small>
+                                </summary>
+                                <div className="scene-structure-tree-groups">
+                                  <section><h3>▧ Hình ảnh & nền</h3><p>{item.background ? `Nền · ${fileNameOnly(item.background)}` : "Nền mặc định"}</p>{(item.sceneImages ?? []).map((image) => <p key={image.id}>└ {image.name || fileNameOnly(image.url) || "Hình chưa đặt tên"} · {formatTime(image.start)}–{formatTime(image.start + image.duration)}</p>)}</section>
+                                  <section><h3>▤ Popup</h3>{treePopups.length ? treePopups.map((popup) => <p key={popup.id}>└ {popup.title || "Popup"} · {formatTime(popup.start)}–{formatTime(popup.start + popup.duration)}</p>) : <p>Chưa có popup</p>}</section>
+                                  <section><h3>T Chữ viết</h3>{(item.textOverlays ?? []).length ? (item.textOverlays ?? []).map((overlay) => <p key={overlay.id}>└ {overlay.name || safeTrim(overlay.text).slice(0, 32) || "Chữ chưa đặt tên"} · {formatTime(overlay.start)}–{formatTime(overlay.end)}</p>) : <p>Chưa có chữ</p>}</section>
+                                  <section><h3>≋ Âm thanh</h3>{(item.audioTracks ?? []).length ? (item.audioTracks ?? []).map((track) => <p key={track.id}>└ {track.name || fileNameOnly(track.source) || "Âm thanh"} · {formatTime(track.start)}–{formatTime(track.end)} · {track.volume}%</p>) : <p>Chưa có âm thanh</p>}</section>
+                                  <section><h3>✦ Hiệu ứng</h3><p>{item.zoomEnabled !== false ? `└ Zoom ${Number(item.zoom ?? 1).toFixed(2)}×` : "Zoom đang tắt"}</p>{effects.sceneStartDarkEffects.filter((effect) => effect.enabled).map((effect) => <p key={effect.id}>└ Tối dần · {formatTime(effect.start)}–{formatTime(effect.end)}</p>)}</section>
+                                  <section><h3>CC Phụ đề</h3><p>{item.subtitleEnabled !== false ? `${(item.subtitles ?? []).filter((cue) => cue.visible !== false).length} cue` : "Đang tắt"}</p></section>
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {sceneStructureViewMode === "script" && (
+                        <div className="scene-structure-script-list">
+                          {scenes.map((item) => {
+                            const issues = sceneStructureSceneIssues(item);
+                            const primaryTrack = (item.audioTracks ?? [])[0];
+                            return (
+                              <article key={item.id} className={item.id === sceneStructureScene.id ? "active" : ""} onClick={() => selectSceneStructureScene(item)}>
+                                <header><b>{String(item.number).padStart(2, "0")}</b><ReviewEditable value={item.sceneName || `Cảnh ${item.number}`} label={`Tên cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)} /><span>{formatPreciseTime(item.start)} → {formatPreciseTime(item.end)}</span></header>
+                                <div className="scene-structure-script-grid">
+                                  <label><span>Nội dung / ghi chú</span><ReviewEditable multiline value={item.reference || "Double-click để thêm ghi chú"} label={`Ghi chú cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "reference", value)} /></label>
+                                  <label><span>Lời thuyết minh</span><ReviewEditable multiline value={item.narration || "Double-click để nhập lời thuyết minh"} label={`Lời thuyết minh cảnh ${item.number}`} onCommit={(value) => updateReviewSceneField(item.id, "narration", value)} /></label>
+                                  <label><span>Audio chính</span><strong>{primaryTrack ? `${primaryTrack.name || "Thuyết minh"} · ${fileNameOnly(primaryTrack.source) || "chưa có file"}` : "Chưa có"}</strong><small>{primaryTrack ? `${formatTime(primaryTrack.start)}–${formatTime(primaryTrack.end)} · ${primaryTrack.volume}%` : ""}</small></label>
+                                  <label><span>Phụ đề</span><strong>{(item.subtitles ?? []).filter((cue) => cue.visible !== false).length} cue</strong><small>{item.subtitleEnabled !== false ? "Đang bật" : "Đang tắt"}</small></label>
+                                </div>
+                                <footer className={issues.length ? "has-issues" : "is-ready"}>{issues.length ? issues.map((issue) => <span key={issue}>! {issue}</span>) : <span>✓ Cảnh sẵn sàng</span>}</footer>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <aside className="scene-structure-inspector" aria-label="Thông tin tài nguyên">
@@ -13368,18 +14711,26 @@ function Home() {
                     ))}
 
                     <div className="review-row-label">Âm thanh <small>voice</small></div>
-                    {visibleScenes.map((item) => (
-                      <div className="review-grid-cell review-basic-cell" key={`review-audio-${item.id}`}>
-                        <ReviewEditable
-                          value={fileNameOnly(item.voiceFile) || "Chưa có file âm thanh"}
-                          label={`File âm thanh cảnh ${item.number}`}
-                          className="review-audio-value"
-                          onCommit={(value) => updateReviewSceneField(item.id, "voiceFile", value)}
-                        />
-                        <div className="review-detail-line">Âm lượng {Number(item.voiceVolume ?? 95).toFixed(0)}%</div>
-                        <div className="review-detail-line">Bắt đầu phát <ReviewEditable value={Number(item.voiceStart ?? 0).toFixed(2)} label={`Thời gian bắt đầu âm thanh cảnh ${item.number}`} numeric onCommit={(value) => updateReviewSceneField(item.id, "voiceStart", Math.max(0, reviewNumber(value, Number(item.voiceStart ?? 0))))} /> <span>giây</span></div>
-                      </div>
-                    ))}
+                    {visibleScenes.map((item) => {
+                      const tracks = item.audioTracks ?? [];
+                      return (
+                        <div className="review-grid-cell review-basic-cell review-audio-tracks" key={`review-audio-${item.id}`}>
+                          {tracks.length ? tracks.map((track, trackIndex) => (
+                            <div className={`review-audio-track ${track.visible === false ? "is-hidden" : ""}`} key={track.id}>
+                              <strong>{track.name || `Âm thanh ${trackIndex + 1}`}</strong>
+                              <ReviewEditable
+                                value={fileNameOnly(track.source) || "Chưa có file âm thanh"}
+                                label={`File ${track.name || `âm thanh ${trackIndex + 1}`} cảnh ${item.number}`}
+                                className="review-audio-value"
+                                onCommit={(value) => updateReviewAudioTrackValue(item.id, track.id, "source", value)}
+                              />
+                              <div className="review-detail-line">Âm lượng <ReviewEditable value={Number(track.volume).toFixed(0)} numeric label="Âm lượng âm thanh" onCommit={(value) => updateReviewAudioTrackValue(item.id, track.id, "volume", reviewNumber(value, track.volume))} />%</div>
+                              <div className="review-detail-line">Phát <ReviewEditable value={Number(track.start).toFixed(2)} numeric label="Bắt đầu âm thanh" onCommit={(value) => updateReviewAudioTrackValue(item.id, track.id, "start", reviewNumber(value, track.start))} />–<ReviewEditable value={Number(track.end).toFixed(2)} numeric label="Kết thúc âm thanh" onCommit={(value) => updateReviewAudioTrackValue(item.id, track.id, "end", reviewNumber(value, track.end))} /> giây</div>
+                            </div>
+                          )) : <span>Chưa có âm thanh</span>}
+                        </div>
+                      );
+                    })}
 
                     <div className="review-row-label">Phụ đề <small>cues</small></div>
                     {visibleScenes.map((item) => (

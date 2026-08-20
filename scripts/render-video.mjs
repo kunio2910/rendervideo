@@ -588,6 +588,48 @@ const resolveAudio = async (value, required = false) => {
   return findLocalResource("audio", value, localCandidates(value));
 };
 
+const sceneAudioTracksForRender = (scene, duration) => {
+  const rawTracks = Array.isArray(scene.audioTracks)
+    ? scene.audioTracks
+    : String(scene.voiceFile ?? "").trim()
+      ? [{
+          id: "legacy-voice",
+          name: "Thuyết minh",
+          source: scene.voiceFile,
+          volume: scene.voiceVolume,
+          start: scene.voiceStart,
+          end: duration,
+          visible: true,
+        }]
+      : [];
+  return rawTracks
+    .filter((track) => track && track.visible !== false && String(track.source ?? track.url ?? track.file ?? "").trim())
+    .map((track, trackIndex) => {
+      const start = clamp(Number(track.start ?? 0) || 0, 0, Math.max(0, duration - 0.1));
+      const end = clamp(Number(track.end ?? duration) || duration, start + 0.1, duration);
+      return {
+        id: String(track.id ?? `audio-${trackIndex + 1}`),
+        name: String(track.name ?? `Âm thanh ${trackIndex + 1}`),
+        source: String(track.source ?? track.url ?? track.file ?? "").trim(),
+        volume: audioVolume(track.volume, trackIndex === 0 ? 95 : 100),
+        start,
+        end,
+      };
+    });
+};
+
+const resolveSceneAudioTrack = async (track, sceneIndex, trackIndex) => {
+  try {
+    const resolved = await resolveAudio(track.source, true);
+    if (!resolved) throw new Error(`Không tìm thấy ${track.source}`);
+    return { ...track, path: resolved };
+  } catch (error) {
+    throw new Error(
+      `Không thể tải âm thanh “${track.name}” của cảnh ${sceneIndex + 1}: ${errorDetail(error)}`,
+    );
+  }
+};
+
 const resolveVideo = async (value, fallbackName, required = false) => {
   if (!value) return null;
   if (isRemote(value)) {
@@ -1255,9 +1297,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createSceneImage(image, index * 100 + imageIndex);
     if (rendered) sceneImageRenders.push({ scene: image, rendered });
   }
-  const voice = await resolveVoice(scene, index);
-  const voiceVolume = audioVolume(scene.voiceVolume, 95);
-  const voiceStart = clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
+  const sceneAudioTracks = sceneAudioTracksForRender(scene, duration);
+  const resolvedSceneAudioTracks = [];
+  for (let audioTrackIndex = 0; audioTrackIndex < sceneAudioTracks.length; audioTrackIndex += 1) {
+    resolvedSceneAudioTracks.push(await resolveSceneAudioTrack(sceneAudioTracks[audioTrackIndex], index, audioTrackIndex));
+  }
+  // Legacy names remain available for diagnostics and source-level compatibility checks.
+  const voice = resolvedSceneAudioTracks[0]?.path ?? null;
+  const voiceVolume = resolvedSceneAudioTracks[0]?.volume ?? audioVolume(scene.voiceVolume, 95);
+  const voiceStart = resolvedSceneAudioTracks[0]?.start ?? clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));
   const zoomStartFrames = Math.min(
@@ -1940,10 +1988,40 @@ for (let index = 0; index < scenes.length; index += 1) {
     addInput("-f", "lavfi", "-i", source);
   });
   const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
-  if (voice) {
-    addInput("-i", voice);
+  if (resolvedSceneAudioTracks.length) {
+    resolvedSceneAudioTracks.forEach((track) => addInput("-i", track.path));
   } else {
     addInput("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
+  }
+  const voiceDelayFilter = voice && voiceStart > 0
+    ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
+    : "";
+  let audioMapArgs;
+  if (resolvedSceneAudioTracks.length) {
+    const audioLabels = [];
+    const audioChains = resolvedSceneAudioTracks.map((track, trackIndex) => {
+      const inputIndex = audioInputIndex + trackIndex;
+      const label = `sceneAudio${trackIndex}`;
+      const clipDuration = Math.max(0.1, track.end - track.start);
+      const delayFilter = trackIndex === 0
+        ? voiceDelayFilter
+        : track.start > 0
+          ? `adelay=${Math.round(track.start * 1000)}:all=1,`
+          : "";
+      const volumeFilter = trackIndex === 0
+        ? `volume=${voiceVolume.toFixed(3)}`
+        : `volume=${track.volume.toFixed(3)}`;
+      audioLabels.push(`[${label}]`);
+      return `[${inputIndex}:a:0]atrim=start=0:end=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `${delayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,${volumeFilter}[${label}]`;
+    });
+    filter += `;${audioChains.join(";")};${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${duration}[sceneAudioMixed]`;
+    audioMapArgs = ["-map", "[sceneAudioMixed]"];
+  } else {
+    audioMapArgs = [
+      "-map", `${audioInputIndex}:a:0`,
+      "-af", "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad",
+    ];
   }
   args.push(
     "-filter_threads", String(ffmpegFilterThreads),
@@ -1951,13 +2029,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-filter_complex", filter,
     "-map", "[composed]",
   );
-  const voiceDelayFilter = voice && voiceStart > 0
-    ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
-    : "";
-  const audioFilter = voice
-    ? `${voiceDelayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
-    : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
-  args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
+  args.push(...audioMapArgs);
   args.push(
     "-t", String(duration),
     "-r", String(fps),

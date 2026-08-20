@@ -61,7 +61,14 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Bật hiệu ứng zoom bản đồ/);
   assert.match(page, /Thời gian kết thúc zoom/);
   assert.match(page, /Âm lượng nhạc nền/);
-  assert.match(page, /Âm lượng thuyết minh/);
+  assert.match(page, /Thuyết minh & âm thanh cảnh/);
+  assert.match(page, /type SceneAudioTrack/);
+  assert.match(page, /audioTracks: SceneAudioTrack\[\]/);
+  assert.match(page, /addSceneAudioTrack/);
+  assert.match(page, /deleteSceneAudioTrack/);
+  assert.match(page, /startSceneAudioTrackRename/);
+  assert.match(page, /sceneAudioPlayers/);
+  assert.match(page, /Dùng tạo phụ đề/);
   assert.match(page, /zoom-focus-target/);
   assert.match(page, /startMapPointDrag/);
   assert.match(page, /sceneVisible/);
@@ -205,6 +212,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.doesNotMatch(page, /onBlur=\{commitClipRename\}/);
   assert.match(page, /selectedScene/);
   assert.match(page, /settings-full-scene-info/);
+  assert.match(page, /Thông tin tài nguyên cảnh/);
+  assert.match(page, /selectedSceneResourceRows/);
+  assert.match(page, /settings-scene-resource-summary/);
+  assert.match(page, /settings-resource-breakdown/);
   assert.match(page, /saveLabel/);
   assert.match(page, /assetPreviewSource=\{assetPreviewSource\}/);
   assert.match(page, /projectFirstScene\?\.background/);
@@ -212,6 +223,17 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.doesNotMatch(page, /settings-nav-title/);
   assert.doesNotMatch(page, /settings-page-heading/);
   assert.match(page, /settings-add-clip-action/);
+  assert.match(page, /const reorderProjectClips/);
+  assert.match(page, /\{projectItems\.map\(\(item\) => \(/);
+  assert.doesNotMatch(page, /\[\.\.\.projects\.filter\(\(item\) => item\.id !== projectId\), currentProject\]/);
+  assert.match(page, /CÀI ĐẶT FFMPEG BẰNG CMD/);
+  assert.match(page, /FFMPEG_SETUP_COMMANDS/);
+  assert.match(page, /npm run render:setup/);
+  assert.match(page, /npm run render:local/);
+  assert.match(page, /copyFfmpegCommands/);
+  assert.match(css, /\.export-ffmpeg-guide/);
+  assert.match(css, /\.settings-scene-resource-summary/);
+  assert.match(css, /\.settings-resource-row-list/);
   assert.doesNotMatch(page, /Cảnh trước|Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
@@ -282,6 +304,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneStructurePreviewPortalHost/);
   assert.match(page, /sceneStructureZoom/);
   assert.match(page, /adjustSceneStructureZoom/);
+  assert.match(page, /type SceneStructureViewMode = "timeline" \| "list" \| "storyboard" \| "table" \| "tree" \| "script"/);
+  assert.match(page, /SCENE_STRUCTURE_VIEW_OPTIONS/);
+  assert.match(page, /useState<SceneStructureViewMode>\("timeline"\)/);
+  assert.match(page, /scene-structure-viewbar/);
+  assert.match(page, /kind: "audio"/);
+  assert.match(page, /sceneStructureSceneDragProps/);
   assert.match(page, /returnFromSceneStructurePreview/);
   assert.match(page, /scene-structure-return-button/);
   assert.match(page, /isLive/);
@@ -295,11 +323,27 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /\.scene-structure-tool-group/);
   assert.match(css, /\.scene-structure-zoom-control/);
   assert.match(css, /\.scene-structure-preview-portal-host/);
+  assert.match(css, /\.scene-structure-viewbar/);
+  assert.match(css, /\.scene-structure-storyboard-grid/);
+  assert.match(css, /\.scene-structure-table/);
+  assert.match(css, /\.scene-audio-item/);
   const sceneStructureMarkup = page.slice(
     page.indexOf("{sceneStructureOpen &&"),
     page.indexOf("{reviewOpen &&"),
   );
-  assert.doesNotMatch(sceneStructureMarkup, /\bdraggable\b/);
+  assert.match(sceneStructureMarkup, /scene-structure-template-card/);
+  assert.match(sceneStructureMarkup, /draggable=\{false\}/);
+  assert.match(sceneStructureMarkup, /beginSceneStructureTemplateMouseDrag\(event, template\.kind\)/);
+  assert.match(sceneStructureMarkup, /beginSceneStructureTemplatePointerDrag\(event, template\.kind\)/);
+  assert.match(sceneStructureMarkup, /onPointerMove=\{moveSceneStructureTemplatePointerDrag\}/);
+  assert.match(sceneStructureMarkup, /onPointerUp=\{endSceneStructureTemplatePointerDrag\}/);
+  assert.match(sceneStructureMarkup, /Thư viện thẻ/);
+  assert.match(page, /sceneStructureTemplatePointerDrag/);
+  assert.match(page, /insertSceneStructureTemplate/);
+  assert.match(page, /layerOrder: nextLayerOrder/);
+  assert.match(css, /\.scene-structure-library/);
+  assert.match(css, /\.scene-structure-template-card/);
+  assert.match(css, /\.scene-structure-template-drop-indicator/);
   assert.doesNotMatch(sceneStructureMarkup, /renderSceneStructureLivePreview\(\)/);
   assert.match(sceneStructureMarkup, /Hoàn tác \(Ctrl\+Z\)/);
   assert.match(sceneStructureMarkup, /Làm lại \(Ctrl\+Y\)/);
@@ -382,6 +426,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /filter \+= `\$\{composedLabel\}copy\[composed\]`/);
   assert.match(renderer, /backgroundMusicVolume/);
   assert.match(renderer, /scene\.voiceVolume/);
+  assert.match(renderer, /sceneAudioTracksForRender/);
+  assert.match(renderer, /scene\.audioTracks/);
+  assert.match(renderer, /atrim=start=0:end=/);
+  assert.match(renderer, /amix=inputs=/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);
   assert.match(renderer, /timelineDuration = Math\.max/);
   assert.match(renderer, /filter\(\(scene\) => scene\?\.sceneVisible !== false\)/);
