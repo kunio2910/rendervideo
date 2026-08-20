@@ -743,6 +743,12 @@ const formatTime = (value: number) => {
   return `${String(minutes).padStart(2, "0")}:${seconds.padStart(4, "0")}`;
 };
 
+const formatRenderDuration = (value: number | null | undefined) => {
+  const seconds = Math.max(0, Math.round(Number(value) || 0));
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
 const formatPreciseTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 100) / 100);
   const minutes = Math.floor(rounded / 60);
@@ -849,6 +855,16 @@ type LocalRenderState = {
   message: string;
   downloadUrl?: string;
   log?: string;
+  logTail?: string;
+  stage?: string;
+  stageLabel?: string;
+  detail?: string;
+  scene?: number;
+  totalScenes?: number;
+  elapsedSeconds?: number;
+  etaSeconds?: number | null;
+  mediaTimeSeconds?: number;
+  mediaDurationSeconds?: number;
 };
 
 type RenderedClip = {
@@ -8574,6 +8590,11 @@ function Home() {
       status: "uploading",
       progress: 2,
       message: "Đang gửi JSON và tài nguyên tới máy render…",
+      stage: "preparing",
+      stageLabel: "Chuẩn bị tài nguyên",
+      detail: "Đang gửi JSON và các file media tới dịch vụ FFmpeg…",
+      scene: 0,
+      totalScenes: renderPayload.scenes.length,
     });
     try {
       const form = new FormData();
@@ -8592,14 +8613,31 @@ function Home() {
         const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}`);
         const status = await statusResponse.json();
         if (!statusResponse.ok) throw new Error(status.error || "Không đọc được tiến độ render");
+        const serverProgress = Number(status.progress);
+        const serverDetails = {
+          progress: Number.isFinite(serverProgress) ? Math.min(100, Math.max(0, serverProgress)) : 0,
+          message: String(status.message || "Đang render video…"),
+          stage: typeof status.stage === "string" ? status.stage : undefined,
+          stageLabel: typeof status.stageLabel === "string" ? status.stageLabel : undefined,
+          detail: typeof status.detail === "string" ? status.detail : undefined,
+          scene: Number(status.scene) || 0,
+          totalScenes: Number(status.totalScenes) || renderPayload.scenes.length,
+          elapsedSeconds: Number(status.elapsedSeconds) || 0,
+          etaSeconds: Number.isFinite(Number(status.etaSeconds)) ? Number(status.etaSeconds) : null,
+          mediaTimeSeconds: Number(status.mediaTimeSeconds) || 0,
+          mediaDurationSeconds: Number(status.mediaDurationSeconds) || 0,
+          logTail: typeof status.logTail === "string" ? status.logTail : "",
+        };
         if (status.status === "completed") {
           setLocalRenderState({
+            ...serverDetails,
             status: "completed",
             progress: 100,
             message: scope === "scene"
               ? "Đã render cảnh đang chọn. Video đã được thêm vào thư viện nối nhanh."
               : "Render hoàn tất. Video đã được thêm vào thư viện nối nhanh.",
-            downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
+            detail: "Video đã được lưu vào thư viện render.",
+            downloadUrl: status.downloadUrl ? `${LOCAL_RENDERER_URL}${status.downloadUrl}` : undefined,
           });
           localRenderJobId.current = "";
           void refreshRenderedClips();
@@ -8611,25 +8649,30 @@ function Home() {
             status: "idle",
             progress: 0,
             message: "Đã dừng render. Sẵn sàng render lại.",
+            stage: "cancelled",
+            stageLabel: "Đã dừng",
+            detail: "Phiên render đã được dừng an toàn.",
           });
           return;
         }
         if (status.status === "failed") {
           localRenderJobId.current = "";
-          throw Object.assign(new Error(status.message || "Render thất bại"), { log: status.log });
+          throw Object.assign(new Error(status.message || "Render thất bại"), {
+            log: status.log || status.logTail,
+            logTail: status.logTail,
+          });
         }
         if (status.status === "cancelling") {
           setLocalRenderState({
+            ...serverDetails,
             status: "cancelling",
-            progress: Number(status.progress) || 0,
-            message: status.message || "Đang dừng render…",
+            message: serverDetails.message || "Đang dừng render…",
           });
           continue;
         }
         setLocalRenderState({
-          status: "rendering",
-          progress: Number(status.progress) || 5,
-          message: status.message || "Đang render video…",
+          ...serverDetails,
+          status: status.status === "preparing" || status.status === "queued" ? "uploading" : "rendering",
         });
       }
     } catch (error) {
@@ -8639,6 +8682,10 @@ function Home() {
         progress: 0,
         message: error instanceof Error ? error.message : "Không thể render video",
         log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
+        logTail: error && typeof error === "object" && "logTail" in error ? String(error.logTail || "") : "",
+        stage: "failed",
+        stageLabel: "Render lỗi",
+        detail: error instanceof Error ? error.message : "Không thể render video",
       });
     }
   };
@@ -8900,6 +8947,16 @@ function Home() {
       : localRenderState.status === "idle"
         ? "idle"
         : "progress";
+  const renderStageSteps = [
+    { key: "preparing", label: "Chuẩn bị" },
+    { key: "scene", label: "Dựng cảnh" },
+    { key: "joining", label: "Nối cảnh" },
+    { key: "mixing", label: "Trộn âm thanh" },
+    { key: "finalizing", label: "Hoàn tất" },
+  ];
+  const activeRenderStageIndex = localRenderState.status === "completed"
+    ? renderStageSteps.length - 1
+    : renderStageSteps.findIndex((step) => step.key === localRenderState.stage);
 
   const reviewAssetSource = (value: string) => assetPreviewSource(value);
   const reviewLayoutLabel = (value: PopupConfig["layout"]) => ({
@@ -14614,6 +14671,60 @@ function Home() {
                 <i style={{ width: `${localRenderState.progress}%` }} />
               </div>
               </div>
+
+              <section className={`local-render-detail-card ${localRenderState.status}`} aria-live="polite">
+                <div className="local-render-detail-heading">
+                  <div>
+                    <span className="local-render-detail-kicker">TIẾN TRÌNH CHI TIẾT</span>
+                    <strong>{localRenderState.stageLabel || "Đang chuẩn bị"}</strong>
+                  </div>
+                  <span className="local-render-detail-percent">{Math.round(localRenderState.progress)}%</span>
+                </div>
+                <ol className="local-render-stage-track" aria-label="Các giai đoạn render">
+                  {renderStageSteps.map((step, index) => {
+                    const stepState = index < activeRenderStageIndex
+                      ? "done"
+                      : index === activeRenderStageIndex
+                        ? "active"
+                        : "";
+                    return (
+                      <li key={step.key} className={stepState}>
+                        <span>{index < activeRenderStageIndex || localRenderState.status === "completed" && index === activeRenderStageIndex ? "✓" : index + 1}</span>
+                        <b>{step.label}</b>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <div className="local-render-detail-grid">
+                  <div className="local-render-detail-item local-render-detail-wide">
+                    <small>Đang xử lý</small>
+                    <strong>{localRenderState.detail || localRenderState.message}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Cảnh</small>
+                    <strong>{localRenderState.scene && localRenderState.totalScenes ? `${localRenderState.scene}/${localRenderState.totalScenes}` : "—"}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Đã chạy</small>
+                    <strong>{formatRenderDuration(localRenderState.elapsedSeconds)}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Còn lại (ước tính)</small>
+                    <strong>{localRenderState.etaSeconds != null ? `~${formatRenderDuration(localRenderState.etaSeconds)}` : "Đang tính…"}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Thời gian FFmpeg</small>
+                    <strong>{localRenderState.mediaDurationSeconds ? `${formatRenderDuration(localRenderState.mediaTimeSeconds)} / ${formatRenderDuration(localRenderState.mediaDurationSeconds)}` : "—"}</strong>
+                  </div>
+                </div>
+              </section>
+
+              {localRenderState.logTail && (localRenderState.status === "uploading" || localRenderState.status === "rendering" || localRenderState.status === "cancelling") && (
+                <details className="local-render-log local-render-live-log" open={localRenderState.status === "rendering"}>
+                  <summary>Log FFmpeg gần nhất</summary>
+                  <pre>{localRenderState.logTail}</pre>
+                </details>
+              )}
 
               <section className="preflight-card" aria-live="polite">
               <div className="preflight-heading">

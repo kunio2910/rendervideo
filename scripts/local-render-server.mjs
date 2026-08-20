@@ -85,6 +85,44 @@ const summarizeFfmpegFailure = (log) => {
     .slice(0, 360);
 };
 
+const formatRenderClock = (value) => {
+  const seconds = Math.max(0, Number(value) || 0);
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+};
+
+const renderElapsedSeconds = (job) => job.startedAt
+  ? Math.max(0, (Date.now() - job.startedAt) / 1000)
+  : Math.max(0, Number(job.elapsedSeconds) || 0);
+
+const renderEtaSeconds = (job, elapsedSeconds = renderElapsedSeconds(job)) => {
+  if (!job.startedAt || job.status !== "rendering" || job.progress < 8 || elapsedSeconds <= 0) return null;
+  return Math.max(0, Math.round(elapsedSeconds * (100 - job.progress) / job.progress));
+};
+
+const renderJobPayload = (job) => {
+  const elapsedSeconds = renderElapsedSeconds(job);
+  return {
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    stage: job.stage || null,
+    stageLabel: job.stageLabel || null,
+    detail: job.detail || job.message,
+    scene: Number(job.scene) || 0,
+    totalScenes: Number(job.totalScenes) || 0,
+    elapsedSeconds: Math.round(elapsedSeconds),
+    etaSeconds: renderEtaSeconds(job, elapsedSeconds),
+    mediaTimeSeconds: Number(job.mediaTimeSeconds) || 0,
+    mediaDurationSeconds: Number(job.mediaDurationSeconds) || 0,
+    downloadUrl: job.downloadUrl || null,
+    clip: job.clip || null,
+    log: job.status === "failed" ? job.log.slice(-3000) : undefined,
+    logTail: job.log ? job.log.slice(-1800) : "",
+  };
+};
+
 const rationalToNumber = (value) => {
   const [top, bottom] = String(value || "").split("/").map(Number);
   if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > 0) return top / bottom;
@@ -272,22 +310,45 @@ const runConcatJob = async (job, clips) => {
 const runJob = async (job, project, files) => {
   activeJobId = job.id;
   job.status = "preparing";
+  job.stage = "preparing";
+  job.stageLabel = "Chuẩn bị tài nguyên";
+  job.detail = "Đang tạo thư mục làm việc cho phiên render…";
   try {
     await fs.mkdir(job.sourceDir, { recursive: true });
     await fs.mkdir(job.outputDir, { recursive: true });
-    for (const file of files) {
+    for (const [fileIndex, file] of files.entries()) {
       const filename = safeName(file.name);
       await fs.writeFile(path.join(job.sourceDir, filename), Buffer.from(await file.arrayBuffer()));
+      job.progress = Math.min(6, Math.max(1, Math.round(((fileIndex + 1) / Math.max(1, files.length)) * 6)));
+      job.detail = `Đã nhận tài nguyên ${fileIndex + 1}/${files.length}: ${filename}`;
     }
     await fs.writeFile(job.projectPath, JSON.stringify(project, null, 2), "utf8");
+    job.progress = Math.max(job.progress, 7);
+    job.detail = "Đã nhận JSON và tài nguyên; đang khởi động FFmpeg…";
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
       return;
     }
+    job.totalScenes = project.scenes?.length || 0;
+    job.totalDuration = project.scenes.reduce((sum, scene) => {
+      const duration = Number(scene.duration);
+      if (Number.isFinite(duration) && duration > 0) return sum + duration;
+      const start = Number(scene.start);
+      const end = Number(scene.end);
+      return sum + (Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0);
+    }, 0);
+    job.startedAt = Date.now();
     job.status = "rendering";
-    job.message = `Đang dựng 0/${project.scenes?.length || 0} cảnh`;
+    job.stage = "scene";
+    job.stageLabel = "Dựng cảnh";
+    job.scene = 0;
+    job.message = `Đang dựng 0/${job.totalScenes} cảnh`;
+    job.detail = "Đang khởi động bộ dựng cảnh…";
 
     const rendererArgs = [
       ...(process.allowedNodeEnvironmentFlags.has("--use-system-ca") ? ["--use-system-ca"] : []),
@@ -315,10 +376,89 @@ const runJob = async (job, project, files) => {
     const consume = (chunk) => {
       const text = chunk.toString();
       job.log = `${job.log}${text}`.slice(-12000);
-      const match = text.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/);
-      if (match) {
-        job.progress = Math.round((Number(match[1]) / Number(match[2])) * 90);
-        job.message = `Đang dựng cảnh ${match[1]}/${match[2]}: ${match[3].trim()}`;
+      job.elapsedSeconds = renderElapsedSeconds(job);
+      const lines = text.split(/\r?\n|\r/).map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        const sceneMatch = line.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/i);
+        if (sceneMatch) {
+          const scene = Number(sceneMatch[1]);
+          const totalScenes = Number(sceneMatch[2]);
+          const sceneName = sceneMatch[3].trim();
+          job.stage = "scene";
+          job.stageLabel = "Dựng cảnh";
+          job.scene = scene;
+          job.totalScenes = totalScenes;
+          job.sceneName = sceneName;
+          job.sceneDuration = Number(project.scenes?.[scene - 1]?.duration) || 0;
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.sceneDuration;
+          job.progress = Math.max(job.progress, Math.round(8 + ((scene - 1) / Math.max(1, totalScenes)) * 80));
+          job.detail = `Cảnh ${scene}/${totalScenes}: ${sceneName}`;
+          job.message = job.detail;
+          continue;
+        }
+
+        const sceneComplete = line.match(/Scene complete\s+(\d+)\/(\d+)/i);
+        if (sceneComplete) {
+          const scene = Number(sceneComplete[1]);
+          const totalScenes = Number(sceneComplete[2]);
+          job.scene = scene;
+          job.totalScenes = totalScenes;
+          job.progress = Math.max(job.progress, Math.round(8 + (scene / Math.max(1, totalScenes)) * 80));
+          job.detail = `Đã dựng xong cảnh ${scene}/${totalScenes}; đang chuyển sang bước tiếp theo…`;
+          job.message = job.detail;
+          continue;
+        }
+
+        const joining = line.match(/Render stage:\s*joining\s+(\d+)\s+rendered scenes/i);
+        if (joining) {
+          job.stage = "joining";
+          job.stageLabel = "Nối các cảnh";
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.totalDuration || 0;
+          job.progress = Math.max(job.progress, 90);
+          job.detail = `Đang nối ${joining[1]} cảnh thành một video…`;
+          job.message = job.detail;
+          continue;
+        }
+
+        if (/Render stage:\s*mixing background music/i.test(line)) {
+          job.stage = "mixing";
+          job.stageLabel = "Trộn âm thanh";
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.totalDuration || 0;
+          job.progress = Math.max(job.progress, 95);
+          job.detail = "Đang trộn nhạc nền với phần thuyết minh…";
+          job.message = job.detail;
+          continue;
+        }
+
+        if (/Render stage:\s*finalizing output/i.test(line)) {
+          job.stage = "finalizing";
+          job.stageLabel = "Hoàn tất video";
+          job.progress = Math.max(job.progress, 99);
+          job.detail = "Đang đóng gói video và tối ưu file MP4…";
+          job.message = job.detail;
+          continue;
+        }
+
+        const time = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+        if (!time) continue;
+        const mediaTime = Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3]);
+        job.mediaTimeSeconds = mediaTime;
+        if (job.stage === "scene" && job.sceneDuration > 0 && job.totalScenes > 0) {
+          const sceneProgress = Math.min(1, mediaTime / job.sceneDuration);
+          job.progress = Math.max(job.progress, Math.min(88, Math.round(8 + ((job.scene - 1 + sceneProgress) / job.totalScenes) * 80)));
+          job.detail = `Cảnh ${job.scene}/${job.totalScenes}: ${job.sceneName || "đang mã hóa"} · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.sceneDuration)}`;
+          job.message = job.detail;
+        } else if ((job.stage === "joining" || job.stage === "mixing") && job.mediaDurationSeconds > 0) {
+          const start = job.stage === "joining" ? 90 : 95;
+          const span = job.stage === "joining" ? 5 : 4;
+          const ratio = Math.min(1, mediaTime / job.mediaDurationSeconds);
+          job.progress = Math.max(job.progress, Math.min(start + span - 1, Math.round(start + ratio * span)));
+          job.detail = `${job.stage === "joining" ? "Đang nối các cảnh" : "Đang trộn âm thanh"} · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.mediaDurationSeconds)}`;
+          job.message = job.detail;
+        }
       }
     };
     child.stdout.on("data", consume);
@@ -331,12 +471,20 @@ const runJob = async (job, project, files) => {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
       return;
     }
     if (exitCode !== 0) {
       const detail = summarizeFfmpegFailure(job.log);
       throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}${detail ? `: ${detail}` : ""}`);
     }
+    job.stage = "finalizing";
+    job.stageLabel = "Hoàn tất video";
+    job.progress = Math.max(job.progress, 99);
+    job.detail = "Đang lưu video vào thư viện render…";
+    job.message = job.detail;
     job.clip = await storeRenderedClip({
       sourcePath: job.outputPath,
       name: project.title || "video",
@@ -346,15 +494,26 @@ const runJob = async (job, project, files) => {
     job.status = "completed";
     job.progress = 100;
     job.message = "Render hoàn tất";
+    job.stage = "completed";
+    job.stageLabel = "Hoàn tất";
+    job.detail = "Video đã được lưu vào thư viện render.";
+    job.mediaTimeSeconds = job.totalDuration || job.mediaTimeSeconds;
+    job.mediaDurationSeconds = job.totalDuration || job.mediaDurationSeconds;
     job.downloadUrl = job.clip.downloadUrl;
   } catch (error) {
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
     } else {
       job.status = "failed";
       job.message = error instanceof Error ? error.message : "Không thể render video";
+      job.stage = "failed";
+      job.stageLabel = "Render lỗi";
+      job.detail = job.message;
     }
   } finally {
     job.child = null;
@@ -734,6 +893,15 @@ const server = http.createServer(async (request, response) => {
         cancelRequested: false,
         progress: 0,
         message: "Đang chuẩn bị tài nguyên",
+        stage: "queued",
+        stageLabel: "Đang xếp hàng",
+        detail: "Đang chờ phiên render được khởi động…",
+        scene: 0,
+        totalScenes: project.scenes.length,
+        mediaTimeSeconds: 0,
+        mediaDurationSeconds: 0,
+        elapsedSeconds: 0,
+        startedAt: null,
         log: "",
         sourceDir: path.join(jobRoot, "source"),
         renderDir: path.join(jobRoot, "render"),
@@ -760,7 +928,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (["completed", "failed", "cancelled"].includes(job.status)) {
-      sendJson(response, 200, { id: job.id, status: job.status });
+      sendJson(response, 200, renderJobPayload(job));
       return;
     }
     job.cancelRequested = true;
@@ -784,15 +952,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 404, { error: "Không tìm thấy phiên render" });
       return;
     }
-    sendJson(response, 200, {
-      id: job.id,
-      status: job.status,
-      progress: job.progress,
-      message: job.message,
-      downloadUrl: job.downloadUrl || null,
-      clip: job.clip || null,
-      log: job.status === "failed" ? job.log.slice(-3000) : undefined,
-    });
+    sendJson(response, 200, renderJobPayload(job));
     return;
   }
 

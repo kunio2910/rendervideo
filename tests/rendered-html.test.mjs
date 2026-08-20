@@ -327,6 +327,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /buildRenderPayload/);
   assert.match(page, /Render cảnh đang chọn/);
   assert.match(page, /Render toàn clip/);
+  assert.match(page, /local-render-detail-card/);
+  assert.match(page, /renderStageSteps/);
+  assert.match(page, /formatRenderDuration/);
   assert.match(page, /Video đã render · Nối nhanh/);
   assert.match(page, /selectedRenderedClipIds/);
   assert.match(page, /startLocalConcat/);
@@ -372,6 +375,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /flex: 1 1 auto/);
   assert.match(css, /editor-section-actions/);
   assert.match(css, /editor-section-action/);
+  assert.match(css, /local-render-stage-track/);
+  assert.match(css, /local-render-detail-grid/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
@@ -390,6 +395,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /scene\.zoom/);
   assert.match(renderer, /scene\.zoomEnd/);
   assert.match(renderer, /normalizeSceneEffects/);
+  assert.match(renderer, /Scene complete/);
+  assert.match(renderer, /Render stage: joining/);
+  assert.match(renderer, /Render stage: mixing background music/);
+  assert.match(localServer, /renderJobPayload/);
+  assert.match(localServer, /mediaTimeSeconds/);
+  assert.match(localServer, /etaSeconds/);
   assert.match(page, /const SNOWFLAKE_SEEDS = Array\.from\(\{ length: 36 \}/);
   assert.match(page, /const RAIN_DROP_SEEDS = Array\.from\(\{ length: 32 \}/);
   assert.match(page, /const CLOUD_SEEDS = Array\.from\(\{ length: 7 \}/);

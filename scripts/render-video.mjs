@@ -2132,6 +2132,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   console.log(`Rendering scene ${index + 1}/${scenes.length}: ${scene.sceneName ?? scene.title ?? `Cảnh ${index + 1}`}`);
   await run(ffmpeg, args);
   clipPaths.push(clip);
+  console.log(`Scene complete ${index + 1}/${scenes.length}`);
 }
 
 const concatFile = path.join(renderDir, "concat.txt");
@@ -2145,6 +2146,7 @@ const music = project.backgroundMusic
 const narrationVideo = music
   ? path.join(renderDir, "narration-video.mp4")
   : outputPath;
+console.log(`Render stage: joining ${clipPaths.length} rendered scenes`);
 await run(ffmpeg, [
   "-y",
   "-f", "concat",
@@ -2161,6 +2163,7 @@ await run(ffmpeg, [
 ]);
 
 if (music) {
+  console.log("Render stage: mixing background music");
   const musicVolume = audioVolume(project.backgroundMusicVolume, 18);
   await run(ffmpeg, [
     "-y",
@@ -2178,6 +2181,9 @@ if (music) {
     outputPath,
   ]);
 } else if (narrationVideo !== outputPath) {
+  console.log("Render stage: finalizing output");
   await fs.copyFile(narrationVideo, outputPath);
+} else {
+  console.log("Render stage: finalizing output");
 }
 console.log(`Rendered: ${outputPath}`);
