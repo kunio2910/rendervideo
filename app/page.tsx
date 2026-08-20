@@ -753,6 +753,14 @@ const SCENE_STRUCTURE_ZOOM_MIN = 75;
 const SCENE_STRUCTURE_ZOOM_MAX = 200;
 const SCENE_STRUCTURE_ZOOM_STEP = 25;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
+const FFMPEG_SETUP_COMMANDS = [
+  "node --version",
+  "npm --version",
+  "npm install",
+  "npm run render:setup",
+].join("\r\n");
+const FFMPEG_START_COMMAND = "npm run render:local";
+const FFMPEG_HEALTH_COMMAND = `curl ${LOCAL_RENDERER_URL}/api/health`;
 
 const clampReviewZoom = (value: unknown) => {
   const numeric = Number(value);
@@ -2271,6 +2279,113 @@ function SettingsWorkspace({
     || String(selectedClip.previewBackground ?? "").trim()
     || String(selectedClip.background ?? "").trim()
     || String(firstScene?.image ?? "").trim();
+  const selectedSceneImages = selectedScene?.sceneImages ?? [];
+  const selectedSceneTexts = selectedScene?.textOverlays ?? [];
+  const selectedScenePopups = selectedScene ? scenePopupList(selectedScene) : [];
+  const selectedSceneDecorations = selectedScene?.mapDecorations ?? [];
+  const selectedSceneSubtitles = selectedScene?.subtitles ?? [];
+  const selectedSceneEffectLabels = selectedScene ? [
+    selectedScene.zoomEnabled !== false ? "Zoom camera" : "",
+    ...(selectedScene.effects?.sceneStartDarkEffects ?? [])
+      .filter((effect) => effect.enabled)
+      .map((_, index) => `Tối dần ${index + 1}`),
+    selectedScene.effects?.snowEnabled ? "Tuyết" : "",
+    selectedScene.effects?.lightFlickerEnabled ? "Ánh sáng chớp" : "",
+    selectedScene.effects?.rainEnabled ? "Mưa" : "",
+    selectedScene.effects?.thunderEnabled ? "Sấm chớp" : "",
+    selectedScene.effects?.cloudEnabled ? "Mây" : "",
+  ].filter(Boolean) : [];
+  const selectedSceneMediaSources = selectedScene ? [
+    selectedScene.avatar,
+    selectedScene.image,
+    selectedScene.background,
+    selectedScene.voiceFile,
+    ...selectedSceneImages.map((item) => item.url),
+    ...selectedScenePopups.flatMap((item) => [item.image, item.video]),
+    ...selectedSceneDecorations.map((item) => item.asset),
+  ].map(safeTrim).filter(Boolean) : [];
+  const selectedSceneMediaCount = new Set(selectedSceneMediaSources).size;
+  const selectedSceneVisibleLayerCount = selectedScene
+    ? selectedSceneImages.filter((item) => item.visible !== false).length
+      + selectedSceneTexts.filter((item) => item.visible !== false).length
+      + selectedScenePopups.filter((item) => item.visible !== false).length
+      + selectedSceneDecorations.filter((item) => item.visible !== false).length
+      + (selectedScene.subtitleEnabled !== false && selectedSceneSubtitles.some((item) => item.visible !== false) ? 1 : 0)
+    : 0;
+  const selectedSceneResourceRows = selectedScene ? [
+    {
+      id: `${selectedScene.id}-resource-background`,
+      icon: "BG",
+      kind: "Nền cảnh",
+      name: isVideoMedia(selectedScene.background) ? "Background video" : "Background hình ảnh",
+      source: safeTrim(selectedScene.background) || "Dùng background mặc định của clip",
+      meta: `${selectedScene.backgroundVisible !== false ? "Đang hiển thị" : "Đang ẩn"} · phủ toàn cảnh`,
+      visible: selectedScene.backgroundVisible !== false,
+    },
+    {
+      id: `${selectedScene.id}-resource-audio`,
+      icon: "AU",
+      kind: "Âm thanh",
+      name: "Thuyết minh cảnh",
+      source: safeTrim(selectedScene.voiceFile) || "Chưa chọn file âm thanh",
+      meta: `Bắt đầu ${formatTime(selectedScene.voiceStart)} · âm lượng ${selectedScene.voiceVolume}% · giọng ${selectedScene.voice || "chưa chọn"}`,
+      visible: Boolean(safeTrim(selectedScene.voiceFile)),
+    },
+    ...selectedSceneImages.map((item) => ({
+      id: item.id,
+      icon: item.mediaType === "video" ? "VD" : "IMG",
+      kind: "Hình ảnh / video",
+      name: item.name || "Layer hình ảnh",
+      source: safeTrim(item.url) || "Chưa nhập URL hoặc tên file",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${Math.round(item.width)}% × ${Math.round(item.height)}% · opacity ${Math.round(item.opacity)}%`,
+      visible: item.visible !== false,
+    })),
+    ...selectedScenePopups.map((item, index) => ({
+      id: item.id,
+      icon: "P",
+      kind: "Popup",
+      name: item.title || `Popup ${index + 1}`,
+      source: safeTrim(item.video) || safeTrim(item.image) || safeTrim(item.body) || "Chưa có media hoặc nội dung",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${item.layout || "bố cục mặc định"} · ${item.theme || "chủ đề mặc định"}`,
+      visible: item.visible !== false,
+    })),
+    ...selectedSceneTexts.map((item, index) => ({
+      id: item.id,
+      icon: "T",
+      kind: "Chữ viết",
+      name: item.name || `Chữ ${index + 1}`,
+      source: safeTrim(item.text) || "Chưa có nội dung chữ",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.end)} · ${item.textEffect || "không hiệu ứng"} · cỡ ${item.size}px`,
+      visible: item.visible !== false,
+    })),
+    ...selectedSceneDecorations.map((item, index) => ({
+      id: item.id,
+      icon: item.type === "effect" ? "FX" : "DC",
+      kind: item.type === "effect" ? "Hiệu ứng" : "Trang trí",
+      name: item.name || `Trang trí ${index + 1}`,
+      source: safeTrim(item.asset) || safeTrim(item.text) || item.symbol || "Không có tệp đính kèm",
+      meta: `${item.visible !== false ? "Đang hiển thị" : "Đang ẩn"} · ${formatTime(item.start)}–${formatTime(item.start + item.duration)} · ${item.animation || "không chuyển động"} · opacity ${Math.round(item.opacity)}%`,
+      visible: item.visible !== false,
+    })),
+    ...(selectedSceneSubtitles.length ? [{
+      id: `${selectedScene.id}-resource-subtitles`,
+      icon: "CC",
+      kind: "Phụ đề",
+      name: `${selectedSceneSubtitles.length} dòng phụ đề`,
+      source: selectedSceneSubtitles.map((item) => item.text).filter(Boolean).join(" · ") || "Chưa có nội dung",
+      meta: `${selectedScene.subtitleEnabled !== false ? "Đang bật" : "Đang tắt"} · ${selectedSceneSubtitles.filter((item) => item.visible !== false).length} dòng đang hiển thị · ${selectedScene.subtitleStyle.animation || "không hiệu ứng"}`,
+      visible: selectedScene.subtitleEnabled !== false,
+    }] : []),
+    ...(selectedSceneEffectLabels.length ? [{
+      id: `${selectedScene.id}-resource-effects`,
+      icon: "FX",
+      kind: "Hiệu ứng cảnh",
+      name: `${selectedSceneEffectLabels.length} hiệu ứng đang bật`,
+      source: selectedSceneEffectLabels.join(" · "),
+      meta: "Được đồng bộ với Preview, Timeline và bộ render",
+      visible: true,
+    }] : []),
+  ] : [];
 
   return (
     <>
@@ -2522,15 +2637,49 @@ function SettingsWorkspace({
                           <div><span>Trạng thái</span><b>{selectedScene.status}</b></div>
                         </div>
                       </section>
-                      <section>
-                        <h5>Tài nguyên</h5>
-                        <div className="settings-info-grid">
-                          <div className="wide"><span>Ảnh cảnh</span><b>{selectedScene.image || "Chưa có"}</b></div>
-                          <div className="wide"><span>Background</span><b>{selectedScene.background || "Mặc định"}</b></div>
-                          <div className="wide"><span>Video popup</span><b>{selectedScene.popupVideo || "Chưa có"}</b></div>
-                          <div className="wide"><span>Âm thanh thuyết minh</span><b>{selectedScene.voiceFile || "Chưa có"}</b></div>
-                          <div><span>Âm lượng</span><b>{selectedScene.voiceVolume}%</b></div>
+                      <section className="settings-scene-resources">
+                        <h5>Thông tin tài nguyên cảnh</h5>
+                        <div className="settings-scene-resource-summary">
+                          <div><strong>{selectedSceneMediaCount}</strong><span>Tệp / URL</span></div>
+                          <div><strong>{selectedSceneResourceRows.length}</strong><span>Mục tài nguyên</span></div>
+                          <div><strong>{selectedSceneVisibleLayerCount}</strong><span>Layer đang hiện</span></div>
+                          <div><strong>{selectedScene.layerOrder?.length ?? 0}</strong><span>Thứ tự layer</span></div>
                         </div>
+                        <div className="settings-info-grid settings-resource-facts">
+                          <div className="wide"><span>Ảnh đại diện</span><b>{selectedScene.avatar || "Chưa có"}</b></div>
+                          <div className="wide"><span>Ảnh cảnh / popup cũ</span><b>{selectedScene.image || "Chưa có"}</b></div>
+                          <div className="wide"><span>Background</span><b>{selectedScene.background || "Mặc định của clip"}</b></div>
+                          <div className="wide"><span>Video popup cũ</span><b>{selectedScene.popupVideo || "Chưa có"}</b></div>
+                          <div className="wide"><span>Âm thanh thuyết minh</span><b>{selectedScene.voiceFile || "Chưa có"}</b></div>
+                          <div><span>Bắt đầu âm thanh</span><b>{formatTime(selectedScene.voiceStart)}</b></div>
+                          <div><span>Âm lượng</span><b>{selectedScene.voiceVolume}%</b></div>
+                          <div><span>Hình / video trên bản đồ</span><b>{selectedSceneImages.length}</b></div>
+                          <div><span>Popup</span><b>{selectedScenePopups.length}</b></div>
+                          <div><span>Chữ viết</span><b>{selectedSceneTexts.length}</b></div>
+                          <div><span>Trang trí / hiệu ứng</span><b>{selectedSceneDecorations.length}</b></div>
+                          <div><span>Phụ đề</span><b>{selectedSceneSubtitles.length} dòng</b></div>
+                          <div><span>Hiệu ứng cảnh đang bật</span><b>{selectedSceneEffectLabels.length}</b></div>
+                        </div>
+                        <details className="settings-resource-breakdown" open>
+                          <summary>
+                            <span>Chi tiết layer và thời gian</span>
+                            <b>{selectedSceneResourceRows.length} mục</b>
+                          </summary>
+                          <div className="settings-resource-row-list">
+                            {selectedSceneResourceRows.map((resource) => (
+                              <article key={resource.id} className={resource.visible ? "is-visible" : "is-hidden"}>
+                                <span className="settings-resource-row-icon" aria-hidden="true">{resource.icon}</span>
+                                <div>
+                                  <span>{resource.kind}</span>
+                                  <strong>{resource.name}</strong>
+                                  <code title={resource.source}>{resource.source}</code>
+                                  <small>{resource.meta}</small>
+                                </div>
+                                <em>{resource.visible ? "Hiện" : "Ẩn"}</em>
+                              </article>
+                            ))}
+                          </div>
+                        </details>
                       </section>
                       <section>
                         <h5>Popup</h5>
@@ -8030,6 +8179,12 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const copyFfmpegCommands = async (commands: string, label: string) => {
+    await navigator.clipboard.writeText(commands);
+    setToast(`Đã sao chép ${label}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const focusJsonPreview = () => {
     setJsonPreviewCleared(false);
     document.getElementById("export-json-preview")?.focus();
@@ -8760,6 +8915,116 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const deleteSceneStructureItem = (item: SceneStructureItem) => {
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const nextLayerOrder = (currentScene.layerOrder ?? []).filter((token) => token !== item.token);
+      if (item.kind === "background") {
+        return { ...currentScene, background: "", backgroundVisible: false, layerOrder: nextLayerOrder };
+      }
+      if (item.kind === "image") {
+        return {
+          ...currentScene,
+          sceneImages: (currentScene.sceneImages ?? []).filter((image) => image.id !== item.id),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "popup") {
+        const popups = scenePopupList(currentScene);
+        const popupIndex = popups.findIndex((popup) => popup.id === item.id);
+        const nextPopups = popups.filter((popup) => popup.id !== item.id);
+        const fallbackPopup = defaultPopupConfig(`${currentScene.id}-popup-empty`, { visible: false });
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(popupIndex === 0 ? popupSceneFields(nextPopups[0] ?? fallbackPopup) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "text") {
+        const overlays = currentScene.textOverlays ?? [];
+        const overlayIndex = overlays.findIndex((overlay) => overlay.id === item.id);
+        const nextOverlays = overlays.filter((overlay) => overlay.id !== item.id);
+        const fallbackOverlay = defaultTextOverlay(`${currentScene.id}-text-empty`, { text: "", visible: false });
+        return {
+          ...currentScene,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlays[0] ?? fallbackOverlay) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "decoration") {
+        return {
+          ...currentScene,
+          mapDecorations: (currentScene.mapDecorations ?? []).filter((decoration) => decoration.id !== item.id),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "subtitle") {
+        return {
+          ...currentScene,
+          subtitleEnabled: false,
+          subtitles: [],
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "audio" && item.id === "voice") {
+        return {
+          ...currentScene,
+          narration: "",
+          voice: "",
+          voiceFile: "",
+          voiceStart: 0,
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "effect" && item.id === "zoom") {
+        return { ...currentScene, zoomEnabled: false, layerOrder: nextLayerOrder };
+      }
+      if (item.kind === "effect" && item.id.startsWith("dark:")) {
+        const effectId = item.id.slice("dark:".length);
+        const effects = normalizeSceneEffects(currentScene.effects);
+        const darkEffects = effects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
+        const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
+        return {
+          ...currentScene,
+          effects: {
+            ...effects,
+            sceneStartDarkEffects: darkEffects,
+            sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+            sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+            sceneStartDarkIntensity: firstEffect.intensity,
+          },
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "effect" && item.id === "weather") {
+        return {
+          ...currentScene,
+          effects: {
+            ...normalizeSceneEffects(currentScene.effects),
+            snowEnabled: false,
+            rainEnabled: false,
+            cloudEnabled: false,
+            lightFlickerEnabled: false,
+            thunderEnabled: false,
+          },
+          layerOrder: nextLayerOrder,
+        };
+      }
+      return currentScene;
+    }));
+    setSelectedSceneStructureToken("");
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
+    setSelectedDecorationId("");
+    setToast(`Đã xóa ${item.label} · Ctrl+Z để hoàn tác`);
+    window.setTimeout(() => setToast(""), 2600);
+  };
+
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
@@ -9169,9 +9434,9 @@ function Home() {
               value={projectId}
               onChange={(event) => switchProject(event.target.value)}
             >
-              {[...projects.filter((item) => item.id !== projectId), currentProject].map(
-                (item) => <option key={item.id} value={item.id}>{item.title}</option>,
-              )}
+              {projectItems.map((item) => (
+                <option key={item.id} value={item.id}>{item.title}</option>
+              ))}
             </select>
           </label>
           <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
@@ -12924,6 +13189,83 @@ function Home() {
                         <p className="export-empty-note">Chưa chạy kiểm tra. Hãy kiểm tra trước khi bắt đầu render.</p>
                       )}
                     </section>
+
+                    <div className="export-section-label">CÀI ĐẶT FFMPEG BẰNG CMD</div>
+                    <section className="export-ffmpeg-guide" aria-labelledby="ffmpeg-guide-heading">
+                      <div className="export-ffmpeg-guide-heading">
+                        <div>
+                          <span className="export-card-icon ffmpeg-icon" aria-hidden="true">›_</span>
+                          <div>
+                            <h3 id="ffmpeg-guide-heading">Chuẩn bị máy để xuất video</h3>
+                            <p>Chỉ thiết lập một lần trên mỗi thiết bị Windows.</p>
+                          </div>
+                        </div>
+                        <a href="https://nodejs.org/" target="_blank" rel="noreferrer">Node.js LTS 22+</a>
+                      </div>
+
+                      <ol className="export-ffmpeg-steps">
+                        <li>
+                          <span>01</span>
+                          <div>
+                            <strong>Mở CMD trong thư mục dự án</strong>
+                            <p>Dùng <code>cd /d</code> để đi tới thư mục <b>rendervideo</b> đã tải về.</p>
+                            <code className="export-ffmpeg-inline-command">cd /d "C:\duong-dan\rendervideo"</code>
+                          </div>
+                        </li>
+                        <li>
+                          <span>02</span>
+                          <div>
+                            <strong>Cài gói Node và FFmpeg cục bộ</strong>
+                            <p>Nếu CMD không nhận lệnh <code>node</code>, hãy cài Node.js LTS rồi mở lại CMD.</p>
+                            <div className="export-ffmpeg-command-box">
+                              <pre>{FFMPEG_SETUP_COMMANDS}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh cài FFmpeg"
+                                title="Sao chép lệnh cài đặt"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_SETUP_COMMANDS, "lệnh cài FFmpeg")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                        <li>
+                          <span>03</span>
+                          <div>
+                            <strong>Khởi động dịch vụ render</strong>
+                            <p>Chạy lệnh dưới đây và giữ nguyên cửa sổ CMD trong suốt quá trình render.</p>
+                            <div className="export-ffmpeg-command-box compact">
+                              <pre>{FFMPEG_START_COMMAND}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh khởi động render"
+                                title="Sao chép lệnh khởi động"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_START_COMMAND, "lệnh khởi động render")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                        <li>
+                          <span>04</span>
+                          <div>
+                            <strong>Kiểm tra kết nối</strong>
+                            <p>Mở một CMD khác để kiểm tra, hoặc bấm “Kiểm tra lại” ở panel phía trên.</p>
+                            <div className="export-ffmpeg-command-box compact">
+                              <pre>{FFMPEG_HEALTH_COMMAND}</pre>
+                              <button
+                                type="button"
+                                aria-label="Sao chép lệnh kiểm tra FFmpeg"
+                                title="Sao chép lệnh kiểm tra"
+                                onClick={() => void copyFfmpegCommands(FFMPEG_HEALTH_COMMAND, "lệnh kiểm tra FFmpeg")}
+                              >⧉</button>
+                            </div>
+                          </div>
+                        </li>
+                      </ol>
+                      <div className="export-ffmpeg-note">
+                        <span aria-hidden="true">i</span>
+                        <p><strong>Không cần cài lại mỗi lần.</strong> Những lần sau chỉ chạy <code>npm run render:local</code> trước khi xuất video.</p>
+                      </div>
+                    </section>
                     <p className="export-help">Các file trong thư viện tài nguyên sẽ được dùng lại cho những lần render tiếp theo.</p>
                   </div>
                 </div>
@@ -13353,8 +13695,15 @@ function Home() {
                               maxWidth: `calc(100% - ${leftPercent}% - 12px)`,
                             }}
                             aria-pressed={item.token === selectedSceneStructureItem?.token}
-                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}`}
+                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
+                            title="Nhấn Delete để xóa tài nguyên"
                             onClick={() => selectSceneStructureItem(item)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Delete") return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              deleteSceneStructureItem(item);
+                            }}
                           >
                             <span className="scene-structure-card-media" aria-hidden="true">
                               {renderSceneStructureThumbnail(item)}
@@ -13507,7 +13856,7 @@ function Home() {
                         Ẩn tài nguyên
                       </button>
                     </div>
-                    <p className="scene-structure-inspector-hint">Các thay đổi thời gian được cập nhật trực tiếp về “Biên soạn”.</p>
+                    <p className="scene-structure-inspector-hint">Thay đổi được đồng bộ với “Biên soạn”. Chọn thẻ và nhấn Delete để xóa; dùng Ctrl+Z để hoàn tác.</p>
                   </>
                     ) : (
                   <div className="scene-structure-inspector-empty">
