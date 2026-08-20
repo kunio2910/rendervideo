@@ -188,6 +188,21 @@ type PreviewLayerItem = {
   icon: string;
 };
 
+const TimeFieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
+  <span className="field-label-with-hint">
+    <span>{children}</span>
+    <span
+      className="time-field-hint"
+      title={hint}
+      role="img"
+      aria-label={`Giải thích: ${hint}`}
+      tabIndex={0}
+    >
+      !
+    </span>
+  </span>
+);
+
 const previewLayerToken = (kind: PreviewLayerKind, id: string) => `${kind}:${id}`;
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
@@ -3163,6 +3178,35 @@ function Home() {
       `${item.label} ${item.kind}`.toLocaleLowerCase("vi-VN").includes(query),
     );
   }, [previewLayerItems, previewLayerQuery]);
+  const previewLayerAvatar = (item: PreviewLayerItem) => {
+    let source = "";
+    let isVideo = false;
+    if (item.kind === "image") {
+      const image = previewSceneImageItems.find((entry) => entry.id === item.id);
+      if (image) {
+        source = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
+        isVideo = image.mediaType === "video" || isVideoMedia(image.url);
+      }
+    } else if (item.kind === "popup") {
+      const popup = previewPopupItems.find((entry) => entry.id === item.id);
+      if (popup) {
+        source = assetPreviewSource(popup.video) || assetPreviewSource(popup.image);
+        isVideo = Boolean(safeTrim(popup.video));
+      }
+    } else if (item.kind === "decoration") {
+      const decoration = previewDecorationItems.find((entry) => entry.id === item.id);
+      if (decoration && (decoration.type === "sticker" || decoration.type === "animated-sticker")) {
+        source = assetPreviewSource(decoration.asset);
+        isVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
+      }
+    }
+    if (!source) return <span>{item.icon}</span>;
+    return isVideo ? (
+      <video src={source} muted loop playsInline preload="metadata" aria-hidden="true" />
+    ) : (
+      <img src={source} alt="" />
+    );
+  };
   const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
   const subtitleAnimationProgress = activeSubtitle
     ? Math.min(
@@ -5688,6 +5732,17 @@ function Home() {
             : image),
         }
       : item));
+  };
+
+  const updateSceneImageEndTime = (value: number) => {
+    if (!activeSceneImage) return;
+    const minimumEnd = Math.min(sceneDuration, activeSceneImage.start + 0.1);
+    const numericValue = Number(value);
+    const nextEnd = Math.min(
+      sceneDuration,
+      Math.max(minimumEnd, Number.isFinite(numericValue) ? numericValue : minimumEnd),
+    );
+    updateSceneImage("duration", Number((nextEnd - activeSceneImage.start).toFixed(2)));
   };
 
   const updateSceneImageTransitionEndInput = (value: string) => {
@@ -8716,6 +8771,27 @@ function Home() {
               </div>
             )}
           </div>
+          <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
+            <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
+              <button
+                type="button"
+                onClick={() => adjustPreviewZoom(-5)}
+                disabled={previewZoom <= 75}
+                aria-label="Thu nhỏ xem trước"
+              >
+                −
+              </button>
+              <output>{previewZoom}%</output>
+              <button
+                type="button"
+                onClick={() => adjustPreviewZoom(5)}
+                disabled={previewZoom >= 125}
+                aria-label="Phóng to xem trước"
+              >
+                +
+              </button>
+            </div>
+          </div>
             </div>
             <aside className="preview-layer-panel" aria-label="Các lớp trong màn hình xem trước">
               <div className="preview-layer-panel-heading">
@@ -8755,7 +8831,7 @@ function Home() {
                     onDragEnd={clearPreviewLayerDrag}
                   >
                     <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
-                    <span className="preview-layer-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
                     <span className="preview-layer-label">
                       <strong>{item.label}</strong>
                       <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
@@ -8767,27 +8843,6 @@ function Home() {
               </div>
               <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
             </aside>
-          </div>
-          <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
-            <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
-              <button
-                type="button"
-                onClick={() => adjustPreviewZoom(-5)}
-                disabled={previewZoom <= 75}
-                aria-label="Thu nhỏ xem trước"
-              >
-                −
-              </button>
-              <output>{previewZoom}%</output>
-              <button
-                type="button"
-                onClick={() => adjustPreviewZoom(5)}
-                disabled={previewZoom >= 125}
-                aria-label="Phóng to xem trước"
-              >
-                +
-              </button>
-            </div>
           </div>
         </section>
 
@@ -8801,7 +8856,7 @@ function Home() {
                   : `Cảnh ${scene.number}`}
               </span>
               <label className="quick-scene-duration">
-                <span>Thời lượng</span>
+                <TimeFieldLabel hint="Độ dài toàn bộ cảnh; các mốc thời gian bên trong cảnh được tính từ 0 giây của cảnh này.">Thời lượng</TimeFieldLabel>
                 <input
                   type="number"
                   min="0.1"
@@ -9008,7 +9063,7 @@ function Home() {
                     <div className="scene-image-controls">
                       <div className="scene-image-sprite-action-row">
                         <label className="field scene-image-sprite-speed-field">
-                          <span>Tốc độ chuyển động (ms/frame)</span>
+                          <TimeFieldLabel hint="Khoảng trễ giữa hai khung hình của sprite; giá trị lớn hơn làm chuyển động chậm hơn.">Tốc độ chuyển động (ms/frame)</TimeFieldLabel>
                           <div className="number-with-unit">
                             <input
                               type="number"
@@ -9082,7 +9137,7 @@ function Home() {
                           <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
                         </label>
                         <label className="field scene-image-transition-end-field">
-                          <span>Thời gian kết thúc hiệu ứng</span>
+                          <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel>
                           <div className="number-with-unit">
                             <input
                               type="number"
@@ -9163,14 +9218,14 @@ function Home() {
                         </label>
                       </div>
                       <div className="field-row">
-                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => {
-                          const nextStart = Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0));
+                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={Math.max(0, sceneDuration - 0.1)} step="0.1" value={activeSceneImage.start} onChange={(event) => {
+                          const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, Number(event.target.value) || 0));
                           updateSceneImage("start", nextStart);
                           if (activeSceneImage.transitionEnd < nextStart + 0.1) {
-                            updateSceneImage("transitionEnd", nextStart + 0.1);
+                            updateSceneImage("transitionEnd", Math.min(sceneDuration, nextStart + 0.1));
                           }
                         }} /><b>s</b></div></label>
-                        <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><input type="number" min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step="0.1" value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onChange={(event) => updateSceneImageEndTime(Number(event.target.value))} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
                       <small>Kéo trực tiếp lớp trên bản đồ để di chuyển. Kéo nút ở góc lớp để tăng hoặc giảm kích thước.</small>
@@ -9376,7 +9431,7 @@ function Home() {
                     </select>
                   </label>
                   <label className="field">
-                    <span>Thời lượng hiệu ứng</span>
+                    <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
                     <div className="number-with-unit">
                       <input
                         type="number"
@@ -9394,7 +9449,7 @@ function Home() {
                 <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
                 <div className="field-row text-overlay-timing-fields">
                   <label className="field">
-                    <span>Thời gian bắt đầu chữ</span>
+                    <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; chữ bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu chữ</TimeFieldLabel>
                     <div className="number-with-unit">
                       <input
                         type="text"
@@ -9408,7 +9463,7 @@ function Home() {
                     </div>
                   </label>
                   <label className="field">
-                    <span>Thời gian kết thúc chữ</span>
+                    <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; chữ sẽ ẩn sau thời điểm này.">Thời gian kết thúc chữ</TimeFieldLabel>
                     <div className="number-with-unit">
                       <input
                         type="text"
@@ -9825,8 +9880,8 @@ function Home() {
                         <label className="field color-field"><span>Màu chiều sâu</span><input className="text-color-picker" type="color" value={normalizeHexColor(activeDecoration.accentColor, "#7c3aed")} onChange={(event) => updateMapDecoration("accentColor", event.target.value)} /></label>
                       </div>
                       <div className="field-row">
-                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeDecoration.start} onChange={(event) => updateMapDecoration("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
-                        <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeDecoration.duration)} onChange={(event) => updateMapDecoration("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeDecoration.start} onChange={(event) => updateMapDecoration("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field"><TimeFieldLabel hint="Độ dài tương đối của hiệu ứng, tính từ mốc bắt đầu.">Thời lượng</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeDecoration.duration)} onChange={(event) => updateMapDecoration("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeDecoration.x)}% · Y {Math.round(activeDecoration.y)}%</b></div>
                     </div>
@@ -9950,7 +10005,7 @@ function Home() {
                 </label>
               </div>
               <div className="field audio-volume-field">
-                <span>Thời gian bắt đầu phát âm thanh (giây)</span>
+                <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; âm thanh bắt đầu phát từ thời điểm này.">Thời gian bắt đầu phát âm thanh (giây)</TimeFieldLabel>
                 <div className="number-with-unit">
                   <input
                     type="number"
@@ -10158,7 +10213,7 @@ function Home() {
               </div>
               <div className="field-row subtitle-global-timing-row">
                 <label className="field">
-                  <span>Thời gian bắt đầu phát tất cả phụ đề</span>
+                  <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; toàn bộ cue phụ đề được dịch bắt đầu từ thời điểm này.">Thời gian bắt đầu phát tất cả phụ đề</TimeFieldLabel>
                   <div className="number-with-unit">
                     <input
                       type="number"
@@ -10220,7 +10275,7 @@ function Home() {
                       />
                       <div className="field-row subtitle-timing-fields">
                         <label className="field">
-                          <span>Bắt đầu</span>
+                          <TimeFieldLabel hint="Mốc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Bắt đầu</TimeFieldLabel>
                           <div className="number-with-unit">
                             <input
                               type="number"
@@ -10234,7 +10289,7 @@ function Home() {
                           </div>
                         </label>
                         <label className="field">
-                          <span>Kết thúc</span>
+                          <TimeFieldLabel hint="Mốc kết thúc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Kết thúc</TimeFieldLabel>
                           <div className="number-with-unit">
                             <input
                               type="number"
@@ -10287,7 +10342,7 @@ function Home() {
                   </label>
                   <div className="field-row zoom-settings-fields">
                     <label className="field">
-                      <span>Thời gian bắt đầu zoom</span>
+                      <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng zoom bắt đầu từ thời điểm này.">Thời gian bắt đầu zoom</TimeFieldLabel>
                       <div className="number-with-unit">
                         <input
                           type="text"
@@ -10315,7 +10370,7 @@ function Home() {
                       </div>
                     </label>
                     <label className="field">
-                      <span>Thời gian kết thúc zoom</span>
+                      <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng zoom hoàn tất tại thời điểm này.">Thời gian kết thúc zoom</TimeFieldLabel>
                       <div className="number-with-unit">
                         <input
                           type="text"
@@ -10329,7 +10384,7 @@ function Home() {
                       </div>
                     </label>
                     <label className="field">
-                      <span>Thời gian tới tỉ lệ đó</span>
+                      <TimeFieldLabel hint="Độ dài tương đối của chuyển động zoom vào, tính từ mốc bắt đầu zoom.">Thời gian tới tỉ lệ đó</TimeFieldLabel>
                       <div className="number-with-unit">
                         <input
                           type="text"
@@ -10343,7 +10398,7 @@ function Home() {
                       </div>
                     </label>
                     <label className="field">
-                      <span>Khoảng thời gian zoom về</span>
+                      <TimeFieldLabel hint="Độ dài tương đối của chuyển động zoom về, tính lùi từ mốc kết thúc zoom.">Khoảng thời gian zoom về</TimeFieldLabel>
                       <div className="number-with-unit">
                         <input
                           type="text"
@@ -10386,7 +10441,7 @@ function Home() {
                         </label>
                         <div className="field-row scene-start-dark-time-row">
                           <label className="field">
-                            <span>Thời gian bắt đầu</span>
+                            <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối bắt đầu từ thời điểm này.">Thời gian bắt đầu</TimeFieldLabel>
                             <div className="number-with-unit">
                               <input
                                 type="text"
@@ -10400,7 +10455,7 @@ function Home() {
                             </div>
                           </label>
                           <label className="field">
-                            <span>Thời gian kết thúc</span>
+                            <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối kết thúc tại thời điểm này.">Thời gian kết thúc</TimeFieldLabel>
                             <div className="number-with-unit">
                               <input
                                 type="text"
@@ -10414,7 +10469,7 @@ function Home() {
                             </div>
                           </label>
                           <label className="field">
-                            <span>Thời gian giữ tối</span>
+                            <TimeFieldLabel hint="Độ dài tương đối phần giữ nguyên mức tối, nằm trong khoảng bắt đầu đến kết thúc.">Thời gian giữ tối</TimeFieldLabel>
                             <div className="number-with-unit">
                               <input
                                 type="text"
@@ -10901,7 +10956,7 @@ function Home() {
                 </label>
               </label>
               <label className="field">
-                <span>Thời gian bắt đầu xuất hiện popup</span>
+                <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; popup bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu xuất hiện popup</TimeFieldLabel>
                 <div className="number-with-unit">
                   <input
                     type="number"
@@ -10915,7 +10970,7 @@ function Home() {
                 </div>
               </label>
               <label className="field range-field">
-                <span>Thời gian popup</span>
+                <TimeFieldLabel hint="Độ dài tương đối của popup, tính từ mốc bắt đầu xuất hiện.">Thời gian popup</TimeFieldLabel>
                 <div className="popup-duration-control">
                 <input
                   type="range"

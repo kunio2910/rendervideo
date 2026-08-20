@@ -244,8 +244,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-ruler-grid/);
   assert.match(css, /preview-alignment-guides/);
   assert.match(css, /preview-stage-layout/);
+  assert.match(css, /preview-stage > \.preview-navigation-zoom-only/);
   assert.match(css, /preview-layer-panel/);
   assert.match(css, /preview-layer-item/);
+  assert.match(css, /preview-layer-avatar/);
+  assert.match(css, /time-field-hint/);
   assert.match(css, /pointer-events: none !important/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
@@ -378,6 +381,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /sceneLocalTime < end/);
   assert.match(page, /subtitleStart/);
   assert.match(page, /Thời gian bắt đầu phát tất cả phụ đề/);
+  assert.match(page, /updateSceneImageEndTime/);
+  assert.match(page, /Thời gian kết thúc<\/TimeFieldLabel>/);
+  assert.match(page, /className="time-field-hint"/);
+  assert.match(page, /previewLayerAvatar/);
+  assert.match(page, /preview-layer-avatar/);
   assert.match(page, /holdDuration/);
   assert.match(page, /Thời gian giữ tối/);
   assert.match(page, /editor-section-shortcuts/);
