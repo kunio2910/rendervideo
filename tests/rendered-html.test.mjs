@@ -269,6 +269,20 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /scene-cloud-drift/);
   assert.match(css, /scene-thunder/);
   assert.match(css, /scene-visual-effect-card/);
+  assert.match(page, /aria-label="Mở Cấu trúc cảnh"/);
+  assert.match(page, /sceneStructureOpen/);
+  assert.match(page, /updateSceneStructureTiming/);
+  assert.match(page, /openSceneStructureItemInEditor/);
+  assert.match(page, /formatPreciseTime/);
+  assert.match(css, /\.scene-structure-overlay/);
+  assert.match(css, /\.scene-structure-flow-content/);
+  assert.match(css, /\.scene-structure-card/);
+  assert.match(css, /\.scene-structure-inspector/);
+  const sceneStructureMarkup = page.slice(
+    page.indexOf("{sceneStructureOpen &&"),
+    page.indexOf("{reviewOpen &&"),
+  );
+  assert.doesNotMatch(sceneStructureMarkup, /\bdraggable\b/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });

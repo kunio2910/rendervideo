@@ -188,6 +188,33 @@ type PreviewLayerItem = {
   icon: string;
 };
 
+type SceneStructureKind =
+  | "background"
+  | "image"
+  | "popup"
+  | "text"
+  | "decoration"
+  | "subtitle"
+  | "audio"
+  | "effect";
+
+type SceneStructureTimingMode = "both" | "start" | "none";
+
+type SceneStructureItem = {
+  token: string;
+  kind: SceneStructureKind;
+  id: string;
+  label: string;
+  detail: string;
+  icon: string;
+  start: number;
+  end: number;
+  timingMode: SceneStructureTimingMode;
+  canHide: boolean;
+  thumbnail: string;
+  thumbnailIsVideo: boolean;
+};
+
 const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
   <span className="field-label-with-hint">
     <span>{children}</span>
@@ -615,6 +642,23 @@ const formatTime = (value: number) => {
   const minutes = Math.floor(rounded / 60);
   const seconds = (rounded % 60).toFixed(1);
   return `${String(minutes).padStart(2, "0")}:${seconds.padStart(4, "0")}`;
+};
+
+const formatPreciseTime = (value: number) => {
+  const rounded = Math.max(0, Math.round(value * 100) / 100);
+  const minutes = Math.floor(rounded / 60);
+  const seconds = (rounded % 60).toFixed(2);
+  return `${String(minutes).padStart(2, "0")}:${seconds.padStart(5, "0")}`;
+};
+
+const parsePreciseTime = (value: string, fallback: number) => {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized) return fallback;
+  const parts = normalized.split(":");
+  const seconds = parts.length === 1
+    ? Number(parts[0])
+    : Number(parts.at(-1)) + Number(parts.at(-2)) * 60;
+  return Number.isFinite(seconds) ? seconds : fallback;
 };
 
 const fileNameOnly = (value: unknown) => {
@@ -2684,6 +2728,11 @@ function Home() {
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
+  const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
+  const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
+  const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
+  const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -3253,6 +3302,295 @@ function Home() {
       <img src={source} alt="" />
     );
   };
+  const sceneStructureScene = scenes.find((item) => item.id === sceneStructureSceneId) ?? scene;
+  const sceneStructureDuration = Math.max(0.1, sceneStructureScene.end - sceneStructureScene.start);
+  const sceneStructurePopups = scenePopupList(sceneStructureScene);
+  const sceneStructureImages = sceneStructureScene.sceneImages ?? [];
+  const sceneStructureTexts = sceneStructureScene.textOverlays ?? [];
+  const sceneStructureDecorations = sceneStructureScene.mapDecorations ?? [];
+  const sceneStructureEffects = normalizeSceneEffects(sceneStructureScene.effects);
+  const sceneStructureBackgroundValue = safeTrim(sceneStructureScene.background) || legacyBackgroundPreview;
+  const sceneStructureBackgroundSource = assetPreviewSource(sceneStructureBackgroundValue);
+  const clampSceneStructureTiming = (startValue: number, endValue: number) => {
+    const start = Math.min(
+      Math.max(0, sceneStructureDuration - 0.1),
+      Math.max(0, Number(startValue) || 0),
+    );
+    const end = Math.min(
+      sceneStructureDuration,
+      Math.max(start + 0.1, Number(endValue) || start + 0.1),
+    );
+    return { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)) };
+  };
+  const sceneStructureItems: SceneStructureItem[] = [];
+  const addSceneStructureItem = (
+    item: Omit<SceneStructureItem, "start" | "end"> & { start: number; end: number },
+  ) => {
+    const timing = clampSceneStructureTiming(item.start, item.end);
+    sceneStructureItems.push({ ...item, ...timing });
+  };
+
+  if (sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundValue) {
+    addSceneStructureItem({
+      token: "background:scene",
+      kind: "background",
+      id: "scene",
+      label: "Nền bản đồ",
+      detail: fileNameOnly(sceneStructureBackgroundValue) || "Nền cảnh",
+      icon: "▧",
+      start: 0,
+      end: sceneStructureDuration,
+      timingMode: "none",
+      canHide: true,
+      thumbnail: sceneStructureBackgroundSource,
+      thumbnailIsVideo: isVideoMedia(sceneStructureBackgroundValue),
+    });
+  }
+  if (sceneStructureScene.zoomEnabled !== false) {
+    addSceneStructureItem({
+      token: "effect:zoom",
+      kind: "effect",
+      id: "zoom",
+      label: "Zoom bản đồ",
+      detail: `Mức zoom ${Number(sceneStructureScene.zoom ?? 1.25).toFixed(2)}×`,
+      icon: "✦",
+      start: Number(sceneStructureScene.zoomStart ?? 0),
+      end: Number(sceneStructureScene.zoomEnd ?? sceneStructureDuration),
+      timingMode: "both",
+      canHide: true,
+      thumbnail: "",
+      thumbnailIsVideo: false,
+    });
+  }
+  sceneStructureEffects.sceneStartDarkEffects
+    .filter((effect) => effect.enabled)
+    .forEach((effect, index) => {
+      addSceneStructureItem({
+        token: `effect:dark:${effect.id}`,
+        kind: "effect",
+        id: `dark:${effect.id}`,
+        label: `Hiệu ứng tối ${index + 1}`,
+        detail: `Cường độ ${Math.round(effect.intensity)}%`,
+        icon: "◐",
+        start: effect.start,
+        end: effect.end,
+        timingMode: "both",
+        canHide: true,
+        thumbnail: "",
+        thumbnailIsVideo: false,
+      });
+    });
+  const weatherEffects = [
+    sceneStructureEffects.snowEnabled ? "Tuyết" : "",
+    sceneStructureEffects.rainEnabled ? "Mưa" : "",
+    sceneStructureEffects.cloudEnabled ? "Mây" : "",
+    sceneStructureEffects.lightFlickerEnabled ? "Chớp" : "",
+    sceneStructureEffects.thunderEnabled ? "Sấm" : "",
+  ].filter(Boolean);
+  if (weatherEffects.length) {
+    addSceneStructureItem({
+      token: "effect:weather",
+      kind: "effect",
+      id: "weather",
+      label: weatherEffects.join(" · "),
+      detail: "Hiệu ứng môi trường",
+      icon: "☂",
+      start: 0,
+      end: sceneStructureDuration,
+      timingMode: "none",
+      canHide: true,
+      thumbnail: "",
+      thumbnailIsVideo: false,
+    });
+  }
+
+  const sceneStructureVisualItems: SceneStructureItem[] = [];
+  sceneStructureTexts
+    .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
+    .forEach((overlay, index) => {
+      const timing = clampSceneStructureTiming(overlay.start, overlay.end);
+      sceneStructureVisualItems.push({
+        token: `text:${overlay.id}`,
+        kind: "text",
+        id: overlay.id,
+        label: safeTrim(overlay.name) || safeTrim(overlay.text).slice(0, 30) || `Chữ ${index + 1}`,
+        detail: safeTrim(overlay.text).slice(0, 52) || "Chữ viết",
+        icon: "T",
+        ...timing,
+        timingMode: "both",
+        canHide: true,
+        thumbnail: "",
+        thumbnailIsVideo: false,
+      });
+    });
+  sceneStructureImages
+    .filter((image) => image.visible !== false && safeTrim(image.url))
+    .forEach((image, index) => {
+      const timing = clampSceneStructureTiming(image.start, image.start + image.duration);
+      const transitionLabel = sceneImageTransitionOptions.find((option) => option.value === image.transition)?.label;
+      const thumbnail = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
+      sceneStructureVisualItems.push({
+        token: `image:${image.id}`,
+        kind: "image",
+        id: image.id,
+        label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
+        detail: transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh"),
+        icon: "IMG",
+        ...timing,
+        timingMode: "both",
+        canHide: true,
+        thumbnail,
+        thumbnailIsVideo: image.mediaType === "video" || isVideoMedia(image.url),
+      });
+    });
+  sceneStructurePopups
+    .filter((popup) => popup.visible !== false && popupHasContent(popup))
+    .forEach((popup, index) => {
+      const timing = clampSceneStructureTiming(popup.start, popup.start + popup.duration);
+      const mediaValue = safeTrim(popup.video) || safeTrim(popup.image);
+      sceneStructureVisualItems.push({
+        token: `popup:${popup.id}`,
+        kind: "popup",
+        id: popup.id,
+        label: safeTrim(popup.title) || `Popup ${index + 1}`,
+        detail: popup.layout === "quote" ? "Trích dẫn" : `Bố cục ${popup.layout ?? "image-top"}`,
+        icon: "P",
+        ...timing,
+        timingMode: "both",
+        canHide: true,
+        thumbnail: assetPreviewSource(mediaValue),
+        thumbnailIsVideo: Boolean(safeTrim(popup.video)),
+      });
+    });
+  sceneStructureDecorations
+    .filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
+    .forEach((decoration, index) => {
+      const timing = clampSceneStructureTiming(decoration.start, decoration.start + decoration.duration);
+      const typeLabel = decoration.type === "text-3d"
+        ? "Chữ 3D"
+        : decoration.type === "animated-sticker"
+          ? "Hiệu ứng động"
+          : decoration.type === "sticker"
+            ? "Sticker"
+            : decoration.type === "icon" ? "Icon" : "Hiệu ứng";
+      sceneStructureVisualItems.push({
+        token: `decoration:${decoration.id}`,
+        kind: "decoration",
+        id: decoration.id,
+        label: safeTrim(decoration.name) || `${typeLabel} ${index + 1}`,
+        detail: typeLabel,
+        icon: decoration.type === "text-3d" ? "3D" : "✦",
+        ...timing,
+        timingMode: "both",
+        canHide: true,
+        thumbnail: assetPreviewSource(decoration.asset),
+        thumbnailIsVideo: decoration.type === "animated-sticker" && decoration.assetType === "webm",
+      });
+    });
+  sceneStructureVisualItems
+    .sort((first, second) => first.start - second.start || first.end - second.end)
+    .forEach((item) => sceneStructureItems.push(item));
+
+  const visibleStructureSubtitles = (sceneStructureScene.subtitles ?? [])
+    .filter((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text));
+  if (sceneStructureScene.subtitleEnabled !== false && visibleStructureSubtitles.length) {
+    const subtitleOffset = Math.max(0, Number(sceneStructureScene.subtitleStart) || 0);
+    const subtitleStart = Math.min(...visibleStructureSubtitles.map((subtitle) => subtitleOffset + Math.max(0, Number(subtitle.start) || 0)));
+    const subtitleEnd = Math.max(...visibleStructureSubtitles.map((subtitle) => subtitleOffset + Math.max(0.1, Number(subtitle.end) || 0.1)));
+    addSceneStructureItem({
+      token: "subtitle:subtitle",
+      kind: "subtitle",
+      id: "subtitle",
+      label: "Phụ đề",
+      detail: `${visibleStructureSubtitles.length} câu đang hiển thị`,
+      icon: "CC",
+      start: subtitleStart,
+      end: subtitleEnd,
+      timingMode: "none",
+      canHide: true,
+      thumbnail: "",
+      thumbnailIsVideo: false,
+    });
+  }
+  if (narrationEnabled && (safeTrim(sceneStructureScene.voiceFile) || safeTrim(sceneStructureScene.narration) || safeTrim(sceneStructureScene.voice))) {
+    addSceneStructureItem({
+      token: "audio:voice",
+      kind: "audio",
+      id: "voice",
+      label: "Thuyết minh",
+      detail: fileNameOnly(sceneStructureScene.voiceFile) || "Giọng đọc của cảnh",
+      icon: "≋",
+      start: Number(sceneStructureScene.voiceStart ?? 0),
+      end: sceneStructureDuration,
+      timingMode: "start",
+      canHide: false,
+      thumbnail: "",
+      thumbnailIsVideo: false,
+    });
+  }
+
+  const sceneStructureFirstToken = sceneStructureItems[0]?.token ?? "";
+  const sceneStructureSelectedTokenExists = Boolean(
+    selectedSceneStructureToken
+    && sceneStructureItems.some((item) => item.token === selectedSceneStructureToken),
+  );
+  const selectedSceneStructureItem = sceneStructureItems.find((item) => item.token === selectedSceneStructureToken)
+    ?? sceneStructureItems[0]
+    ?? null;
+  const selectedSceneStructureItemToken = selectedSceneStructureItem?.token ?? "";
+  const selectedSceneStructureItemStart = selectedSceneStructureItem?.start ?? 0;
+  const selectedSceneStructureItemEnd = selectedSceneStructureItem?.end ?? 0;
+  const sceneStructureTicks = (() => {
+    const step = sceneStructureDuration <= 10 ? 1 : sceneStructureDuration <= 30 ? 5 : 10;
+    const ticks = Array.from(
+      { length: Math.floor(sceneStructureDuration / step) + 1 },
+      (_, index) => Number((index * step).toFixed(2)),
+    );
+    if (Math.abs((ticks.at(-1) ?? 0) - sceneStructureDuration) > 0.01) ticks.push(sceneStructureDuration);
+    return ticks;
+  })();
+  const sceneStructureLocalTime = Math.min(
+    sceneStructureDuration,
+    Math.max(0, playTime - sceneStructureScene.start),
+  );
+
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    if (!sceneStructureSelectedTokenExists) {
+      setSelectedSceneStructureToken(sceneStructureFirstToken);
+    }
+  }, [
+    sceneStructureOpen,
+    sceneStructureScene.id,
+    sceneStructureFirstToken,
+    sceneStructureSelectedTokenExists,
+  ]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen || !selectedSceneStructureItemToken) return;
+    setSceneStructureStartDraft(formatPreciseTime(selectedSceneStructureItemStart));
+    setSceneStructureEndDraft(formatPreciseTime(selectedSceneStructureItemEnd));
+  }, [
+    sceneStructureOpen,
+    selectedSceneStructureItemToken,
+    selectedSceneStructureItemStart,
+    selectedSceneStructureItemEnd,
+  ]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen || !playing) return;
+    if (playTime < sceneStructureScene.start || playTime < sceneStructureScene.end) return;
+    setPlaying(false);
+    setSelectedId(sceneStructureScene.id);
+    setPlayTime(sceneStructureScene.end);
+  }, [
+    sceneStructureOpen,
+    playing,
+    playTime,
+    sceneStructureScene.id,
+    sceneStructureScene.start,
+    sceneStructureScene.end,
+  ]);
   const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
   const subtitleAnimationProgress = activeSubtitle
     ? Math.min(
@@ -3631,6 +3969,22 @@ function Home() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [previewFullscreen, reviewOpen]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPlaying(false);
+      setSceneStructureOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sceneStructureOpen]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -7800,6 +8154,319 @@ function Home() {
     return entries;
   });
 
+  const openSceneStructure = () => {
+    setPlaying(false);
+    setPreviewFullscreen(false);
+    setReviewOpen(false);
+    setSceneStructureSceneId(scene.id);
+    setSelectedSceneStructureToken(explicitlySelectedPreviewLayerToken);
+    if (playTime < scene.start || playTime > scene.end) setPlayTime(scene.start);
+    setSceneStructureOpen(true);
+  };
+
+  const closeSceneStructure = () => {
+    setPlaying(false);
+    setSceneStructureOpen(false);
+  };
+
+  const selectSceneStructureItem = (item: SceneStructureItem) => {
+    setPlaying(false);
+    setSelectedSceneStructureToken(item.token);
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setPlayTime(Number((sceneStructureScene.start + item.start).toFixed(2)));
+    setSelectedPopupId(item.kind === "popup" ? item.id : "");
+    setSelectedTextOverlayId(item.kind === "text" ? item.id : "");
+    setSelectedSceneImageId(item.kind === "image" ? item.id : "");
+    setSelectedDecorationId(item.kind === "decoration" ? item.id : "");
+  };
+
+  const playSceneStructure = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setPlayTime(sceneStructureScene.start);
+    setPlaybackRestartToken((value) => value + 1);
+    setPlaying(true);
+  };
+
+  const updateSceneStructureTiming = (
+    item: SceneStructureItem,
+    nextStartValue: number,
+    nextEndValue: number,
+  ) => {
+    if (item.timingMode === "none") return;
+    const duration = sceneStructureDuration;
+    const nextStart = Math.min(
+      Math.max(0, duration - 0.1),
+      Math.max(0, Number(nextStartValue) || 0),
+    );
+    const nextEnd = item.timingMode === "start"
+      ? item.end
+      : Math.min(
+          duration,
+          Math.max(nextStart + 0.1, Number(nextEndValue) || nextStart + 0.1),
+        );
+    const roundedStart = Number(nextStart.toFixed(2));
+    const roundedEnd = Number(nextEnd.toFixed(2));
+
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      if (item.kind === "image") {
+        return {
+          ...currentScene,
+          sceneImages: (currentScene.sceneImages ?? []).map((image) => image.id === item.id
+            ? {
+                ...image,
+                start: roundedStart,
+                duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+                transitionEnd: normalizeSceneImageTransition(image.transition) === "cut"
+                  ? roundedStart
+                  : Number(Math.min(roundedEnd, Math.max(roundedStart + 0.1, image.transitionEnd)).toFixed(2)),
+              }
+            : image),
+        };
+      }
+      if (item.kind === "popup") {
+        const popups = scenePopupList(currentScene);
+        const popupIndex = popups.findIndex((popup) => popup.id === item.id);
+        if (popupIndex < 0) return currentScene;
+        const nextPopups = popups.map((popup, index) => index === popupIndex
+          ? {
+              ...popup,
+              start: roundedStart,
+              duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+            }
+          : popup);
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(popupIndex === 0 ? popupSceneFields(nextPopups[0]) : {}),
+        };
+      }
+      if (item.kind === "text") {
+        const overlays = currentScene.textOverlays ?? [];
+        const overlayIndex = overlays.findIndex((overlay) => overlay.id === item.id);
+        if (overlayIndex < 0) return currentScene;
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, start: roundedStart, end: roundedEnd }
+          : overlay);
+        return {
+          ...currentScene,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlays[0]) : {}),
+        };
+      }
+      if (item.kind === "decoration") {
+        return {
+          ...currentScene,
+          mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => decoration.id === item.id
+            ? {
+                ...decoration,
+                start: roundedStart,
+                duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+              }
+            : decoration),
+        };
+      }
+      if (item.kind === "audio" && item.id === "voice") {
+        return { ...currentScene, voiceStart: roundedStart };
+      }
+      if (item.kind === "effect" && item.id === "zoom") {
+        return { ...currentScene, zoomStart: roundedStart, zoomEnd: roundedEnd };
+      }
+      if (item.kind === "effect" && item.id.startsWith("dark:")) {
+        const effectId = item.id.slice("dark:".length);
+        const effects = normalizeSceneEffects(currentScene.effects);
+        const darkEffects = effects.sceneStartDarkEffects.map((effect) => effect.id === effectId
+          ? {
+              ...effect,
+              start: roundedStart,
+              end: roundedEnd,
+              holdDuration: Math.min(effect.holdDuration, Math.max(0, roundedEnd - roundedStart - 0.1)),
+            }
+          : effect);
+        const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
+        return {
+          ...currentScene,
+          effects: {
+            ...effects,
+            sceneStartDarkEffects: darkEffects,
+            sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+            sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+            sceneStartDarkIntensity: firstEffect.intensity,
+          },
+        };
+      }
+      return currentScene;
+    }));
+    setSceneStructureStartDraft(formatPreciseTime(roundedStart));
+    setSceneStructureEndDraft(formatPreciseTime(roundedEnd));
+  };
+
+  const commitSceneStructureTiming = () => {
+    if (!selectedSceneStructureItem) return;
+    const nextStart = parsePreciseTime(sceneStructureStartDraft, selectedSceneStructureItem.start);
+    const nextEnd = parsePreciseTime(sceneStructureEndDraft, selectedSceneStructureItem.end);
+    updateSceneStructureTiming(selectedSceneStructureItem, nextStart, nextEnd);
+  };
+
+  const resetSceneStructureTimingDrafts = () => {
+    if (!selectedSceneStructureItem) return;
+    setSceneStructureStartDraft(formatPreciseTime(selectedSceneStructureItem.start));
+    setSceneStructureEndDraft(formatPreciseTime(selectedSceneStructureItem.end));
+  };
+
+  const toggleSceneStructureItemVisibility = (item: SceneStructureItem) => {
+    if (!item.canHide) return;
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      if (item.kind === "background") return { ...currentScene, backgroundVisible: false };
+      if (item.kind === "image") {
+        return {
+          ...currentScene,
+          sceneImages: (currentScene.sceneImages ?? []).map((image) => image.id === item.id
+            ? { ...image, visible: false }
+            : image),
+        };
+      }
+      if (item.kind === "popup") {
+        const popups = scenePopupList(currentScene);
+        const popupIndex = popups.findIndex((popup) => popup.id === item.id);
+        const nextPopups = popups.map((popup) => popup.id === item.id ? { ...popup, visible: false } : popup);
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(popupIndex === 0 && nextPopups[0] ? popupSceneFields(nextPopups[0]) : {}),
+        };
+      }
+      if (item.kind === "text") {
+        return {
+          ...currentScene,
+          textOverlays: (currentScene.textOverlays ?? []).map((overlay) => overlay.id === item.id
+            ? { ...overlay, visible: false }
+            : overlay),
+        };
+      }
+      if (item.kind === "decoration") {
+        return {
+          ...currentScene,
+          mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => decoration.id === item.id
+            ? { ...decoration, visible: false }
+            : decoration),
+        };
+      }
+      if (item.kind === "subtitle") return { ...currentScene, subtitleEnabled: false };
+      if (item.kind === "effect" && item.id === "zoom") return { ...currentScene, zoomEnabled: false };
+      if (item.kind === "effect" && item.id.startsWith("dark:")) {
+        const effectId = item.id.slice("dark:".length);
+        const effects = normalizeSceneEffects(currentScene.effects);
+        const darkEffects = effects.sceneStartDarkEffects.map((effect) => effect.id === effectId
+          ? { ...effect, enabled: false }
+          : effect);
+        return {
+          ...currentScene,
+          effects: {
+            ...effects,
+            sceneStartDarkEffects: darkEffects,
+            sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+          },
+        };
+      }
+      if (item.kind === "effect" && item.id === "weather") {
+        return {
+          ...currentScene,
+          effects: {
+            ...normalizeSceneEffects(currentScene.effects),
+            snowEnabled: false,
+            rainEnabled: false,
+            cloudEnabled: false,
+            lightFlickerEnabled: false,
+            thunderEnabled: false,
+          },
+        };
+      }
+      return currentScene;
+    }));
+    setSelectedSceneStructureToken("");
+    setToast(`Đã ẩn ${item.label}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
+    setPlaying(false);
+    setSceneStructureOpen(false);
+    setActiveStudioTab("compose");
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setPlayTime(Number((sceneStructureScene.start + item.start).toFixed(2)));
+    if (item.kind === "image") {
+      setSelectedSceneImageId(item.id);
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedDecorationId("");
+      focusEditorLayer("images", item.id);
+      return;
+    }
+    if (item.kind === "popup") {
+      setSelectedPopupId(item.id);
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      focusEditorLayer("popup", item.id);
+      return;
+    }
+    if (item.kind === "text") {
+      setSelectedTextOverlayId(item.id);
+      setSelectedPopupId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      focusEditorLayer("text", item.id);
+      return;
+    }
+    if (item.kind === "decoration") {
+      setSelectedDecorationId(item.id);
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      focusEditorSection("text");
+      return;
+    }
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
+    setSelectedDecorationId("");
+    if (item.kind === "subtitle") {
+      openTimelineEditor(sceneStructureScene, "editor-subtitle");
+    } else if (item.kind === "audio") {
+      openTimelineEditor(sceneStructureScene, "editor-audio");
+    } else if (item.kind === "effect") {
+      openTimelineEditor(sceneStructureScene, "editor-effects");
+    } else {
+      focusEditorSection("visual");
+    }
+  };
+
+  const sceneStructureKindLabel = (kind: SceneStructureKind) => ({
+    background: "Nền",
+    image: "Hình ảnh",
+    popup: "Popup",
+    text: "Chữ",
+    decoration: "Trang trí",
+    subtitle: "Phụ đề",
+    audio: "Âm thanh",
+    effect: "Hiệu ứng",
+  }[kind]);
+
+  const renderSceneStructureThumbnail = (item: SceneStructureItem, fallback = item.icon) => item.thumbnail
+    ? item.thumbnailIsVideo
+      ? <video src={item.thumbnail} muted loop playsInline preload="metadata" aria-hidden="true" />
+      : <img src={item.thumbnail} alt="" />
+    : <span>{fallback}</span>;
+
   return (
     <main
       className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
@@ -8858,8 +9525,24 @@ function Home() {
             </div>
             <aside className="preview-layer-panel" aria-label="Các lớp trong màn hình xem trước">
               <div className="preview-layer-panel-heading">
-                <strong>Layer</strong>
-                <small>Trên cùng ở phía dưới</small>
+                <span className="preview-layer-panel-heading-copy">
+                  <strong>Layer</strong>
+                  <small>Trên cùng ở phía dưới</small>
+                </span>
+                <button
+                  type="button"
+                  className="preview-scene-structure-button"
+                  aria-label="Mở Cấu trúc cảnh"
+                  title="Cấu trúc cảnh"
+                  onClick={openSceneStructure}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="4" width="6" height="5" rx="1" />
+                    <rect x="15" y="4" width="6" height="5" rx="1" />
+                    <rect x="9" y="15" width="6" height="5" rx="1" />
+                    <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
+                  </svg>
+                </button>
               </div>
               <label className="preview-layer-search">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -11804,6 +12487,259 @@ function Home() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {sceneStructureOpen && (
+        <div
+          className="scene-structure-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="scene-structure-heading"
+        >
+          <section className="scene-structure-shell">
+            <header className="scene-structure-topbar">
+              <div className="scene-structure-title-wrap">
+                <div className="scene-structure-brand-mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 8h16v12H4zM4 8l3-4h13l-3 4M8 4l3 4M14 4l3 4" />
+                    <path d="M8 13h8M8 16h5" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 id="scene-structure-heading">Cấu trúc cảnh</h1>
+                  <p>
+                    Cảnh {String(sceneStructureScene.number).padStart(2, "0")} · {sceneStructureScene.sceneName || "Cảnh mới"}
+                    <i />
+                    Thời lượng {formatPreciseTime(sceneStructureDuration)} · {sceneStructureItems.length} tài nguyên
+                  </p>
+                </div>
+              </div>
+              <div className="scene-structure-top-actions">
+                <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <button
+                  type="button"
+                  className={`scene-structure-play-button ${playing ? "is-playing" : ""}`}
+                  onClick={playSceneStructure}
+                >
+                  <span aria-hidden="true">{playing ? "Ⅱ" : "▶"}</span>
+                  {playing ? "Tạm dừng" : "Phát thử"}
+                </button>
+                <button
+                  type="button"
+                  className="scene-structure-close-button"
+                  aria-label="Đóng Cấu trúc cảnh"
+                  title="Đóng Cấu trúc cảnh (Esc)"
+                  onClick={closeSceneStructure}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                  <span>Đóng</span>
+                </button>
+              </div>
+            </header>
+
+            <div className="scene-structure-body">
+              <div className="scene-structure-flow-panel">
+                <div className="scene-structure-flow-scroll">
+                  <div
+                    className="scene-structure-flow-content"
+                    style={{ minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px` }}
+                  >
+                    <div className="scene-structure-ruler" aria-label="Trục thời gian của cảnh">
+                      {sceneStructureTicks.map((tick) => (
+                        <span
+                          key={`scene-structure-tick-${tick}`}
+                          style={{ left: `${Math.min(100, Math.max(0, tick / sceneStructureDuration * 100))}%` }}
+                        >
+                          <b>{formatTime(tick)}</b>
+                          <i />
+                        </span>
+                      ))}
+                    </div>
+                    <div className="scene-structure-phase-row" aria-hidden="true">
+                      <span className="scene-structure-phase-opening">MỞ CẢNH</span>
+                      <span className="scene-structure-phase-main">NỘI DUNG CHÍNH</span>
+                      <span className="scene-structure-phase-ending">KẾT CẢNH</span>
+                    </div>
+                    <div className="scene-structure-phase-grid" aria-hidden="true">
+                      <span /><span /><span />
+                    </div>
+                    <div
+                      className="scene-structure-playhead"
+                      aria-hidden="true"
+                      style={{ left: `${Math.min(100, Math.max(0, sceneStructureLocalTime / sceneStructureDuration * 100))}%` }}
+                    >
+                      <b>{formatPreciseTime(sceneStructureLocalTime)}</b>
+                      <i />
+                    </div>
+
+                    {sceneStructureItems.length ? sceneStructureItems.map((item, index) => {
+                      const leftPercent = Math.min(98, Math.max(0, item.start / sceneStructureDuration * 100));
+                      const rawWidth = Math.max(8, (item.end - item.start) / sceneStructureDuration * 100);
+                      const widthPercent = Math.min(100 - leftPercent, rawWidth);
+                      return (
+                        <div
+                          className="scene-structure-flow-row"
+                          key={item.token}
+                          style={{ top: `${112 + index * 76}px` }}
+                        >
+                          <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
+                          <button
+                            type="button"
+                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""}`}
+                            style={{
+                              left: `${leftPercent}%`,
+                              width: `${widthPercent}%`,
+                              maxWidth: `calc(100% - ${leftPercent}% - 12px)`,
+                            }}
+                            aria-pressed={item.token === selectedSceneStructureItem?.token}
+                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}`}
+                            onClick={() => selectSceneStructureItem(item)}
+                          >
+                            <span className="scene-structure-card-media" aria-hidden="true">
+                              {renderSceneStructureThumbnail(item)}
+                            </span>
+                            <span className="scene-structure-card-index">{index + 1}</span>
+                            <span className="scene-structure-card-copy">
+                              <strong>{item.label}</strong>
+                              <small>{formatPreciseTime(item.start)} → {formatPreciseTime(item.end)}</small>
+                            </span>
+                            <span className="scene-structure-card-kind">{sceneStructureKindLabel(item.kind)}</span>
+                          </button>
+                        </div>
+                      );
+                    }) : (
+                      <div className="scene-structure-empty-state">
+                        <strong>Cảnh chưa có tài nguyên đang hiển thị</strong>
+                        <span>Thêm hình ảnh, popup, chữ hoặc hiệu ứng trong “Biên soạn” để xem flow của cảnh.</span>
+                      </div>
+                    )}
+
+                    <footer className="scene-structure-legend">
+                      {([
+                        ["image", "Hình ảnh"],
+                        ["popup", "Popup"],
+                        ["text", "Chữ"],
+                        ["effect", "Hiệu ứng"],
+                        ["audio", "Âm thanh"],
+                      ] as const).map(([kind, label]) => (
+                        <span key={kind} className={`scene-structure-legend-${kind}`}><i /> {label}</span>
+                      ))}
+                    </footer>
+                  </div>
+                </div>
+              </div>
+
+              <aside className="scene-structure-inspector" aria-label="Thông tin tài nguyên">
+                <h2>Thông tin tài nguyên</h2>
+                {selectedSceneStructureItem ? (
+                  <>
+                    <div className={`scene-structure-inspector-preview ${aspectRatio === "16:9" ? "is-landscape" : ""}`}>
+                      {sceneStructureBackgroundSource && (
+                        isVideoMedia(sceneStructureBackgroundValue) ? (
+                          <video src={sceneStructureBackgroundSource} muted loop autoPlay playsInline aria-hidden="true" />
+                        ) : (
+                          <img src={sceneStructureBackgroundSource} alt="" aria-hidden="true" />
+                        )
+                      )}
+                      <div className={`scene-structure-inspector-resource scene-structure-inspector-resource-${selectedSceneStructureItem.kind}`}>
+                        <span>{renderSceneStructureThumbnail(selectedSceneStructureItem)}</span>
+                        <strong>{selectedSceneStructureItem.label}</strong>
+                        <small>{selectedSceneStructureItem.detail}</small>
+                      </div>
+                    </div>
+
+                    <div className="scene-structure-inspector-type">
+                      <span>Loại</span>
+                      <b className={`kind-${selectedSceneStructureItem.kind}`}><i>{selectedSceneStructureItem.icon}</i>{sceneStructureKindLabel(selectedSceneStructureItem.kind)}</b>
+                    </div>
+                    <label className="scene-structure-time-field">
+                      <span>Bắt đầu</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={sceneStructureStartDraft}
+                        disabled={selectedSceneStructureItem.timingMode === "none"}
+                        aria-label="Thời gian bắt đầu tài nguyên"
+                        onChange={(event) => setSceneStructureStartDraft(event.target.value)}
+                        onBlur={commitSceneStructureTiming}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitSceneStructureTiming();
+                            event.currentTarget.blur();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            resetSceneStructureTimingDrafts();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                      />
+                    </label>
+                    <label className="scene-structure-time-field">
+                      <span>Kết thúc</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={sceneStructureEndDraft}
+                        disabled={selectedSceneStructureItem.timingMode !== "both"}
+                        aria-label="Thời gian kết thúc tài nguyên"
+                        onChange={(event) => setSceneStructureEndDraft(event.target.value)}
+                        onBlur={commitSceneStructureTiming}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitSceneStructureTiming();
+                            event.currentTarget.blur();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            resetSceneStructureTimingDrafts();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                      />
+                    </label>
+                    <div className="scene-structure-duration-row">
+                      <span>Thời lượng</span>
+                      <strong>{formatPreciseTime(Math.max(0, selectedSceneStructureItem.end - selectedSceneStructureItem.start))}</strong>
+                    </div>
+                    {selectedSceneStructureItem.timingMode === "none" && (
+                      <small className="scene-structure-readonly-note">Thời gian của tài nguyên này được xác định tự động theo cảnh.</small>
+                    )}
+                    <div className="scene-structure-inspector-actions">
+                      <button
+                        type="button"
+                        className="scene-structure-open-editor"
+                        onClick={() => openSceneStructureItemInEditor(selectedSceneStructureItem)}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6" /></svg>
+                        Mở trong Biên soạn
+                      </button>
+                      <button
+                        type="button"
+                        className="scene-structure-hide-resource"
+                        disabled={!selectedSceneStructureItem.canHide}
+                        onClick={() => toggleSceneStructureItemVisibility(selectedSceneStructureItem)}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                          <circle cx="12" cy="12" r="2.2" />
+                          <path d="m4 4 16 16" />
+                        </svg>
+                        Ẩn tài nguyên
+                      </button>
+                    </div>
+                    <p className="scene-structure-inspector-hint">Các thay đổi thời gian được cập nhật trực tiếp về “Biên soạn”.</p>
+                  </>
+                ) : (
+                  <div className="scene-structure-inspector-empty">
+                    <span>◇</span>
+                    <strong>Chưa có tài nguyên</strong>
+                    <p>Hãy đóng màn hình và thêm tài nguyên trong khu vực “Biên soạn”.</p>
+                  </div>
+                )}
+              </aside>
+            </div>
+          </section>
         </div>
       )}
       {reviewOpen && (
