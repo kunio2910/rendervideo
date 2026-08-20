@@ -375,6 +375,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /resolveVideo/);
   assert.match(renderer, /resolveBackground/);
+  assert.match(renderer, /ffmpegFilterThreads/);
+  assert.match(renderer, /ffmpegInputQueueSize/);
+  assert.match(renderer, /-filter_complex_threads/);
+  assert.match(renderer, /-thread_queue_size/);
+  assert.match(renderer, /boundedInputArgs/);
+  assert.match(renderer, /"-t", String\(duration\)/);
   assert.match(renderer, /createMapDecoration/);
   assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /createTextOverlay/);
@@ -467,7 +473,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const writeAnimatedImageFrameSequence/);
   assert.match(renderer, /animatedImage = await writeAnimatedImageFrameSequence/);
   assert.match(renderer, /const writeAnimatedWebpFrameSequence/);
-  assert.match(renderer, /args\.push\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
+  assert.match(renderer, /addInput\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);
   assert.match(renderer, /scene\.popupY/);
