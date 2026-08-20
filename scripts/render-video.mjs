@@ -2006,8 +2006,6 @@ for (let index = 0; index < scenes.length; index += 1) {
   // Weather, subtitles and layered media can make a filter graph much longer
   // than Windows' process command-line limit. Keep the graph in a file so a
   // scene with all environmental effects can still be rendered reliably.
-  const filterScriptPath = path.join(renderDir, `scene-${index + 1}-filtergraph.txt`);
-  await fs.writeFile(filterScriptPath, filter, "utf8");
   const args = ["-y"];
   const addInput = (...inputArgs) => {
     const inputIndex = inputArgs.indexOf("-i");
@@ -2109,6 +2107,12 @@ for (let index = 0; index < scenes.length; index += 1) {
       "-af", "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad",
     ];
   }
+  // Audio chains are appended to the same filter graph as the video chain.
+  // Write the script only after this block; writing it earlier silently drops
+  // [sceneAudioMixed] and makes FFmpeg fail with exit code -22 on scenes that
+  // contain narration/audio tracks.
+  const filterScriptPath = path.join(renderDir, `scene-${index + 1}-filtergraph.txt`);
+  await fs.writeFile(filterScriptPath, filter, "utf8");
   args.push(
     "-filter_threads", String(ffmpegFilterThreads),
     "-filter_complex_threads", String(ffmpegFilterThreads),

@@ -494,6 +494,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const normalizeGeqExpression/);
   assert.match(renderer, /const geqRgba/);
   assert.match(renderer, /geqRgba\(\{ alpha: `if\(lt\(X\/W,/);
+  assert.ok(
+    renderer.indexOf("const filterScriptPath") > renderer.indexOf("[sceneAudioMixed]"),
+    "the filter graph must be written after the scene audio mix is appended",
+  );
   assert.match(renderer, /typewriter/);
   assert.match(renderer, /subtitleEnabled/);
   assert.match(renderer, /textOverlayRenders/);
