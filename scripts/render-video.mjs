@@ -98,6 +98,21 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+// FFmpeg's geq parser treats a stray quote as the beginning of a new option.
+// All expressions assembled here are generated from numeric values, but old
+// saved projects may still carry a copied quote from a failed filter graph.
+// Normalize it at the boundary so one malformed legacy value cannot abort the
+// complete render with the unhelpful exit code 1.
+const normalizeGeqExpression = (value) => String(value ?? "")
+  .replaceAll("'", "")
+  .replace(/[\r\n]+/g, " ")
+  .trim();
+const geqRgb = (expression) => {
+  const safe = normalizeGeqExpression(expression);
+  return `geq=r='${safe}':g='${safe}':b='${safe}'`;
+};
+const geqRgba = ({ red = "r(X,Y)", green = "g(X,Y)", blue = "b(X,Y)", alpha = "alpha(X,Y)" } = {}) =>
+  `geq=r='${normalizeGeqExpression(red)}':g='${normalizeGeqExpression(green)}':b='${normalizeGeqExpression(blue)}':a='${normalizeGeqExpression(alpha)}'`;
 const textOverlayEffectValues = [
   "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right",
   "typewriter", "zoom", "pop", "glow", "letter-spacing", "blur",
@@ -1502,7 +1517,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       x: "0",
       y: "0",
       label: "lightFlicker",
-      inputFilter: `format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*${alpha}*(${pulse})'`,
+      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})` })}`,
     });
   }
   if (sceneEffects.thunderEnabled && sceneEffects.thunderIntensity > 0) {
@@ -1516,7 +1531,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       x: "0",
       y: "0",
       label: "thunder",
-      inputFilter: `format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*${alpha}*(${pulse})'`,
+      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})` })}`,
     });
   }
   if (sceneEffects.cloudEnabled && sceneEffects.cloudIntensity > 0) {
@@ -1531,11 +1546,11 @@ for (let index = 0; index < scenes.length; index += 1) {
       const travel = `(-0.45+(${overlayPhase})*(${cloud.drift / 100 + 0.45}))`;
       const cloudMask = "if(gt(lte((X-W*0.5)^2/(W*0.5)^2+(Y-H*0.52)^2/(H*0.45)^2,1)+lte((X-W*0.7)^2/(W*0.28)^2+(Y-H*0.42)^2/(H*0.37)^2,1)+lte((X-W*0.3)^2/(W*0.25)^2+(Y-H*0.56)^2/(H*0.32)^2,1),0),alpha(X,Y),0)";
       addWeatherOverlay({
-        source: `color=c=0xE0ECF8@0.48:s=${cloudWidth}x${cloudHeight}:r=${fps}:d=${duration},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${cloudMask}',boxblur=${Math.max(1, Math.round(previewPx(5)))}:1`,
+        source: `color=c=0xE0ECF8@0.48:s=${cloudWidth}x${cloudHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: cloudMask })},boxblur=${Math.max(1, Math.round(previewPx(5)))}:1`,
         x: `main_w*${(cloud.x / 100).toFixed(4)}+overlay_w*${travel}`,
         y: `main_h*${(cloud.y / 100).toFixed(4)}`,
         label: `cloud${cloudIndex}`,
-        inputFilter: `format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*${(sceneEffects.cloudIntensity / 100).toFixed(4)}*(${opacity})'`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.cloudIntensity / 100).toFixed(4)}*(${opacity})` })}`,
       });
     }
   }
@@ -1549,11 +1564,11 @@ for (let index = 0; index < scenes.length; index += 1) {
       const overlayPhase = weatherPhaseExpression(cycle, drop.delay, "t");
       const opacity = weatherFadeExpression(phase, 0.9);
       addWeatherOverlay({
-        source: `color=c=0xCAE5FF@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*Y/H',rotate=0.244346:c=none:ow=rotw(iw):oh=roth(ih)`,
+        source: `color=c=0xCAE5FF@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)*Y/H" })},rotate=0.244346:c=none:ow=rotw(iw):oh=roth(ih)`,
         x: `main_w*${(drop.x / 100).toFixed(4)}+${Math.round(previewPx(drop.drift))}*(${overlayPhase})`,
         y: `main_h*(-0.12+1.22*(${overlayPhase}))`,
         label: `rain${rainIndex}`,
-        inputFilter: `format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*${(sceneEffects.rainIntensity / 100).toFixed(4)}*(${opacity})'`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.rainIntensity / 100).toFixed(4)}*(${opacity})` })}`,
       });
     }
   }
@@ -1567,11 +1582,11 @@ for (let index = 0; index < scenes.length; index += 1) {
       const opacity = weatherFadeExpression(phase, 0.92);
       const snowLabel = `snow${snowIndex}`;
       addWeatherOverlay({
-        source: `color=c=white@0.92:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)'`,
+        source: `color=c=white@0.92:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}`,
         x: `main_w*${(flake.x / 100).toFixed(4)}+${Math.round(previewPx(flake.drift))}*(${overlayPhase})`,
         y: `main_h*(-0.08+1.16*(${overlayPhase}))`,
         label: snowLabel,
-        inputFilter: `format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*${(sceneEffects.snowIntensity / 100).toFixed(4)}*(${opacity})'`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.snowIntensity / 100).toFixed(4)}*(${opacity})` })}`,
       });
     }
   }
@@ -1619,10 +1634,10 @@ for (let index = 0; index < scenes.length; index += 1) {
         const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
         inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
       } else if (effect === "typewriter" || effect === "stroke-draw") {
-        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${geqProgress}),alpha(X,Y),0)'`;
+        inputFilter += `,${geqRgba({ alpha: `if(lt(X/W,${geqProgress}),alpha(X,Y),0)` })}`;
       } else if (effect === "word-by-word") {
         const wordProgress = `floor(${geqProgress}*${wordCount})/${wordCount}`;
-        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${wordProgress}),alpha(X,Y),0)'`;
+        inputFilter += `,${geqRgba({ alpha: `if(lt(X/W,${wordProgress}),alpha(X,Y),0)` })}`;
       } else if (effect === "highlight-sweep") {
         inputFilter += `,eq=brightness='0.08*sin(2*PI*(t-${textStart})/${effectDuration})'`;
       } else if (effect === "glitch") {
@@ -1874,7 +1889,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
     } else if (animation === "typewriter") {
       const progress = `min(1,max(0,(T-${subtitleStart})/${animationDuration}))`;
-      filter += `[${inputIndex}:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${progress}),alpha(X,Y),0)'[${subtitleInputLabel}];`;
+      filter += `[${inputIndex}:v]format=rgba,${geqRgba({ alpha: `if(lt(X/W,${progress}),alpha(X,Y),0)` })}[${subtitleInputLabel}];`;
     } else {
       filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
     }
@@ -1941,7 +1956,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
         weatherInputSpecs.push(
           `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
-          `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+          geqRgb(darkMaskExpression),
         );
         filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
         filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
@@ -1952,7 +1967,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         const darkLabel = `sceneStartDarkened${darkIndex}`;
         weatherInputSpecs.push(
           `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
-          `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
+          geqRgba({ red: "0", green: "0", blue: "0", alpha: darkAlphaExpression }),
         );
         filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
         composedLabel = `[${darkLabel}]`;

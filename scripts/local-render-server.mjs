@@ -73,6 +73,18 @@ const runCommand = (command, args) => new Promise((resolve, reject) => {
   });
 });
 
+const summarizeFfmpegFailure = (log) => {
+  const lines = String(log || "")
+    .replaceAll("\r", "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const meaningful = lines.filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line));
+  return (meaningful.at(-1) || lines.at(-1) || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 360);
+};
+
 const rationalToNumber = (value) => {
   const [top, bottom] = String(value || "").split("/").map(Number);
   if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > 0) return top / bottom;
@@ -321,7 +333,10 @@ const runJob = async (job, project, files) => {
       job.message = "Đã dừng render";
       return;
     }
-    if (exitCode !== 0) throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}`);
+    if (exitCode !== 0) {
+      const detail = summarizeFfmpegFailure(job.log);
+      throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}${detail ? `: ${detail}` : ""}`);
+    }
     job.clip = await storeRenderedClip({
       sourcePath: job.outputPath,
       name: project.title || "video",

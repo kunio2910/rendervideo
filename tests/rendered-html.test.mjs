@@ -491,7 +491,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
-  assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);
+  assert.match(renderer, /const normalizeGeqExpression/);
+  assert.match(renderer, /const geqRgba/);
+  assert.match(renderer, /geqRgba\(\{ alpha: `if\(lt\(X\/W,/);
   assert.match(renderer, /typewriter/);
   assert.match(renderer, /subtitleEnabled/);
   assert.match(renderer, /textOverlayRenders/);
