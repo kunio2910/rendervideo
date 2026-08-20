@@ -25,6 +25,13 @@ const assetCacheDir = path.join(renderCacheDir, "assets");
 const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
+// A scene can contain many looped PNG/video inputs (for example, dozens of
+// subtitle cues). FFmpeg's automatic filter threading and input queues can
+// then retain a frame per input until the graph drains, which may exhaust
+// memory near the end of a long scene. Keep the graph bounded by default,
+// while allowing advanced local setups to opt into larger values.
+const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? 1) || 1);
+const ffmpegInputQueueSize = Math.max(1, Number(process.env.FFMPEG_INPUT_QUEUE_SIZE ?? 2) || 2);
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
 let renderCursor = 0;
@@ -1871,58 +1878,76 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = `[${fadeLabel}]`;
   });
   filter += `${composedLabel}copy[composed]`;
-  const args = [
-    "-y",
-    ...(backgroundIsVideo ? ["-stream_loop", "-1", "-i", sceneBackground] : ["-loop", "1", "-i", sceneBackground]),
-  ];
+  const args = ["-y"];
+  const addInput = (...inputArgs) => {
+    const inputIndex = inputArgs.indexOf("-i");
+    const boundedInputArgs = inputIndex < 0
+      ? inputArgs
+      : [
+          ...inputArgs.slice(0, inputIndex),
+          "-t", String(duration),
+          ...inputArgs.slice(inputIndex),
+        ];
+    args.push(
+      "-thread_queue_size", String(ffmpegInputQueueSize),
+      ...boundedInputArgs,
+    );
+  };
+  addInput(
+    ...(backgroundIsVideo
+      ? ["-stream_loop", "-1", "-i", sceneBackground]
+      : ["-loop", "1", "-i", sceneBackground]),
+  );
   textOverlayRenders.forEach(({ rendered: overlay }) => {
-    args.push("-loop", "1", "-i", overlay.path);
+    addInput("-loop", "1", "-i", overlay.path);
   });
   decorationRenders.forEach(({ rendered: decoration }) => {
     if (decoration.animated) {
-      args.push("-stream_loop", "-1", "-i", decoration.path);
+      addInput("-stream_loop", "-1", "-i", decoration.path);
     } else {
-      args.push("-loop", "1", "-i", decoration.path);
+      addInput("-loop", "1", "-i", decoration.path);
     }
   });
   sceneImageRenders.forEach(({ rendered: image }) => {
     if (image.animated) {
       if (image.frameSequence) {
-        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
       } else {
-        args.push("-stream_loop", "-1", "-i", image.path);
+        addInput("-stream_loop", "-1", "-i", image.path);
       }
-      args.push("-loop", "1", "-i", image.maskPath);
-      if (image.fillPath) args.push("-loop", "1", "-i", image.fillPath);
-      if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
+      addInput("-loop", "1", "-i", image.maskPath);
+      if (image.fillPath) addInput("-loop", "1", "-i", image.fillPath);
+      if (image.borderPath) addInput("-loop", "1", "-i", image.borderPath);
     } else {
-      args.push("-loop", "1", "-i", image.path);
+      addInput("-loop", "1", "-i", image.path);
     }
   });
   popupRenders.forEach(({ rendered: popup }) => {
-    args.push("-loop", "1", "-i", popup.path);
+    addInput("-loop", "1", "-i", popup.path);
     if (popup.video) {
       if (popup.videoFrameSequence) {
-        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
+        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
       } else {
-        args.push("-stream_loop", "-1", "-i", popup.video);
+        addInput("-stream_loop", "-1", "-i", popup.video);
       }
-      args.push("-loop", "1", "-i", popup.borderPath);
+      addInput("-loop", "1", "-i", popup.borderPath);
     }
   });
   subtitleRenders.forEach(({ rendered: subtitle }) => {
-    args.push("-loop", "1", "-i", subtitle.path);
+    addInput("-loop", "1", "-i", subtitle.path);
   });
   weatherInputSpecs.forEach((source) => {
-    args.push("-f", "lavfi", "-i", source);
+    addInput("-f", "lavfi", "-i", source);
   });
   const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
   if (voice) {
-    args.push("-i", voice);
+    addInput("-i", voice);
   } else {
-    args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
+    addInput("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   }
   args.push(
+    "-filter_threads", String(ffmpegFilterThreads),
+    "-filter_complex_threads", String(ffmpegFilterThreads),
     "-filter_complex", filter,
     "-map", "[composed]",
   );
