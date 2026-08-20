@@ -5675,6 +5675,13 @@ body {
   background: var(--panel-bg);
   border-color: var(--studio-line);
 }
+.preview-navigation.preview-navigation-zoom-only {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+.preview-navigation-zoom-only .preview-zoom-control {
+  justify-self: center;
+}
 @media (max-width: 760px) {
   .preview-navigation {
     width: min(100%, 360px);
@@ -6633,6 +6640,61 @@ body {
   background: rgba(111, 145, 173, .72);
 }
 
+/* Keep the time ruler and clip boundaries legible at a glance. */
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-labels {
+  min-height: 32px;
+  flex-basis: 32px !important;
+  height: 32px;
+  border-bottom-color: #d7c3a7;
+  background: #fff8ec;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale {
+  border-left-color: #c7a982;
+  background-image:
+    linear-gradient(to right, rgba(151, 111, 67, .52) 1px, transparent 1px),
+    repeating-linear-gradient(to right, transparent 0, transparent calc(5% - 1px), rgba(151, 111, 67, .17) calc(5% - 1px), rgba(151, 111, 67, .17) 5%);
+  background-size: 20% 100%, 100% 100%;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .ruler-scale i {
+  color: #5f4630;
+  font-size: 10px;
+  font-weight: 800;
+  text-shadow: 0 1px 0 #fff8ec;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary {
+  top: -18px;
+  bottom: -3px;
+  color: #624931;
+  font-size: 9px;
+  line-height: 12px;
+  text-shadow: 0 1px 0 #fffdf8;
+}
+.studio-shell[data-studio-tab="compose"] .timeline .timeline-boundary::before {
+  top: 18px;
+  background: rgba(151, 111, 67, .62);
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-labels {
+  border-bottom-color: #3d5066;
+  background: #162231;
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-scale {
+  border-left-color: #5c7692;
+  background-image:
+    linear-gradient(to right, rgba(150, 183, 215, .7) 1px, transparent 1px),
+    repeating-linear-gradient(to right, transparent 0, transparent calc(5% - 1px), rgba(150, 183, 215, .2) calc(5% - 1px), rgba(150, 183, 215, .2) 5%);
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .ruler-scale i {
+  color: #d7e5f3;
+  text-shadow: 0 1px 0 #162231;
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .timeline-boundary {
+  color: #d2e0ed;
+  text-shadow: 0 1px 0 #111b27;
+}
+.studio-shell[data-theme="dark"][data-studio-tab="compose"] .timeline .timeline-boundary::before {
+  background: rgba(150, 183, 215, .78);
+}
+
 /* Keep the light theme controls aligned with the dark theme and keep the
    resize target above the timeline surface. */
 @media (min-width: 761px) {
@@ -7091,8 +7153,8 @@ body {
 }
 
 .subtitle-overlay.is-playing {
-  pointer-events: none;
-  cursor: default;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .subtitle-delete-all-button {

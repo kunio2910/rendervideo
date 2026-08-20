@@ -3843,7 +3843,7 @@ function Home() {
       targetId === "editor-popup"
         ? "popup"
         : targetId === "editor-subtitle"
-          ? "text"
+          ? "audio"
           : targetId === "editor-effects"
             ? "effects"
           : "audio",
@@ -3902,7 +3902,7 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      setEditorSectionOpen("text", true);
+      openTimelineEditor(scene, "editor-subtitle");
       return;
     }
     selectPreviewLayer(item.kind, item.id);
@@ -8455,11 +8455,19 @@ function Home() {
             {playing && activeSubtitle && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
-                role="status"
+                role="button"
+                tabIndex={0}
                 aria-live="polite"
-                aria-label="Phụ đề trên bản đồ. Kéo để di chuyển khung chữ."
-                title="Kéo để di chuyển khung chữ phụ đề"
+                aria-label="Mở phần Phụ đề trong Âm thanh"
+                title="Bấm để mở Phụ đề trong Âm thanh"
                 onPointerDown={startSubtitleDrag}
+                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTimelineEditor(scene, "editor-subtitle");
+                  }
+                }}
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
@@ -8500,9 +8508,16 @@ function Home() {
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label="Vùng chỉnh sửa phụ đề. Kéo để di chuyển."
-                title="Kéo để di chuyển vùng phụ đề"
+                aria-label="Mở phần Phụ đề trong Âm thanh hoặc kéo để di chuyển"
+                title="Bấm để mở Phụ đề trong Âm thanh · Kéo để di chuyển vùng phụ đề"
                 onPointerDown={startSubtitleDrag}
+                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTimelineEditor(scene, "editor-subtitle");
+                  }
+                }}
               >
                 <span>{subtitleGuideMetrics}</span>
                 <button
@@ -8511,6 +8526,7 @@ function Home() {
                   aria-label="Kéo để thay đổi kích thước phụ đề"
                   title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
                   onPointerDown={startSubtitleResize}
+                  onClick={(event) => event.stopPropagation()}
                 />
               </div>
             )}
@@ -8752,15 +8768,7 @@ function Home() {
               <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
             </aside>
           </div>
-          <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
-            <button
-              type="button"
-              className="preview-scene-navigation preview-scene-navigation-previous"
-              onClick={() => selectAdjacentScene(-1)}
-              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) <= 0}
-            >
-              ← Cảnh trước
-            </button>
+          <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
             <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
               <button
                 type="button"
@@ -8780,14 +8788,6 @@ function Home() {
                 +
               </button>
             </div>
-            <button
-              type="button"
-              className="preview-scene-navigation preview-scene-navigation-next"
-              onClick={() => selectAdjacentScene(1)}
-              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) >= visibleScenes.length - 1}
-            >
-              Cảnh tiếp theo →
-            </button>
           </div>
         </section>
 
@@ -11190,47 +11190,6 @@ function Home() {
                     </span>
                     </Fragment>
                   ))}
-                </div>
-              </div>
-              <div className="track subtitle-track">
-                <strong>Phụ đề</strong>
-                <div className="track-content grid">
-                  {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
-                    .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
-                    .map(({ item, subtitle }) => {
-                      const sceneLength = Math.max(0.1, item.end - item.start);
-                      const subtitleOffset = Math.min(sceneLength, Math.max(0, Number(item.subtitleStart) || 0));
-                      const cueStart = Math.max(0, Number(subtitle.start) || 0);
-                      const subtitleStart = Math.min(sceneLength, subtitleOffset + cueStart);
-                      if (subtitleStart >= sceneLength) return null;
-                      const subtitleEnd = Math.min(
-                        sceneLength,
-                        Math.max(subtitleStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
-                      );
-                      const subtitleGlobalStart = item.start + subtitleStart;
-                      const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);
-                      return (
-                        <button
-                          key={`${item.id}-${subtitle.id}`}
-                          type="button"
-                          className="clip subtitle-clip"
-                          onClick={() => {
-                            setSelectedId(item.id);
-                            setSelectedSceneIds([item.id]);
-                            setPlaying(false);
-                            openTimelineEditor(item, "editor-subtitle");
-                            setPlayTime(Number(subtitleGlobalStart.toFixed(2)));
-                          }}
-                          style={{
-                            left: timelinePercent(subtitleGlobalStart),
-                            width: timelinePercent(subtitleDuration),
-                          }}
-                          title={`Phụ đề: ${formatTime(subtitleGlobalStart)} – ${formatTime(subtitleGlobalStart + subtitleDuration)}`}
-                        >
-                          <span className="timeline-clip-label">{subtitle.text}</span>
-                        </button>
-                      );
-                    })}
                 </div>
               </div>
               <div className="track effects-track">
