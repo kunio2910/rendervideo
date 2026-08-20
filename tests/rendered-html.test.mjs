@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import sharp from "sharp";
+import { cacheRemoteResource, collectProjectRemoteResources } from "../scripts/render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "../scripts/sprite-sheet.mjs";
 
 async function render() {
@@ -39,6 +43,43 @@ test("server-renders the Kito Video Studio editor shell", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 
+test("preloads remote image, video, and audio once into the persistent renderer cache", async (t) => {
+  const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "kito-render-cache-"));
+  let requestCount = 0;
+  const server = http.createServer((request, response) => {
+    requestCount += 1;
+    response.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": "4" });
+    response.end("test");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const url = `http://127.0.0.1:${address.port}/shared.mp3`;
+  t.after(async () => {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await rm(cacheRoot, { recursive: true, force: true });
+  });
+
+  const first = await cacheRemoteResource({ cacheRoot, kind: "audio", value: url, fallbackName: "track.mp3" });
+  const second = await cacheRemoteResource({ cacheRoot, kind: "audio", value: url, fallbackName: "track.mp3" });
+  assert.equal(first.cached, false);
+  assert.equal(second.cached, true);
+  assert.equal(requestCount, 1);
+
+  const resources = collectProjectRemoteResources({
+    background: "https://example.test/background.png",
+    backgroundMusic: "https://example.test/music.mp3",
+    scenes: [{
+      sceneVisible: true,
+      audioTracks: [{ visible: true, source: "https://example.test/voice.mp3" }],
+      popups: [{ visible: true, imageVisible: true, image: "https://example.test/popup.jpg", video: "https://example.test/popup.mp4" }],
+      mapDecorations: [{ visible: true, type: "animated-sticker", assetType: "webm", asset: "https://example.test/effect.webm" }],
+      sceneImages: [{ visible: true, mediaType: "video", url: "https://example.test/scene.mp4" }],
+    }],
+  });
+  assert.deepEqual(resources.map((item) => item.kind).sort(), ["audio", "audio", "image", "image", "video", "video", "video"]);
+});
+
 test("keeps editor safety and render checks in the source", async () => {
   const [page, css, notes] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -61,7 +102,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Bật hiệu ứng zoom bản đồ/);
   assert.match(page, /Thời gian kết thúc zoom/);
   assert.match(page, /Âm lượng nhạc nền/);
-  assert.match(page, /Âm lượng thuyết minh/);
+  assert.match(page, /Âm lượng âm thanh/);
   assert.match(page, /zoom-focus-target/);
   assert.match(page, /startMapPointDrag/);
   assert.match(page, /sceneVisible/);
@@ -189,7 +230,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startSubtitleDrag/);
   assert.match(page, /deleteAllSubtitleCues/);
   assert.match(page, /Xóa tất cả/);
-  assert.match(page, /subtitle-track/);
+  assert.match(css, /\.subtitle-track/);
   assert.match(page, /editor-subtitle/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
   assert.match(page, /activeStudioTab === "settings"/);
@@ -212,7 +253,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.doesNotMatch(page, /settings-nav-title/);
   assert.doesNotMatch(page, /settings-page-heading/);
   assert.match(page, /settings-add-clip-action/);
-  assert.match(page, /Cảnh tiếp theo/);
+  assert.match(page, /selectAdjacentScene/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
   assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera/);
@@ -268,14 +309,18 @@ test("keeps editor safety and render checks in the source", async () => {
 });
 
 test("keeps preview and FFmpeg render settings aligned", async () => {
-  const [page, css, renderer, localServer] = await Promise.all([
+  const [page, css, renderer, localServer, resourceCache] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../scripts/render-video.mjs", import.meta.url), "utf8"),
     readFile(new URL("../scripts/local-render-server.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/render-resource-cache.mjs", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /assetPreviewUrls/);
+  assert.match(page, /syncLocalResourceCache/);
+  assert.match(page, /Tải trước URL để render nhanh hơn/);
+  assert.match(page, /localResourceCache/);
   assert.match(page, /imageVisible: imageEnabled/);
   assert.match(page, /fps: renderFps/);
   assert.match(page, /playbackMapScale/);
@@ -290,6 +335,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /preview-replay-button/);
   assert.match(page, /Math\.min\(REVIEW_ZOOM_MAX/);
   assert.match(page, /localStorage\.setItem\(LOCAL_REVIEW_ZOOM_KEY/);
+  assert.match(page, /LOCAL_SCENE_STRUCTURE_ZOOM_KEY/);
+  assert.match(page, /readSceneStructureZoomPreference/);
+  assert.match(page, /localStorage\.setItem\(LOCAL_SCENE_STRUCTURE_ZOOM_KEY/);
+  assert.match(page, /onDoubleClick=\{\(\) => openSceneStructureQuickEditor\(item\)\}/);
+  assert.match(page, /scene-structure-quick-editor/);
+  assert.match(css, /scene-structure-quick-editor-overlay/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
@@ -348,6 +399,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /resolveVideo/);
   assert.match(renderer, /resolveBackground/);
+  assert.match(renderer, /cacheRemoteResource/);
+  assert.match(localServer, /\/api\/cache\/sync/);
+  assert.match(localServer, /syncProjectResourceCache/);
+  assert.match(resourceCache, /collectProjectRemoteResources/);
+  assert.match(resourceCache, /cacheRemoteResource/);
+  assert.match(resourceCache, /RENDER_CACHE_DIR|cacheRoot/);
   assert.match(renderer, /createMapDecoration/);
   assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /createTextOverlay/);
@@ -424,7 +481,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const writeAnimatedImageFrameSequence/);
   assert.match(renderer, /animatedImage = await writeAnimatedImageFrameSequence/);
   assert.match(renderer, /const writeAnimatedWebpFrameSequence/);
-  assert.match(renderer, /args\.push\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
+  assert.match(renderer, /addInput\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);
   assert.match(renderer, /scene\.popupY/);
