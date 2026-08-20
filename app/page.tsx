@@ -8428,6 +8428,116 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const deleteSceneStructureItem = (item: SceneStructureItem) => {
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const nextLayerOrder = (currentScene.layerOrder ?? []).filter((token) => token !== item.token);
+      if (item.kind === "background") {
+        return { ...currentScene, background: "", backgroundVisible: false, layerOrder: nextLayerOrder };
+      }
+      if (item.kind === "image") {
+        return {
+          ...currentScene,
+          sceneImages: (currentScene.sceneImages ?? []).filter((image) => image.id !== item.id),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "popup") {
+        const popups = scenePopupList(currentScene);
+        const popupIndex = popups.findIndex((popup) => popup.id === item.id);
+        const nextPopups = popups.filter((popup) => popup.id !== item.id);
+        const fallbackPopup = defaultPopupConfig(`${currentScene.id}-popup-empty`, { visible: false });
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(popupIndex === 0 ? popupSceneFields(nextPopups[0] ?? fallbackPopup) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "text") {
+        const overlays = currentScene.textOverlays ?? [];
+        const overlayIndex = overlays.findIndex((overlay) => overlay.id === item.id);
+        const nextOverlays = overlays.filter((overlay) => overlay.id !== item.id);
+        const fallbackOverlay = defaultTextOverlay(`${currentScene.id}-text-empty`, { text: "", visible: false });
+        return {
+          ...currentScene,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlays[0] ?? fallbackOverlay) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "decoration") {
+        return {
+          ...currentScene,
+          mapDecorations: (currentScene.mapDecorations ?? []).filter((decoration) => decoration.id !== item.id),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "subtitle") {
+        return {
+          ...currentScene,
+          subtitleEnabled: false,
+          subtitles: [],
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "audio" && item.id === "voice") {
+        return {
+          ...currentScene,
+          narration: "",
+          voice: "",
+          voiceFile: "",
+          voiceStart: 0,
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "effect" && item.id === "zoom") {
+        return { ...currentScene, zoomEnabled: false, layerOrder: nextLayerOrder };
+      }
+      if (item.kind === "effect" && item.id.startsWith("dark:")) {
+        const effectId = item.id.slice("dark:".length);
+        const effects = normalizeSceneEffects(currentScene.effects);
+        const darkEffects = effects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
+        const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
+        return {
+          ...currentScene,
+          effects: {
+            ...effects,
+            sceneStartDarkEffects: darkEffects,
+            sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+            sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+            sceneStartDarkIntensity: firstEffect.intensity,
+          },
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (item.kind === "effect" && item.id === "weather") {
+        return {
+          ...currentScene,
+          effects: {
+            ...normalizeSceneEffects(currentScene.effects),
+            snowEnabled: false,
+            rainEnabled: false,
+            cloudEnabled: false,
+            lightFlickerEnabled: false,
+            thunderEnabled: false,
+          },
+          layerOrder: nextLayerOrder,
+        };
+      }
+      return currentScene;
+    }));
+    setSelectedSceneStructureToken("");
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedSceneImageId("");
+    setSelectedDecorationId("");
+    setToast(`Đã xóa ${item.label} · Ctrl+Z để hoàn tác`);
+    window.setTimeout(() => setToast(""), 2600);
+  };
+
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
@@ -12972,8 +13082,15 @@ function Home() {
                               maxWidth: `calc(100% - ${leftPercent}% - 12px)`,
                             }}
                             aria-pressed={item.token === selectedSceneStructureItem?.token}
-                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}`}
+                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
+                            title="Nhấn Delete để xóa tài nguyên"
                             onClick={() => selectSceneStructureItem(item)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Delete") return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              deleteSceneStructureItem(item);
+                            }}
                           >
                             <span className="scene-structure-card-media" aria-hidden="true">
                               {renderSceneStructureThumbnail(item)}
@@ -13126,7 +13243,7 @@ function Home() {
                         Ẩn tài nguyên
                       </button>
                     </div>
-                    <p className="scene-structure-inspector-hint">Các thay đổi thời gian được cập nhật trực tiếp về “Biên soạn”.</p>
+                    <p className="scene-structure-inspector-hint">Thay đổi được đồng bộ với “Biên soạn”. Chọn thẻ và nhấn Delete để xóa; dùng Ctrl+Z để hoàn tác.</p>
                   </>
                     ) : (
                   <div className="scene-structure-inspector-empty">

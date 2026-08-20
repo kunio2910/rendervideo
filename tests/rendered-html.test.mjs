@@ -272,6 +272,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /aria-label="Mở Cấu trúc cảnh"/);
   assert.match(page, /sceneStructureOpen/);
   assert.match(page, /updateSceneStructureTiming/);
+  assert.match(page, /deleteSceneStructureItem/);
+  assert.match(page, /event\.key !== "Delete"/);
+  assert.match(page, /Ctrl\+Z để hoàn tác/);
   assert.match(page, /openSceneStructureItemInEditor/);
   assert.match(page, /sceneStructurePreviewMode/);
   assert.match(page, /createPortal/);
@@ -301,6 +304,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(sceneStructureMarkup, /Hoàn tác \(Ctrl\+Z\)/);
   assert.match(sceneStructureMarkup, /Làm lại \(Ctrl\+Y\)/);
   assert.match(sceneStructureMarkup, /Thu phóng sơ đồ cảnh/);
+  assert.match(sceneStructureMarkup, /Nhấn Delete để xóa tài nguyên/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });
