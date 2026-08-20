@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { User as FirebaseUser } from "firebase/auth";
 import {
   loadWorkspaceFromFirestore,
@@ -214,6 +215,55 @@ type SceneStructureItem = {
   thumbnail: string;
   thumbnailIsVideo: boolean;
 };
+
+type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect";
+
+type SceneStructureTemplate = {
+  kind: SceneStructureTemplateKind;
+  label: string;
+  description: string;
+  icon: string;
+  duration: number;
+};
+
+type SceneStructureTemplatePointerDrag = {
+  kind: SceneStructureTemplateKind;
+  pointerId: number;
+  originX: number;
+  originY: number;
+  active: boolean;
+};
+
+const SCENE_STRUCTURE_TEMPLATES: SceneStructureTemplate[] = [
+  {
+    kind: "image",
+    label: "Hình ảnh",
+    description: "Tạo lớp hình hoặc video mới",
+    icon: "IMG",
+    duration: 5,
+  },
+  {
+    kind: "text",
+    label: "Chữ viết",
+    description: "Tạo một lớp chữ trên bản đồ",
+    icon: "T",
+    duration: 3,
+  },
+  {
+    kind: "popup",
+    label: "Popup",
+    description: "Tạo popup nội dung mới",
+    icon: "P",
+    duration: 3,
+  },
+  {
+    kind: "effect",
+    label: "Hiệu ứng",
+    description: "Tạo hiệu ứng ánh sáng mới",
+    icon: "✦",
+    duration: 3,
+  },
+];
 
 const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
   <span className="field-label-with-hint">
@@ -699,6 +749,9 @@ const LOCAL_REVIEW_ZOOM_KEY = "kito-video-studio-review-zoom";
 const REVIEW_ZOOM_MIN = 35;
 const REVIEW_ZOOM_MAX = 200;
 const REVIEW_ZOOM_DEFAULT = 50;
+const SCENE_STRUCTURE_ZOOM_MIN = 75;
+const SCENE_STRUCTURE_ZOOM_MAX = 200;
+const SCENE_STRUCTURE_ZOOM_STEP = 25;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 const clampReviewZoom = (value: unknown) => {
@@ -2730,10 +2783,14 @@ function Home() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
   const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
+  const [sceneStructureZoom, setSceneStructureZoom] = useState(100);
   const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
+  const [sceneStructureDraggedTemplate, setSceneStructureDraggedTemplate] = useState<SceneStructureTemplateKind | "">("");
+  const [sceneStructureDropTime, setSceneStructureDropTime] = useState<number | null>(null);
+  const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -2768,6 +2825,10 @@ function Home() {
   const reviewZoomRef = useRef(readReviewZoomPreference());
   const rulerToggleRef = useRef<HTMLButtonElement | null>(null);
   const rulerPopoverRef = useRef<HTMLDivElement | null>(null);
+  const sceneStructureTemplateDidDrag = useRef(false);
+  const sceneStructureTemplatePointerDrag = useRef<SceneStructureTemplatePointerDrag | null>(null);
+  const sceneStructureTemplateMouseCleanup = useRef<(() => void) | null>(null);
+  const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
 
@@ -2940,6 +3001,12 @@ function Home() {
   };
   const adjustPreviewZoom = (delta: number) => {
     setPreviewZoom((value) => Math.min(125, Math.max(75, value + delta)));
+  };
+  const adjustSceneStructureZoom = (delta: number) => {
+    setSceneStructureZoom((value) => Math.min(
+      SCENE_STRUCTURE_ZOOM_MAX,
+      Math.max(SCENE_STRUCTURE_ZOOM_MIN, value + delta),
+    ));
   };
   const selectAdjacentScene = (direction: -1 | 1) => {
     const candidates = visibleScenes.length ? visibleScenes : scenes;
@@ -3425,7 +3492,7 @@ function Home() {
       });
     });
   sceneStructureImages
-    .filter((image) => image.visible !== false && safeTrim(image.url))
+    .filter((image) => image.visible !== false)
     .forEach((image, index) => {
       const timing = clampSceneStructureTiming(image.start, image.start + image.duration);
       const transitionLabel = sceneImageTransitionOptions.find((option) => option.value === image.transition)?.label;
@@ -3435,7 +3502,9 @@ function Home() {
         kind: "image",
         id: image.id,
         label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
-        detail: transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh"),
+        detail: safeTrim(image.url)
+          ? transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh")
+          : "Chưa nhập URL hình ảnh hoặc video",
         icon: "IMG",
         ...timing,
         timingMode: "both",
@@ -8164,6 +8233,12 @@ function Home() {
   const openSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateMouseCleanup.current = null;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
     setPreviewFullscreen(false);
     setReviewOpen(false);
     setSceneStructureSceneId(scene.id);
@@ -8175,7 +8250,276 @@ function Home() {
   const closeSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateMouseCleanup.current = null;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
     setSceneStructureOpen(false);
+  };
+
+  const sceneStructureDropTimeFromClientX = (clientX: number, target: HTMLElement) => {
+    const bounds = target.getBoundingClientRect();
+    const horizontalPadding = 24;
+    const timelineLeft = bounds.left + horizontalPadding;
+    const timelineWidth = Math.max(1, bounds.width - horizontalPadding * 2);
+    const ratio = Math.min(1, Math.max(0, (clientX - timelineLeft) / timelineWidth));
+    const snapped = Math.round(ratio * sceneStructureDuration * 10) / 10;
+    return Number(Math.min(
+      Math.max(0, sceneStructureDuration - 0.1),
+      Math.max(0, snapped),
+    ).toFixed(2));
+  };
+
+  const sceneStructurePlayheadTime = () => Math.min(
+    Math.max(0, sceneStructureDuration - 0.1),
+    Math.max(0, playTime - sceneStructureScene.start),
+  );
+
+  const insertSceneStructureTemplate = (
+    kind: SceneStructureTemplateKind,
+    startValue: number,
+  ) => {
+    const template = SCENE_STRUCTURE_TEMPLATES.find((item) => item.kind === kind);
+    if (!template) return;
+    const start = Number(Math.min(
+      Math.max(0, sceneStructureDuration - 0.1),
+      Math.max(0, Number(startValue) || 0),
+    ).toFixed(2));
+    const duration = Number(Math.max(
+      0.1,
+      Math.min(template.duration, sceneStructureDuration - start),
+    ).toFixed(2));
+    const end = Number(Math.min(sceneStructureDuration, start + duration).toFixed(2));
+    const timestamp = Date.now().toString(36);
+    const imageIndex = sceneStructureImages.length + 1;
+    const textIndex = sceneStructureTexts.length + 1;
+    const popupIndex = sceneStructurePopups.length + 1;
+    const decorationIndex = sceneStructureDecorations.length + 1;
+    const createdId = kind === "image"
+      ? `${sceneStructureScene.id}-image-${imageIndex}-${timestamp}`
+      : kind === "text"
+        ? `${sceneStructureScene.id}-text-${textIndex}-${timestamp}`
+        : kind === "popup"
+          ? `${sceneStructureScene.id}-popup-${popupIndex}-${timestamp}`
+          : `${sceneStructureScene.id}-decoration-${decorationIndex}-${timestamp}`;
+    const layerKind = kind === "effect" ? "decoration" : kind;
+    const createdToken = `${layerKind}:${createdId}`;
+
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const currentLayerOrder = Array.isArray(currentScene.layerOrder) ? currentScene.layerOrder : [];
+      const nextLayerOrder = [
+        ...currentLayerOrder.filter((token) => token !== createdToken),
+        createdToken,
+      ];
+      if (kind === "image") {
+        const nextImage = defaultSceneImage(createdId, {
+          name: `Hình ảnh ${imageIndex}`,
+          start,
+          duration,
+          transitionEnd: Number(Math.min(end, start + 0.5).toFixed(2)),
+          y: 50 + Math.min(18, (imageIndex - 1) * 5),
+        });
+        return {
+          ...currentScene,
+          sceneImages: [...(currentScene.sceneImages ?? []), nextImage],
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (kind === "text") {
+        const nextOverlay = defaultTextOverlay(createdId, {
+          name: `Chữ ${textIndex}`,
+          text: "Nhập chữ",
+          start,
+          end,
+          y: Math.min(82, 18 + (textIndex - 1) * 8),
+        });
+        const nextOverlays = [...(currentScene.textOverlays ?? []), nextOverlay];
+        return {
+          ...currentScene,
+          textOverlays: nextOverlays,
+          ...(nextOverlays.length === 1 ? textOverlaySceneFields(nextOverlay) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      if (kind === "popup") {
+        const nextPopup = defaultPopupConfig(createdId, {
+          title: `Popup ${popupIndex}`,
+          body: "Nhập nội dung popup",
+          start,
+          duration,
+          y: Math.min(75, 55 + (popupIndex - 1) * 6),
+        });
+        const nextPopups = [...scenePopupList(currentScene), nextPopup];
+        return {
+          ...currentScene,
+          popups: nextPopups,
+          ...(nextPopups.length === 1 ? popupSceneFields(nextPopup) : {}),
+          layerOrder: nextLayerOrder,
+        };
+      }
+      const nextDecoration = defaultMapDecoration(createdId, "effect", {
+        name: `Hiệu ứng ${decorationIndex}`,
+        symbol: "✦",
+        effect: "sparkles",
+        start,
+        duration,
+        y: Math.min(78, 45 + (decorationIndex - 1) * 5),
+      });
+      return {
+        ...currentScene,
+        mapDecorations: [...(currentScene.mapDecorations ?? []), nextDecoration],
+        layerOrder: nextLayerOrder,
+      };
+    }));
+
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
+    setSelectedSceneStructureToken(createdToken);
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setSelectedPopupId(kind === "popup" ? createdId : "");
+    setSelectedTextOverlayId(kind === "text" ? createdId : "");
+    setSelectedSceneImageId(kind === "image" ? createdId : "");
+    setSelectedDecorationId(kind === "effect" ? createdId : "");
+    setPlayTime(Number((sceneStructureScene.start + start).toFixed(2)));
+    setSceneStructureStartDraft(formatPreciseTime(start));
+    setSceneStructureEndDraft(formatPreciseTime(end));
+    setToast(kind === "image"
+      ? "Đã thêm Hình ảnh · nhập URL trong Biên soạn"
+      : `Đã thêm ${template.label} tại ${formatPreciseTime(start)}`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const sceneStructureTemplateDropAtPoint = (clientX: number, clientY: number) => {
+    const target = sceneStructureFlowContentRef.current;
+    if (!target) return null;
+    const bounds = target.getBoundingClientRect();
+    const isInside = clientX >= bounds.left
+      && clientX <= bounds.right
+      && clientY >= bounds.top
+      && clientY <= bounds.bottom;
+    return isInside ? sceneStructureDropTimeFromClientX(clientX, target) : null;
+  };
+
+  const beginSceneStructureTemplatePointerDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    kind: SceneStructureTemplateKind,
+  ) => {
+    if (sceneStructurePreviewMode || event.pointerType === "mouse") return;
+    sceneStructureTemplateDidDrag.current = false;
+    sceneStructureTemplatePointerDrag.current = {
+      kind,
+      pointerId: event.pointerId,
+      originX: event.clientX,
+      originY: event.clientY,
+      active: false,
+    };
+    setSceneStructureDropTime(null);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const beginSceneStructureTemplateMouseDrag = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    kind: SceneStructureTemplateKind,
+  ) => {
+    if (sceneStructurePreviewMode || event.button !== 0) return;
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateDidDrag.current = false;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    let active = false;
+    let handleMove: (moveEvent: MouseEvent) => void;
+    let handleUp: (upEvent: MouseEvent) => void;
+    const cleanup = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      if (sceneStructureTemplateMouseCleanup.current === cleanup) {
+        sceneStructureTemplateMouseCleanup.current = null;
+      }
+    };
+    handleMove = (moveEvent) => {
+      if (!active) {
+        const distance = Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY);
+        if (distance < 7) return;
+        active = true;
+        sceneStructureTemplateDidDrag.current = true;
+        setSceneStructureDraggedTemplate(kind);
+      }
+      moveEvent.preventDefault();
+      setSceneStructureDropTime(sceneStructureTemplateDropAtPoint(moveEvent.clientX, moveEvent.clientY));
+    };
+    handleUp = (upEvent) => {
+      cleanup();
+      if (!active) {
+        sceneStructureTemplateDidDrag.current = false;
+        return;
+      }
+      const dropTime = sceneStructureTemplateDropAtPoint(upEvent.clientX, upEvent.clientY);
+      setSceneStructureDraggedTemplate("");
+      setSceneStructureDropTime(null);
+      if (dropTime !== null) insertSceneStructureTemplate(kind, dropTime);
+      window.setTimeout(() => {
+        sceneStructureTemplateDidDrag.current = false;
+      }, 0);
+    };
+    sceneStructureTemplateMouseCleanup.current = cleanup;
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
+
+  const moveSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.active) {
+      const distance = Math.hypot(event.clientX - drag.originX, event.clientY - drag.originY);
+      if (distance < 7) return;
+      drag.active = true;
+      sceneStructureTemplateDidDrag.current = true;
+      setSceneStructureDraggedTemplate(drag.kind);
+    }
+    event.preventDefault();
+    setSceneStructureDropTime(sceneStructureTemplateDropAtPoint(event.clientX, event.clientY));
+  };
+
+  const endSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const wasActive = drag.active;
+    const dropTime = wasActive
+      ? sceneStructureTemplateDropAtPoint(event.clientX, event.clientY)
+      : null;
+    sceneStructureTemplatePointerDrag.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+    if (!wasActive) {
+      sceneStructureTemplateDidDrag.current = false;
+      return;
+    }
+    event.preventDefault();
+    if (dropTime !== null) insertSceneStructureTemplate(drag.kind, dropTime);
+    window.setTimeout(() => {
+      sceneStructureTemplateDidDrag.current = false;
+    }, 0);
+  };
+
+  const cancelSceneStructureTemplatePointerDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureTemplatePointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+  };
+
+  const addSceneStructureTemplateAtPlayhead = (kind: SceneStructureTemplateKind) => {
+    if (sceneStructureTemplateDidDrag.current) return;
+    insertSceneStructureTemplate(kind, sceneStructurePlayheadTime());
   };
 
   const selectSceneStructureItem = (item: SceneStructureItem) => {
@@ -9265,12 +9609,14 @@ function Home() {
           </div>
           <div className="preview-stage-layout">
             <div className="preview-stage">
+          {(() => {
+            const previewCanvas = (
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
-            style={{ transform: `scale(${previewZoom / 100})` }}
-            onDragOver={handleMapEffectDragOver}
-            onDragLeave={() => setMapEffectDragActive(false)}
-            onDrop={handleMapEffectDrop}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
+            style={{ transform: sceneStructurePreviewMode ? "none" : `scale(${previewZoom / 100})` }}
+            onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
+            onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}
+            onDrop={sceneStructurePreviewMode ? undefined : handleMapEffectDrop}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
@@ -9280,6 +9626,7 @@ function Home() {
                   className="project-background"
                   src={backgroundVideoPreviewSource}
                   muted
+                  autoPlay={playing}
                   loop
                   playsInline
                   preload="metadata"
@@ -9796,6 +10143,11 @@ function Home() {
               </div>
             )}
           </div>
+            );
+            return sceneStructurePreviewMode && sceneStructurePreviewPortalHost
+              ? createPortal(previewCanvas, sceneStructurePreviewPortalHost)
+              : previewCanvas;
+          })()}
           <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
             <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
               <button
@@ -12811,6 +13163,55 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <div className="scene-structure-tool-group" role="group" aria-label="Hoàn tác và làm lại">
+                  <button
+                    type="button"
+                    className="scene-structure-tool-button"
+                    aria-label="Hoàn tác"
+                    title="Hoàn tác (Ctrl+Z)"
+                    disabled={!historyPast.current.length}
+                    onClick={() => {
+                      setPlaying(false);
+                      undo();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7-5 5 5 5M5 12h8a6 6 0 0 1 6 6" /></svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="scene-structure-tool-button"
+                    aria-label="Làm lại"
+                    title="Làm lại (Ctrl+Y)"
+                    disabled={!historyFuture.current.length}
+                    onClick={() => {
+                      setPlaying(false);
+                      redo();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5M19 12h-8a6 6 0 0 0-6 6" /></svg>
+                  </button>
+                </div>
+                <div className="scene-structure-zoom-control" role="group" aria-label="Thu phóng sơ đồ cảnh">
+                  <button
+                    type="button"
+                    aria-label="Thu nhỏ sơ đồ"
+                    title="Thu nhỏ sơ đồ"
+                    disabled={sceneStructureZoom <= SCENE_STRUCTURE_ZOOM_MIN}
+                    onClick={() => adjustSceneStructureZoom(-SCENE_STRUCTURE_ZOOM_STEP)}
+                  >
+                    −
+                  </button>
+                  <output aria-label={`Tỷ lệ sơ đồ ${sceneStructureZoom}%`}>{sceneStructureZoom}%</output>
+                  <button
+                    type="button"
+                    aria-label="Phóng to sơ đồ"
+                    title="Phóng to sơ đồ"
+                    disabled={sceneStructureZoom >= SCENE_STRUCTURE_ZOOM_MAX}
+                    onClick={() => adjustSceneStructureZoom(SCENE_STRUCTURE_ZOOM_STEP)}
+                  >
+                    +
+                  </button>
+                </div>
                 <button
                   type="button"
                   className={`scene-structure-play-button ${playing ? "is-playing" : ""}`}
@@ -12843,11 +13244,53 @@ function Home() {
             </header>
 
             <div className="scene-structure-body">
+              <aside className="scene-structure-library" aria-label="Thư viện thành phần cảnh">
+                <div className="scene-structure-library-heading">
+                  <span>THÊM THÀNH PHẦN</span>
+                  <strong>Thư viện thẻ</strong>
+                  <p>Kéo thẻ vào đúng mốc trên sơ đồ. Bấm thẻ để thêm tại playhead.</p>
+                </div>
+                <div className="scene-structure-template-list">
+                  {SCENE_STRUCTURE_TEMPLATES.map((template) => (
+                    <button
+                      type="button"
+                      key={template.kind}
+                      draggable={false}
+                      disabled={sceneStructurePreviewMode}
+                      data-draggable="true"
+                      className={`scene-structure-template-card scene-structure-template-${template.kind} ${sceneStructureDraggedTemplate === template.kind ? "is-dragging" : ""}`}
+                      title={`Kéo để thêm ${template.label} hoặc bấm để thêm tại playhead`}
+                      aria-label={`Thêm ${template.label}. Kéo vào sơ đồ hoặc bấm để thêm tại playhead.`}
+                      onClick={() => addSceneStructureTemplateAtPlayhead(template.kind)}
+                      onMouseDown={(event) => beginSceneStructureTemplateMouseDrag(event, template.kind)}
+                      onPointerDown={(event) => beginSceneStructureTemplatePointerDrag(event, template.kind)}
+                      onPointerMove={moveSceneStructureTemplatePointerDrag}
+                      onPointerUp={endSceneStructureTemplatePointerDrag}
+                      onPointerCancel={cancelSceneStructureTemplatePointerDrag}
+                    >
+                      <span className="scene-structure-template-icon" aria-hidden="true">{template.icon}</span>
+                      <span className="scene-structure-template-copy">
+                        <strong>{template.label}</strong>
+                        <small>{template.description}</small>
+                      </span>
+                      <span className="scene-structure-template-grip" aria-hidden="true">⠿</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="scene-structure-library-note">
+                  <span aria-hidden="true">↳</span>
+                  <p><strong>Đồng bộ tức thì</strong>Thẻ mới xuất hiện trong Biên soạn, Timeline, JSON và Preview.</p>
+                </div>
+              </aside>
               <div className="scene-structure-flow-panel">
                 <div className="scene-structure-flow-scroll">
                   <div
-                    className="scene-structure-flow-content"
-                    style={{ minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px` }}
+                    ref={sceneStructureFlowContentRef}
+                    className={`scene-structure-flow-content ${sceneStructureDropTime !== null ? "is-template-drop-target" : ""}`}
+                    style={{
+                      minWidth: `${Math.round(1040 * sceneStructureZoom / 100)}px`,
+                      minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px`,
+                    }}
                   >
                     <div className="scene-structure-ruler" aria-label="Trục thời gian của cảnh">
                       {sceneStructureTicks.map((tick) => (
@@ -12868,6 +13311,16 @@ function Home() {
                     <div className="scene-structure-phase-grid" aria-hidden="true">
                       <span /><span /><span />
                     </div>
+                    {sceneStructureDropTime !== null && (
+                      <div
+                        className="scene-structure-template-drop-indicator"
+                        aria-hidden="true"
+                        style={{ left: `${Math.min(100, Math.max(0, sceneStructureDropTime / sceneStructureDuration * 100))}%` }}
+                      >
+                        <b>{formatPreciseTime(sceneStructureDropTime)}</b>
+                        <span>Thả để thêm</span>
+                      </div>
+                    )}
                     <div
                       className="scene-structure-playhead"
                       aria-hidden="true"
@@ -12947,7 +13400,11 @@ function Home() {
                       </div>
                       <strong>{formatPreciseTime(sceneStructureLocalTime)}</strong>
                     </div>
-                    {renderSceneStructureLivePreview()}
+                    <div
+                      ref={setSceneStructurePreviewPortalHost}
+                      className="scene-structure-preview-portal-host"
+                      aria-label="Màn hình xem trước đang chạy thử"
+                    />
                     <p className="scene-structure-live-hint">Thẻ đang phát sẽ sáng viền trên sơ đồ. Bấm “Quay lại” để dừng và trở về đầu cảnh.</p>
                   </>
                 ) : (
