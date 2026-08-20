@@ -2729,6 +2729,7 @@ function Home() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
+  const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
   const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
@@ -3975,6 +3976,7 @@ function Home() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setPlaying(false);
+      setSceneStructurePreviewMode(false);
       setSceneStructureOpen(false);
     };
     const previousOverflow = document.body.style.overflow;
@@ -4148,6 +4150,11 @@ function Home() {
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
       if (nextTime >= sceneTimelineDuration) {
+        if (sceneStructureOpen) {
+          setPlayTime(sceneStructureScene.end);
+          setPlaying(false);
+          return;
+        }
         const firstScene = visibleScenes[0];
         setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
@@ -4182,7 +4189,7 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, playbackRestartToken, sceneTimelineDuration, scenes, visibleScenes]);
+  }, [playing, playbackRestartToken, sceneStructureOpen, sceneStructureScene.end, sceneTimelineDuration, scenes, visibleScenes]);
 
   useEffect(() => {
     narrationAudio.current?.pause();
@@ -8156,6 +8163,7 @@ function Home() {
 
   const openSceneStructure = () => {
     setPlaying(false);
+    setSceneStructurePreviewMode(false);
     setPreviewFullscreen(false);
     setReviewOpen(false);
     setSceneStructureSceneId(scene.id);
@@ -8166,11 +8174,13 @@ function Home() {
 
   const closeSceneStructure = () => {
     setPlaying(false);
+    setSceneStructurePreviewMode(false);
     setSceneStructureOpen(false);
   };
 
   const selectSceneStructureItem = (item: SceneStructureItem) => {
     setPlaying(false);
+    setSceneStructurePreviewMode(false);
     setSelectedSceneStructureToken(item.token);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
@@ -8186,11 +8196,21 @@ function Home() {
       setPlaying(false);
       return;
     }
+    const shouldRestart = !sceneStructurePreviewMode || playTime >= sceneStructureScene.end;
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    if (shouldRestart) setPlayTime(sceneStructureScene.start);
+    setPlaybackRestartToken((value) => value + 1);
+    setSceneStructurePreviewMode(true);
+    setPlaying(true);
+  };
+
+  const returnFromSceneStructurePreview = () => {
+    setPlaying(false);
+    setSceneStructurePreviewMode(false);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     setPlayTime(sceneStructureScene.start);
-    setPlaybackRestartToken((value) => value + 1);
-    setPlaying(true);
   };
 
   const updateSceneStructureTiming = (
@@ -8398,6 +8418,7 @@ function Home() {
 
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
     setPlaying(false);
+    setSceneStructurePreviewMode(false);
     setSceneStructureOpen(false);
     setActiveStudioTab("compose");
     setSelectedId(sceneStructureScene.id);
@@ -8466,6 +8487,280 @@ function Home() {
       ? <video src={item.thumbnail} muted loop playsInline preload="metadata" aria-hidden="true" />
       : <img src={item.thumbnail} alt="" />
     : <span>{fallback}</span>;
+
+  const renderSceneStructureLivePreview = () => {
+    const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
+    const liveSubtitleOffset = Math.min(
+      sceneStructureDuration,
+      Math.max(0, Number(sceneStructureScene.subtitleStart) || 0),
+    );
+    const liveSubtitle = sceneStructureScene.subtitleEnabled !== false
+      ? (sceneStructureScene.subtitles ?? []).find((subtitle) => {
+          const cueStart = Math.max(0, Number(subtitle.start) || 0);
+          const cueEnd = Math.min(
+            sceneStructureDuration,
+            Math.max(liveSubtitleOffset + cueStart + 0.1, liveSubtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
+          );
+          return subtitle.visible !== false
+            && safeTrim(subtitle.text)
+            && sceneStructureLocalTime >= Math.min(sceneStructureDuration, liveSubtitleOffset + cueStart)
+            && sceneStructureLocalTime < cueEnd;
+        })
+      : null;
+    const liveSubtitleStart = liveSubtitle
+      ? Math.min(sceneStructureDuration, liveSubtitleOffset + Math.max(0, Number(liveSubtitle.start) || 0))
+      : 0;
+    const liveSubtitleProgress = liveSubtitle
+      ? Math.min(1, Math.max(0, (sceneStructureLocalTime - liveSubtitleStart) / Math.max(0.05, liveSubtitleStyle.animationDuration)))
+      : 1;
+    const liveSubtitleOpacity = liveSubtitleStyle.animation === "fade" ? liveSubtitleProgress : 1;
+    const liveSubtitleScale = liveSubtitleStyle.animation === "pop" ? 0.92 + liveSubtitleProgress * 0.08 : 1;
+    const liveSubtitleOffsetY = liveSubtitleStyle.animation === "slide-up" ? (1 - liveSubtitleProgress) * 3 : 0;
+    const liveSubtitleClipPath = liveSubtitleStyle.animation === "typewriter"
+      ? `inset(0 ${Math.max(0, 100 - liveSubtitleProgress * 100)}% 0 0)`
+      : "none";
+    const activeLiveImageIds = new Set(
+      sceneStructureImages
+        .filter((image) => image.visible !== false && safeTrim(image.url))
+        .filter((image) => {
+          const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
+          const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+          return sceneStructureLocalTime >= start && sceneStructureLocalTime < end;
+        })
+        .map((image) => image.id),
+    );
+
+    return (
+      <div className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : "is-paused"}`} aria-label="Màn hình xem trước đang chạy thử">
+        {sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
+          isVideoMedia(sceneStructureBackgroundValue) ? (
+            <video
+              key={`${sceneStructureBackgroundSource}-${playing ? "playing" : "paused"}`}
+              className="project-background"
+              src={sceneStructureBackgroundSource}
+              muted
+              autoPlay={playing}
+              loop
+              playsInline
+              preload="metadata"
+              aria-hidden="true"
+            />
+          ) : (
+            <img
+              className="project-background"
+              src={sceneStructureBackgroundSource}
+              alt=""
+              aria-hidden="true"
+              style={{
+                transformOrigin: `${sceneStructureScene.centerX}% ${sceneStructureScene.centerY}%`,
+                transform: `scale(${sceneStructureScene.zoomEnabled ? Math.max(1, Number(sceneStructureScene.zoom ?? 1) || 1) : 1})`,
+              }}
+            />
+          )
+        ) : (
+          <div className="scene-structure-live-empty-background">Chưa có nền bản đồ</div>
+        )}
+
+        {sceneStructureTexts
+          .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
+          .map((overlay, index) => {
+            const start = Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
+            const end = Math.min(sceneStructureDuration, Math.max(start + 0.1, Number(overlay.end) || sceneStructureDuration));
+            if (sceneStructureLocalTime < start || sceneStructureLocalTime >= end) return null;
+            return (
+              <div
+                key={`live-text-${overlay.id}`}
+                className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""}`}
+                style={{
+                  left: `${overlay.x}%`,
+                  top: `${overlay.y}%`,
+                  zIndex: 110 + index,
+                  ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
+                  ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
+                  color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
+                  fontSize: `${overlay.size}px`,
+                  fontFamily: overlay.font,
+                  fontWeight: overlay.style.includes("bold") ? 700 : 400,
+                  fontStyle: overlay.style.includes("italic") ? "italic" : "normal",
+                  WebkitTextStroke: overlay.strokeWidth > 0
+                    ? `${overlay.strokeWidth}px ${colorWithAlpha(overlay.strokeColor, overlay.opacity / 100, "#000000")}`
+                    : undefined,
+                  ["--text-border-width" as string]: `${overlay.borderWidth}px`,
+                  ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
+                  ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
+                }}
+              >
+                {overlay.text}
+              </div>
+            );
+          })}
+
+        {sceneStructureImages
+          .filter((image) => image.visible !== false && activeLiveImageIds.has(image.id))
+          .map((image, index) => {
+            const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
+            const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+            const squareSize = Math.min(image.width, image.height);
+            const width = image.shape === "square" ? squareSize : image.width;
+            const height = image.shape === "square" ? squareSize : image.height;
+            return (
+              <div
+                key={`live-image-${image.id}`}
+                className={`scene-image-overlay scene-structure-live-layer scene-image-shape-${image.shape}`}
+                style={{
+                  left: `${image.x}%`,
+                  top: `${image.y}%`,
+                  zIndex: 20 + index,
+                  width: `${width}%`,
+                  height: `${height}%`,
+                  clipPath: sceneImageClipPath(image.shape),
+                  backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
+                  border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
+                  opacity: image.opacity / 100,
+                }}
+              >
+                {imageSource && imageIsVideo
+                  ? <video src={imageSource} autoPlay={playing} loop muted playsInline preload="metadata" />
+                  : imageSource
+                    ? <img src={imageSource} alt="" draggable={false} />
+                    : <span>Chưa có media</span>}
+              </div>
+            );
+          })}
+
+        {sceneStructureDecorations
+          .filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
+          .filter((decoration) => {
+            const start = Math.min(sceneStructureDuration, Math.max(0, Number(decoration.start) || 0));
+            const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(decoration.duration) || sceneStructureDuration));
+            return sceneStructureLocalTime >= start && sceneStructureLocalTime < end;
+          })
+          .map((decoration, index) => {
+            const stickerSource = decoration.type === "sticker" || decoration.type === "animated-sticker"
+              ? assetPreviewSource(decoration.asset)
+              : "";
+            const animatedVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
+            const content = decoration.type === "animated-sticker" && stickerSource
+              ? animatedVideo
+                ? <video src={stickerSource} autoPlay={playing} loop muted playsInline aria-hidden="true" />
+                : <img src={stickerSource} alt="" draggable={false} />
+              : decoration.type === "sticker" && stickerSource
+                ? <img src={stickerSource} alt="" draggable={false} />
+                : <span className="map-decoration-content">{decoration.type === "text-3d" ? decoration.text : decorationSymbol(decoration)}</span>;
+            return (
+              <div
+                key={`live-decoration-${decoration.id}`}
+                className={`map-decoration scene-structure-live-layer map-decoration-${decoration.type} map-decoration-animation-${decoration.animation} ${playing ? "is-playing" : ""}`}
+                style={{
+                  left: `${decoration.x}%`,
+                  top: `${decoration.y}%`,
+                  zIndex: 30 + index,
+                  opacity: decoration.opacity / 100,
+                  color: colorWithAlpha(decoration.color, decoration.opacity / 100, "#ffd166"),
+                  fontSize: `${decoration.size}px`,
+                  transform: `translate(-50%, -50%) rotate(${decoration.rotate}deg) scale(${decoration.scale})`,
+                  ["--decoration-depth-shadow" as string]: decorationTextShadow(decoration),
+                  ["--decoration-accent" as string]: decoration.accentColor,
+                }}
+              >
+                {content}
+              </div>
+            );
+          })}
+
+        {sceneStructurePopups
+          .filter((popup) => popup.visible !== false)
+          .map((popup, index) => {
+            const popupStart = Math.min(sceneStructureDuration, Math.max(0, Number(popup.start) || 0));
+            const popupDuration = Math.max(0.1, Number(popup.duration) || 0.1);
+            const popupEnd = Math.min(sceneStructureDuration, popupStart + popupDuration);
+            if (sceneStructureLocalTime < popupStart || sceneStructureLocalTime >= popupEnd) return null;
+            const popupImageSource = imageEnabled && popup.imageVisible !== false ? assetPreviewSource(popup.image) : "";
+            const popupVideoSource = assetPreviewSource(popup.video);
+            const popupHasMedia = Boolean(popupVideoSource || popupImageSource);
+            const popupHasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
+            const popupLayout = popup.layout ?? "image-top";
+            const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
+            const popupShowText = popupLayout !== "image-only" && popupHasText;
+            const popupGeometry = popupSectionGeometry(popup, popupShowMedia, popupShowText);
+            return (
+              <article
+                key={`live-popup-${popup.id}`}
+                className={`preview-card scene-structure-live-layer popup-layout-${popupLayout} popup-theme-${popup.theme ?? "travel"}`}
+                style={{
+                  width: `${popup.width ?? 90}%`,
+                  height: `min(${popupGeometry.height || popup.height || 255}px, 88%)`,
+                  left: `${popup.x ?? 5}%`,
+                  top: `${popup.y ?? 55}%`,
+                  right: "auto",
+                  bottom: "auto",
+                  zIndex: 40 + index,
+                }}
+              >
+                {popupShowMedia && (
+                  <div className="photo-placeholder" style={{ height: `${popupGeometry.imageHeight}px` }}>
+                    {popupVideoSource ? <video className="popup-video" src={popupVideoSource} muted autoPlay={playing} loop playsInline /> : popupImageSource ? <img src={popupImageSource} alt="" /> : null}
+                  </div>
+                )}
+                {popupShowText && (
+                  <div className="card-content" style={{ height: `${popupGeometry.contentHeight}px` }}>
+                    {safeTrim(popup.title) && <h3>{popup.title}</h3>}
+                    {safeTrim(popup.body) && <p>{popup.body}</p>}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+
+        {sceneStructurePreviewMode && liveSubtitle && (
+          <div
+            className="subtitle-overlay scene-structure-live-layer"
+            style={{
+              left: `${liveSubtitleStyle.x}%`,
+              top: `${liveSubtitleStyle.y + liveSubtitleOffsetY}%`,
+              zIndex: 220,
+              right: "auto",
+              width: `${liveSubtitleStyle.boxWidth}%`,
+              ...(Number.isFinite(Number(liveSubtitleStyle.boxHeight)) ? { height: `${liveSubtitleStyle.boxHeight}%` } : {}),
+              maxWidth: "100%",
+              boxSizing: "border-box",
+              color: colorWithAlpha(liveSubtitleStyle.color, (liveSubtitleStyle.opacity / 100) * liveSubtitleOpacity, "#ffffff"),
+              fontFamily: liveSubtitleStyle.font,
+              fontSize: `${Math.max(12, liveSubtitleStyle.size)}px`,
+              fontStyle: liveSubtitleStyle.style.includes("italic") ? "italic" : "normal",
+              fontWeight: liveSubtitleStyle.style.includes("bold") ? 750 : 400,
+              borderWidth: `${liveSubtitleStyle.borderWidth}px`,
+              borderColor: colorWithAlpha(liveSubtitleStyle.borderColor, liveSubtitleStyle.borderOpacity / 100, "#ffffff"),
+              background: colorWithAlpha(liveSubtitleStyle.borderFill, liveSubtitleStyle.borderOpacity / 100, "#0b1220"),
+              opacity: liveSubtitleOpacity,
+              clipPath: liveSubtitleClipPath,
+              textShadow: liveSubtitleStyle.strokeWidth > 0 ? `0 0 ${Math.max(1, liveSubtitleStyle.strokeWidth)}px ${liveSubtitleStyle.strokeColor}` : "none",
+              transform: `translate(-50%, -50%) scale(${liveSubtitleScale})`,
+            }}
+          >
+            {liveSubtitle.text}
+          </div>
+        )}
+
+        {sceneStartDarkOverlayItems.map((item) => (
+          <div
+            key={`live-dark-${item.effect.id}`}
+            className="scene-start-dark-effect scene-structure-live-layer"
+            aria-hidden="true"
+            style={{
+              ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
+              ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
+              ["--scene-start-dark-mid-opacity" as string]: String(item.midOpacity),
+              ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
+              ["--scene-start-dark-blur" as string]: `${item.blur}px`,
+            }}
+          />
+        ))}
+        <div className="scene-structure-live-badge"><i /> {playing ? "ĐANG PHÁT" : "ĐÃ TẠM DỪNG"}</div>
+      </div>
+    );
+  };
 
   return (
     <main
@@ -12522,8 +12817,18 @@ function Home() {
                   onClick={playSceneStructure}
                 >
                   <span aria-hidden="true">{playing ? "Ⅱ" : "▶"}</span>
-                  {playing ? "Tạm dừng" : "Phát thử"}
+                  {playing ? "Tạm dừng" : sceneStructurePreviewMode ? "Tiếp tục" : "Phát thử"}
                 </button>
+                {sceneStructurePreviewMode && (
+                  <button
+                    type="button"
+                    className="scene-structure-return-button"
+                    onClick={returnFromSceneStructurePreview}
+                    title="Dừng chạy thử và quay lại mốc đầu cảnh"
+                  >
+                    ↶ Quay lại
+                  </button>
+                )}
                 <button
                   type="button"
                   className="scene-structure-close-button"
@@ -12576,6 +12881,9 @@ function Home() {
                       const leftPercent = Math.min(98, Math.max(0, item.start / sceneStructureDuration * 100));
                       const rawWidth = Math.max(8, (item.end - item.start) / sceneStructureDuration * 100);
                       const widthPercent = Math.min(100 - leftPercent, rawWidth);
+                      const isLive = sceneStructurePreviewMode
+                        && sceneStructureLocalTime >= item.start
+                        && sceneStructureLocalTime < item.end;
                       return (
                         <div
                           className="scene-structure-flow-row"
@@ -12585,7 +12893,7 @@ function Home() {
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
                             type="button"
-                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""}`}
+                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${isLive ? "is-live" : ""}`}
                             style={{
                               left: `${leftPercent}%`,
                               width: `${widthPercent}%`,
@@ -12630,8 +12938,22 @@ function Home() {
               </div>
 
               <aside className="scene-structure-inspector" aria-label="Thông tin tài nguyên">
-                <h2>Thông tin tài nguyên</h2>
-                {selectedSceneStructureItem ? (
+                {sceneStructurePreviewMode ? (
+                  <>
+                    <div className="scene-structure-live-heading">
+                      <div>
+                        <h2>Xem trước</h2>
+                        <p>Cảnh đang chạy thử theo đúng mốc thời gian.</p>
+                      </div>
+                      <strong>{formatPreciseTime(sceneStructureLocalTime)}</strong>
+                    </div>
+                    {renderSceneStructureLivePreview()}
+                    <p className="scene-structure-live-hint">Thẻ đang phát sẽ sáng viền trên sơ đồ. Bấm “Quay lại” để dừng và trở về đầu cảnh.</p>
+                  </>
+                ) : (
+                  <>
+                    <h2>Thông tin tài nguyên</h2>
+                    {selectedSceneStructureItem ? (
                   <>
                     <div className={`scene-structure-inspector-preview ${aspectRatio === "16:9" ? "is-landscape" : ""}`}>
                       {sceneStructureBackgroundSource && (
@@ -12730,12 +13052,14 @@ function Home() {
                     </div>
                     <p className="scene-structure-inspector-hint">Các thay đổi thời gian được cập nhật trực tiếp về “Biên soạn”.</p>
                   </>
-                ) : (
+                    ) : (
                   <div className="scene-structure-inspector-empty">
                     <span>◇</span>
                     <strong>Chưa có tài nguyên</strong>
                     <p>Hãy đóng màn hình và thêm tài nguyên trong khu vực “Biên soạn”.</p>
                   </div>
+                    )}
+                  </>
                 )}
               </aside>
             </div>

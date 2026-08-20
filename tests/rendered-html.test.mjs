@@ -273,11 +273,18 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneStructureOpen/);
   assert.match(page, /updateSceneStructureTiming/);
   assert.match(page, /openSceneStructureItemInEditor/);
+  assert.match(page, /sceneStructurePreviewMode/);
+  assert.match(page, /renderSceneStructureLivePreview/);
+  assert.match(page, /returnFromSceneStructurePreview/);
+  assert.match(page, /scene-structure-return-button/);
+  assert.match(page, /isLive/);
   assert.match(page, /formatPreciseTime/);
   assert.match(css, /\.scene-structure-overlay/);
   assert.match(css, /\.scene-structure-flow-content/);
   assert.match(css, /\.scene-structure-card/);
+  assert.match(css, /\.scene-structure-card\.is-live/);
   assert.match(css, /\.scene-structure-inspector/);
+  assert.match(css, /\.scene-structure-live-preview/);
   const sceneStructureMarkup = page.slice(
     page.indexOf("{sceneStructureOpen &&"),
     page.indexOf("{reviewOpen &&"),
