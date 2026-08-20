@@ -122,6 +122,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /editor-layer-images-/);
   assert.match(page, /previewAudioMuted/);
   assert.match(page, /togglePreviewAudio/);
+  assert.match(page, /const \[previewPlaybackMode, setPreviewPlaybackMode\] = useState\(false\)/);
+  assert.match(page, /sceneIsVisibleInPlayback = !previewPlaybackMode/);
+  assert.match(page, /setPreviewPlaybackMode\(true\);/);
+  assert.match(page, /playing \? "Tạm dừng" : previewPlaybackMode \? "Tiếp tục" : "Xem thử"/);
   assert.match(page, /preview-audio-toggle/);
   assert.match(page, /previewAudioMuted \|\|/);
   assert.match(page, /popupVideo/);
@@ -303,6 +307,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /scene-rainfall/);
   assert.match(css, /scene-cloud-drift/);
   assert.match(css, /scene-thunder/);
+  assert.match(css, /is-playback-paused[\s\S]{0,180}animation-play-state: paused !important/);
   assert.match(css, /scene-visual-effect-card/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
@@ -325,7 +330,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /fps: renderFps/);
   assert.match(page, /playbackMapScale/);
   assert.match(page, /transformOrigin: `\$\{scene\.centerX\}% \$\{scene\.centerY\}%`/);
-  assert.match(page, /transitionDuration: playing \? "0ms"/);
+  assert.match(page, /transitionDuration: previewPlaybackMode \? "0ms"/);
   assert.match(css, /transform-origin: center bottom/);
   assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
   assert.match(css, /aspect-ratio: 9 \/ 16/);

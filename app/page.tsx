@@ -3006,6 +3006,10 @@ function Home() {
     }, 40);
   };
   const [playing, setPlaying] = useState(false);
+  // A paused preview is still a playback frame. Keep this separate from
+  // `playing` so the editor does not swap back to its all-layers layout when
+  // the user pauses in the middle of a scene.
+  const [previewPlaybackMode, setPreviewPlaybackMode] = useState(false);
   const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [playbackRestartToken, setPlaybackRestartToken] = useState(0);
@@ -3422,7 +3426,7 @@ function Home() {
     const progress = duration > 0
       ? Math.min(1, Math.max(0, (time - start) / duration))
       : 1;
-    if (!playing || transition === "cut" || time < start) {
+    if (!previewPlaybackMode || transition === "cut" || time < start) {
       return { transition, progress: 1 };
     }
     return { transition, progress };
@@ -3446,7 +3450,7 @@ function Home() {
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
-  const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
+  const sceneIsVisibleInPlayback = !previewPlaybackMode || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
   const textOverlayTiming = (overlay: TextOverlay) => {
@@ -3458,7 +3462,7 @@ function Home() {
     return { start, end };
   };
   const previewTextOverlayItems = sceneIsVisibleInPlayback
-    ? playing
+    ? previewPlaybackMode
       ? sceneTextOverlays.filter((overlay) => {
           const { start, end } = textOverlayTiming(overlay);
           return overlay.visible !== false
@@ -3484,11 +3488,11 @@ function Home() {
         : hasText || hasMedia;
   };
   const previewPopupItems = sceneIsVisibleInPlayback
-    ? playing
+    ? previewPlaybackMode
       ? scenePopups.filter((popup) => {
           const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
           const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
-          return (playing || popup.editorVisible !== false)
+          return (previewPlaybackMode || popup.editorVisible !== false)
             && popup.visible !== false
             && popupHasContent(popup)
             && sceneLocalTime >= timingStart
@@ -3505,7 +3509,7 @@ function Home() {
         ? Boolean(safeTrim(decoration.asset))
         : Boolean(safeTrim(decoration.symbol) || decoration.effect);
   const previewDecorationItems = sceneIsVisibleInPlayback
-    ? playing
+    ? previewPlaybackMode
       ? sceneDecorations.filter((decoration) => {
           const start = Math.min(sceneDuration, Math.max(0, Number(decoration.start) || 0));
           const end = Math.min(sceneDuration, start + Math.max(0.1, Number(decoration.duration) || 0.1));
@@ -3517,7 +3521,7 @@ function Home() {
       : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
     : [];
   const previewSceneImageItems = sceneIsVisibleInPlayback
-    ? playing
+    ? previewPlaybackMode
       ? sceneImages.filter((image, imageIndex) => {
           const { start, end } = sceneImagePlaybackWindow(image, imageIndex);
           return image.visible !== false
@@ -3527,7 +3531,7 @@ function Home() {
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
-  const activeFadeBlackImage = playing
+  const activeFadeBlackImage = previewPlaybackMode
     ? sceneImages.find((image) => {
         const transition = normalizeSceneImageTransition(image.transition);
         const duration = sceneImageTransitionDuration(image);
@@ -3616,7 +3620,7 @@ function Home() {
       .map((token) => itemByToken.get(token))
       .filter((item): item is PreviewLayerItem => Boolean(item));
   }, [
-    playing,
+    previewPlaybackMode,
     previewDecorationItems,
     previewPopupItems,
     previewSceneImageItems,
@@ -4860,6 +4864,7 @@ function Home() {
       ? startAt
       : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
+    setPreviewPlaybackMode(true);
     setPlaying(true);
   };
 
@@ -4880,6 +4885,7 @@ function Home() {
     setSelectedDecorationId("");
     setSelectedSceneImageId("");
     setPlaybackRestartToken((value) => value + 1);
+    setPreviewPlaybackMode(true);
     setPlaying(true);
   };
 
@@ -10719,7 +10725,7 @@ function Home() {
                 onClick={togglePlayback}
               >
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
-                {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
+                {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : previewPlaybackMode ? "Tiếp tục" : "Xem thử"}
               </button>
               <button
                 type="button"
@@ -10866,7 +10872,7 @@ function Home() {
           {(() => {
             const previewCanvas = (
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${previewPlaybackMode && !playing ? "is-playback-paused" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
             style={{ transform: sceneStructurePreviewMode ? "none" : `scale(${previewZoom / 100})` }}
             onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
             onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}
@@ -10892,8 +10898,8 @@ function Home() {
                   }}
                   style={{
                     transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                    transform: `scale(${playing ? playbackMapScale : 1})`,
-                    transitionDuration: playing ? "0ms" : "180ms",
+                    transform: `scale(${previewPlaybackMode ? playbackMapScale : 1})`,
+                    transitionDuration: previewPlaybackMode ? "0ms" : "180ms",
                   }}
                 />
               ) : (
@@ -10904,8 +10910,8 @@ function Home() {
                   aria-hidden="true"
                   style={{
                     transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                    transform: `scale(${playing ? playbackMapScale : 1})`,
-                    transitionDuration: playing ? "0ms" : "180ms",
+                    transform: `scale(${previewPlaybackMode ? playbackMapScale : 1})`,
+                    transitionDuration: previewPlaybackMode ? "0ms" : "180ms",
                   }}
                 />
               )

@@ -8086,6 +8086,12 @@ body {
   overflow: hidden;
 }
 
+/* Pausing a preview keeps the exact visual frame, including weather layers. */
+.phone-preview.is-playback-paused .scene-effect-layer,
+.phone-preview.is-playback-paused .scene-effect-layer * {
+  animation-play-state: paused !important;
+}
+
 .scene-start-dark-effect {
   position: absolute;
   z-index: 30;
