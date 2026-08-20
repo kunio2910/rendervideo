@@ -1,0 +1,25 @@
+{
+  "title": "render-volume-smoke",
+  "duration": 2,
+  "resolution": "360x640",
+  "fps": 12,
+  "background": "render-map.png",
+  "backgroundMusic": "track.mp3",
+  "backgroundMusicVolume": 42,
+  "scenes": [
+    {
+      "milestone": 1,
+      "title": "Kiểm tra âm lượng",
+      "start": 0,
+      "end": 2,
+      "body": "Kiểm tra âm lượng nền và thuyết minh",
+      "backgroundVisible": true,
+      "imageVisible": false,
+      "popupVisible": true,
+      "popupStart": 0.2,
+      "popupDuration": 1.5,
+      "voiceFile": "voice.mp3",
+      "voiceVolume": 67
+    }
+  ]
+}

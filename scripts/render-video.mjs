@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
 if (!jsonPath || !outputPath) {
@@ -17,6 +18,11 @@ const sourceDir = process.env.RENDER_SOURCE_DIR
 const renderDir = process.env.RENDER_WORK_DIR
   ? path.resolve(process.env.RENDER_WORK_DIR)
   : path.join(root, "work", "render-current");
+const renderCacheDir = process.env.RENDER_CACHE_DIR
+  ? path.resolve(process.env.RENDER_CACHE_DIR)
+  : path.join(root, "work", "render-cache");
+const assetCacheDir = path.join(renderCacheDir, "assets");
+const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
@@ -43,6 +49,7 @@ const timelineDuration = Math.max(
   ...scenes.map((scene) => Number(scene.end ?? 0) || 0),
 );
 const aspectRatio = project.aspectRatio === "16:9" ? "16:9" : "9:16";
+const renderProfile = project.renderProfile === "fast" ? "fast" : "quality";
 const defaultResolution = aspectRatio === "16:9" ? "1920x1080" : "1080x1920";
 const requestedResolution = String(project.resolution ?? defaultResolution).split("x");
 let outputWidth = Math.max(1, Number.parseInt(requestedResolution[0], 10) || 1);
@@ -55,7 +62,20 @@ if (!resolutionMatchesAspect) {
     .split("x")
     .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
 }
-const fps = Math.max(1, Number(project.fps ?? 30) || 30);
+if (renderProfile === "fast") {
+  const [fastWidth, fastHeight] = (aspectRatio === "16:9" ? "1280x720" : "720x1280")
+    .split("x")
+    .map((value) => Math.max(1, Number.parseInt(value, 10) || 1));
+  if (outputWidth > fastWidth || outputHeight > fastHeight) {
+    outputWidth = fastWidth;
+    outputHeight = fastHeight;
+  }
+}
+const requestedFps = Math.max(1, Number(project.fps ?? 30) || 30);
+const fps = renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
+const videoPreset = renderProfile === "fast" ? "veryfast" : "medium";
+const videoCrf = renderProfile === "fast" ? "24" : "20";
+const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
 const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
@@ -70,9 +90,103 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const textOverlayEffectValues = [
+  "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right",
+  "typewriter", "zoom", "pop", "glow", "letter-spacing", "blur",
+  "highlight-sweep", "stroke-draw", "shake", "glitch", "shadow-lift",
+  "word-by-word", "kinetic",
+];
+const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(String(value))
+  ? String(value)
+  : "none";
+const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
+const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
+const sceneImageTransitionEnd = (image) => {
+  const start = Math.max(0, Number(image?.start ?? 0) || 0);
+  const legacyDuration = Math.max(0.1, Number(image?.transitionDuration ?? 0.5) || 0.5);
+  const end = Number.isFinite(Number(image?.transitionEnd))
+    ? Number(image.transitionEnd)
+    : start + legacyDuration;
+  return Math.max(start + 0.1, end);
+};
+const sceneImageTransitionDuration = (image) => normalizeSceneImageTransition(image?.transition) === "cut"
+  ? 0
+  : Math.max(0.1, sceneImageTransitionEnd(image) - Math.max(0, Number(image?.start ?? 0) || 0));
+const sceneImageTransitionNeedsOverlap = (transition) =>
+  transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
+const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
+  ? String(value)
+  : "image-top";
+const popupDimensionHeight = (value, fallback = 255) => clamp(
+  Number.isFinite(Number(value)) ? Number(value) : fallback,
+  170,
+  440,
+);
+const popupSectionDefaults = (layoutValue, heightValue = 255) => {
+  const layout = popupDimensionLayout(layoutValue);
+  const height = popupDimensionHeight(heightValue);
+  if (layout === "split") return { imageHeight: height, contentHeight: height, height };
+  if (layout === "image-only") return { imageHeight: height, contentHeight: 0, height };
+  if (layout === "content-only" || layout === "quote") return { imageHeight: 0, contentHeight: height, height };
+  const imageHeight = Math.min(115, Math.max(48, height - 48));
+  return { imageHeight, contentHeight: Math.max(48, height - imageHeight), height };
+};
+const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
+  const layout = popupDimensionLayout(popup.popupLayout ?? popup.layout);
+  const defaults = popupSectionDefaults(layout, popup.popupHeight ?? popup.height);
+  let imageHeight = Number.isFinite(Number(popup.popupImageHeight ?? popup.imageHeight))
+    ? Math.max(0, Number(popup.popupImageHeight ?? popup.imageHeight))
+    : defaults.imageHeight;
+  let contentHeight = Number.isFinite(Number(popup.popupContentHeight ?? popup.contentHeight))
+    ? Math.max(0, Number(popup.popupContentHeight ?? popup.contentHeight))
+    : defaults.contentHeight;
+  if (!showVisual) imageHeight = 0;
+  if (!showText) contentHeight = 0;
+  if (showVisual && !showText) imageHeight = Math.max(imageHeight, defaults.height);
+  if (!showVisual && showText) contentHeight = Math.max(contentHeight, defaults.height);
+  const height = layout === "split" ? Math.max(imageHeight, contentHeight) : imageHeight + contentHeight;
+  return {
+    layout,
+    imageHeight: Math.round(imageHeight),
+    contentHeight: Math.round(contentHeight),
+    height: Math.round(Math.max(0, height)),
+  };
+};
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
+  const legacyDarkEffect = {
+    id: "scene-dark-1",
+    enabled: raw.sceneStartDarkEnabled === true,
+    start: 0,
+    end: Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2),
+    holdDuration: 0,
+    intensity: clamp(Number(raw.sceneStartDarkIntensity ?? 0) || 0, 0, 100),
+  };
+  const darkEffects = Array.isArray(raw.sceneStartDarkEffects)
+    ? raw.sceneStartDarkEffects.map((item, index) => {
+        const dark = item && typeof item === "object" ? item : {};
+        const start = Math.min(3599.9, Math.max(0, Number(dark.start ?? 0) || 0));
+        const end = Math.min(3600, Math.max(start + 0.1, Number(dark.end ?? start + 1.2) || start + 1.2));
+        const holdDuration = Math.min(
+          Math.max(0, end - start - 0.1),
+          Math.max(0, Number(dark.holdDuration ?? 0) || 0),
+        );
+        return {
+          id: String(dark.id ?? `scene-dark-${index + 1}`),
+          enabled: dark.enabled !== false,
+          start,
+          end,
+          holdDuration,
+          intensity: clamp(Number(dark.intensity ?? 0) || 0, 0, 100),
+        };
+      })
+    : [legacyDarkEffect];
+  const firstDarkEffect = darkEffects[0] ?? legacyDarkEffect;
   return {
+    sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+    sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
+    sceneStartDarkIntensity: firstDarkEffect.intensity,
+    sceneStartDarkEffects: darkEffects,
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: clamp(Number(raw.snowIntensity ?? 55) || 55, 0, 100),
     snowSpeed: clamp(Number(raw.snowSpeed ?? 1) || 1, 0.2, 3),
@@ -91,7 +205,7 @@ const normalizeSceneEffects = (value) => {
   };
 };
 const popupPixelHeight = (scene) => Math.min(
-  Math.round(previewPx(clamp(Number(scene.popupHeight ?? 255), 170, 440))),
+  Math.round(previewPx(popupSectionGeometry(scene).height)),
   Math.round(outputHeight * 0.88),
 );
 const popupEntriesForScene = (scene) => {
@@ -110,6 +224,8 @@ const popupEntriesForScene = (scene) => {
       popupOut: popup.out ?? popup.popupOut ?? "fade-slide-down",
       popupWidth: popup.width ?? popup.popupWidth ?? 90,
       popupHeight: popup.height ?? popup.popupHeight ?? 255,
+      popupImageHeight: popup.imageHeight ?? popup.popupImageHeight,
+      popupContentHeight: popup.contentHeight ?? popup.popupContentHeight,
       popupBorderWidth: popup.borderWidth ?? popup.popupBorderWidth ?? scene.popupBorderWidth ?? 1,
       popupLayout: popup.layout ?? popup.popupLayout ?? "image-top",
       popupTheme: popup.theme ?? popup.popupTheme ?? "travel",
@@ -118,7 +234,11 @@ const popupEntriesForScene = (scene) => {
       popupY: popup.y ?? popup.popupY ?? 55,
       popupVisible: popup.visible !== false,
       imageVisible: popup.imageVisible !== false,
-      popupTransparentMedia: popup.transparentMedia === true || popup.popupTransparentMedia === true || scene.popupTransparentMedia === true,
+      popupTransparentMedia: typeof popup.transparentMedia === "boolean"
+        ? popup.transparentMedia
+        : typeof popup.popupTransparentMedia === "boolean"
+          ? popup.popupTransparentMedia
+          : scene.popupTransparentMedia === true,
       popupIndex: index,
     }));
   }
@@ -127,6 +247,8 @@ const popupEntriesForScene = (scene) => {
     title: String(scene.title ?? ""),
     body: String(scene.body ?? scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
+    popupImageHeight: scene.popupImageHeight,
+    popupContentHeight: scene.popupContentHeight,
     popupBorderWidth: Number(scene.popupBorderWidth ?? 1),
     popupIndex: 0,
   }];
@@ -158,6 +280,8 @@ const audioVolume = (value, fallback) => {
 
 await fs.rm(renderDir, { recursive: true, force: true });
 await fs.mkdir(renderDir, { recursive: true });
+await fs.mkdir(assetCacheDir, { recursive: true });
+await fs.mkdir(frameSequenceCacheDir, { recursive: true });
 await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
 const escapeXml = (value = "") =>
@@ -198,6 +322,121 @@ const run = (command, args) =>
       code === 0 ? resolve() : reject(new Error(`${path.basename(command)} exited ${code}`)),
     );
   });
+
+const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
+
+const sequenceCacheKey = (...parts) => createHash("sha1")
+  .update(parts.map((part) => String(part)).join("\0"))
+  .digest("hex");
+
+const sequenceCachePaths = (cacheKey) => {
+  const sequenceRoot = path.join(frameSequenceCacheDir, cacheKey);
+  return {
+    sequenceRoot,
+    concatPath: path.join(sequenceRoot, "frames.txt"),
+    metadataPath: path.join(sequenceRoot, "metadata.json"),
+  };
+};
+
+const readCachedFrameSequence = async (cacheKey) => {
+  const paths = sequenceCachePaths(cacheKey);
+  try {
+    const metadata = JSON.parse(await fs.readFile(paths.metadataPath, "utf8"));
+    await fs.access(paths.concatPath);
+    return { ...metadata, path: paths.concatPath };
+  } catch {
+    return null;
+  }
+};
+
+const writeRawFrameSequence = async (frames, frameWidth, frameHeight, delays, cacheKey) => {
+  if (!frames.length) throw new Error("Sprite không có frame để render");
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
+  const { sequenceRoot, concatPath, metadataPath } = sequenceCachePaths(cacheKey);
+  const framesRoot = path.join(sequenceRoot, "frames");
+  await fs.mkdir(framesRoot, { recursive: true });
+  const framePaths = [];
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+    const framePath = path.join(framesRoot, `frame-${String(frameIndex + 1).padStart(3, "0")}.png`);
+    await sharp(frames[frameIndex], {
+      raw: { width: frameWidth, height: frameHeight, channels: 4 },
+    }).png().toFile(framePath);
+    framePaths.push(framePath);
+  }
+  const entries = framePaths.flatMap((framePath, frameIndex) => [
+    concatFileEntry(framePath),
+    `duration ${(Math.max(60, Number(delays[frameIndex]) || 180) / 1000).toFixed(3)}`,
+  ]);
+  // The concat demuxer uses the next file to determine the duration of the
+  // previous one, so repeat the last frame to preserve its duration.
+  entries.push(concatFileEntry(framePaths[framePaths.length - 1]));
+  await fs.writeFile(concatPath, `${entries.join("\n")}\n`, "utf8");
+  await fs.writeFile(metadataPath, JSON.stringify({
+    frameWidth,
+    frameHeight,
+    frameCount: frames.length,
+    delay: Number(delays[0]) || 180,
+  }), "utf8");
+  return concatPath;
+};
+
+const writeSpriteFrameSequence = async (frames, frameSize, delay, sourceKey) =>
+  writeRawFrameSequence(
+    frames,
+    frameSize,
+    frameSize,
+    frames.map(() => delay),
+    sequenceCacheKey("sprite", sourceKey, frameSize, delay),
+  );
+
+const fileHashCache = new Map();
+const hashFile = async (filename) => {
+  const cached = fileHashCache.get(filename);
+  if (cached) return cached;
+  const promise = fs.readFile(filename).then((buffer) => createHash("sha1").update(buffer).digest("hex"));
+  fileHashCache.set(filename, promise);
+  return promise;
+};
+
+const writeAnimatedImageFrameSequence = async (
+  source,
+  metadata,
+) => {
+  const frameWidth = Math.max(1, Number(metadata.width) || 1);
+  const frameHeight = Math.max(1, Number(metadata.pageHeight) || Number(metadata.height) || 1);
+  const pageCount = Math.max(1, Number(metadata.pages) || Math.floor(Number(metadata.height) / frameHeight) || 1);
+  const sourceKey = await hashFile(source);
+  const sourceDelays = Array.isArray(metadata.delay) ? metadata.delay : [];
+  const delays = Array.from(
+    { length: pageCount },
+    (_, frameIndex) => Number(sourceDelays[frameIndex] ?? sourceDelays[0] ?? 180),
+  );
+  const cacheKey = sequenceCacheKey("animated", sourceKey, frameWidth, frameHeight, pageCount, delays.join(","));
+  const cached = await readCachedFrameSequence(cacheKey);
+  if (cached) return cached.path;
+  const rawResult = await sharp(source, { animated: true })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const frameBytes = frameWidth * frameHeight * rawResult.info.channels;
+  if (rawResult.data.length < frameBytes * pageCount) {
+    throw new Error("Không thể đọc đủ frame của hình động");
+  }
+  const frames = Array.from({ length: pageCount }, (_, frameIndex) => (
+    rawResult.data.subarray(frameIndex * frameBytes, (frameIndex + 1) * frameBytes)
+  ));
+  return writeRawFrameSequence(
+    frames,
+    frameWidth,
+    frameHeight,
+    delays,
+    cacheKey,
+  );
+};
+
+const writeAnimatedWebpFrameSequence = async (source, metadata) =>
+  writeAnimatedImageFrameSequence(source, metadata);
 
 const errorDetail = (error) => {
   if (!(error instanceof Error)) return "unknown error";
@@ -251,7 +490,13 @@ const downloadResource = async (kind, value, fallbackName) => {
     const sourceName = referenceName(trimmed, fallbackName);
     const safeName = sourceName.replace(/[^a-z0-9._-]+/gi, "-");
     const hash = createHash("sha1").update(key).digest("hex").slice(0, 10);
-    return download(trimmed, path.join(renderDir, `${kind}-${hash}-${safeName}`));
+    const cachedPath = path.join(assetCacheDir, `${kind}-${hash}-${safeName}`);
+    try {
+      await fs.access(cachedPath);
+      return cachedPath;
+    } catch {
+      return download(trimmed, cachedPath);
+    }
   })();
   resourceCache.set(key, promise);
   try {
@@ -373,7 +618,6 @@ const createPopup = async (scene, index) => {
   const transparentMediaOnly = transparentMedia && !showText;
   if (!showText && !showVisual) return null;
   const width = Math.round(outputWidth * clamp((scene.popupWidth ?? 90) / 100, 0.45, 1));
-  const height = popupPixelHeight(scene);
   const radius = Math.max(10, Math.round(previewPx(14)));
   const borderWidth = Math.max(0, Math.round(previewPx(clamp(Number(scene.popupBorderWidth ?? 1), 0, 12))));
   const paddingX = Math.round(previewPx(15));
@@ -391,43 +635,86 @@ const createPopup = async (scene, index) => {
     ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
     minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
   }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
-  const image = showVisual && imageVisible ? await resolveImage(imageValue, `scene-${index + 1}-image`) : null;
-  const video = showVisual && layout !== "quote" && videoValue
+  const resolvedImage = showVisual && imageVisible
+    ? await resolveImage(imageValue, `scene-${index + 1}-image`)
+    : null;
+  let animatedImage = null;
+  let animatedImageFrameSequence = false;
+  if (resolvedImage && showVisual && imageVisible && layout !== "quote") {
+    let imageMetadata = null;
+    try {
+      imageMetadata = await sharp(resolvedImage, { animated: true }).metadata();
+    } catch {
+      imageMetadata = null;
+    }
+    const animatedImageDetected = isAnimatedImageMedia(imageValue)
+      || Number(imageMetadata?.pages) > 1;
+    if (animatedImageDetected) {
+      if (imageMetadata) {
+        animatedImage = await writeAnimatedImageFrameSequence(
+          resolvedImage,
+          imageMetadata,
+        );
+        animatedImageFrameSequence = true;
+      } else {
+        animatedImage = resolvedImage;
+      }
+    }
+  }
+  const resolvedVideo = showVisual && layout !== "quote" && videoValue
     ? await resolveVideo(videoValue, `scene-${index + 1}-popup.mp4`)
     : null;
+  const image = animatedImage && !resolvedVideo ? null : resolvedImage;
+  const video = resolvedVideo ?? animatedImage;
+  const videoFrameSequence = Boolean(!resolvedVideo && animatedImageFrameSequence);
   const hasVisual = showVisual && Boolean((imageVisible && imageValue) || videoValue);
   const split = layout === "split";
+  const geometry = popupSectionGeometry({
+    ...scene,
+    popupLayout: layout,
+  }, showVisual, showText);
+  const height = Math.min(
+    popupPixelHeight({ ...scene, popupLayout: layout, popupImageHeight: geometry.imageHeight, popupContentHeight: geometry.contentHeight }),
+    Math.round(outputHeight * 0.88),
+  );
   const imageWidth = split ? Math.round(width * 0.42) : width;
-  const imageHeight = layout === "quote"
-    ? 0
-    : split
-      ? height
-      : hasVisual
-        ? imageOnly
-          ? height
-          : Math.round(previewPx(115))
-        : 0;
+  const imageHeight = Math.min(
+    Math.round(previewPx(geometry.imageHeight)),
+    height,
+  );
+  const contentHeight = Math.min(
+    Math.round(previewPx(geometry.contentHeight)),
+    height,
+  );
   const contentX = split ? imageWidth + paddingX : paddingX;
   const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
+  const contentTop = split ? 0 : imageHeight;
   const titleY = layout === "quote"
     ? Math.round(previewPx(56))
-    : imageHeight + Math.round(previewPx(layout === "stats" ? 33 : 33));
+    : contentTop + Math.round(previewPx(layout === "stats" ? 33 : 33));
   const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
   const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
-  const maxBodyLines = Math.max(1, Math.floor((height - bodyY - previewPx(15)) / bodyLineHeight) + 1);
+  const maxBodyLines = Math.max(1, Math.floor((contentTop + contentHeight - bodyY - previewPx(15)) / bodyLineHeight) + 1);
   const bodyLines = wrap(showText ? scene.body ?? scene.popup ?? "" : "", maxCharacters).slice(0, maxBodyLines);
   const bodyText = bodyLines.map((line, lineIndex) =>
     `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
   ).join("");
   const imageClipPath = split
-    ? `M ${radius} 0 H ${imageWidth} V ${height} H ${radius} Q 0 ${height} 0 ${height - radius} V ${radius} Q 0 0 ${radius} 0 Z`
+    ? `M ${radius} 0 H ${imageWidth} V ${imageHeight} H ${radius} Q 0 ${imageHeight} 0 ${Math.max(0, imageHeight - radius)} V ${radius} Q 0 0 ${radius} 0 Z`
     : `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${imageHeight} H 0 V ${radius} Q 0 0 ${radius} 0 Z`;
   const placeholder = split
-    ? `<rect width="${imageWidth}" height="${height}" fill="url(#placeholderSky)"/>`
+    ? `<rect width="${imageWidth}" height="${imageHeight}" fill="url(#placeholderSky)"/>`
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
   const cardBackground = transparentMediaOnly
     ? ""
     : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>`;
+  // Keep the render in sync with the editor preview. The preview's media
+  // area always has this light sky/sand background when transparent media is
+  // disabled. Without it, transparent pixels in a PNG/WebP reveal the dark
+  // popup card background during export.
+  const mediaBackground = showVisual && !transparentMedia
+    ? `<g clip-path="url(#imageClip)"><rect width="${imageWidth}" height="${imageHeight}" fill="url(#popupMediaBackground)"/></g>`
+    : "";
   const quoteMark = showText && layout === "quote"
     ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
     : "";
@@ -438,9 +725,11 @@ const createPopup = async (scene, index) => {
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
+        <linearGradient id="popupMediaBackground" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <clipPath id="imageClip"><path d="${imageClipPath}"/></clipPath>
       </defs>
       ${cardBackground}
+      ${mediaBackground}
       ${hasVisual && !image && !video && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
       <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
@@ -471,8 +760,14 @@ const createPopup = async (scene, index) => {
     path: filename,
     borderPath: borderFilename,
     video,
+    videoFrameSequence,
     videoWidth: imageWidth,
     videoHeight: imageHeight,
+    // Keep the dimensions used to build the popup image. The composition
+    // pass must use these exact values after a section resize instead of
+    // deriving the height a second time from the scene fields.
+    width,
+    height,
   };
 };
 
@@ -564,8 +859,8 @@ const createSceneImage = async (image, index) => {
   const url = String(image?.url ?? image?.asset ?? "").trim();
   if (!url || image?.visible === false) return null;
   const shape = String(image?.shape ?? "rectangle");
-  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.01, 0.96);
-  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.01, 0.96);
+  const requestedWidth = clamp(Number(image?.width ?? 42) / 100, 0.01, 2);
+  const requestedHeight = clamp(Number(image?.height ?? 28) / 100, 0.01, 2);
   const widthRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedWidth;
   const heightRatio = shape === "square" ? Math.min(requestedWidth, requestedHeight) : requestedHeight;
   const width = Math.max(16, Math.round(outputWidth * widthRatio));
@@ -578,6 +873,23 @@ const createSceneImage = async (image, index) => {
   const borderSvg = borderWidth > 0
     ? Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${borderColor}" stroke-width="${borderWidth}">${geometry.clip}</g></svg>`)
     : null;
+  const borderFill = String(image?.borderFill ?? "transparent").trim().toLowerCase() === "transparent"
+    ? null
+    : decorationColor(image?.borderFill, null);
+  const fillPath = borderFill ? path.join(renderDir, `scene-image-${index + 1}-fill.png`) : null;
+  if (fillPath && borderFill) {
+    await sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: borderFill,
+      },
+    })
+      .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
+      .png()
+      .toFile(fillPath);
+  }
   const mediaType = image?.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
   const animatedImage = mediaType === "image" && isAnimatedImageMedia(url);
   if (mediaType === "video" || animatedImage) {
@@ -600,18 +912,134 @@ const createSceneImage = async (image, index) => {
         },
       }).composite([{ input: borderSvg }]).png().toFile(borderPath);
     }
-    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, borderPath, width, height };
+    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, fillPath, borderPath, width, height };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
+  let sourceMetadata = null;
+  try {
+    sourceMetadata = await sharp(source, { animated: true }).metadata();
+  } catch {
+    sourceMetadata = null;
+  }
+  const animatedWebp = mediaType === "image"
+    && sourceMetadata?.format === "webp"
+    && Number(sourceMetadata.pages) > 1;
+  if (animatedWebp) {
+    const frameSequencePath = await writeAnimatedWebpFrameSequence(source, sourceMetadata);
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
+    return {
+      path: frameSequencePath,
+      animated: true,
+      frameSequence: true,
+      webpAnimation: true,
+      maskPath,
+      fillPath,
+      borderPath,
+      width,
+      height,
+    };
+  }
+  let spriteSheet = { detected: false };
+  let spriteSourceKey = "";
+  if (image?.spriteSheet === true) {
+    try {
+      const sourceBuffer = await fs.readFile(source);
+      spriteSourceKey = createHash("sha1").update(sourceBuffer).digest("hex");
+      const spriteLookupPath = path.join(
+        frameSequenceCacheDir,
+        `sprite-${sequenceCacheKey("lookup", spriteSourceKey, image?.spriteDelay ?? "auto")}.json`,
+      );
+      try {
+        const cachedLookup = JSON.parse(await fs.readFile(spriteLookupPath, "utf8"));
+        const cachedSequence = await readCachedFrameSequence(cachedLookup.cacheKey);
+        if (cachedSequence) {
+          spriteSheet = {
+            detected: true,
+            frameSize: cachedSequence.frameWidth,
+            delay: cachedSequence.delay,
+            cachedPath: cachedSequence.path,
+          };
+        }
+      } catch {
+        // Cache miss: detect the sprite grid below.
+      }
+      if (!spriteSheet.detected) {
+        spriteSheet = await processSpriteSheetBuffer(sourceBuffer, {
+          delay: image?.spriteDelay,
+          returnFrames: true,
+        });
+        if (spriteSheet.detected) {
+          const cacheKey = sequenceCacheKey(
+            "sprite",
+            spriteSourceKey,
+            spriteSheet.frameSize,
+            spriteSheet.delay,
+          );
+          spriteSheet.cacheKey = cacheKey;
+          await fs.writeFile(spriteLookupPath, JSON.stringify({ cacheKey }), "utf8");
+        }
+      }
+    } catch {
+      // Unsupported or malformed images continue through the existing static
+      // image path instead of changing the behaviour of regular media.
+    }
+  }
+  if (spriteSheet.detected) {
+    const frameSequencePath = spriteSheet.cachedPath || await writeSpriteFrameSequence(
+        spriteSheet.frames,
+        spriteSheet.frameSize,
+        spriteSheet.delay,
+        spriteSourceKey,
+      );
+    const maskPath = path.join(renderDir, `scene-image-${index + 1}-mask.png`);
+    const borderPath = borderSvg ? path.join(renderDir, `scene-image-${index + 1}-border.png`) : null;
+    await sharp(maskSvg).greyscale().png().toFile(maskPath);
+    if (borderSvg && borderPath) {
+      await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      }).composite([{ input: borderSvg }]).png().toFile(borderPath);
+    }
+    return {
+      path: frameSequencePath,
+      animated: true,
+      spriteSheet: true,
+      frameSequence: true,
+      maskPath,
+      fillPath,
+      borderPath,
+      width,
+      height,
+    };
+  }
+  const imageFit = image.transparent === true ? "contain" : "cover";
   const resized = await sharp(source)
-    .resize(width, height, { fit: "cover" })
+    .resize(width, height, { fit: imageFit, background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
     .png()
     .toBuffer();
   const filename = path.join(renderDir, `scene-image-${index + 1}.png`);
   const border = borderWidth > 0 ? borderSvg : null;
-  const composites = [{ input: resized, top: 0, left: 0 }];
+  const composites = [];
+  if (fillPath) composites.push({ input: fillPath, top: 0, left: 0 });
+  composites.push({ input: resized, top: 0, left: 0 });
   if (border) composites.push({ input: border, top: 0, left: 0 });
   await sharp({
     create: {
@@ -634,6 +1062,7 @@ const createTextOverlay = async (overlay, index) => {
   const borderWidth = Math.round(previewPx(clamp(Number(overlay?.borderWidth ?? 0), 0, 12)));
   const textOpacity = clamp(Number(overlay?.opacity ?? 100) / 100, 0, 1);
   const borderOpacity = clamp(Number(overlay?.borderOpacity ?? 100) / 100, 0, 1);
+  const textEffect = normalizeTextOverlayEffect(overlay?.textEffect ?? overlay?.overlayTextEffect);
   const color = decorationColor(overlay?.color, "#ffffff");
   const strokeColor = decorationColor(overlay?.strokeColor, "#000000");
   const borderColor = decorationColor(overlay?.borderColor, "#ffffff");
@@ -641,10 +1070,12 @@ const createTextOverlay = async (overlay, index) => {
   const paddingX = Math.round(previewPx(9));
   const paddingY = Math.round(previewPx(5));
   const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
-  const requestedBoxWidth = Number(overlay?.boxWidth);
+  const requestedBoxWidth = Number(overlay?.boxWidth ?? overlay?.width);
+  const minimumBoxWidth = overlay?.boxWidth !== undefined ? 0.4 : 0.04;
   const boxWidth = Number.isFinite(requestedBoxWidth)
-    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, 0.4, 1))
+    ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, minimumBoxWidth, 1))
     : null;
+  const requestedBoxHeight = Number(overlay?.boxHeight ?? overlay?.height);
   const maxChars = boxWidth
     ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
     : null;
@@ -657,24 +1088,34 @@ const createTextOverlay = async (overlay, index) => {
     Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
   );
   const width = boxWidth ?? intrinsicWidth;
-  const height = Math.max(
+  const intrinsicHeight = Math.max(
     Math.round(previewPx(24)),
     Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
   );
+  const height = Number.isFinite(requestedBoxHeight)
+    ? Math.max(Math.round(previewPx(24)), Math.round(outputHeight * clamp(requestedBoxHeight / 100, 0.03, 0.4)))
+    : intrinsicHeight;
   const radius = Math.min(
     Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
     Math.floor(Math.min(width, height) / 2),
   );
   const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
   const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  const letterSpacing = textEffect === "letter-spacing" ? Math.round(previewPx(5)) : 0;
   const textNodes = lines.map((line, lineIndex) => {
     const y = paddingY + size * 0.86 + lineIndex * lineHeight;
-    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
+    return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
   }).join("");
+  const shadowNodes = textEffect === "shadow-lift"
+    ? lines.map((line, lineIndex) => {
+        const y = paddingY + size * 0.86 + lineIndex * lineHeight + Math.max(2, Math.round(previewPx(7)));
+        return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="#000000" fill-opacity="0.38">${escapeXml(line)}</text>`;
+      }).join("")
+    : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
-      ${textNodes}
+      ${shadowNodes}${textNodes}
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
@@ -704,6 +1145,7 @@ const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
   x: subtitleStyle.x ?? 50,
   y: subtitleStyle.y ?? 83,
   boxWidth: subtitleStyle.boxWidth ?? 84,
+  boxHeight: subtitleStyle.boxHeight,
   }, index);
 };
 
@@ -782,6 +1224,24 @@ for (let index = 0; index < scenes.length; index += 1) {
   const sceneImageScenes = Array.isArray(scene.sceneImages)
     ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
     : [];
+  const sceneImagePlaybackEnd = (imageIndex) => {
+    const image = sceneImageScenes[imageIndex];
+    if (!image) return 0;
+    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const baseEnd = imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1);
+    const imageTransition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = imageTransition === "cut"
+      ? imageStart
+      : sceneImageTransitionEnd(image);
+    const imageEnd = Math.min(duration, Math.max(baseEnd, ownTransitionEnd));
+    const nextImage = sceneImageScenes[imageIndex + 1];
+    if (!nextImage) return imageEnd;
+    const nextStart = Math.min(duration, Math.max(0, Number(nextImage.start ?? 0) || 0));
+    const nextTransition = normalizeSceneImageTransition(nextImage.transition);
+    if (!sceneImageTransitionNeedsOverlap(nextTransition)) return imageEnd;
+    const overlapEnd = nextStart + sceneImageTransitionDuration(nextImage);
+    return Math.min(duration, Math.max(imageEnd, overlapEnd));
+  };
   const sceneImageRenders = [];
   for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
     const image = sceneImageScenes[imageIndex];
@@ -790,6 +1250,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   const voice = await resolveVoice(scene, index);
   const voiceVolume = audioVolume(scene.voiceVolume, 95);
+  const voiceStart = clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));
   const zoomStartFrames = Math.min(
@@ -836,6 +1297,10 @@ for (let index = 0; index < scenes.length; index += 1) {
           borderColor: scene.overlayTextBorderColor,
           borderOpacity: 100,
           borderFill: "#14202e",
+          textEffect: scene.overlayTextEffect,
+          textEffectDuration: scene.overlayTextEffectDuration,
+          start: scene.overlayTextStart,
+          end: scene.overlayTextEnd,
           x: scene.overlayTextX,
           y: scene.overlayTextY,
         }]
@@ -858,6 +1323,7 @@ for (let index = 0; index < scenes.length; index += 1) {
           && end > start;
       })
     : [];
+  const subtitleOffset = clamp(Number(scene.subtitleStart ?? 0) || 0, 0, duration);
   const subtitleRenders = [];
   for (let subtitleIndex = 0; subtitleIndex < subtitleCues.length; subtitleIndex += 1) {
     const subtitle = subtitleCues[subtitleIndex];
@@ -877,15 +1343,45 @@ for (let index = 0; index < scenes.length; index += 1) {
       `x='iw*${centerX}*(1-1/zoom)':` +
       `y='ih*${centerY}*(1-1/zoom)':` +
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
-  const popupInputCount = popupRenders.reduce(
-    (total, { rendered: popup }) => total + (popup.video ? (popup.borderPath ? 3 : 2) : 1),
-    0,
-  );
-  const weatherInputIndex = 1
-    + textOverlayRenders.length
-    + decorationRenders.length
-    + popupInputCount
-    + subtitleRenders.length;
+  const layerToken = (kind, id) => `${kind}:${id}`;
+  const layerItemId = (item, index, prefix) => String(item?.id ?? `${prefix}-${index + 1}`);
+  const textLayerIds = textOverlayRenders.map(({ scene: overlay }, index) => layerItemId(overlay, index, "text"));
+  const decorationLayerIds = decorationRenders.map(({ scene: decoration }, index) => layerItemId(decoration, index, "decoration"));
+  const sceneImageLayerIds = sceneImageRenders.map(({ scene: image }, index) => layerItemId(image, index, "image"));
+  const popupLayerIds = popupRenders.map(({ scene: popup }, index) => layerItemId(popup, index, "popup"));
+  const layerCandidates = [
+    ...textLayerIds.map((id) => layerToken("text", id)),
+    ...popupLayerIds.map((id) => layerToken("popup", id)),
+    ...decorationLayerIds.map((id) => layerToken("decoration", id)),
+    ...sceneImageLayerIds.map((id) => layerToken("image", id)),
+    ...(subtitleRenders.length ? [layerToken("subtitle", "subtitle")] : []),
+  ];
+  const knownLayerTokens = new Set(layerCandidates);
+  const storedLayerOrder = Array.isArray(scene.layerOrder)
+    ? scene.layerOrder.filter((token) => typeof token === "string")
+    : [];
+  const orderedLayerTokens = Array.from(new Set([
+    ...storedLayerOrder.filter((token) => knownLayerTokens.has(token)),
+    ...layerCandidates.filter((token) => !storedLayerOrder.includes(token)),
+  ]));
+  const textInputIndices = textOverlayRenders.map((_, index) => 1 + index);
+  const decorationInputStartIndex = 1 + textOverlayRenders.length;
+  const decorationInputIndices = decorationRenders.map((_, index) => decorationInputStartIndex + index);
+  const sceneImageInputIndices = [];
+  let nextInputIndex = decorationInputStartIndex + decorationRenders.length;
+  for (const { rendered: image } of sceneImageRenders) {
+    sceneImageInputIndices.push(nextInputIndex);
+    nextInputIndex += image.animated
+      ? 2 + (image.fillPath ? 1 : 0) + (image.borderPath ? 1 : 0)
+      : 1;
+  }
+  const popupInputIndices = [];
+  for (const { rendered: popup } of popupRenders) {
+    popupInputIndices.push(nextInputIndex);
+    nextInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
+  }
+  const subtitleInputStartIndex = nextInputIndex;
+  const weatherInputIndex = subtitleInputStartIndex + subtitleRenders.length;
   const weatherInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
@@ -962,17 +1458,98 @@ for (let index = 0; index < scenes.length; index += 1) {
       });
     }
   }
-  textOverlayRenders.forEach(({ scene: overlay }, textIndex) => {
+  const appendTextLayer = (textIndex) => {
+    const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(overlay.y ?? 18) / 100, 0, 1);
+    const textStart = Math.min(duration, Math.max(0, Number(overlay.start) || 0));
+    const textEnd = Math.min(
+      duration,
+      Math.max(textStart + 0.1, Number(overlay.end) || duration),
+    );
+    const textSpan = Math.max(0.1, textEnd - textStart);
+    const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
+    const effectDuration = clamp(
+      Number(overlay.textEffectDuration ?? overlay.overlayTextEffectDuration ?? 0.6) || 0.6,
+      0.05,
+      textSpan,
+    );
+    const progress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
+    const geqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+    const inputIndex = textInputIndices[textIndex];
+    const inputLabel = `textInput${textIndex}`;
     const outputLabel = `texted${textIndex}`;
-    filter += `${composedLabel}[${textIndex + 1}:v]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}-overlay_h/2'[${outputLabel}];`;
+    let overlayInputLabel = inputLabel;
+    const textValue = String(overlay.text ?? "");
+    const wordCount = Math.max(1, textValue.trim().split(/\s+/).filter(Boolean).length);
+    if (effect === "glow") {
+      const sharpLabel = `textSharp${textIndex}`;
+      const glowSourceLabel = `textGlowSource${textIndex}`;
+      const glowLabel = `textGlow${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
+      filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
+      filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
+    } else if (effect === "blur") {
+      const sharpLabel = `textBlurSharp${textIndex}`;
+      const blurSourceLabel = `textBlurSource${textIndex}`;
+      const blurLabel = `textBlurred${textIndex}`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
+      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=${textStart}:d=${effectDuration}:alpha=1[${blurLabel}];`;
+      filter += `[${sharpLabel}][${blurLabel}]overlay=0:0[${inputLabel}];`;
+    } else {
+      let inputFilter = `[${inputIndex}:v]format=rgba`;
+      if (effect === "fade") {
+        const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
+        inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
+      } else if (effect === "typewriter" || effect === "stroke-draw") {
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${geqProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "word-by-word") {
+        const wordProgress = `floor(${geqProgress}*${wordCount})/${wordCount}`;
+        inputFilter += `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X/W,${wordProgress}),alpha(X,Y),0)'`;
+      } else if (effect === "highlight-sweep") {
+        inputFilter += `,eq=brightness='0.08*sin(2*PI*(t-${textStart})/${effectDuration})'`;
+      } else if (effect === "glitch") {
+        inputFilter += ",noise=alls=4:allf=t+u";
+      }
+      if (effect === "zoom") {
+        inputFilter += `,scale=w='iw*(0.78+0.22*${progress})':h='ih*(0.78+0.22*${progress})':eval=frame`;
+      } else if (effect === "pop") {
+        inputFilter += `,scale=w='iw*(0.82+0.18*${progress})':h='ih*(0.82+0.18*${progress})':eval=frame`;
+      }
+      filter += `${inputFilter}[${inputLabel}];`;
+    }
+    const baseX = `main_w*${x}-overlay_w/2`;
+    const baseY = `main_h*${y}-overlay_h/2`;
+    const slideDistance = "main_w*0.12";
+    let overlayX = baseX;
+    let overlayY = baseY;
+    if (effect === "slide-left") overlayX = `${baseX}-${slideDistance}*(1-${progress})`;
+    if (effect === "slide-right") overlayX = `${baseX}+${slideDistance}*(1-${progress})`;
+    if (effect === "slide-up") overlayY = `${baseY}+main_h*0.08*(1-${progress})`;
+    if (effect === "slide-down") overlayY = `${baseY}-main_h*0.08*(1-${progress})`;
+    if (effect === "shake") {
+      overlayX = `${baseX}+sin((t-${textStart})*48)*${Math.max(1, Math.round(previewPx(2)))}`;
+      overlayY = `${baseY}+cos((t-${textStart})*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
+    }
+    if (effect === "glitch") {
+      overlayX = `${baseX}+if(lt(mod((t-${textStart})*12,2),1),${Math.max(1, Math.round(previewPx(2)))},-${Math.max(1, Math.round(previewPx(2)))})`;
+    }
+    if (effect === "kinetic") {
+      overlayY = `${baseY}+sin((t-${textStart})*2.8)*main_h*0.012`;
+    }
+    filter += `${composedLabel}[${overlayInputLabel}]overlay=x='${overlayX}':y='${overlayY}':enable='between(t,${textStart},${textEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
-  });
-  let sceneImageInputIndex = 1 + textOverlayRenders.length + decorationRenders.length;
-  sceneImageRenders.forEach(({ scene: image, rendered: imageRender }, imageIndex) => {
+  };
+  const appendSceneImageLayer = (imageIndex) => {
+    const { scene: image, rendered: imageRender } = sceneImageRenders[imageIndex];
+    const sceneImageInputIndex = sceneImageInputIndices[imageIndex];
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
-    const imageEnd = Math.min(duration, imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1));
+    const imageEnd = sceneImagePlaybackEnd(imageIndex);
+    const imageTransition = normalizeSceneImageTransition(image.transition);
+    const imageTransitionDuration = sceneImageTransitionDuration(image);
+    const imageTransitionProgress = imageTransitionDuration > 0
+      ? `min(1,max(0,(t-${imageStart})/${imageTransitionDuration}))`
+      : "1";
     const imageX = clamp(Number(image.x ?? 50) / 100, 0, 1);
     const imageY = clamp(Number(image.y ?? 50) / 100, 0, 1);
     const imageOpacity = clamp(Number(image.opacity ?? 100) / 100, 0, 1);
@@ -981,31 +1558,61 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageAlphaSourceLabel = `sceneImageAlphaSource${imageIndex}`;
     const imageAlphaLabel = `sceneImageAlpha${imageIndex}`;
     const imageMaskLabel = `sceneImageMask${imageIndex}`;
+    const imageFillLabel = `sceneImageFill${imageIndex}`;
+    const imageFilledLabel = `sceneImageFilled${imageIndex}`;
     const imageBorderLabel = `sceneImageBorder${imageIndex}`;
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
+    const imageTransitionFilter = imageTransition === "crossfade"
+      ? `fade=t=in:st=${imageStart}:d=${imageTransitionDuration}:alpha=1,`
+      : imageTransition === "zoom"
+        ? `scale=w='iw*(1.14-0.14*${imageTransitionProgress})':h='ih*(1.14-0.14*${imageTransitionProgress})':eval=frame,`
+        : imageTransition === "blur"
+          ? `boxblur=luma_radius='min(12,max(0,12*(1-${imageTransitionProgress})))':luma_power=1,`
+          : "";
+    const imageBaseX = "main_w*" + imageX + "-overlay_w/2";
+    const imageOverlayX = imageTransition === "slide-left"
+      ? `${imageBaseX}-(main_w+overlay_w)*(1-${imageTransitionProgress})`
+      : imageTransition === "slide-right"
+        ? `${imageBaseX}+(main_w+overlay_w)*(1-${imageTransitionProgress})`
+      : imageBaseX;
+    let imageLayerLabel = imageAssetLabel;
     if (imageRender.animated) {
+      const hasImageFill = Boolean(imageRender.fillPath);
       const hasImageBorder = Boolean(imageRender.borderPath);
-      const imageFit = image.transparent === true ? "contain" : "cover";
+      const imageMaskInputIndex = sceneImageInputIndex + 1;
+      const imageFillInputIndex = hasImageFill ? sceneImageInputIndex + 2 : null;
+      const imageBorderInputIndex = sceneImageInputIndex + 2 + (hasImageFill ? 1 : 0);
+      const imageFit = image.transparent === true
+        || imageRender.spriteSheet === true
+        || imageRender.webpAnimation === true
+        ? "contain"
+        : "cover";
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
       filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
-      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${sceneImageInputIndex + 1}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      const imageLayerLabel = hasImageBorder ? `${imageAssetLabel}bordered` : imageAssetLabel;
-      if (hasImageBorder) {
-        filter += `[${sceneImageInputIndex + 2}:v]format=rgba[${imageBorderLabel}];[${imageAssetLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}];`;
+      filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${imageMaskInputIndex}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      if (hasImageFill && imageFillInputIndex !== null) {
+        filter += `[${imageFillInputIndex}:v]format=rgba[${imageFillLabel}];[${imageFillLabel}][${imageAssetLabel}]overlay=0:0:shortest=1[${imageFilledLabel}];`;
+        imageLayerLabel = imageFilledLabel;
       }
-      filter += `${composedLabel}[${imageLayerLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += hasImageBorder ? 3 : 2;
+      if (hasImageBorder) {
+        filter += `[${imageBorderInputIndex}:v]format=rgba[${imageBorderLabel}];[${imageLayerLabel}][${imageBorderLabel}]overlay=0:0:shortest=1[${imageLayerLabel}bordered];`;
+        imageLayerLabel = `${imageLayerLabel}bordered`;
+      }
     } else {
       filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
-      filter += `${composedLabel}[${imageAssetLabel}]overlay=x='main_w*${imageX}-overlay_w/2':y='main_h*${imageY}-overlay_h/2':enable='between(t,${imageStart},${imageEnd})'[sceneImageComposed${imageIndex}];`;
-      sceneImageInputIndex += 1;
     }
+    if (imageTransitionFilter) {
+      const transitionedLabel = `sceneImageTransition${imageIndex}`;
+      filter += `[${imageLayerLabel}]${imageTransitionFilter}format=rgba[${transitionedLabel}];`;
+      imageLayerLabel = transitionedLabel;
+    }
+    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':enable='gte(t,${imageStart})*lt(t,${imageEnd})'[sceneImageComposed${imageIndex}];`;
     composedLabel = `[sceneImageComposed${imageIndex}]`;
-  });
-  let popupInputIndex = sceneImageInputIndex;
-  decorationRenders.forEach(({ scene: decoration }, decorationIndex) => {
+  };
+  const appendDecorationLayer = (decorationIndex) => {
+    const { scene: decoration } = decorationRenders[decorationIndex];
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
     const decorationEnd = Math.min(duration, decorationStart + decorationDuration);
@@ -1029,7 +1636,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const outputLabel = `decorated${decorationIndex}`;
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
-    const decorationInputIndex = 1 + textOverlayRenders.length + decorationIndex;
+    const decorationInputIndex = decorationInputIndices[decorationIndex];
     const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
     const animatedStickerFit = decoration.animated
       ? `${ffmpegMediaFit(animatedStickerSize, animatedStickerSize, "contain")},`
@@ -1037,8 +1644,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `[${decorationInputIndex}:v]${animatedFilter}${animatedStickerFit}${fadeIn}scale=w='iw*(${baseScale}*(${popScale}))':h='ih*(${baseScale}*(${popScale}))':eval=frame,rotate=angle='${rotation}':fillcolor=none:ow=rotw(iw):oh=roth(ih)[${inputLabel}];`;
     filter += `${composedLabel}[${inputLabel}]overlay=x='main_w*${x}-overlay_w/2':y='main_h*${y}+${floatDistance}*sin((t-${decorationStart})*2)-overlay_h/2':enable='between(t,${decorationStart},${decorationEnd})'[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
-  });
-  popupRenders.forEach(({ scene: popupScene, rendered: popup }, popupIndex) => {
+  };
+  const appendPopupLayer = (popupIndex) => {
+    const { scene: popupScene, rendered: popup } = popupRenders[popupIndex];
+    const popupInputIndex = popupInputIndices[popupIndex];
     const popupStart = Math.min(duration, Math.max(0, Number(popupScene.popupStart ?? 0)));
     const popupEnd = Math.min(duration, popupStart + Number(popupScene.popupDuration ?? duration));
     const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
@@ -1068,8 +1677,16 @@ for (let index = 0; index < scenes.length; index += 1) {
       : "1";
     const popupScale = `(${popupScaleBase})*(${popupTextScale})`;
     const popupAngle = `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
-    const popupWidthRatio = clamp(Number(popupScene.popupWidth ?? 90) / 100, 0.45, 1);
-    const popupHeightRatio = clamp(popupPixelHeight(popupScene) / outputHeight, 0.2, 0.88);
+    const popupWidthRatio = clamp(
+      (Number(popup.width) || outputWidth * clamp(Number(popupScene.popupWidth ?? 90) / 100, 0.45, 1)) / outputWidth,
+      0.45,
+      1,
+    );
+    const popupHeightRatio = clamp(
+      (Number(popup.height) || popupPixelHeight(popupScene)) / outputHeight,
+      0.2,
+      0.88,
+    );
     const popupXRatio = clamp(Number(popupScene.popupX ?? 5) / 100, 0, 1 - popupWidthRatio);
     const popupYRatio = clamp(Number(popupScene.popupY ?? 55) / 100, 0, 1 - popupHeightRatio);
     const popupCenterX = `main_w*${popupXRatio}`;
@@ -1115,17 +1732,17 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[${popLabel}];`;
     filter += `${composedLabel}[${popLabel}]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'${composedOutput};`;
     composedLabel = composedOutput;
-    popupInputIndex += popup.video ? (popup.borderPath ? 3 : 2) : 1;
-  });
-  const subtitleInputIndex = popupInputIndex;
-  subtitleRenders.forEach(({ scene: subtitle, style, rendered: renderedOverlay }, subtitleIndex) => {
-    const subtitleStart = Math.min(duration, Math.max(0, Number(subtitle.start) || 0));
+  };
+  const appendSubtitleLayer = (subtitleIndex) => {
+    const { scene: subtitle, style, rendered: renderedOverlay } = subtitleRenders[subtitleIndex];
+    const cueStart = Math.max(0, Number(subtitle.start) || 0);
+    const subtitleStart = Math.min(duration, subtitleOffset + cueStart);
     const subtitleEnd = Math.min(
       duration,
-      Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
+      Math.max(subtitleStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
     );
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
-    const inputIndex = subtitleInputIndex + subtitleIndex;
+    const inputIndex = subtitleInputStartIndex + subtitleIndex;
     const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
     const subtitleY = clamp(Number(style?.y ?? 83) / 100, 0, 1);
     const animation = ["none", "fade", "pop", "slide-up", "typewriter"].includes(String(style?.animation))
@@ -1153,8 +1770,91 @@ for (let index = 0; index < scenes.length; index += 1) {
       : `main_w*${subtitleX}-overlay_w/2`;
     filter += `${composedLabel}[${subtitleInputLabel}]overlay=x='${fixedSubtitleLeft}':y='main_h*${subtitleY}-overlay_h/2${slideOffset}':enable='between(t,${subtitleStart},${subtitleEnd})'${subtitleOutput};`;
     composedLabel = subtitleOutput;
+  };
+  orderedLayerTokens.forEach((token) => {
+    const separatorIndex = token.indexOf(":");
+    const kind = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
+    const id = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : "";
+    if (kind === "text") {
+      const index = textLayerIds.indexOf(id);
+      if (index >= 0) appendTextLayer(index);
+    } else if (kind === "image") {
+      const index = sceneImageLayerIds.indexOf(id);
+      if (index >= 0) appendSceneImageLayer(index);
+    } else if (kind === "decoration") {
+      const index = decorationLayerIds.indexOf(id);
+      if (index >= 0) appendDecorationLayer(index);
+    } else if (kind === "popup") {
+      const index = popupLayerIds.indexOf(id);
+      if (index >= 0) appendPopupLayer(index);
+    } else if (kind === "subtitle") {
+      subtitleRenders.forEach((_, index) => appendSubtitleLayer(index));
+    }
   });
-  popupInputIndex += subtitleRenders.length;
+  sceneImageRenders.forEach(({ scene: image }, imageIndex) => {
+    if (normalizeSceneImageTransition(image.transition) !== "fade-black") return;
+    const fadeStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const fadeDuration = sceneImageTransitionDuration(image);
+    if (fadeDuration <= 0 || fadeStart >= duration) return;
+    const halfDuration = Math.max(0.05, fadeDuration / 2);
+    const fadeInputIndex = weatherInputIndex + weatherInputSpecs.length;
+    const fadeLabel = `sceneImageFadeBlack${imageIndex}`;
+    weatherInputSpecs.push(
+      `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+      `fade=t=in:st=${fadeStart}:d=${halfDuration}:alpha=1,` +
+      `fade=t=out:st=${fadeStart + halfDuration}:d=${halfDuration}:alpha=1`,
+    );
+    filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
+    composedLabel = `[${fadeLabel}]`;
+  });
+  sceneEffects.sceneStartDarkEffects
+    .filter((darkEffect) => darkEffect.enabled)
+    .forEach((darkEffect, darkIndex) => {
+      const darkStart = Math.min(duration, Math.max(0, Number(darkEffect.start) || 0));
+      if (darkStart >= duration) return;
+      const darkEnd = Math.min(
+        duration,
+        Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
+      );
+      const darkDuration = Math.max(0.1, darkEnd - darkStart);
+      const darkHoldDuration = Math.min(
+        Math.max(0, darkDuration - 0.1),
+        Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
+      );
+      const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
+      const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
+      const darkHoldStart = darkStart + darkHalfDuration;
+      const darkHoldEnd = darkHoldStart + darkHoldDuration;
+      const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+      const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
+      const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
+      const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;
+      const darkBlurredLabel = `sceneStartDarkBlurred${darkIndex}`;
+      const darkMixedLabel = `sceneStartDarkMixed${darkIndex}`;
+      const darkMaskLabel = `sceneStartDarkMask${darkIndex}`;
+      const darkMaskInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkStrength = 1 - clamp(Number(darkEffect.intensity ?? 0) || 0, 0, 100) / 100;
+      const darkCoverageExpression = `if(lt(T,${darkStart}),0,if(lt(T,${darkEnd}),max(max(0,(${darkProgress}-0.7)/0.3),clip((hypot(X-W/2,Y-H/2)-hypot(W/2,H/2)*(1-${darkProgress}))/max(1,min(W,H)*0.12),0,1)),0))`;
+      const darkMaskExpression = `255*${darkCoverageExpression}`;
+      const darkAlphaExpression = `255*${darkStrength}*0.78*${darkCoverageExpression}`;
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},` +
+        `geq=r='${darkMaskExpression}':g='${darkMaskExpression}':b='${darkMaskExpression}'`,
+      );
+      filter += `${composedLabel}split=2[${darkSharpLabel}][${darkBlurSourceLabel}];`;
+      filter += `[${darkBlurSourceLabel}]gblur=sigma=12[${darkBlurredLabel}];`;
+      filter += `[${darkMaskInputIndex}:v]format=gray[${darkMaskLabel}];`;
+      filter += `[${darkSharpLabel}][${darkBlurredLabel}][${darkMaskLabel}]maskedmerge[${darkMixedLabel}];`;
+      composedLabel = `[${darkMixedLabel}]`;
+      const darkInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      const darkLabel = `sceneStartDarkened${darkIndex}`;
+      weatherInputSpecs.push(
+        `color=c=black:s=${outputWidth}x${outputHeight}:r=${fps}:d=${duration},format=rgba,` +
+        `geq=r='0':g='0':b='0':a='${darkAlphaExpression}'`,
+      );
+      filter += `${composedLabel}[${darkInputIndex}:v]overlay=0:0:shortest=1[${darkLabel}];`;
+      composedLabel = `[${darkLabel}]`;
+    });
   filter += `${composedLabel}copy[composed]`;
   const args = [
     "-y",
@@ -1172,8 +1872,13 @@ for (let index = 0; index < scenes.length; index += 1) {
   });
   sceneImageRenders.forEach(({ rendered: image }) => {
     if (image.animated) {
-      args.push("-stream_loop", "-1", "-i", image.path);
+      if (image.frameSequence) {
+        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+      } else {
+        args.push("-stream_loop", "-1", "-i", image.path);
+      }
       args.push("-loop", "1", "-i", image.maskPath);
+      if (image.fillPath) args.push("-loop", "1", "-i", image.fillPath);
       if (image.borderPath) args.push("-loop", "1", "-i", image.borderPath);
     } else {
       args.push("-loop", "1", "-i", image.path);
@@ -1182,7 +1887,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   popupRenders.forEach(({ rendered: popup }) => {
     args.push("-loop", "1", "-i", popup.path);
     if (popup.video) {
-      args.push("-stream_loop", "-1", "-i", popup.video);
+      if (popup.videoFrameSequence) {
+        args.push("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
+      } else {
+        args.push("-stream_loop", "-1", "-i", popup.video);
+      }
       args.push("-loop", "1", "-i", popup.borderPath);
     }
   });
@@ -1192,7 +1901,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   weatherInputSpecs.forEach((source) => {
     args.push("-f", "lavfi", "-i", source);
   });
-  const audioInputIndex = popupInputIndex + weatherInputSpecs.length;
+  const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
   if (voice) {
     args.push("-i", voice);
   } else {
@@ -1202,16 +1911,19 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-filter_complex", filter,
     "-map", "[composed]",
   );
+  const voiceDelayFilter = voice && voiceStart > 0
+    ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
+    : "";
   const audioFilter = voice
-    ? `aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
+    ? `${voiceDelayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,volume=${voiceVolume.toFixed(3)},apad`
     : "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad";
   args.push("-map", `${audioInputIndex}:a:0`, "-af", audioFilter);
   args.push(
     "-t", String(duration),
     "-r", String(fps),
-    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+    "-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf,
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+    "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart",
     clip,
   );
@@ -1238,7 +1950,7 @@ await run(ffmpeg, [
   "-i", concatFile,
   "-c:v", "copy",
   "-c:a", "aac",
-  "-b:a", "192k",
+  "-b:a", audioBitrate,
   "-ar", "48000",
   "-ac", "2",
   "-af", "aresample=async=1:first_pts=0",
@@ -1258,7 +1970,7 @@ if (music) {
     "-map", "[a]",
     "-c:v", "copy",
     "-c:a", "aac",
-    "-b:a", "192k",
+    "-b:a", audioBitrate,
     "-t", String(timelineDuration),
     "-movflags", "+faststart",
     outputPath,

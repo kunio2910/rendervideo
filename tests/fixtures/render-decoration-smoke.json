@@ -1,0 +1,106 @@
+{
+  "title": "render-decoration-smoke",
+  "duration": 2,
+  "resolution": "720x1280",
+  "fps": 24,
+  "scenes": [
+    {
+      "sceneName": "Trang trí bản đồ",
+      "start": 0,
+      "end": 2,
+      "backgroundVisible": true,
+      "background": "",
+      "subtitleEnabled": true,
+      "subtitleStyle": {
+        "size": 22,
+        "style": "bold",
+        "color": "#ffffff",
+        "opacity": 100,
+        "font": "Arial",
+        "strokeWidth": 1,
+        "strokeColor": "#000000",
+        "borderWidth": 1,
+        "borderColor": "#ffffff",
+        "borderOpacity": 88,
+        "borderFill": "#0b1220",
+        "x": 50,
+        "y": 82,
+        "boxWidth": 84,
+        "animation": "none",
+        "animationDuration": 0.25
+      },
+      "subtitles": [
+        {
+          "id": "subtitle-width",
+          "text": "Phụ đề có thể điều chỉnh chiều rộng khung hiển thị",
+          "start": 0,
+          "end": 2,
+          "visible": true
+        }
+      ],
+      "textOverlays": [
+        {
+          "id": "text-border",
+          "text": "Bo góc preview",
+          "size": 24,
+          "style": "bold",
+          "color": "#ffffff",
+          "opacity": 100,
+          "font": "Arial",
+          "strokeWidth": 0,
+          "borderWidth": 4,
+          "borderColor": "#dda13e",
+          "borderOpacity": 100,
+          "borderFill": "#14202e",
+          "x": 50,
+          "y": 82,
+          "visible": true
+        }
+      ],
+      "mapDecorations": [
+        {
+          "id": "decoration-text",
+          "type": "text-3d",
+          "text": "ĐIỂM ĐẾN",
+          "x": 50,
+          "y": 30,
+          "size": 48,
+          "scale": 1,
+          "depth": 5,
+          "color": "#ffd166",
+          "accentColor": "#7c3aed",
+          "start": 0,
+          "duration": 2,
+          "animation": "pop",
+          "visible": true
+        },
+        {
+          "id": "decoration-icon",
+          "type": "icon",
+          "symbol": "📍",
+          "x": 50,
+          "y": 55,
+          "size": 64,
+          "scale": 0.8,
+          "start": 0.2,
+          "duration": 1.5,
+          "animation": "pulse",
+          "visible": true
+        },
+        {
+          "id": "decoration-effect",
+          "type": "effect",
+          "effect": "sparkles",
+          "x": 50,
+          "y": 70,
+          "size": 64,
+          "scale": 0.8,
+          "start": 0,
+          "duration": 2,
+          "animation": "float",
+          "visible": true
+        }
+      ]
+    }
+  ]
+}

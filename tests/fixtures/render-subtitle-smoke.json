@@ -1,0 +1,36 @@
+{
+  "title": "render-subtitle-smoke",
+  "duration": 5,
+  "resolution": "720x1280",
+  "fps": 24,
+  "background": "map.png",
+  "scenes": [
+    {
+      "milestone": 1,
+      "title": "Subtitle smoke",
+      "start": 0,
+      "end": 5,
+      "backgroundVisible": true,
+      "popupVisible": false,
+      "zoomEnabled": false,
+      "voiceFile": "vuadavit_canh01.mp3",
+      "subtitleEnabled": true,
+      "subtitles": [
+        {
+          "id": "subtitle-1",
+          "text": "Phụ đề câu thứ nhất",
+          "start": 0.2,
+          "end": 2.2,
+          "visible": true
+        },
+        {
+          "id": "subtitle-2",
+          "text": "Phụ đề câu thứ hai",
+          "start": 2.2,
+          "end": 4.8,
+          "visible": true
+        }
+      ]
+    }
+  ]
+}

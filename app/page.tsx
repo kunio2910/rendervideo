@@ -18,14 +18,66 @@ import {
   signInWithGoogle,
   signOutFromGoogle,
 } from "./lib/firebase";
+import { parseSubtitleFileText } from "./lib/subtitles";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
+
+type TextOverlayEffect =
+  | "none"
+  | "fade"
+  | "slide-up"
+  | "slide-down"
+  | "slide-left"
+  | "slide-right"
+  | "typewriter"
+  | "zoom"
+  | "pop"
+  | "glow"
+  | "letter-spacing"
+  | "blur"
+  | "highlight-sweep"
+  | "stroke-draw"
+  | "shake"
+  | "glitch"
+  | "shadow-lift"
+  | "word-by-word"
+  | "kinetic";
+
+const TEXT_OVERLAY_EFFECT_OPTIONS: Array<{ value: TextOverlayEffect; label: string }> = [
+  { value: "none", label: "Không hiệu ứng" },
+  { value: "fade", label: "Fade in / out" },
+  { value: "slide-up", label: "Trượt lên" },
+  { value: "slide-down", label: "Trượt xuống" },
+  { value: "slide-left", label: "Trượt sang trái" },
+  { value: "slide-right", label: "Trượt sang phải" },
+  { value: "typewriter", label: "Gõ từng ký tự" },
+  { value: "word-by-word", label: "Hiện từng từ" },
+  { value: "zoom", label: "Zoom vào" },
+  { value: "pop", label: "Pop / Bounce" },
+  { value: "glow", label: "Glow pulse" },
+  { value: "letter-spacing", label: "Giãn khoảng cách chữ" },
+  { value: "blur", label: "Nhòe → rõ nét" },
+  { value: "highlight-sweep", label: "Vệt sáng quét" },
+  { value: "stroke-draw", label: "Vẽ nét viền" },
+  { value: "shake", label: "Rung nhẹ" },
+  { value: "glitch", label: "Glitch" },
+  { value: "shadow-lift", label: "Nâng bóng đổ" },
+  { value: "kinetic", label: "Kinetic text" },
+];
+
+const normalizeTextOverlayEffect = (value: unknown): TextOverlayEffect => {
+  const effect = String(value ?? "none");
+  return TEXT_OVERLAY_EFFECT_OPTIONS.some((option) => option.value === effect)
+    ? effect as TextOverlayEffect
+    : "none";
+};
 
 type TextOverlay = {
   id: string;
   name: string;
   text: string;
   visible: boolean;
+  editorVisible: boolean;
   size: number;
   style: "normal" | "bold" | "italic" | "bold-italic";
   color: string;
@@ -37,14 +89,21 @@ type TextOverlay = {
   borderColor: string;
   borderOpacity: number;
   borderFill: string;
+  textEffect: TextOverlayEffect;
+  textEffectDuration: number;
+  start: number;
+  end: number;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
 };
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration" | "start" | "end"> & {
   boxWidth: number;
+  boxHeight?: number;
   animation: SubtitleAnimation;
   animationDuration: number;
 };
@@ -86,12 +145,15 @@ type MapDecoration = {
 };
 
 type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond";
+type SceneImageTransition = "cut" | "crossfade" | "fade-black" | "slide-left" | "slide-right" | "zoom" | "blur";
 
 type SceneImage = {
   id: string;
   name: string;
   url: string;
   mediaType: "image" | "video";
+  spriteSheet: boolean;
+  spriteDelay: number;
   transparent: boolean;
   shape: SceneImageShape;
   x: number;
@@ -101,9 +163,13 @@ type SceneImage = {
   opacity: number;
   borderWidth: number;
   borderColor: string;
+  borderFill: string;
   start: number;
   duration: number;
+  transition: SceneImageTransition;
+  transitionEnd: number;
   visible: boolean;
+  editorVisible: boolean;
 };
 
 type AlignmentGuides = {
@@ -113,6 +179,16 @@ type AlignmentGuides = {
 
 type SnapMode = "center" | "box";
 type RulerStyle = "center" | "grid" | "all";
+type PreviewLayerKind = "popup" | "text" | "image" | "decoration" | "subtitle";
+type PreviewLayerItem = {
+  token: string;
+  kind: PreviewLayerKind;
+  id: string;
+  label: string;
+  icon: string;
+};
+
+const previewLayerToken = (kind: PreviewLayerKind, id: string) => `${kind}:${id}`;
 
 const EMPTY_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: null, horizontal: null };
 const ALIGNMENT_SNAP_THRESHOLD = 1.6;
@@ -144,6 +220,7 @@ type Scene = {
   narration: string;
   voice: string;
   image: string;
+  avatar: string;
   background?: string;
   start: number;
   end: number;
@@ -165,22 +242,29 @@ type Scene = {
   overlayTextStrokeColor: string;
   overlayTextBorderWidth: number;
   overlayTextBorderColor: string;
+  overlayTextStart?: number;
+  overlayTextEnd?: number;
   overlayTextX: number;
   overlayTextY: number;
   textOverlays: TextOverlay[];
   mapDecorations: MapDecoration[];
   sceneImages: SceneImage[];
+  layerOrder?: string[];
   subtitleEnabled: boolean;
+  subtitleStart: number;
   subtitleStyle: SubtitleStyle;
   subtitles: SubtitleCue[];
   popupDuration: number;
   voiceFile: string;
+  voiceStart: number;
   voiceVolume: number;
   popupIn: string;
   popupOut: string;
   popupStart?: number;
   popupWidth?: number;
   popupHeight?: number;
+  popupImageHeight?: number;
+  popupContentHeight?: number;
   popupBorderWidth?: number;
   popupLayout?: "image-top" | "split" | "quote" | "stats" | "image-only" | "content-only";
   popupTheme?: "travel" | "sunset" | "ocean" | "minimal";
@@ -196,7 +280,20 @@ type Scene = {
   status: "Nháp" | "Đã duyệt";
 };
 
+type SceneDarkEffect = {
+  id: string;
+  enabled: boolean;
+  start: number;
+  end: number;
+  holdDuration: number;
+  intensity: number;
+};
+
 type SceneEffects = {
+  sceneStartDarkEnabled: boolean;
+  sceneStartDarkDuration: number;
+  sceneStartDarkIntensity: number;
+  sceneStartDarkEffects: SceneDarkEffect[];
   snowEnabled: boolean;
   snowIntensity: number;
   snowSpeed: number;
@@ -214,7 +311,24 @@ type SceneEffects = {
   cloudSpeed: number;
 };
 
+const defaultSceneDarkEffect = (
+  id = "scene-dark-1",
+  overrides: Partial<SceneDarkEffect> = {},
+): SceneDarkEffect => ({
+  id,
+  enabled: false,
+  start: 0,
+  end: 1.2,
+  holdDuration: 0,
+  intensity: 0,
+  ...overrides,
+});
+
 const defaultSceneEffects = (): SceneEffects => ({
+  sceneStartDarkEnabled: false,
+  sceneStartDarkDuration: 1.2,
+  sceneStartDarkIntensity: 0,
+  sceneStartDarkEffects: [defaultSceneDarkEffect()],
   snowEnabled: false,
   snowIntensity: 55,
   snowSpeed: 1,
@@ -273,6 +387,8 @@ type PopupConfig = {
   out: string;
   width: number;
   height: number;
+  imageHeight: number;
+  contentHeight: number;
   borderWidth: number;
   layout: Scene["popupLayout"];
   theme: Scene["popupTheme"];
@@ -280,11 +396,16 @@ type PopupConfig = {
   x: number;
   y: number;
   visible: boolean;
+  editorVisible: boolean;
   imageVisible: boolean;
 };
 
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
+type RenderProfile = "quality" | "fast";
+
+const normalizeRenderProfile = (value: unknown): RenderProfile =>
+  value === "fast" ? "fast" : "quality";
 
 const normalizeAspectRatio = (value: unknown): AspectRatio =>
   value === "16:9" ? "16:9" : "9:16";
@@ -345,6 +466,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   narration: "",
   voice: "",
   image: "",
+  avatar: "",
   background: "",
   start,
   end: start + 5,
@@ -371,12 +493,15 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   textOverlays: [],
   mapDecorations: [],
   sceneImages: [],
+  layerOrder: [],
   subtitleEnabled: true,
+  subtitleStart: 0,
   subtitleStyle: defaultSubtitleStyle(),
   subtitles: [],
   popupDuration: 3,
   popupStart: 0.5,
   voiceFile: "",
+  voiceStart: 0,
   voiceVolume: 95,
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
@@ -397,6 +522,32 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
 const initialScenes: Scene[] = [createEmptyScene()];
 
 const safeTrim = (value: unknown) => String(value ?? "").trim();
+
+const editorVisibilityIcon = (hidden: boolean) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.5" y="4" width="17" height="13" rx="2" />
+    <path d="M9 20h6M12 17v3" />
+    {hidden && <path d="m5 5 14 14" />}
+  </svg>
+);
+
+const reorderById = <T extends { id: string }>(items: T[], draggedItemId: string, targetItemId: string) => {
+  const fromIndex = items.findIndex((item) => item.id === draggedItemId);
+  const targetIndex = items.findIndex((item) => item.id === targetItemId);
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return items;
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  if (!movedItem) return items;
+  nextItems.splice(targetIndex, 0, movedItem);
+  return nextItems;
+};
+
+const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ""));
+  reader.onerror = () => reject(reader.error ?? new Error("Không thể đọc file sprite"));
+  reader.readAsDataURL(file);
+});
 
 const formatTime = (value: number) => {
   const rounded = Math.max(0, Math.round(value * 10) / 10);
@@ -427,8 +578,8 @@ const isVideoMedia = (value: unknown) => {
 
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
-  return /\.(png|apng|gif|webm)(?:[?#].*)?$/.test(normalized)
-    || /[?&](?:format|fm)=(?:png|apng|gif|webm)/.test(normalized);
+  return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
+    || /[?&](?:format|fm)=(?:png|apng|gif|webp|webm)/.test(normalized);
 };
 
 const assetReference = (value: unknown) => {
@@ -439,10 +590,29 @@ const assetReference = (value: unknown) => {
 const LOCAL_STORAGE_KEY = "kito-video-studio-project";
 const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
 const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
+const LOCAL_REVIEW_ZOOM_KEY = "kito-video-studio-review-zoom";
+const REVIEW_ZOOM_MIN = 35;
+const REVIEW_ZOOM_MAX = 200;
+const REVIEW_ZOOM_DEFAULT = 50;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
+const clampReviewZoom = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return REVIEW_ZOOM_DEFAULT;
+  return Math.min(REVIEW_ZOOM_MAX, Math.max(REVIEW_ZOOM_MIN, numeric));
+};
+
+const readReviewZoomPreference = () => {
+  if (typeof window === "undefined") return REVIEW_ZOOM_DEFAULT;
+  try {
+    return clampReviewZoom(window.localStorage.getItem(LOCAL_REVIEW_ZOOM_KEY));
+  } catch {
+    return REVIEW_ZOOM_DEFAULT;
+  }
+};
+
 type LocalRenderState = {
-  status: "idle" | "checking" | "uploading" | "rendering" | "completed" | "failed";
+  status: "idle" | "checking" | "uploading" | "rendering" | "cancelling" | "completed" | "failed";
   progress: number;
   message: string;
   downloadUrl?: string;
@@ -575,6 +745,7 @@ type StoredProject = {
   backgroundMusic?: string;
   backgroundMusicVolume?: number;
   renderFps?: 24 | 30 | 60;
+  renderProfile?: RenderProfile;
   editorSections?: EditorSectionState;
   scenes: Scene[];
 };
@@ -591,9 +762,24 @@ type EditorSectionState = {
 
 type EditorSectionKey = keyof EditorSectionState;
 
+const EDITOR_SECTION_SHORTCUTS: Array<{
+  key: EditorSectionKey;
+  number: string;
+  label: string;
+}> = [
+  { key: "visual", number: "01", label: "Hình & nền" },
+  { key: "content", number: "02", label: "Nội dung" },
+  { key: "images", number: "03", label: "Hình ảnh" },
+  { key: "text", number: "04", label: "Chữ viết" },
+  { key: "audio", number: "05", label: "Âm thanh" },
+  { key: "effects", number: "06", label: "Hiệu ứng" },
+  { key: "popup", number: "07", label: "Popup" },
+];
+
 type EditorSectionClipboard =
   | {
       section: "visual";
+      avatar: string;
       background: string;
       backgroundVisible: boolean;
     }
@@ -607,6 +793,7 @@ type EditorSectionClipboard =
       narration: string;
       voice: string;
       voiceFile: string;
+      voiceStart: number;
       voiceVolume: number;
       backgroundMusic: string;
       backgroundMusicVolume: number;
@@ -641,12 +828,12 @@ type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: true,
-  content: true,
-  audio: true,
-  effects: true,
-  popup: true,
-  text: true,
-  images: true,
+  content: false,
+  audio: false,
+  effects: false,
+  popup: false,
+  text: false,
+  images: false,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -675,6 +862,11 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const normalizeSceneImageBorderFill = (value: unknown, fallback = "transparent") => {
+  const color = String(value ?? "").trim();
+  return color.toLowerCase() === "transparent" ? "transparent" : normalizeHexColor(color, fallback);
+};
+
 const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> = [
   { value: "rectangle", label: "Chữ nhật" },
   { value: "square", label: "Vuông" },
@@ -682,6 +874,40 @@ const sceneImageShapeOptions: Array<{ value: SceneImageShape; label: string }> =
   { value: "triangle", label: "Tam giác" },
   { value: "diamond", label: "Hình thoi" },
 ];
+
+const sceneImageTransitionOptions: Array<{ value: SceneImageTransition; label: string; hint: string }> = [
+  { value: "cut", label: "Cắt trực tiếp", hint: "Chuyển ngay sang hình mới." },
+  { value: "crossfade", label: "Crossfade", hint: "Hình cũ mờ dần khi hình mới hiện lên." },
+  { value: "fade-black", label: "Fade đen", hint: "Màn hình chuyển qua màu đen rồi hiện hình mới." },
+  { value: "slide-left", label: "Trượt trái", hint: "Hình mới trượt vào từ bên trái." },
+  { value: "slide-right", label: "Trượt phải", hint: "Hình mới trượt vào từ bên phải." },
+  { value: "zoom", label: "Zoom", hint: "Hình mới thu nhẹ từ lớn về kích thước chuẩn." },
+  { value: "blur", label: "Blur", hint: "Hình mới rõ dần từ trạng thái mờ." },
+];
+
+const normalizeSceneImageTransition = (value: unknown): SceneImageTransition => {
+  const transition = String(value ?? "cut") as SceneImageTransition;
+  return sceneImageTransitionOptions.some((option) => option.value === transition) ? transition : "cut";
+};
+
+const sceneImageTransitionEnd = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
+  normalizeSceneImageTransition(image.transition) === "cut"
+    ? Math.max(0, positiveNumber(image.start, 0))
+    : Math.max(
+        Math.max(0, positiveNumber(image.start, 0)) + 0.1,
+        positiveNumber(image.transitionEnd, 0.5, 0.1),
+      );
+
+const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "start" | "transitionEnd">) =>
+  normalizeSceneImageTransition(image.transition) === "cut"
+    ? 0
+    : Math.max(
+        0.1,
+        sceneImageTransitionEnd(image) - Math.max(0, positiveNumber(image.start, 0)),
+      );
+
+const sceneImageTransitionNeedsOverlap = (transition: SceneImageTransition) =>
+  transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 
 const mapDecorationDefaultName = (type: MapDecorationType) => ({
   "animated-sticker": "Hiệu ứng động",
@@ -707,6 +933,8 @@ const defaultSceneImage = (
   name: "Hình ảnh",
   url: "",
   mediaType: "image",
+  spriteSheet: false,
+  spriteDelay: 180,
   transparent: false,
   shape: "rectangle",
   x: 50,
@@ -716,9 +944,13 @@ const defaultSceneImage = (
   opacity: 100,
   borderWidth: 0,
   borderColor: "#ffffff",
+  borderFill: "transparent",
   start: 0,
   duration: 5,
+  transition: "cut",
+  transitionEnd: 0.5,
   visible: true,
+  editorVisible: true,
   ...overrides,
 });
 
@@ -735,26 +967,45 @@ const normalizeSceneImage = (
     : base.shape;
   const url = String(raw.url ?? raw.asset ?? raw.image ?? raw.video ?? base.url);
   const mediaType = raw.mediaType === "video" || isVideoMedia(url) ? "video" : "image";
+  const start = Math.max(0, positiveNumber(raw.start, base.start));
+  const legacyTransitionDuration = Math.max(
+    0.1,
+    positiveNumber(
+      raw.transitionDuration,
+      Math.max(0.1, base.transitionEnd - base.start),
+      0.1,
+    ),
+  );
+  const transitionEnd = Math.max(
+    start + 0.1,
+    positiveNumber(raw.transitionEnd, start + legacyTransitionDuration),
+  );
   return {
     ...base,
     id: String(raw.id ?? base.id),
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
+    spriteSheet: raw.spriteSheet === true,
+    spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
       ? raw.transparent
       : raw.transparentMedia === true || isTransparentMedia(url),
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
-    width: Math.min(96, Math.max(1, positiveNumber(raw.width, base.width, 1))),
-    height: Math.min(96, Math.max(1, positiveNumber(raw.height, base.height, 1))),
+    width: Math.min(200, Math.max(1, positiveNumber(raw.width, base.width, 1))),
+    height: Math.min(200, Math.max(1, positiveNumber(raw.height, base.height, 1))),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
     borderWidth: Math.min(12, Math.max(0, positiveNumber(raw.borderWidth, base.borderWidth))),
     borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
-    start: Math.max(0, positiveNumber(raw.start, base.start)),
+    borderFill: normalizeSceneImageBorderFill(raw.borderFill, base.borderFill),
+    start,
     duration: Math.max(0.1, positiveNumber(raw.duration, base.duration, 0.1)),
+    transition: normalizeSceneImageTransition(raw.transition ?? base.transition),
+    transitionEnd,
     visible: raw.visible !== false,
+    editorVisible: raw.editorVisible !== false,
   };
 };
 
@@ -774,6 +1025,7 @@ const defaultTextOverlay = (
   name: "Chữ viết",
   text: "",
   visible: true,
+  editorVisible: true,
   size: 24,
   style: "normal",
   color: "#ffffff",
@@ -785,6 +1037,10 @@ const defaultTextOverlay = (
   borderColor: "#ffffff",
   borderOpacity: 100,
   borderFill: "#14202e",
+  textEffect: "none",
+  textEffectDuration: 0.6,
+  start: 0,
+  end: 3600,
   x: 50,
   y: 18,
   ...overrides,
@@ -796,6 +1052,7 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
   const style = String(raw.style ?? base.style);
   const font = String(raw.font ?? base.font);
   const animation = String(raw.animation ?? base.animation);
+  const rawBoxHeight = Number(raw.boxHeight);
   return {
     ...base,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size, base.size, 8))),
@@ -816,6 +1073,9 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
     x: clampPercent(raw.x, base.x),
     y: clampPercent(raw.y, base.y),
     boxWidth: Math.min(100, Math.max(40, positiveNumber(raw.boxWidth, base.boxWidth, 40))),
+    ...(Number.isFinite(rawBoxHeight)
+      ? { boxHeight: Math.min(40, Math.max(3, rawBoxHeight)) }
+      : {}),
     animation: ["none", "fade", "pop", "slide-up", "typewriter"].includes(animation)
       ? animation as SubtitleAnimation
       : base.animation,
@@ -960,6 +1220,7 @@ const normalizeTextOverlay = (
     name: String(raw.name ?? base.name).trim() || base.name,
     text: String(raw.text ?? raw.overlayText ?? base.text),
     visible: raw.visible !== false,
+    editorVisible: raw.editorVisible !== false,
     size: Math.min(120, Math.max(8, positiveNumber(raw.size ?? raw.overlayTextSize, base.size, 8))),
     style: ["normal", "bold", "italic", "bold-italic"].includes(style)
       ? style as TextOverlay["style"]
@@ -975,8 +1236,21 @@ const normalizeTextOverlay = (
     borderColor: normalizeHexColor(raw.borderColor ?? raw.overlayTextBorderColor, base.borderColor),
     borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity ?? raw.overlayTextBorderOpacity, base.borderOpacity))),
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
+    textEffect: normalizeTextOverlayEffect(raw.textEffect ?? raw.overlayTextEffect ?? base.textEffect),
+    textEffectDuration: Math.min(8, Math.max(0.05, positiveNumber(raw.textEffectDuration ?? raw.overlayTextEffectDuration, base.textEffectDuration, 0.05))),
+    start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
+    end: Math.min(3600, Math.max(
+      Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
+      positiveNumber(raw.end ?? raw.overlayTextEnd, base.end, 0.1),
+    )),
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
+    ...(Number.isFinite(Number(raw.width ?? fallback.width))
+      ? { width: clampPercent(raw.width ?? fallback.width, 60) }
+      : {}),
+    ...(Number.isFinite(Number(raw.height ?? fallback.height))
+      ? { height: clampPercent(raw.height ?? fallback.height, 10) }
+      : {}),
   };
 };
 
@@ -987,7 +1261,38 @@ const clampVolume = (value: unknown, fallback = 100) => {
 
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
+  const legacyDarkEffect = defaultSceneDarkEffect("scene-dark-1", {
+    enabled: raw.sceneStartDarkEnabled === true,
+    start: 0,
+    end: positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1),
+    intensity: positiveNumber(raw.sceneStartDarkIntensity, 0),
+  });
+  const rawDarkEffects = Array.isArray(raw.sceneStartDarkEffects)
+    ? raw.sceneStartDarkEffects.map((item, index) => {
+        const dark = isRecord(item) ? item : {};
+        const start = Math.min(3599.9, Math.max(0, positiveNumber(dark.start, 0)));
+        const end = Math.min(3600, Math.max(start + 0.1, positiveNumber(dark.end, start + 1.2, 0.1)));
+        const holdDuration = Math.min(
+          Math.max(0, end - start - 0.1),
+          Math.max(0, positiveNumber(dark.holdDuration, 0)),
+        );
+        return {
+          ...defaultSceneDarkEffect(`scene-dark-${index + 1}`),
+          id: String(dark.id ?? `scene-dark-${index + 1}`),
+          enabled: dark.enabled !== false,
+          start,
+          end,
+          holdDuration,
+          intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
+        };
+      })
+    : [legacyDarkEffect];
+  const firstDarkEffect = rawDarkEffects[0] ?? legacyDarkEffect;
   return {
+    sceneStartDarkEnabled: rawDarkEffects.some((effect) => effect.enabled),
+    sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
+    sceneStartDarkIntensity: firstDarkEffect.intensity,
+    sceneStartDarkEffects: rawDarkEffects,
     snowEnabled: raw.snowEnabled === true,
     snowIntensity: Math.min(100, Math.max(0, positiveNumber(raw.snowIntensity, 55))),
     snowSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.snowSpeed, 1, 0.2))),
@@ -1008,15 +1313,75 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
 
 const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
-): EditorSectionState => ({
-  visual: sections?.visual ?? DEFAULT_EDITOR_SECTIONS.visual,
-  content: sections?.content ?? DEFAULT_EDITOR_SECTIONS.content,
-  audio: sections?.audio ?? DEFAULT_EDITOR_SECTIONS.audio,
-  effects: sections?.effects ?? DEFAULT_EDITOR_SECTIONS.effects,
-  popup: sections?.popup ?? DEFAULT_EDITOR_SECTIONS.popup,
-  text: sections?.text ?? DEFAULT_EDITOR_SECTIONS.text,
-  images: sections?.images ?? DEFAULT_EDITOR_SECTIONS.images,
-});
+): EditorSectionState => {
+  const source = sections ?? DEFAULT_EDITOR_SECTIONS;
+  const firstOpen = (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+    .find((section) => source[section] === true);
+  return firstOpen
+    ? {
+        visual: firstOpen === "visual",
+        content: firstOpen === "content",
+        audio: firstOpen === "audio",
+        effects: firstOpen === "effects",
+        popup: firstOpen === "popup",
+        text: firstOpen === "text",
+        images: firstOpen === "images",
+      }
+    : {
+        visual: false,
+        content: false,
+        audio: false,
+        effects: false,
+        popup: false,
+        text: false,
+        images: false,
+      };
+};
+
+const popupDimensionLayout = (value: unknown): NonNullable<Scene["popupLayout"]> =>
+  ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
+    ? value as NonNullable<Scene["popupLayout"]>
+    : "image-top";
+
+const popupDimensionHeight = (value: unknown, fallback = 255) => {
+  const numeric = Number(value);
+  return Math.min(440, Math.max(170, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const popupSectionDefaults = (
+  layoutValue: unknown,
+  heightValue = 255,
+) => {
+  const layout = popupDimensionLayout(layoutValue);
+  const height = popupDimensionHeight(heightValue);
+  if (layout === "split") return { imageHeight: height, contentHeight: height, height };
+  if (layout === "image-only") return { imageHeight: height, contentHeight: 0, height };
+  if (layout === "content-only" || layout === "quote") return { imageHeight: 0, contentHeight: height, height };
+  const imageHeight = Math.min(115, Math.max(48, height - 48));
+  return { imageHeight, contentHeight: Math.max(48, height - imageHeight), height };
+};
+
+const popupSectionGeometry = (popup: PopupConfig, showVisual = true, showText = true) => {
+  const layout = popupDimensionLayout(popup.layout);
+  const defaults = popupSectionDefaults(layout, popup.height);
+  const imageValue = Number(popup.imageHeight);
+  const contentValue = Number(popup.contentHeight);
+  let imageHeight = Number.isFinite(imageValue) ? Math.max(0, imageValue) : defaults.imageHeight;
+  let contentHeight = Number.isFinite(contentValue) ? Math.max(0, contentValue) : defaults.contentHeight;
+  if (!showVisual) imageHeight = 0;
+  if (!showText) contentHeight = 0;
+  if (showVisual && !showText) imageHeight = Math.max(imageHeight, defaults.height);
+  if (!showVisual && showText) contentHeight = Math.max(contentHeight, defaults.height);
+  const height = layout === "split"
+    ? Math.max(imageHeight, contentHeight)
+    : imageHeight + contentHeight;
+  return {
+    layout,
+    imageHeight: Math.round(imageHeight),
+    contentHeight: Math.round(contentHeight),
+    height: Math.round(Math.max(0, height)),
+  };
+};
 
 const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): PopupConfig => ({
   id,
@@ -1032,6 +1397,8 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   out: "fade-slide-down",
   width: 90,
   height: 255,
+  imageHeight: 115,
+  contentHeight: 140,
   borderWidth: 1,
   layout: "image-top",
   theme: "travel",
@@ -1039,12 +1406,16 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   x: 5,
   y: 55,
   visible: true,
+  editorVisible: true,
   imageVisible: true,
   ...overrides,
 });
 
-const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
-  defaultPopupConfig(id, {
+const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig => {
+  const layout = popupDimensionLayout(scene.popupLayout);
+  const height = popupDimensionHeight(scene.popupHeight, 255);
+  const defaults = popupSectionDefaults(layout, height);
+  return defaultPopupConfig(id, {
     title: String(scene.title ?? ""),
     body: String(scene.popup ?? ""),
     narration: String(scene.narration ?? ""),
@@ -1056,9 +1427,11 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     in: scene.popupIn ?? "fade-slide-up",
     out: scene.popupOut ?? "fade-slide-down",
     width: clampPercent(scene.popupWidth, 90),
-    height: positiveNumber(scene.popupHeight, 255, 170),
+    height,
+    imageHeight: scene.popupImageHeight ?? defaults.imageHeight,
+    contentHeight: scene.popupContentHeight ?? defaults.contentHeight,
     borderWidth: Math.min(12, positiveNumber(scene.popupBorderWidth, 1)),
-    layout: scene.popupLayout ?? "image-top",
+    layout,
     theme: scene.popupTheme ?? "travel",
     textEffect: scene.popupTextEffect ?? "none",
     x: clampPercent(scene.popupX, 5),
@@ -1066,6 +1439,7 @@ const popupConfigFromScene = (scene: Partial<Scene>, id: string): PopupConfig =>
     visible: scene.popupVisible !== false,
     imageVisible: (scene as Scene & { imageVisible?: boolean }).imageVisible !== false,
   });
+};
 
 const scenePopupList = (scene: Scene): PopupConfig[] => {
   if (Array.isArray(scene.popups)) return scene.popups;
@@ -1084,6 +1458,8 @@ const popupSceneFields = (popup: PopupConfig) => ({
   popupOut: popup.out,
   popupWidth: popup.width,
   popupHeight: popup.height,
+  popupImageHeight: popup.imageHeight,
+  popupContentHeight: popup.contentHeight,
   popupBorderWidth: popup.borderWidth,
   popupLayout: popup.layout,
   popupTheme: popup.theme,
@@ -1103,6 +1479,10 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextStrokeColor: overlay.strokeColor,
   overlayTextBorderWidth: overlay.borderWidth,
   overlayTextBorderColor: overlay.borderColor,
+  overlayTextEffect: overlay.textEffect,
+  overlayTextEffectDuration: overlay.textEffectDuration,
+  overlayTextStart: overlay.start,
+  overlayTextEnd: overlay.end,
   overlayTextX: overlay.x,
   overlayTextY: overlay.y,
 });
@@ -1133,6 +1513,14 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     const popups = Array.isArray(rawPopups)
       ? rawPopups.filter(isRecord).map((rawPopup, popupIndex) => {
           const fallback = popupIndex === 0 ? popupConfigFromScene(item, `${id}-popup-1`) : defaultPopupConfig(`${id}-popup-${popupIndex + 1}`);
+          const rawLayout = String(rawPopup.layout ?? rawPopup.popupLayout ?? fallback.layout);
+          const layout = ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(rawLayout)
+            ? rawLayout as Scene["popupLayout"]
+            : fallback.layout;
+          const height = popupDimensionHeight(rawPopup.height ?? rawPopup.popupHeight, fallback.height);
+          const sectionDefaults = popupSectionDefaults(layout, height);
+          const rawImageHeight = Number(rawPopup.imageHeight ?? rawPopup.popupImageHeight);
+          const rawContentHeight = Number(rawPopup.contentHeight ?? rawPopup.popupContentHeight);
           return defaultPopupConfig(
             String(rawPopup.id ?? fallback.id),
             {
@@ -1142,17 +1530,25 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               narration: String(rawPopup.narration ?? rawPopup.voiceover ?? fallback.narration),
               image: String(rawPopup.image ?? fallback.image),
               video: String(rawPopup.video ?? rawPopup.popupVideo ?? fallback.video),
-              transparentMedia: rawPopup.transparentMedia === true || rawPopup.popupTransparentMedia === true || fallback.transparentMedia,
+              transparentMedia: typeof rawPopup.transparentMedia === "boolean"
+                ? rawPopup.transparentMedia
+                : typeof rawPopup.popupTransparentMedia === "boolean"
+                  ? rawPopup.popupTransparentMedia
+                  : fallback.transparentMedia,
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
               duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
               out: String(rawPopup.out ?? rawPopup.popupOut ?? fallback.out),
               width: clampPercent(rawPopup.width ?? rawPopup.popupWidth, fallback.width),
-              height: positiveNumber(rawPopup.height ?? rawPopup.popupHeight, fallback.height, 170),
+              height,
+              imageHeight: Number.isFinite(rawImageHeight)
+                ? Math.min(440, Math.max(0, rawImageHeight))
+                : sectionDefaults.imageHeight,
+              contentHeight: Number.isFinite(rawContentHeight)
+                ? Math.min(440, Math.max(0, rawContentHeight))
+                : sectionDefaults.contentHeight,
               borderWidth: Math.min(12, positiveNumber(rawPopup.borderWidth ?? rawPopup.popupBorderWidth, fallback.borderWidth)),
-              layout: ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(rawPopup.layout ?? rawPopup.popupLayout))
-                ? (rawPopup.layout ?? rawPopup.popupLayout) as Scene["popupLayout"]
-                : fallback.layout,
+              layout,
               theme: ["travel", "sunset", "ocean", "minimal"].includes(String(rawPopup.theme ?? rawPopup.popupTheme))
                 ? (rawPopup.theme ?? rawPopup.popupTheme) as Scene["popupTheme"]
                 : fallback.theme,
@@ -1162,6 +1558,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
               x: clampPercent(rawPopup.x ?? rawPopup.popupX, fallback.x),
               y: clampPercent(rawPopup.y ?? rawPopup.popupY, fallback.y),
               visible: rawPopup.visible !== false,
+              editorVisible: rawPopup.editorVisible !== false,
               imageVisible: rawPopup.imageVisible !== false,
             },
           );
@@ -1188,6 +1585,8 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
             strokeColor: (item as Scene & { overlayTextStrokeColor?: unknown }).overlayTextStrokeColor,
             borderWidth: (item as Scene & { overlayTextBorderWidth?: unknown }).overlayTextBorderWidth,
             borderColor: (item as Scene & { overlayTextBorderColor?: unknown }).overlayTextBorderColor,
+            start: (item as Scene & { overlayTextStart?: unknown }).overlayTextStart,
+            end: (item as Scene & { overlayTextEnd?: unknown }).overlayTextEnd,
             x: (item as Scene & { overlayTextX?: unknown }).overlayTextX,
             y: (item as Scene & { overlayTextY?: unknown }).overlayTextY,
           }, `${id}-text-1`, { name: "Chữ 1" })]
@@ -1221,6 +1620,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     return {
       ...item,
       id,
+      avatar: String((item as Scene & { avatar?: unknown }).avatar ?? ""),
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
       ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
@@ -1248,8 +1648,13 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       overlayTextY: firstTextOverlay.y,
       textOverlays,
       subtitleEnabled: item.subtitleEnabled !== false,
+      subtitleStart: Math.min(
+        sceneDuration,
+        Math.max(0, positiveNumber((item as Scene & { subtitleStart?: unknown }).subtitleStart, 0)),
+      ),
       subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
+      voiceStart: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
       voiceVolume: clampVolume(item.voiceVolume, 95),
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
@@ -1333,6 +1738,7 @@ type SettingsWorkspaceProps = {
   assetPreviewSource: (value: string) => string;
   onAddClip: () => void;
   onRenameClip: (projectId: string, title: string) => void;
+  onReorderClips: (draggedProjectId: string, targetProjectId: string) => void;
   onDuplicateClip: (project: ProjectSnapshot) => ProjectSnapshot;
   onDeleteClip: (project: ProjectSnapshot) => string | null;
   onOpenScene: (project: ProjectSnapshot, scene: Scene) => void;
@@ -1340,6 +1746,253 @@ type SettingsWorkspaceProps = {
   saveDisabled: boolean;
   saveLabel: string;
 };
+
+type ResourceSpriteNotice = {
+  status: "idle" | "processing" | "success" | "error";
+  message: string;
+};
+
+function SettingsResourcePanel() {
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [delay, setDelay] = useState(180);
+  const [delayInput, setDelayInput] = useState("180");
+  const [frameSize, setFrameSize] = useState(576);
+  const [assetUrl, setAssetUrl] = useState("");
+  const [frameCount, setFrameCount] = useState(0);
+  const [gridLabel, setGridLabel] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const [notice, setNotice] = useState<ResourceSpriteNotice>({ status: "idle", message: "" });
+
+  const updateSourceUrl = (value: string) => {
+    setSourceUrl(value);
+    setSourceFile(null);
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const updateSourceFile = (file: File | null) => {
+    setSourceFile(file);
+    if (file) setSourceUrl("");
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const updateDelayInput = (value: string) => {
+    const nextInput = value.replace(/[^0-9]/g, "");
+    setDelayInput(nextInput);
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (Number.isFinite(numeric)) setDelay(Math.min(1000, Math.max(60, Math.round(numeric))));
+  };
+
+  const commitDelayInput = () => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(delayInput) || 180)));
+    setDelay(nextDelay);
+    setDelayInput(String(nextDelay));
+    return nextDelay;
+  };
+
+  const convertResourceSprite = async () => {
+    const committedDelay = commitDelayInput();
+    const source = safeTrim(sourceUrl);
+    if (!source && !sourceFile) {
+      setNotice({ status: "error", message: "Hãy nhập URL hoặc chọn file sprite trước." });
+      return;
+    }
+    if (source && (!isRemoteUrl(source) || isVideoMedia(source))) {
+      setNotice({ status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setNotice({ status: "processing", message: "Đang chuyển tài nguyên thành hình động…" });
+    try {
+      const sourceData = sourceFile ? await fileToDataUrl(sourceFile) : "";
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(source ? { sourceUrl: source } : {}),
+          ...(sourceFile ? { sourceData, sourceName: sourceFile.name } : {}),
+          delay: committedDelay,
+          frameSize,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error(result?.reason || "Không phát hiện được sprite trong hình này.");
+      }
+      const convertedFrameCount = Number(result.frameCount) || 0;
+      const detectedGrid = Number(result.columns) > 0 && Number(result.rows) > 0
+        ? `${Number(result.columns)}×${Number(result.rows)}`
+        : "";
+      setAssetUrl(String(result.assetUrl));
+      setFrameCount(convertedFrameCount);
+      setGridLabel(detectedGrid);
+      setNotice({
+        status: "success",
+        message: `Đã chuyển thành WebP động${detectedGrid ? ` · tự nhận diện ${detectedGrid}` : ""}${convertedFrameCount ? ` (${convertedFrameCount} frame)` : ""}.`,
+      });
+    } catch (error) {
+      setAssetUrl("");
+      const message = error instanceof Error && error.message
+        ? `Chuyển tài nguyên thất bại: ${error.message}`
+        : "Chuyển tài nguyên thất bại.";
+      setNotice({ status: "error", message });
+    }
+  };
+
+  const clearResourceSprite = () => {
+    if (isProcessing) return;
+    setSourceUrl("");
+    setSourceFile(null);
+    setDelay(180);
+    setDelayInput("180");
+    setFrameSize(576);
+    setAssetUrl("");
+    setFrameCount(0);
+    setGridLabel("");
+    setNotice({ status: "idle", message: "" });
+  };
+
+  const downloadResourceSprite = async () => {
+    if (!assetUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const downloadAssetUrl = `${assetUrl}${assetUrl.includes("?") ? "&" : "?"}download=1`;
+      const response = await fetch(downloadAssetUrl);
+      if (!response.ok) throw new Error("Không thể tải file WebP về máy.");
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = "kito-sprite-animation.webp";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      setNotice({ status: "success", message: "Đã tải hình động WebP về máy." });
+    } catch (error) {
+      setNotice({
+        status: "error",
+        message: error instanceof Error ? error.message : "Không thể tải file WebP về máy.",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const isProcessing = notice.status === "processing";
+
+  return (
+    <section className="settings-card settings-resource-card" aria-labelledby="settings-resource-heading">
+      <div className="settings-resource-heading">
+        <div>
+          <span className="settings-section-label">CÔNG CỤ TÀI NGUYÊN</span>
+          <h3 id="settings-resource-heading">Tài Nguyên</h3>
+          <p>Chuyển sprite sheet thành WebP động trong suốt để dùng lại khi biên soạn video.</p>
+        </div>
+        <span className="settings-resource-badge">WEBP</span>
+      </div>
+
+      <div className="settings-resource-form">
+        <label className="field settings-resource-url-field">
+          <span>URL hình ảnh</span>
+          <input
+            type="url"
+            inputMode="url"
+            value={sourceUrl}
+            placeholder="https://.../sprite.png"
+            disabled={isProcessing}
+            onChange={(event) => updateSourceUrl(event.target.value)}
+          />
+        </label>
+        <label className="field settings-resource-file-field">
+          <span>Hoặc chọn file sprite từ máy</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/apng"
+            disabled={isProcessing}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              if (file && (file.type.startsWith("video/") || !file.type.startsWith("image/"))) {
+                setNotice({ status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+                event.currentTarget.value = "";
+                return;
+              }
+              updateSourceFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          <small>{sourceFile ? `Đã chọn: ${sourceFile.name}` : "Dùng trực tiếp ảnh sprite sheet 6×5 của bạn, không cần tạo URL."}</small>
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span>Tốc độ (ms/frame)</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="60"
+                max="1000"
+                step="1"
+                value={delayInput}
+                disabled={isProcessing}
+                onChange={(event) => updateDelayInput(event.target.value)}
+                onBlur={commitDelayInput}
+              />
+              <b>ms</b>
+            </div>
+            <small>Giá trị càng lớn thì chuyển động càng chậm.</small>
+                 </label>
+                 <label className="field">
+            <span>Kích thước frame</span>
+            <div className="number-with-unit">
+              <input
+                type="number"
+                min="128"
+                max="1024"
+                step="16"
+                value={frameSize}
+                disabled={isProcessing}
+                onChange={(event) => setFrameSize(Math.min(1024, Math.max(128, Number(event.target.value) || 576)))}
+              />
+              <b>px</b>
+            </div>
+          </label>
+        </div>
+        <div className="settings-resource-actions">
+          <button type="button" className="button primary" onClick={() => void convertResourceSprite()} disabled={isProcessing}>
+            {isProcessing ? "Đang chuyển thành hình động…" : assetUrl ? "Chuyển lại hình động" : "Chuyển sang hình động"}
+          </button>
+          {assetUrl && (
+            <button type="button" className="button ghost" onClick={() => void downloadResourceSprite()} disabled={downloading}>
+              {downloading ? "Đang tải…" : "Download WebP"}
+            </button>
+          )}
+          <button type="button" className="button ghost" onClick={clearResourceSprite} disabled={isProcessing}>
+            Clear
+          </button>
+        </div>
+        {notice.message && <small className={`settings-resource-notice ${notice.status}`}>{notice.message}</small>}
+      </div>
+
+      {assetUrl && (
+        <div className="settings-resource-result">
+          <div className="settings-resource-result-heading">
+            <strong>Hình động đã tạo</strong>
+            <span>{`${gridLabel ? `${gridLabel} · ` : ""}${frameCount ? `${frameCount} frame · ` : ""}${frameSize}px · ${delay}ms`}</span>
+          </div>
+          <div className="settings-resource-preview">
+            <img src={assetUrl} alt="Xem trước hình động WebP" />
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function SettingsWorkspace({
   projectItems,
@@ -1349,6 +2002,7 @@ function SettingsWorkspace({
   assetPreviewSource,
   onAddClip,
   onRenameClip,
+  onReorderClips,
   onDuplicateClip,
   onDeleteClip,
   onOpenScene,
@@ -1360,6 +2014,7 @@ function SettingsWorkspace({
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [editingClipTitle, setEditingClipTitle] = useState("");
+  const [clipDrag, setClipDrag] = useState({ draggedId: "", overId: "" });
   const selectedClip = projectItems.find((item) => item.id === selectedClipId)
     ?? projectItems.find((item) => item.id === activeProjectId)
     ?? projectItems[0];
@@ -1408,6 +2063,15 @@ function SettingsWorkspace({
     const nextTitle = editingClipTitle.trim() || source?.title || "Clip chưa đặt tên";
     onRenameClip(editingClipId, nextTitle);
     cancelClipRename();
+  };
+
+  const finishClipDrop = (targetProjectId: string) => {
+    if (!clipDrag.draggedId || clipDrag.draggedId === targetProjectId) {
+      setClipDrag({ draggedId: "", overId: "" });
+      return;
+    }
+    onReorderClips(clipDrag.draggedId, targetProjectId);
+    setClipDrag({ draggedId: "", overId: "" });
   };
 
   const handleDuplicateClip = () => {
@@ -1495,8 +2159,25 @@ function SettingsWorkspace({
                         role="button"
                         tabIndex={0}
                         key={project.id}
-                        className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""}`}
+                        draggable
+                        className={`settings-clip-item ${project.id === selectedClip.id ? "selected" : ""} ${project.id === clipDrag.overId ? "drag-over" : ""}`}
                         onClick={() => selectClip(project)}
+                        onDragStart={(event) => {
+                          setClipDrag({ draggedId: project.id, overId: "" });
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", project.id);
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          if (clipDrag.overId !== project.id) setClipDrag((current) => ({ ...current, overId: project.id }));
+                        }}
+                        onDragLeave={() => setClipDrag((current) => current.overId === project.id ? { ...current, overId: "" } : current)}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          finishClipDrop(project.id);
+                        }}
+                        onDragEnd={() => setClipDrag({ draggedId: "", overId: "" })}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) return;
                           if (event.key === "Enter" || event.key === " ") {
@@ -1506,6 +2187,7 @@ function SettingsWorkspace({
                         }}
                         aria-pressed={project.id === selectedClip.id}
                       >
+                        <span className="settings-clip-drag-handle" aria-hidden="true" title="Kéo để đổi vị trí clip">⠿</span>
                         {(() => {
                           const projectFirstScene = project.scenes[0];
                           const projectAvatarValue = String(projectFirstScene?.background ?? "").trim()
@@ -1611,7 +2293,8 @@ function SettingsWorkspace({
                 </div>
                 <div className="settings-scenes-list">
                   {selectedScenes.map((item) => {
-                    const sceneMediaValue = String(item.image ?? "").trim()
+                    const sceneMediaValue = String(item.avatar ?? "").trim()
+                      || String(item.image ?? "").trim()
                       || String(item.background ?? "").trim()
                       || clipAvatarValue;
                     const sceneMediaSource = assetPreviewSource(sceneMediaValue);
@@ -1726,10 +2409,70 @@ function SettingsWorkspace({
                   <p>Nhân bản clip sẽ sao chép toàn bộ cảnh, hiệu ứng và cấu hình render thành một bản độc lập.</p>
                 </div>
             </div>
+            <SettingsResourcePanel />
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+type ReviewEditableProps = {
+  value: string;
+  label: string;
+  onCommit: (value: string) => void;
+  numeric?: boolean;
+  multiline?: boolean;
+  className?: string;
+};
+
+function ReviewEditable({ value, label, onCommit, numeric = false, multiline = false, className = "" }: ReviewEditableProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const commit = () => {
+    const nextValue = draft.trim();
+    if (nextValue && nextValue !== value) onCommit(nextValue);
+    setEditing(false);
+  };
+
+  if (editing) {
+    const editorProps = {
+      autoFocus: true,
+      className: `review-edit-input ${multiline ? "review-edit-textarea" : ""}`,
+      value: draft,
+      "aria-label": label,
+      inputMode: numeric ? "decimal" as const : undefined,
+      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
+      onBlur: commit,
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        if (event.key === "Enter" && (!multiline || !event.shiftKey)) {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(value);
+          setEditing(false);
+        }
+      },
+    };
+    return multiline ? <textarea {...editorProps} rows={2} /> : <input {...editorProps} type={numeric ? "number" : "text"} />;
+  }
+
+  return (
+    <button
+      type="button"
+      className={`review-edit-value ${className}`}
+      title="Double-click để chỉnh sửa"
+      aria-label={`${label}: ${value}`}
+      onDoubleClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      {value || "—"}
+    </button>
   );
 }
 
@@ -1756,6 +2499,7 @@ function Home() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [renderResolution, setRenderResolution] = useState<RenderResolution>("1080x1920");
   const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
+  const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -1768,10 +2512,60 @@ function Home() {
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
+  const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  const activeEditorSectionRef = useRef<EditorSectionKey | null>(
+    (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+      .find((section) => DEFAULT_EDITOR_SECTIONS[section]) ?? null,
+  );
+  useEffect(() => {
+    activeEditorSectionRef.current = (Object.keys(editorSections) as EditorSectionKey[])
+      .find((section) => editorSections[section]) ?? null;
+  }, [editorSections]);
+  const setEditorSectionOpen = (section: EditorSectionKey, open: boolean) => {
+    if (open) {
+      activeEditorSectionRef.current = section;
+      editorScrollRef.current?.querySelectorAll<HTMLDetailsElement>(
+        "details.editor-accordion[open]",
+      ).forEach((item) => {
+        if (item.dataset.editorSection !== section) item.open = false;
+      });
+      setEditorSections(normalizeEditorSections({ [section]: true }));
+      return;
+    }
+    if (activeEditorSectionRef.current !== section) return;
+    activeEditorSectionRef.current = null;
+    setEditorSections((items) => normalizeEditorSections({
+      ...items,
+      [section]: false,
+    }));
+  };
+  const focusEditorSection = (section: EditorSectionKey) => {
+    setEditorSectionOpen(section, true);
+    window.setTimeout(() => {
+      const target = editorScrollRef.current?.querySelector<HTMLDetailsElement>(
+        `details[data-editor-section="${section}"]`,
+      );
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("timeline-focus");
+      window.setTimeout(() => {
+        target.classList.remove("timeline-focus");
+      }, 1300);
+    }, 40);
+  };
   const [playing, setPlaying] = useState(false);
+  const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
   const [playTime, setPlayTime] = useState(0);
+  const [playbackRestartToken, setPlaybackRestartToken] = useState(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [layerListDrag, setLayerListDrag] = useState<{
+    type: "popup" | "text" | "image" | "";
+    id: string;
+    overId: string;
+  }>({ type: "", id: "", overId: "" });
+  const [previewLayerDrag, setPreviewLayerDrag] = useState({ draggedId: "", overId: "" });
+  const [previewLayerQuery, setPreviewLayerQuery] = useState("");
   const [toast, setToast] = useState("");
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
@@ -1793,9 +2587,20 @@ function Home() {
     status: "idle" | "running" | "success" | "error";
     sceneId: string;
     message: string;
-  }>({ status: "idle", sceneId: "", message: "" });
+    progress?: number;
+  }>({ status: "idle", sceneId: "", message: "", progress: 0 });
+  const [subtitleImportBusy, setSubtitleImportBusy] = useState(false);
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
+  const [sceneImageSpriteDelayDrafts, setSceneImageSpriteDelayDrafts] = useState<Record<string, string>>({});
+  const [sceneImageTransitionEndDrafts, setSceneImageTransitionEndDrafts] = useState<Record<string, string>>({});
+  const [textOverlayTimingDrafts, setTextOverlayTimingDrafts] = useState<Record<string, string>>({});
+  const [sceneImageSpriteNotice, setSceneImageSpriteNotice] = useState<{
+    imageId: string;
+    status: "idle" | "processing" | "success" | "error";
+    message: string;
+  }>({ imageId: "", status: "idle", message: "" });
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -1812,10 +2617,14 @@ function Home() {
   const [draggingSceneImage, setDraggingSceneImage] = useState(false);
   const [mapEffectDragActive, setMapEffectDragActive] = useState(false);
   const [draggingSubtitle, setDraggingSubtitle] = useState(false);
+  const [draggingSubtitleResize, setDraggingSubtitleResize] = useState(false);
+  const [subtitleGuideVisible, setSubtitleGuideVisible] = useState(true);
   const [rulerEnabled, setRulerEnabled] = useState(false);
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const savedTheme = window.localStorage.getItem("kito-video-studio-theme");
@@ -1827,8 +2636,13 @@ function Home() {
     return savedTheme === "dark" ? "dark" : "light";
   });
   const [timelineHeight, setTimelineHeight] = useState(245);
+  const [timelineZoom, setTimelineZoom] = useState(100);
+  const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
+  const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
+  const subtitleFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
+  const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
   const animatedEffectFileInput = useRef<HTMLInputElement | null>(null);
@@ -1838,6 +2652,17 @@ function Home() {
   const historyApplying = useRef(false);
   const [, setHistoryVersion] = useState(0);
   const timelinePopupMoved = useRef(false);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const timelineZoomRef = useRef(100);
+  const reviewZoomRef = useRef(readReviewZoomPreference());
+  const rulerToggleRef = useRef<HTMLButtonElement | null>(null);
+  const rulerPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
+  const localRenderJobId = useRef("");
+
+  // Keep the latest timeline position available to media readiness callbacks.
+  // Audio files can finish loading after the playhead has already advanced.
+  playTimeRef.current = playTime;
 
   useEffect(() => {
     let cancelled = false;
@@ -1968,10 +2793,35 @@ function Home() {
     ?? sceneDecorations[0];
   const activeSceneImage = sceneImages.find((item) => item.id === selectedSceneImageId)
     ?? sceneImages[0];
+  const activeSceneImageSpriteDelayInput = activeSceneImage
+    ? sceneImageSpriteDelayDrafts[activeSceneImage.id] ?? String(activeSceneImage.spriteDelay)
+    : "";
+  const activeSceneImageTransitionEndInput = activeSceneImage
+    ? sceneImageTransitionEndDrafts[activeSceneImage.id] ?? String(activeSceneImage.transitionEnd)
+    : "";
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
+  const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
   const timelineLength = Math.max(0.1, projectDuration);
+  const timelineCanvasWidth = Math.max(320, Math.ceil(projectDuration * 16 * (timelineZoom / 100)));
   const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
+  const handleTimelineWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) < 0.5) return;
+    event.preventDefault();
+    const viewport = event.currentTarget;
+    const oldZoom = timelineZoomRef.current;
+    const nextZoom = Math.min(300, Math.max(50, oldZoom + (event.deltaY < 0 ? 10 : -10)));
+    if (nextZoom === oldZoom) return;
+    const bounds = viewport.getBoundingClientRect();
+    const pointerOffset = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const contentPosition = viewport.scrollLeft + pointerOffset;
+    const scaleRatio = nextZoom / oldZoom;
+    timelineZoomRef.current = nextZoom;
+    setTimelineZoom(nextZoom);
+    window.requestAnimationFrame(() => {
+      viewport.scrollLeft = Math.max(0, contentPosition * scaleRatio - pointerOffset);
+    });
+  };
   const resolutionOptions = resolutionOptionsFor(aspectRatio);
   const updateAspectRatio = (nextAspectRatio: AspectRatio) => {
     setAspectRatio(nextAspectRatio);
@@ -2005,14 +2855,11 @@ function Home() {
   const activePopupMediaValue = activePopup
     ? safeTrim(activePopup.video) || safeTrim(activePopup.image)
     : "";
-  const popupMediaIsVideo = isVideoMedia(activePopupMediaValue);
-  const popupMediaPreviewSource = activePopupMediaValue && (popupMediaIsVideo || imageEnabled)
-    ? assetPreviewSource(activePopupMediaValue)
-    : "";
   const legacyBackgroundPreview = safeTrim(previewBackground) || safeTrim(background);
   const sceneBackgroundValue = String(scene.background ?? "").trim();
   const backgroundValue = sceneBackgroundValue || legacyBackgroundPreview;
   const backgroundPreviewSource = assetPreviewSource(backgroundValue);
+  const sceneAvatarPreviewSource = assetPreviewSource(scene.avatar ?? "");
   const backgroundIsVideo = isVideoMedia(backgroundValue);
   const backgroundVideoPreviewSource = backgroundIsVideo ? backgroundPreviewSource : "";
   const narrationPreviewSource =
@@ -2024,6 +2871,77 @@ function Home() {
     sceneDuration,
     Math.max(0, playTime - scene.start),
   );
+  const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
+  const sceneStartDarkEffectProgress = (effect: SceneDarkEffect) => {
+    const start = Math.max(0, Number(effect.start) || 0);
+    const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+    const duration = end - start;
+    const holdDuration = Math.min(
+      Math.max(0, duration - 0.1),
+      Math.max(0, Number(effect.holdDuration) || 0),
+    );
+    const transitionDuration = Math.max(0.1, duration - holdDuration);
+    const halfDuration = transitionDuration / 2;
+    const elapsed = sceneLocalTime - start;
+    if (elapsed <= 0 || elapsed >= duration) return 0;
+    if (elapsed < halfDuration) return elapsed / halfDuration;
+    if (elapsed < halfDuration + holdDuration) return 1;
+    return Math.max(0, (duration - elapsed) / halfDuration);
+  };
+  const sceneStartDarkOverlayItems = sceneStartDarkEffects
+    .filter((effect) => {
+      const start = Math.max(0, Number(effect.start) || 0);
+      const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+      return effect.enabled && sceneLocalTime >= start && sceneLocalTime < end;
+    })
+    .map((effect) => {
+      const progress = sceneStartDarkEffectProgress(effect);
+      const easedProgress = progress * progress * (3 - 2 * progress);
+      const strength = 1 - Math.min(100, Math.max(0, Number(effect.intensity) || 0)) / 100;
+      const edgeOpacity = Math.min(0.74, easedProgress * 0.9 * strength);
+      const centerOpacity = Math.min(0.46, Math.max(0, (easedProgress - 0.7) / 0.3) * 0.46 * strength);
+      return {
+        effect,
+        clearRadius: Math.max(0, 150 * (1 - easedProgress)),
+        edgeOpacity,
+        midOpacity: Math.min(0.62, edgeOpacity * 0.8 + centerOpacity * 0.2),
+        centerOpacity,
+        blur: Math.round(easedProgress * 8),
+      };
+    });
+  const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
+    const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+    const baseEnd = start + Math.max(0.1, Number(image.duration) || 0.1);
+    const transition = normalizeSceneImageTransition(image.transition);
+    const ownTransitionEnd = transition === "cut"
+      ? start
+      : sceneImageTransitionEnd(image);
+    const end = Math.min(sceneDuration, Math.max(baseEnd, ownTransitionEnd));
+    const nextImage = sceneImages[imageIndex + 1];
+    if (!nextImage) return { start, end };
+    const nextStart = Math.min(sceneDuration, Math.max(0, Number(nextImage.start) || 0));
+    const nextTransition = normalizeSceneImageTransition(nextImage.transition);
+    if (!sceneImageTransitionNeedsOverlap(nextTransition)) return { start, end };
+    const overlapEnd = nextStart + sceneImageTransitionDuration(nextImage);
+    return { start, end: Math.min(sceneDuration, Math.max(end, overlapEnd)) };
+  };
+  const sceneImagePreviewTransition = (image: SceneImage, time = sceneLocalTime) => {
+    const transition = normalizeSceneImageTransition(image.transition);
+    const duration = sceneImageTransitionDuration(image);
+    const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+    const progress = duration > 0
+      ? Math.min(1, Math.max(0, (time - start) / duration))
+      : 1;
+    if (!playing || transition === "cut" || time < start) {
+      return { transition, progress: 1 };
+    }
+    return { transition, progress };
+  };
+  const sceneVoiceStart = Math.min(
+    sceneDuration,
+    Math.max(0, Number(scene.voiceStart ?? 0) || 0),
+  );
+  const sceneVoiceReady = sceneLocalTime >= sceneVoiceStart;
   useEffect(() => {
     const video = backgroundVideoRef.current;
     if (playing || !video || !backgroundVideoPreviewSource) return;
@@ -2046,6 +2964,27 @@ function Home() {
   const sceneIsVisibleInPlayback = !playing || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
+  const textOverlayTiming = (overlay: TextOverlay) => {
+    const start = Math.min(sceneDuration, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(
+      sceneDuration,
+      Math.max(start + 0.1, Number(overlay.end) || sceneDuration),
+    );
+    return { start, end };
+  };
+  const previewTextOverlayItems = sceneIsVisibleInPlayback
+    ? playing
+      ? sceneTextOverlays.filter((overlay) => {
+          const { start, end } = textOverlayTiming(overlay);
+          return overlay.visible !== false
+            && safeTrim(overlay.text)
+            && sceneLocalTime >= start
+            && sceneLocalTime <= end;
+        })
+      : sceneTextOverlays.filter((overlay) =>
+          overlay.editorVisible !== false && overlay.visible !== false && safeTrim(overlay.text),
+        )
+    : [];
   const popupHasMediaInput = (popup: PopupConfig) =>
     (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
     || Boolean(safeTrim(popup.video));
@@ -2064,12 +3003,13 @@ function Home() {
       ? scenePopups.filter((popup) => {
           const timingStart = Math.min(sceneDuration, Math.max(0, Number(popup.start) || 0));
           const timingEnd = Math.min(sceneDuration, timingStart + Math.max(0.1, Number(popup.duration) || 0.1));
-          return popup.visible !== false
+          return (playing || popup.editorVisible !== false)
+            && popup.visible !== false
             && popupHasContent(popup)
             && sceneLocalTime >= timingStart
             && sceneLocalTime <= timingEnd;
         })
-      : scenePopups.filter((popup) => popup.visible !== false && popupHasContent(popup))
+      : scenePopups.filter((popup) => popup.editorVisible !== false && popup.visible !== false && popupHasContent(popup))
     : [];
   const decorationHasContent = (decoration: MapDecoration) =>
     decoration.type === "text-3d"
@@ -2093,22 +3033,45 @@ function Home() {
     : [];
   const previewSceneImageItems = sceneIsVisibleInPlayback
     ? playing
-      ? sceneImages.filter((image) => {
-          const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
-          const end = Math.min(sceneDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+      ? sceneImages.filter((image, imageIndex) => {
+          const { start, end } = sceneImagePlaybackWindow(image, imageIndex);
           return image.visible !== false
             && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
-            && sceneLocalTime <= end;
+            && sceneLocalTime < end;
         })
-      : sceneImages.filter((image) => image.visible !== false && Boolean(safeTrim(image.url)))
+      : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
+  const activeFadeBlackImage = playing
+    ? sceneImages.find((image) => {
+        const transition = normalizeSceneImageTransition(image.transition);
+        const duration = sceneImageTransitionDuration(image);
+        const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
+        return transition === "fade-black"
+          && image.visible !== false
+          && Boolean(safeTrim(image.url))
+          && duration > 0
+          && sceneLocalTime >= start
+          && sceneLocalTime <= Math.min(sceneDuration, start + duration);
+      })
+    : null;
+  const fadeBlackOpacity = activeFadeBlackImage
+    ? (() => {
+        const { progress } = sceneImagePreviewTransition(activeFadeBlackImage);
+        return progress <= 0.5 ? progress * 2 : (1 - progress) * 2;
+      })()
+    : 0;
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
-        const start = Math.min(sceneDuration, Math.max(0, Number(subtitle.start) || 0));
+        const subtitleOffset = Math.min(
+          sceneDuration,
+          Math.max(0, Number(scene.subtitleStart) || 0),
+        );
+        const cueStart = Math.max(0, Number(subtitle.start) || 0);
+        const start = Math.min(sceneDuration, subtitleOffset + cueStart);
         const end = Math.min(
           sceneDuration,
-          Math.max(start + 0.1, Number(subtitle.end) || start + 0.1),
+          Math.max(start + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
         );
         return subtitle.visible !== false
           && safeTrim(subtitle.text)
@@ -2116,6 +3079,90 @@ function Home() {
           && sceneLocalTime < end;
       })
     : null;
+  const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
+    const candidates: PreviewLayerItem[] = [
+      ...previewTextOverlayItems
+        .map((overlay, index) => ({
+          token: previewLayerToken("text", overlay.id),
+          kind: "text" as const,
+          id: overlay.id,
+          label: safeTrim(overlay.name) || safeTrim(overlay.text).slice(0, 32) || `Chữ ${index + 1}`,
+          icon: "T",
+        })),
+      ...previewPopupItems.map((popup, index) => ({
+        token: previewLayerToken("popup", popup.id),
+        kind: "popup" as const,
+        id: popup.id,
+        label: safeTrim(popup.title) || `Popup ${index + 1}`,
+        icon: "P",
+      })),
+      ...previewDecorationItems.map((decoration, index) => ({
+        token: previewLayerToken("decoration", decoration.id),
+        kind: "decoration" as const,
+        id: decoration.id,
+        label: safeTrim(decoration.name) || `${decoration.type === "text-3d" ? "Chữ 3D" : decoration.type === "animated-sticker" ? "GIF / WebM / APNG" : decoration.type === "sticker" ? "Sticker" : decoration.type === "icon" ? "Icon" : "Hiệu ứng"} ${index + 1}`,
+        icon: "✦",
+      })),
+      ...previewSceneImageItems.map((image, index) => ({
+        token: previewLayerToken("image", image.id),
+        kind: "image" as const,
+        id: image.id,
+        label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
+        icon: "IMG",
+      })),
+      ...(((scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) ? [{
+        token: previewLayerToken("subtitle", "subtitle"),
+        kind: "subtitle" as const,
+        id: "subtitle",
+        label: "Phụ đề",
+        icon: "CC",
+      }] : []),
+    ];
+    const candidateTokens = new Set(candidates.map((item) => item.token));
+    const storedOrder = Array.isArray(scene.layerOrder)
+      ? scene.layerOrder.filter((token): token is string => typeof token === "string")
+      : [];
+    const orderedTokens = Array.from(new Set([
+      ...storedOrder.filter((token) => candidateTokens.has(token)),
+      ...candidates.map((item) => item.token).filter((token) => !storedOrder.includes(token)),
+    ]));
+    const itemByToken = new Map(candidates.map((item) => [item.token, item]));
+    return orderedTokens
+      .map((token) => itemByToken.get(token))
+      .filter((item): item is PreviewLayerItem => Boolean(item));
+  }, [
+    playing,
+    previewDecorationItems,
+    previewPopupItems,
+    previewSceneImageItems,
+    previewTextOverlayItems,
+    scene.layerOrder,
+    scene.subtitleEnabled,
+    scene.subtitles,
+  ]);
+  const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
+    const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
+    const baseIndex = 10 + (index < 0 ? previewLayerItems.length : index);
+    if (kind === "text") return 100 + baseIndex;
+    if (kind === "subtitle") return 200 + baseIndex;
+    return baseIndex;
+  };
+  const explicitlySelectedPreviewLayerToken = selectedPopupId
+    ? previewLayerToken("popup", selectedPopupId)
+    : selectedTextOverlayId
+      ? previewLayerToken("text", selectedTextOverlayId)
+      : selectedSceneImageId
+        ? previewLayerToken("image", selectedSceneImageId)
+        : selectedDecorationId
+          ? previewLayerToken("decoration", selectedDecorationId)
+          : "";
+  const visiblePreviewLayerItems = useMemo(() => {
+    const query = safeTrim(previewLayerQuery).toLocaleLowerCase("vi-VN");
+    if (!query) return previewLayerItems;
+    return previewLayerItems.filter((item) =>
+      `${item.label} ${item.kind}`.toLocaleLowerCase("vi-VN").includes(query),
+    );
+  }, [previewLayerItems, previewLayerQuery]);
   const subtitleStyle = normalizeSubtitleStyle(scene.subtitleStyle);
   const subtitleAnimationProgress = activeSubtitle
     ? Math.min(
@@ -2139,6 +3186,10 @@ function Home() {
   const subtitleAnimationClipPath = subtitleStyle.animation === "typewriter"
     ? `inset(0 ${Math.max(0, 100 - subtitleAnimationProgress * 100)}% 0 0)`
     : "none";
+  const subtitleGuideHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+    ? Number(subtitleStyle.boxHeight)
+    : Math.min(16, Math.max(6, subtitleStyle.size / 3));
+  const subtitleGuideMetrics = `Phụ đề mẫu · X ${Number(subtitleStyle.x.toFixed(1))}% · Y ${Number(subtitleStyle.y.toFixed(1))}% · Rộng ${Number(subtitleStyle.boxWidth.toFixed(1))}% · Cao ${Number(subtitleGuideHeight.toFixed(1))}%`;
   const decorationSymbol = (decoration: MapDecoration) => {
     if (decoration.type === "effect") {
       return {
@@ -2206,6 +3257,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2226,6 +3278,7 @@ function Home() {
       imageEnabled,
       narrationEnabled,
       renderFps,
+      renderProfile,
       background,
       previewBackground,
       backgroundVisible,
@@ -2236,18 +3289,31 @@ function Home() {
     ],
   );
 
+  const projectItems = useMemo(() => {
+    const currentProjectIndex = projects.findIndex((item) => item.id === projectId);
+    if (currentProjectIndex < 0) return [...projects, currentProject];
+    return projects.map((item) => item.id === projectId ? currentProject : item);
+  }, [projects, projectId, currentProject]);
+
   const storedProject = useMemo<StoredWorkspace>(() => ({
     version: 2,
     activeProjectId: projectId,
-    projects: [...projects.filter((item) => item.id !== projectId), currentProject],
-  }), [projects, projectId, currentProject]);
-
-  const projectItems = useMemo(
-    () => [...projects.filter((item) => item.id !== projectId), currentProject],
-    [projects, projectId, currentProject],
-  );
+    projects: projectItems,
+  }), [projectId, projectItems]);
 
   const openProject = (project: ProjectSnapshot, preserveHistory = false) => {
+    const preservedSelectedId = preserveHistory ? selectedId : "";
+    const preservedSelectedSceneIds = preserveHistory ? selectedSceneIds : [];
+    const preservedSelectedPopupId = preserveHistory ? selectedPopupId : "";
+    const preservedSelectedTextOverlayId = preserveHistory ? selectedTextOverlayId : "";
+    const preservedSelectedDecorationId = preserveHistory ? selectedDecorationId : "";
+    const preservedSelectedSceneImageId = preserveHistory ? selectedSceneImageId : "";
+    const previousSelectedScene = preserveHistory
+      ? scenes.find((item) => item.id === preservedSelectedId)
+      : undefined;
+    const previousSceneLocalTime = previousSelectedScene
+      ? Math.max(0, Math.min(previousSelectedScene.end - previousSelectedScene.start, playTime - previousSelectedScene.start))
+      : 0;
     setProjectId(project.id);
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
@@ -2261,6 +3327,7 @@ function Home() {
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
     setRenderFps(project.renderFps ?? 30);
+    setRenderProfile(normalizeRenderProfile(project.renderProfile));
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
@@ -2275,13 +3342,26 @@ function Home() {
       ...item,
       backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
     }));
-    setEditorSections(normalizeEditorSections(project.editorSections));
+    if (!preserveHistory) setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
-    setSelectedId(restoredScenes[0]?.id ?? "");
-    setSelectedPopupId("");
-    setSelectedTextOverlayId("");
-    setSelectedSceneIds(restoredScenes[0] ? [restoredScenes[0].id] : []);
-    setPlayTime(restoredScenes[0]?.start ?? 0);
+    const restoredSelectedScene = restoredScenes.find((item) => item.id === preservedSelectedId)
+      ?? restoredScenes[0];
+    const restoredSelectedSceneIds = preservedSelectedSceneIds.filter((id) =>
+      restoredScenes.some((item) => item.id === id),
+    );
+    const restoredPopupIds = restoredSelectedScene ? new Set(scenePopupList(restoredSelectedScene).map((item) => item.id)) : new Set<string>();
+    const restoredTextOverlayIds = restoredSelectedScene ? new Set((restoredSelectedScene.textOverlays ?? []).map((item) => item.id)) : new Set<string>();
+    const restoredDecorationIds = restoredSelectedScene ? new Set((restoredSelectedScene.mapDecorations ?? []).map((item) => item.id)) : new Set<string>();
+    const restoredSceneImageIds = restoredSelectedScene ? new Set((restoredSelectedScene.sceneImages ?? []).map((item) => item.id)) : new Set<string>();
+    setSelectedId(restoredSelectedScene?.id ?? "");
+    setSelectedPopupId(restoredPopupIds.has(preservedSelectedPopupId) ? preservedSelectedPopupId : "");
+    setSelectedTextOverlayId(restoredTextOverlayIds.has(preservedSelectedTextOverlayId) ? preservedSelectedTextOverlayId : "");
+    setSelectedDecorationId(restoredDecorationIds.has(preservedSelectedDecorationId) ? preservedSelectedDecorationId : "");
+    setSelectedSceneImageId(restoredSceneImageIds.has(preservedSelectedSceneImageId) ? preservedSelectedSceneImageId : "");
+    setSelectedSceneIds(restoredSelectedSceneIds.length ? restoredSelectedSceneIds : (restoredSelectedScene ? [restoredSelectedScene.id] : []));
+    setPlayTime(restoredSelectedScene
+      ? Number((restoredSelectedScene.start + (preserveHistory ? Math.min(previousSceneLocalTime, restoredSelectedScene.end - restoredSelectedScene.start) : 0)).toFixed(2))
+      : 0);
     setPlaying(false);
     if (!preserveHistory) {
       historyPast.current = [];
@@ -2306,6 +3386,7 @@ function Home() {
           project.renderResolution,
           normalizeAspectRatio(project.aspectRatio),
         ),
+        renderProfile: normalizeRenderProfile(project.renderProfile),
         editorSections: normalizeEditorSections(project.editorSections),
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
@@ -2332,6 +3413,7 @@ function Home() {
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
         renderFps: data.renderFps ?? 30,
+        renderProfile: normalizeRenderProfile(data.renderProfile),
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -2412,9 +3494,44 @@ function Home() {
   }, [theme]);
 
   useEffect(() => {
-    if (!previewFullscreen) return;
+    try {
+      window.localStorage.setItem(LOCAL_REVIEW_ZOOM_KEY, String(reviewZoom));
+    } catch {
+      // localStorage may be unavailable in private browsing or restricted contexts.
+    }
+  }, [reviewZoom]);
+
+  useEffect(() => {
+    if (!rulerEnabled) return;
+
+    const repositionRulerPopover = () => {
+      const toggle = rulerToggleRef.current;
+      if (!toggle) return;
+      const toggleBounds = toggle.getBoundingClientRect();
+      const popover = rulerPopoverRef.current;
+      const popoverWidth = popover?.offsetWidth ?? 168;
+      const popoverHeight = popover?.offsetHeight ?? 72;
+      const maxLeft = Math.max(8, window.innerWidth - popoverWidth - 8);
+      const left = Math.min(maxLeft, Math.max(8, toggleBounds.right - popoverWidth));
+      const top = Math.max(8, toggleBounds.top - popoverHeight - 8);
+      setRulerPopoverPosition({ top, left });
+    };
+
+    repositionRulerPopover();
+    window.addEventListener("resize", repositionRulerPopover);
+    window.addEventListener("scroll", repositionRulerPopover, true);
+    return () => {
+      window.removeEventListener("resize", repositionRulerPopover);
+      window.removeEventListener("scroll", repositionRulerPopover, true);
+    };
+  }, [previewFullscreen, rulerEnabled]);
+
+  useEffect(() => {
+    if (!previewFullscreen && !reviewOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreviewFullscreen(false);
+      if (event.key !== "Escape") return;
+      if (reviewOpen) setReviewOpen(false);
+      else setPreviewFullscreen(false);
     };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -2423,7 +3540,7 @@ function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [previewFullscreen]);
+  }, [previewFullscreen, reviewOpen]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -2491,6 +3608,14 @@ function Home() {
   }, []);
 
   const saveProjectNow = async () => {
+    const durationFromScenes = sceneTimelineDuration;
+    const workspaceToSave: StoredWorkspace = {
+      ...storedProject,
+      projects: storedProject.projects.map((item) => item.id === projectId
+        ? { ...item, projectDuration: durationFromScenes }
+        : item),
+    };
+    setProjectDuration(durationFromScenes);
     if (!googleUser) {
       setSaveStatus("error");
       setToast("Hãy đăng nhập Google để lưu dữ liệu lên Firestore");
@@ -2498,7 +3623,7 @@ function Home() {
       return;
     }
 
-    const currentSnapshot = JSON.stringify(storedProject);
+    const currentSnapshot = JSON.stringify(workspaceToSave);
     const savedAt = Date.now();
     window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
     window.localStorage.setItem(
@@ -2508,7 +3633,7 @@ function Home() {
     window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
     setSaveStatus("saving");
     try {
-      await saveWorkspaceToFirestore(storedProject);
+      await saveWorkspaceToFirestore(workspaceToSave);
       const now = new Date();
       lastSavedProjectSnapshot.current = currentSnapshot;
       setSaveStatus("saved");
@@ -2578,7 +3703,7 @@ function Home() {
     const startedAt = performance.now() - playTime * 1000;
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
-      if (nextTime >= projectDuration) {
+      if (nextTime >= sceneTimelineDuration) {
         const firstScene = visibleScenes[0];
         setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
@@ -2586,6 +3711,10 @@ function Home() {
           setSelectedId(firstScene.id);
           setSelectedSceneIds([firstScene.id]);
         }
+        setSelectedPopupId("");
+        setSelectedTextOverlayId("");
+        setSelectedDecorationId("");
+        setSelectedSceneImageId("");
         return;
       }
       setPlayTime(nextTime);
@@ -2609,36 +3738,50 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, projectDuration, scenes, visibleScenes]);
+  }, [playing, playbackRestartToken, sceneTimelineDuration, scenes, visibleScenes]);
 
   useEffect(() => {
     narrationAudio.current?.pause();
     narrationAudio.current = null;
-    if (!playing || !narrationEnabled || !sceneIsVisibleInPlayback) return;
+    if (!playing || !narrationEnabled || previewAudioMuted || !sceneIsVisibleInPlayback || !sceneVoiceReady) return;
     const source = narrationPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
     narrationAudio.current = audio;
+    audio.preload = "auto";
     audio.volume = clampVolume(scene.voiceVolume, 95) / 100;
-    const elapsed = Math.max(0, playTime - scene.start);
+    const sceneDuration = Math.max(0.1, scene.end - scene.start);
+    let cancelled = false;
+    let started = false;
     const startAudio = () => {
-      audio.currentTime = elapsed;
+      if (cancelled || started || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+      const elapsed = Math.max(0, playTimeRef.current - scene.start - sceneVoiceStart);
+      if (elapsed >= Math.max(0, sceneDuration - sceneVoiceStart)) return;
+      audio.currentTime = Math.min(elapsed, Math.max(0, audio.duration - 0.01));
+      started = true;
       void audio.play().catch(() => {
         // A local path that has not been uploaded is previewed silently.
       });
     };
-    const timer = window.setTimeout(startAudio, 0);
+    audio.addEventListener("loadedmetadata", startAudio);
+    audio.addEventListener("canplay", startAudio);
+    audio.load();
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startAudio();
     return () => {
-      window.clearTimeout(timer);
+      cancelled = true;
+      audio.removeEventListener("loadedmetadata", startAudio);
+      audio.removeEventListener("canplay", startAudio);
       audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
       if (narrationAudio.current === audio) narrationAudio.current = null;
     };
-  }, [playing, selectedId, narrationEnabled, narrationPreviewSource, scene.start, scene.voiceVolume, sceneIsVisibleInPlayback]);
+  }, [playing, selectedId, narrationEnabled, previewAudioMuted, narrationPreviewSource, scene.start, scene.end, scene.voiceStart, scene.voiceVolume, sceneIsVisibleInPlayback, sceneVoiceReady, sceneVoiceStart]);
 
   useEffect(() => {
     backgroundMusicAudio.current?.pause();
     backgroundMusicAudio.current = null;
-    if (!playing || !safeTrim(backgroundMusic)) return;
+    if (!playing || previewAudioMuted || !safeTrim(backgroundMusic)) return;
     const source = musicPreviewSource;
     if (!source) return;
     const audio = new Audio(source);
@@ -2653,7 +3796,7 @@ function Home() {
       audio.pause();
       if (backgroundMusicAudio.current === audio) backgroundMusicAudio.current = null;
     };
-  }, [playing, backgroundMusic, musicPreviewSource, backgroundMusicVolume]);
+  }, [playing, previewAudioMuted, backgroundMusic, musicPreviewSource, backgroundMusicVolume]);
 
   const selectScene = (item: Scene, additive = false) => {
     if (!additive) {
@@ -2685,7 +3828,7 @@ function Home() {
 
   const openTimelineEditor = (
     item: Scene | null,
-    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle",
+    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle" | "editor-effects",
   ) => {
     if (item) {
       setSelectedId(item.id);
@@ -2696,8 +3839,19 @@ function Home() {
       setPlayTime(item.start);
     }
     setPlaying(false);
+    setEditorSectionOpen(
+      targetId === "editor-popup"
+        ? "popup"
+        : targetId === "editor-subtitle"
+          ? "audio"
+          : targetId === "editor-effects"
+            ? "effects"
+          : "audio",
+      true,
+    );
     window.setTimeout(() => {
-      const target = document.getElementById(targetId);
+      const target = document.getElementById(targetId)
+        ?? (targetId === "editor-effects" ? document.querySelector('[data-editor-section="effects"]') : null);
       const group = target?.closest("details");
       if (group instanceof HTMLDetailsElement) group.open = true;
       target?.scrollIntoView({
@@ -2712,6 +3866,89 @@ function Home() {
     }, 40);
   };
 
+  const focusEditorLayer = (
+    section: "popup" | "text" | "images",
+    layerId: string,
+  ) => {
+    setEditorSectionOpen(section, true);
+    window.setTimeout(() => {
+      const target = document.getElementById(`editor-layer-${section}-${layerId}`);
+      const group = target?.closest("details");
+      if (group instanceof HTMLDetailsElement) group.open = true;
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+      target.classList.add("timeline-focus");
+      window.setTimeout(() => {
+        document.getElementById(`editor-layer-${section}-${layerId}`)?.classList.remove("timeline-focus");
+      }, 1300);
+    }, 40);
+  };
+
+  const selectPreviewLayer = (
+    kind: "popup" | "text" | "image" | "decoration",
+    layerId: string,
+  ) => {
+    setSelectedPopupId(kind === "popup" ? layerId : "");
+    setSelectedTextOverlayId(kind === "text" ? layerId : "");
+    setSelectedSceneImageId(kind === "image" ? layerId : "");
+    setSelectedDecorationId(kind === "decoration" ? layerId : "");
+    focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
+  };
+
+  const selectPreviewLayerItem = (item: PreviewLayerItem) => {
+    if (item.kind === "subtitle") {
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      openTimelineEditor(scene, "editor-subtitle");
+      return;
+    }
+    selectPreviewLayer(item.kind, item.id);
+  };
+
+  const reorderPreviewLayers = (draggedToken: string, targetToken: string) => {
+    if (!scene || !draggedToken || !targetToken || draggedToken === targetToken) return;
+    const currentTokens = previewLayerItems.map((item) => item.token);
+    const nextVisibleTokens = reorderById(
+      currentTokens.map((token) => ({ id: token })),
+      draggedToken,
+      targetToken,
+    ).map((item) => item.id);
+    const storedTokens = Array.isArray(scene.layerOrder) ? scene.layerOrder : [];
+    const visibleTokenSet = new Set(currentTokens);
+    const nextOrder = [
+      ...nextVisibleTokens,
+      ...storedTokens.filter((token) => !visibleTokenSet.has(token)),
+    ];
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, layerOrder: nextOrder }
+      : item));
+  };
+
+  const startPreviewLayerDrag = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", token);
+    setPreviewLayerDrag({ draggedId: token, overId: "" });
+  };
+
+  const updatePreviewLayerDragOver = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    if (!previewLayerDrag.draggedId || previewLayerDrag.draggedId === token) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setPreviewLayerDrag((current) => ({ ...current, overId: token }));
+  };
+
+  const finishPreviewLayerDrop = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+    event.preventDefault();
+    reorderPreviewLayers(previewLayerDrag.draggedId, token);
+    setPreviewLayerDrag({ draggedId: "", overId: "" });
+  };
+
+  const clearPreviewLayerDrag = () => setPreviewLayerDrag({ draggedId: "", overId: "" });
+
   const togglePlayback = () => {
     if (playing) {
       setPlaying(false);
@@ -2722,17 +3959,43 @@ function Home() {
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
-    const resumeAt = playTime >= projectDuration ? 0 : playTime;
+    const resumeAt = playTime >= sceneTimelineDuration ? 0 : playTime;
     const activeScene =
       visibleScenes.find((item) => resumeAt >= item.start && resumeAt < item.end) ??
       visibleScenes.find((item) => item.start >= resumeAt) ??
       visibleScenes[0];
     const startAt = activeScene?.start ?? resumeAt;
+    setRulerEnabled(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
     setPlayTime(activeScene && !(resumeAt >= activeScene.start && resumeAt < activeScene.end)
       ? startAt
       : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
     setPlaying(true);
+  };
+
+  const replayPlayback = () => {
+    const firstScene = visibleScenes[0];
+    if (!firstScene) {
+      setToast("Chưa có cảnh đang hiện để chạy lại");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+    setRulerEnabled(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+    setPlayTime(firstScene.start);
+    setSelectedId(firstScene.id);
+    setSelectedSceneIds([firstScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedDecorationId("");
+    setSelectedSceneImageId("");
+    setPlaybackRestartToken((value) => value + 1);
+    setPlaying(true);
+  };
+
+  const togglePreviewAudio = () => {
+    setPreviewAudioMuted((muted) => !muted);
   };
 
   const seekTimeline = (seconds: number) => {
@@ -2751,6 +4014,51 @@ function Home() {
       if (activeScene) setSelectedId(activeScene.id);
       return nextTime;
     });
+  };
+
+  const moveSelectedMapLayer = (
+    direction: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+    step = 1,
+  ) => {
+    if (!hydrated || playing) return false;
+    const deltaX = direction === "ArrowLeft" ? -step : direction === "ArrowRight" ? step : 0;
+    const deltaY = direction === "ArrowUp" ? -step : direction === "ArrowDown" ? step : 0;
+    const movePercent = (value: unknown, fallback: number, delta: number) =>
+      clampPercent(clampPercent(value, fallback) + delta, fallback);
+    const selectedPopup = selectedPopupId
+      ? scenePopups.find((item) => item.id === selectedPopupId)
+      : undefined;
+    const selectedText = selectedTextOverlayId
+      ? sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
+      : undefined;
+    const selectedImage = selectedSceneImageId
+      ? sceneImages.find((item) => item.id === selectedSceneImageId)
+      : undefined;
+    const selectedDecoration = selectedDecorationId
+      ? sceneDecorations.find((item) => item.id === selectedDecorationId)
+      : undefined;
+
+    if (selectedPopup) {
+      updatePopup("x", movePercent(selectedPopup.x, 5, deltaX), selectedPopup.id);
+      updatePopup("y", movePercent(selectedPopup.y, 55, deltaY), selectedPopup.id);
+      return true;
+    }
+    if (selectedText) {
+      updateTextOverlay("x", movePercent(selectedText.x, 50, deltaX));
+      updateTextOverlay("y", movePercent(selectedText.y, 18, deltaY));
+      return true;
+    }
+    if (selectedImage) {
+      updateSceneImage("x", movePercent(selectedImage.x, 50, deltaX));
+      updateSceneImage("y", movePercent(selectedImage.y, 50, deltaY));
+      return true;
+    }
+    if (selectedDecoration) {
+      updateMapDecoration("x", movePercent(selectedDecoration.x, 50, deltaX));
+      updateMapDecoration("y", movePercent(selectedDecoration.y, 50, deltaY));
+      return true;
+    }
+    return false;
   };
 
   const startTimelineScrub = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -2809,6 +4117,17 @@ function Home() {
         return;
       }
       if (isTyping) return;
+      const isLayerArrow = event.key === "ArrowUp"
+        || event.key === "ArrowDown"
+        || event.key === "ArrowLeft"
+        || event.key === "ArrowRight";
+      if (!modifier && isLayerArrow && moveSelectedMapLayer(
+        event.key as "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+        event.shiftKey ? 5 : 1,
+      )) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === " ") {
         event.preventDefault();
         togglePlayback();
@@ -2857,14 +4176,238 @@ function Home() {
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
-    setScenes((items) => items.map((item) => targetIds.has(item.id)
-      ? { ...item, effects: { ...item.effects, [key]: value } }
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const current = normalizeSceneEffects(item.effects);
+      const next = { ...current, [key]: value } as SceneEffects;
+      if (key === "sceneStartDarkEffects") {
+        const darkEffects = value as SceneDarkEffect[];
+        const first = darkEffects[0];
+        next.sceneStartDarkEnabled = darkEffects.some((effect) => effect.enabled);
+        next.sceneStartDarkDuration = first ? Math.max(0.1, first.end - first.start) : current.sceneStartDarkDuration;
+        next.sceneStartDarkIntensity = first?.intensity ?? current.sceneStartDarkIntensity;
+      }
+      return { ...item, effects: next };
+    }));
+  };
+
+  type SceneDarkEffectNumberField = "start" | "end" | "holdDuration" | "intensity";
+  const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
+    `${scene.id}:dark:${effectId}:${field}`;
+  const darkEffectInputValue = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+  ) => effectInputDrafts[darkEffectInputKey(effect.id, field)] ?? String(effect[field]);
+  const updateSceneDarkEffect = <K extends keyof SceneDarkEffect>(
+    effectId: string,
+    key: K,
+    value: SceneDarkEffect[K],
+  ) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const effects = normalizeSceneEffects(item.effects);
+      const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
+        if (effect.id !== effectId) return effect;
+        const next = { ...effect, [key]: value } as SceneDarkEffect;
+        if (next.start > next.end - 0.1) next.end = next.start + 0.1;
+        if (next.end < next.start + 0.1) next.start = Math.max(0, next.end - 0.1);
+        next.holdDuration = Math.min(
+          Math.max(0, next.end - next.start - 0.1),
+          Math.max(0, Number(next.holdDuration) || 0),
+        );
+        return next;
+      });
+      const first = nextDarkEffects[0];
+      return {
+        ...item,
+        effects: {
+          ...effects,
+          sceneStartDarkEffects: nextDarkEffects,
+          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+          sceneStartDarkDuration: first ? Math.max(0.1, first.end - first.start) : effects.sceneStartDarkDuration,
+          sceneStartDarkIntensity: first?.intensity ?? effects.sceneStartDarkIntensity,
+        },
+      };
+    }));
+  };
+  const updateSceneDarkEffectInput = (
+    effect: SceneDarkEffect,
+    field: SceneDarkEffectNumberField,
+    value: string,
+  ) => {
+    const key = darkEffectInputKey(effect.id, field);
+    setEffectInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    if (field === "start") {
+      updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
+    } else if (field === "end") {
+      updateSceneDarkEffect(effect.id, "end", Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue)));
+    } else if (field === "holdDuration") {
+      updateSceneDarkEffect(
+        effect.id,
+        "holdDuration",
+        Math.min(Math.max(0, effect.end - effect.start - 0.1), Math.max(0, numericValue)),
+      );
+    } else {
+      updateSceneDarkEffect(effect.id, "intensity", Math.min(100, Math.max(0, numericValue)));
+    }
+  };
+  const commitSceneDarkEffectInput = (effect: SceneDarkEffect, field: SceneDarkEffectNumberField) => {
+    const key = darkEffectInputKey(effect.id, field);
+    const draft = effectInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateSceneDarkEffectInput(effect, field, String(numericValue));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+  const addSceneDarkEffect = () => {
+    if (!hydrated) return;
+    const nextId = `${scene.id}-dark-${Date.now().toString(36)}`;
+    const currentEffects = sceneEffects.sceneStartDarkEffects;
+    const lastEnd = currentEffects.at(-1)?.end ?? 0;
+    const start = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, lastEnd));
+    const nextEffect = defaultSceneDarkEffect(nextId, {
+      enabled: true,
+      start,
+      end: Math.min(sceneDuration, start + Math.min(1.2, Math.max(0.1, sceneDuration - start))),
+      holdDuration: 0,
+      intensity: 0,
+    });
+    updateSceneEffects("sceneStartDarkEffects", [...currentEffects, nextEffect]);
+    setToast(`Đã thêm hiệu ứng tối ${currentEffects.length + 1}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+  const deleteSceneDarkEffect = (effectId: string) => {
+    const nextEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
+    updateSceneEffects("sceneStartDarkEffects", nextEffects);
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      (Object.keys(next) as string[]).filter((key) => key.includes(`:dark:${effectId}:`)).forEach((key) => delete next[key]);
+      return next;
+    });
+  };
+
+  const updateReviewSceneField = <K extends keyof Scene>(
+    sceneId: string,
+    key: K,
+    value: Scene[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? { ...item, [key]: value }
       : item));
   };
 
-  const updatePopup = <K extends keyof PopupConfig>(
+  const updateReviewSceneDuration = (sceneId: string, value: string) => {
+    if (!hydrated) return;
+    const nextDuration = Math.max(0.1, Number(value.replace(",", ".")) || 0.1);
+    const nextTotal = visibleScenes.reduce(
+      (total, item) => total + (item.id === sceneId ? nextDuration : Math.max(0.1, item.end - item.start)),
+      0,
+    );
+    let cursor = 0;
+    setScenes((items) => items.map((item) => {
+      if (item.sceneVisible === false) return item;
+      const duration = item.id === sceneId
+        ? nextDuration
+        : Math.max(0.1, item.end - item.start);
+      const next = {
+        ...item,
+        start: Number(cursor.toFixed(2)),
+        end: Number((cursor + duration).toFixed(2)),
+      };
+      cursor += duration;
+      return next;
+    }));
+    setProjectDuration((current) => Math.max(current, Number(nextTotal.toFixed(2))));
+    setPlayTime((current) => Math.min(current, Number(nextTotal.toFixed(2))));
+  };
+
+  const updateReviewSceneImageValue = <K extends keyof SceneImage>(
+    sceneId: string,
+    imageId: string,
+    key: K,
+    value: SceneImage[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => item.id === sceneId
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, [key]: value }
+            : image),
+        }
+      : item));
+  };
+
+  const updateReviewPopupValue = <K extends keyof PopupConfig>(
+    sceneId: string,
+    popupId: string,
     key: K,
     value: PopupConfig[K],
+  ) => {
+    if (!hydrated) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const nextPopup = { ...popups[popupIndex], [key]: value } as PopupConfig;
+      const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const updateReviewPopupHeight = (sceneId: string, popupId: string, value: string) => {
+    if (!hydrated) return;
+    const nextHeight = Math.min(440, Math.max(170, Number(value.replace(",", ".")) || 170));
+    setScenes((items) => items.map((item) => {
+      if (item.id !== sceneId) return item;
+      const popups = scenePopupList(item);
+      const popupIndex = popups.findIndex((popup) => popup.id === popupId);
+      if (popupIndex < 0) return item;
+      const popup = popups[popupIndex];
+      const defaults = popupSectionDefaults(popup.layout, nextHeight);
+      const nextPopup = {
+        ...popup,
+        height: nextHeight,
+        imageHeight: defaults.imageHeight,
+        contentHeight: defaults.contentHeight,
+      };
+      const nextPopups = popups.map((entry, index) => index === popupIndex ? nextPopup : entry);
+      return {
+        ...item,
+        popups: nextPopups,
+        ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
+      };
+    }));
+  };
+
+  const reviewNumber = (value: string, fallback: number) => {
+    const numeric = Number(value.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric : fallback;
+  };
+
+  const updatePopupValues = (
+    values: Partial<PopupConfig>,
     popupId = selectedPopupId,
   ) => {
     if (!hydrated) return;
@@ -2880,7 +4423,7 @@ function Home() {
       const popups = scenePopupList(item);
       const current = popups[popupIndex];
       if (!current) return item;
-      const nextPopup = { ...current, [key]: value } as PopupConfig;
+      const nextPopup = { ...current, ...values } as PopupConfig;
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
         ...item,
@@ -2888,6 +4431,37 @@ function Home() {
         ...(popupIndex === 0 ? popupSceneFields(nextPopup) : {}),
       };
     }));
+  };
+
+  const updatePopup = <K extends keyof PopupConfig>(
+    key: K,
+    value: PopupConfig[K],
+    popupId = selectedPopupId,
+  ) => {
+    if (key === "layout") {
+      const layout = popupDimensionLayout(value);
+      const defaults = popupSectionDefaults(layout, activePopup?.height ?? 255);
+      updatePopupValues({
+        layout,
+        height: defaults.height,
+        imageHeight: defaults.imageHeight,
+        contentHeight: defaults.contentHeight,
+      }, popupId);
+      return;
+    }
+    updatePopupValues({ [key]: value } as Partial<PopupConfig>, popupId);
+  };
+
+  const updatePopupHeight = (value: number, popupId = selectedPopupId) => {
+    const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
+    if (!popup) return;
+    const height = Math.min(440, Math.max(170, Number(value) || 170));
+    const defaults = popupSectionDefaults(popup.layout, height);
+    updatePopupValues({
+      height,
+      imageHeight: defaults.imageHeight,
+      contentHeight: defaults.contentHeight,
+    }, popupId);
   };
 
   const updatePopupMedia = (value: string, popupId = selectedPopupId) => {
@@ -2923,9 +4497,10 @@ function Home() {
   const copyEditorSection = (section: EditorSectionKey) => {
     if (!scene) return;
     const data: EditorSectionClipboard = section === "visual"
-      ? {
-          section,
-          background: String(scene.background ?? ""),
+        ? {
+            section,
+            avatar: String(scene.avatar ?? ""),
+            background: String(scene.background ?? ""),
           backgroundVisible: scene.backgroundVisible !== false,
         }
       : section === "content"
@@ -2940,6 +4515,7 @@ function Home() {
               narration: scene.narration ?? "",
               voice: scene.voice ?? "",
               voiceFile: scene.voiceFile ?? "",
+              voiceStart: Math.max(0, Number(scene.voiceStart ?? 0) || 0),
               voiceVolume: clampVolume(scene.voiceVolume, 95),
               backgroundMusic,
               backgroundMusicVolume,
@@ -2993,6 +4569,7 @@ function Home() {
         case "visual":
           return {
             ...item,
+            avatar: data.avatar,
             background: data.background,
             backgroundVisible: data.backgroundVisible,
           };
@@ -3008,6 +4585,7 @@ function Home() {
             narration: data.narration,
             voice: data.voice,
             voiceFile: data.voiceFile,
+            voiceStart: data.voiceStart,
             voiceVolume: data.voiceVolume,
           };
         case "effects":
@@ -3137,6 +4715,56 @@ function Home() {
     }));
   };
 
+  type TextOverlayTimingField = "start" | "end";
+  const textOverlayTimingKey = (overlayId: string, field: TextOverlayTimingField) =>
+    `${scene.id}:text:${overlayId}:${field}`;
+  const textOverlayTimingValue = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const draft = textOverlayTimingDrafts[textOverlayTimingKey(overlay.id, field)];
+    if (draft !== undefined) return draft;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const start = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    const end = Math.min(sceneLimit, Math.max(start + 0.1, Number(overlay.end) || sceneLimit));
+    return String(field === "start" ? start : end);
+  };
+  const updateTextOverlayTimingInput = (
+    overlay: TextOverlay,
+    field: TextOverlayTimingField,
+    value: string,
+  ) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    setTextOverlayTimingDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    const sceneLimit = Math.max(0.1, sceneDuration);
+    const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+    if (field === "start") {
+      const nextStart = Math.min(sceneLimit - 0.1, Math.max(0, numericValue));
+      const currentEnd = Math.min(sceneLimit, Math.max(currentStart + 0.1, Number(overlay.end) || sceneLimit));
+      updateTextOverlay("start", nextStart);
+      if (currentEnd < nextStart + 0.1) {
+        updateTextOverlay("end", Math.min(sceneLimit, nextStart + 0.1));
+      }
+    } else {
+      updateTextOverlay("end", Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue)));
+    }
+  };
+  const commitTextOverlayTimingInput = (overlay: TextOverlay, field: TextOverlayTimingField) => {
+    const key = textOverlayTimingKey(overlay.id, field);
+    const draft = textOverlayTimingDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateTextOverlayTimingInput(overlay, field, String(numericValue));
+      setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setTextOverlayTimingDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+
   const textOverlayLabel = (overlay: TextOverlay, index: number) =>
     safeTrim(overlay.name) || `Chữ ${index + 1}`;
 
@@ -3237,65 +4865,118 @@ function Home() {
   };
 
   const updateZoomStart = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomEnd = Math.min(duration, Math.max(0, Number(item.zoomEnd ?? duration) || duration));
-        const maxStart = Math.max(0, zoomEnd - Math.max(0.1, item.zoomInDuration));
         return {
           ...item,
-          zoomStart: Number(Math.min(maxStart, Math.max(0, Number(value) || 0)).toFixed(2)),
+          zoomStart: numericValue,
         };
       }),
     );
   };
 
   const updateZoomEnd = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
-        const zoomInDuration = Math.max(0.1, Number(item.zoomInDuration) || 0.1);
-        const minimumEnd = Math.min(duration, zoomStart + zoomInDuration);
-        const numericValue = Number(value);
-        const requestedEnd = Number.isFinite(numericValue) ? numericValue : duration;
         return {
           ...item,
-          zoomEnd: Number(Math.min(duration, Math.max(minimumEnd, requestedEnd)).toFixed(2)),
+          zoomEnd: numericValue,
         };
       }),
     );
   };
 
   const updateZoomInDuration = (value: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
-        const duration = Math.max(0.1, item.end - item.start);
-        const zoomInDuration = Math.max(0.1, Number(value) || 0.1);
-        const zoomStart = Math.min(duration, Math.max(0, Number(item.zoomStart) || 0));
-        const zoomEnd = Math.min(
-          duration,
-          Math.max(zoomStart + zoomInDuration, Number(item.zoomEnd ?? duration) || duration),
-        );
         return {
           ...item,
-          zoomInDuration: Number(zoomInDuration.toFixed(2)),
-          zoomEnd: Number(zoomEnd.toFixed(2)),
+          zoomInDuration: numericValue,
         };
       }),
     );
+  };
+
+  type ZoomInputField = "zoomStart" | "zoom" | "zoomEnd" | "zoomInDuration" | "zoomOutDuration";
+  const zoomInputKey = (field: ZoomInputField) => `${scene.id}:${field}`;
+  const zoomInputValue = (field: ZoomInputField, value: number) =>
+    zoomInputDrafts[zoomInputKey(field)] ?? String(value);
+  const updateZoomInput = (field: ZoomInputField, value: string) => {
+    const key = zoomInputKey(field);
+    setZoomInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    if (field === "zoomStart") updateZoomStart(numericValue);
+    if (field === "zoomEnd") updateZoomEnd(numericValue);
+    if (field === "zoomInDuration") updateZoomInDuration(numericValue);
+    if (field === "zoom" || field === "zoomOutDuration") updateScene(field, numericValue);
+  };
+  const commitZoomInput = (field: ZoomInputField) => {
+    const key = zoomInputKey(field);
+    const draft = zoomInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateZoomInput(field, String(numericValue));
+      setZoomInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setZoomInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
+  };
+
+  type SceneEffectNumberField =
+    | "sceneStartDarkDuration" | "sceneStartDarkIntensity"
+    | "snowIntensity" | "snowSpeed"
+    | "lightFlickerIntensity" | "lightFlickerSpeed"
+    | "rainIntensity" | "rainSpeed"
+    | "thunderIntensity" | "thunderSpeed"
+    | "cloudIntensity" | "cloudSpeed";
+  const effectInputKey = (field: SceneEffectNumberField) => `${scene.id}:${field}`;
+  const effectInputValue = (field: SceneEffectNumberField, value: number) =>
+    effectInputDrafts[effectInputKey(field)] ?? String(value);
+  const updateEffectInput = (field: SceneEffectNumberField, value: string) => {
+    const key = effectInputKey(field);
+    setEffectInputDrafts((items) => ({ ...items, [key]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue)) updateSceneEffects(field, numericValue);
+  };
+  const commitEffectInput = (field: SceneEffectNumberField) => {
+    const key = effectInputKey(field);
+    const draft = effectInputDrafts[key];
+    const numericValue = Number(draft);
+    if (draft !== undefined && Number.isFinite(numericValue)) {
+      updateEffectInput(field, String(numericValue));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+      return;
+    }
+    setEffectInputDrafts((items) => {
+      const next = { ...items };
+      delete next[key];
+      return next;
+    });
   };
 
   const updateSelectedSceneDuration = (duration: number) => {
@@ -3344,6 +5025,7 @@ function Home() {
       imageEnabled: true,
       narrationEnabled: true,
       renderFps: 30,
+      renderProfile: "quality",
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -3399,6 +5081,14 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const reorderProjectClips = (draggedProjectId: string, targetProjectId: string) => {
+    const nextItems = reorderById(projectItems, draggedProjectId, targetProjectId);
+    if (nextItems === projectItems) return;
+    setProjects(nextItems);
+    setToast("Đã cập nhật vị trí clip");
+    window.setTimeout(() => setToast(""), 1800);
+  };
+
   const deleteProjectClip = (source: ProjectSnapshot) => {
     if (projectItems.length <= 1) {
       setToast("Dự án cần có ít nhất một clip");
@@ -3440,6 +5130,7 @@ function Home() {
       narration: "",
       voice: "",
       image: "",
+      avatar: "",
       background: "",
       backgroundVisible: true,
       start: last.end,
@@ -3472,6 +5163,7 @@ function Home() {
       popupDuration: 2,
       popupStart: 0.5,
       voiceFile: "",
+      voiceStart: 0,
       voiceVolume: 95,
       sceneVisible: true,
       popupIn: "fade-slide-up",
@@ -3553,7 +5245,7 @@ function Home() {
       ? { ...item, popups: [...scenePopupList(item), nextPopup] }
       : item));
     setSelectedPopupId(nextPopup.id);
-    setEditorSections((items) => ({ ...items, popup: true }));
+    setEditorSectionOpen("popup", true);
     setToast(`Đã thêm Popup ${currentPopups.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -3565,6 +5257,7 @@ function Home() {
       `${scene.id}-text-${currentOverlays.length + 1}-${Date.now().toString(36)}`,
       {
         name: `Chữ ${currentOverlays.length + 1}`,
+        end: sceneDuration,
         y: Math.min(82, 18 + currentOverlays.length * 8),
       },
     );
@@ -3578,7 +5271,7 @@ function Home() {
       };
     }));
     setSelectedTextOverlayId(nextOverlay.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm chữ ${currentOverlays.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -3599,11 +5292,69 @@ function Home() {
     setScenes((items) => items.map((item) => item.id === scene.id
       ? { ...item, subtitleEnabled: true, subtitles: [...(item.subtitles ?? []), nextSubtitle] }
       : item));
-    setEditorSections((items) => ({ ...items, audio: true }));
+    setEditorSectionOpen("audio", true);
     setPlayTime(Number((scene.start + start).toFixed(2)));
     setPlaying(false);
     setToast(`Đã thêm phụ đề ${currentSubtitles.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const importSubtitlesFromFile = async (file: File) => {
+    if (!scene || !hydrated || subtitleImportBusy) return;
+    const targetSceneId = scene.id;
+    const targetDuration = Math.max(0.1, scene.end - scene.start);
+    setSubtitleImportBusy(true);
+    try {
+      const parsedCues = parseSubtitleFileText(await file.text());
+      if (!parsedCues.length) {
+        throw new Error("Không tìm thấy cue hợp lệ trong file SRT/VTT");
+      }
+      const importedCues = parsedCues
+        .map((cue, index) => ({
+          ...cue,
+          start: Math.max(0, cue.start),
+          end: Math.min(targetDuration, cue.end),
+          index,
+        }))
+        .filter((cue) => cue.end - cue.start >= 0.05)
+        .map((cue, index) => normalizeSubtitleCue(
+          {
+            id: `${targetSceneId}-subtitle-import-${Date.now().toString(36)}-${index + 1}`,
+            text: cue.text,
+            start: cue.start,
+            end: cue.end,
+          },
+          `${targetSceneId}-subtitle-${index + 1}`,
+          targetDuration,
+        ));
+      if (!importedCues.length) {
+        throw new Error(`Timestamp trong file không nằm trong độ dài cảnh (${targetDuration.toFixed(1)} giây)`);
+      }
+      if ((scene.subtitles ?? []).length > 0
+        && !window.confirm("Import SRT/VTT sẽ thay thế toàn bộ phụ đề hiện tại của cảnh này. Tiếp tục?")) {
+        return;
+      }
+      setScenes((items) => items.map((item) => item.id === targetSceneId
+        ? { ...item, subtitleEnabled: true, subtitles: importedCues }
+        : item));
+      setSubtitleAlignState({
+        status: "success",
+        sceneId: targetSceneId,
+        message: `Đã import ${importedCues.length} cue từ ${file.name}. Hãy phát và rà soát lại.`,
+        progress: 100,
+      });
+      setPlayTime(Number((scene.start + importedCues[0].start).toFixed(2)));
+      setPlaying(false);
+      setToast(`Đã import ${importedCues.length} cue phụ đề`);
+      window.setTimeout(() => setToast(""), 3200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể import file SRT/VTT";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+    } finally {
+      setSubtitleImportBusy(false);
+    }
   };
 
   const updateSubtitleStyle = <K extends keyof SubtitleStyle>(
@@ -3640,18 +5391,34 @@ function Home() {
     const targetSceneId = scene.id;
     const targetDuration = Math.max(0.1, scene.end - scene.start);
     setSubtitleAlignState({ status: "running", sceneId: targetSceneId, message: "Đang nghe audio và tạo timestamp…" });
+    let progressTimer: number | null = null;
+    setSubtitleAlignState((current) => current.sceneId === targetSceneId
+      ? { ...current, progress: 5 }
+      : current);
     try {
       const form = new FormData();
       form.append("text", narration);
       form.append("duration", String(targetDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
       else form.append("audioUrl", safeTrim(scene.voiceFile));
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 12 }
+        : current);
+      progressTimer = window.setInterval(() => {
+        setSubtitleAlignState((current) => {
+          if (current.status !== "running" || current.sceneId !== targetSceneId) return current;
+          return { ...current, progress: Math.min(92, (current.progress ?? 0) + 2) };
+        });
+      }, 500);
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
         method: "POST",
         body: form,
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không thể tạo timestamp phụ đề");
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 96 }
+        : current);
       const generated = Array.isArray(result.cues) ? result.cues : [];
       if (!generated.length) throw new Error("Không nhận được cue phụ đề từ audio");
       const subtitles = generated.map((cue: Partial<SubtitleCue>, index: number) => normalizeSubtitleCue(
@@ -3669,14 +5436,16 @@ function Home() {
         ? "Whisper đã tạo timestamp"
         : "đã tạo timestamp theo nhịp nói dự phòng";
       const message = `Đã tạo ${subtitles.length} cue; ${engineMessage}. Hãy phát và rà soát lại.`;
-      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message });
+      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message, progress: 100 });
       setToast(message);
       window.setTimeout(() => setToast(""), 3600);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Không thể tạo phụ đề";
-      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message });
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
       setToast(message);
       window.setTimeout(() => setToast(""), 3600);
+    } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
     }
   };
 
@@ -3726,7 +5495,7 @@ function Home() {
       ? { ...item, subtitles: [] }
       : item));
     setSubtitleAlignState((current) => current.sceneId === scene.id
-      ? { status: "idle", sceneId: "", message: "" }
+      ? { status: "idle", sceneId: "", message: "", progress: 0 }
       : current);
     setToast(`Đã xóa ${count} phụ đề trong cảnh`);
     window.setTimeout(() => setToast(""), 2200);
@@ -3770,7 +5539,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm ${mapDecorationTypeLabel(type)}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -3904,7 +5673,7 @@ function Home() {
       ? { ...item, sceneImages: [...(item.sceneImages ?? []), nextImage] }
       : item));
     setSelectedSceneImageId(nextImage.id);
-    setEditorSections((items) => ({ ...items, images: true }));
+    setEditorSectionOpen("images", true);
   };
 
   const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
@@ -3921,11 +5690,185 @@ function Home() {
       : item));
   };
 
+  const updateSceneImageTransitionEndInput = (value: string) => {
+    const imageId = activeSceneImage?.id;
+    if (!imageId || !activeSceneImage) return;
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: value }));
+    if (!value.trim()) return;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    updateSceneImage(
+      "transitionEnd",
+      Math.max(activeSceneImage.start + 0.1, numericValue),
+    );
+  };
+
+  const commitSceneImageTransitionEnd = (imageId: string, value: string) => {
+    const image = sceneImages.find((item) => item.id === imageId);
+    if (!image) return;
+    const numericValue = Number(value);
+    const nextEnd = Number.isFinite(numericValue)
+      ? Math.max(image.start + 0.1, numericValue)
+      : Math.max(image.start + 0.1, image.transitionEnd);
+    setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: String(nextEnd) }));
+    updateSceneImage("transitionEnd", nextEnd);
+  };
+
   const updateSceneImageUrl = (url: string) => {
+    const imageId = activeSceneImage?.id;
+    if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => {
+        if (!(imageId in items)) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
+    }
     updateSceneImage("url", url);
     updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("spriteSheet", false);
     updateSceneImage("transparent", isTransparentMedia(url));
   };
+
+  const updateSceneImageSpriteDelay = (value: string) => {
+    const imageId = activeSceneImage?.id;
+    const nextInput = value.replace(/[^0-9]/g, "");
+    if (imageId) {
+      setSceneImageSpriteDelayDrafts((items) => ({ ...items, [imageId]: nextInput }));
+      setSceneImageSpritePreviewUrls((items) => {
+        if (!items[imageId]) return items;
+        const next = { ...items };
+        delete next[imageId];
+        return next;
+      });
+      setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
+    }
+    if (!nextInput) return;
+    const numeric = Number(nextInput);
+    if (!Number.isFinite(numeric)) return;
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(numeric)));
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+  };
+
+  const commitSceneImageSpriteDelay = (imageId: string, value: string) => {
+    const nextDelay = Math.min(1000, Math.max(60, Math.round(Number(value) || 180)));
+    setSceneImageSpriteDelayDrafts((items) => {
+      const next = { ...items };
+      delete next[imageId];
+      return next;
+    });
+    updateSceneImage("spriteDelay", nextDelay);
+    updateSceneImage("spriteSheet", false);
+    return nextDelay;
+  };
+
+  const prepareSceneImageSprite = async (
+    imageId: string,
+    url: string,
+    explicit = false,
+    requestedDelay = 180,
+    sourceFile: File | null = null,
+  ) => {
+    if (!explicit) return;
+    const sourceUrl = safeTrim(url);
+    const delay = Math.min(1000, Math.max(60, Math.round(Number(requestedDelay) || 180)));
+    if (!scene || !imageId) return;
+    if (!sourceUrl && !sourceFile) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Hãy nhập URL hoặc chọn file sprite trước." });
+      return;
+    }
+    if (sourceFile && (sourceFile.type.startsWith("video/") || !sourceFile.type.startsWith("image/"))) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+      return;
+    }
+    if (!sourceFile && (!isRemoteUrl(sourceUrl) || isVideoMedia(sourceUrl))) {
+      setSceneImageSpriteNotice({ imageId, status: "error", message: "Chỉ hỗ trợ URL hình ảnh http/https." });
+      return;
+    }
+    setSceneImageSpriteNotice({ imageId, status: "processing", message: "Đang chuyển sprite thành hình động…" });
+    setToast("Đang chuyển sprite thành hình động…");
+    try {
+      const sourceData = sourceFile ? await fileToDataUrl(sourceFile) : "";
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/process-sprite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(sourceUrl ? { sourceUrl } : {}),
+          ...(sourceFile ? { sourceData, sourceName: sourceFile.name } : {}),
+          delay,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || "Không thể kết nối dịch vụ xử lý hình.");
+      if (!result?.processed || !result.assetUrl) {
+        throw new Error("Không phát hiện được sprite trong hình này.");
+      }
+      setSceneImageSpritePreviewUrls((items) => ({ ...items, [imageId]: result.assetUrl }));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+              ? { ...image, spriteSheet: true, spriteDelay: Number(result.delay) || delay, transparent: true }
+              : image),
+          }
+        : item));
+      const detectedGrid = Number(result.columns) > 0 && Number(result.rows) > 0
+        ? ` · ${Number(result.columns)}×${Number(result.rows)}`
+        : "";
+      const frameMessage = Number(result.frameCount) > 0
+        ? ` (${result.frameCount} frame${detectedGrid}${` · ${Number(result.delay) || delay}ms`})`
+        : ` (${detectedGrid.replace(/^ · /, "")}${detectedGrid ? " · " : ""}${Number(result.delay) || delay}ms)`;
+      setSceneImageSpriteNotice({ imageId, status: "success", message: `Đã chuyển thành hình động${frameMessage}.` });
+      setToast(`Đã chuyển sprite thành hình động${frameMessage}`);
+      window.setTimeout(() => setToast(""), 3000);
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? `Chuyển sprite thành hình động thất bại: ${error.message}`
+        : "Chuyển sprite thành hình động thất bại.";
+      setSceneImageSpriteNotice({ imageId, status: "error", message });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+    }
+  };
+
+  const handleSceneImageSpriteFile = async (file: File | null) => {
+    if (!file || !scene || !activeSceneImage) return;
+    if (file.type.startsWith("video/") || !file.type.startsWith("image/")) {
+      setSceneImageSpriteNotice({ imageId: activeSceneImage.id, status: "error", message: "File sprite phải là hình PNG, JPG, WebP hoặc GIF." });
+      return;
+    }
+    const imageId = activeSceneImage.id;
+    const delay = commitSceneImageSpriteDelay(imageId, activeSceneImageSpriteDelayInput);
+    await addAssetsToLibrary([file]);
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, url: file.name, mediaType: "image", spriteSheet: false, transparent: true }
+            : image),
+        }
+      : item));
+    await prepareSceneImageSprite(imageId, file.name, true, delay, file);
+  };
+
+  useEffect(() => {
+    const imageId = activeSceneImage?.id;
+    const imageUrl = activeSceneImage?.url;
+    if (!hydrated || !activeSceneImage?.spriteSheet || !imageId || !imageUrl) return;
+    const localSpriteFile = localRenderFiles.find((file) => file.name === imageUrl) ?? null;
+    void prepareSceneImageSprite(imageId, imageUrl, true, activeSceneImage?.spriteDelay, localSpriteFile);
+    // Restore an explicitly converted sprite when switching layers. New URLs
+    // are never processed until the user clicks the conversion button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, activeSceneImage?.id]);
 
   const toggleSceneImageVisibility = (imageId: string) => {
     if (!scene) return;
@@ -3934,6 +5877,18 @@ function Home() {
           ...item,
           sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
             ? { ...image, visible: !image.visible }
+            : image),
+        }
+      : item));
+  };
+
+  const toggleSceneImageEditorVisibility = (imageId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          sceneImages: (item.sceneImages ?? []).map((image) => image.id === imageId
+            ? { ...image, editorVisible: image.editorVisible === false }
             : image),
         }
       : item));
@@ -3978,6 +5933,7 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === imageId);
     const draggedImage = sceneImages[imageIndex];
     if (!draggedImage || !scene) return;
+    selectPreviewLayer("image", draggedImage.id);
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4027,6 +5983,7 @@ function Home() {
 
   const startSceneImageResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (playing || !scene || !activeSceneImage) return;
+    selectPreviewLayer("image", activeSceneImage.id);
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4039,8 +5996,8 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     setDraggingSceneImage(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(96, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
-      const nextHeight = Math.min(96, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      const nextWidth = Math.min(200, Math.max(1, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const nextHeight = Math.min(200, Math.max(1, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
       setScenes((items) => items.map((item) => item.id === scene.id
         ? {
             ...item,
@@ -4069,6 +6026,18 @@ function Home() {
         : overlay);
       return { ...item, textOverlays: nextOverlays };
     }));
+  };
+
+  const toggleTextOverlayEditorVisibility = (overlayId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? {
+          ...item,
+          textOverlays: (item.textOverlays ?? []).map((overlay) => overlay.id === overlayId
+            ? { ...overlay, editorVisible: overlay.editorVisible === false }
+            : overlay),
+        }
+      : item));
   };
 
   const deleteTextOverlay = (overlayId = activeTextOverlay?.id) => {
@@ -4126,13 +6095,117 @@ function Home() {
     }));
   };
 
+  const togglePopupEditorVisibility = (popupId: string) => {
+    if (!scene) return;
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const popups = scenePopupList(item).map((popup) => popup.id === popupId
+        ? { ...popup, editorVisible: popup.editorVisible === false }
+        : popup);
+      const firstPopup = popups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+      return {
+        ...item,
+        popups,
+        ...popupSceneFields(firstPopup),
+      };
+    }));
+  };
+
+  const beginLayerListDrag = (
+    type: "popup" | "text" | "image",
+    id: string,
+    event: React.DragEvent<HTMLElement>,
+  ) => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+    setLayerListDrag({ type, id, overId: "" });
+  };
+
+  const updateLayerListDragOver = (
+    type: "popup" | "text" | "image",
+    id: string,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    if (layerListDrag.type !== type || !layerListDrag.id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setLayerListDrag((current) => current.type === type
+      ? { ...current, overId: id }
+      : current);
+  };
+
+  const finishLayerListDrop = (
+    type: "popup" | "text" | "image",
+    targetId: string,
+    event: React.DragEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    const draggedLayerId = layerListDrag.type === type ? layerListDrag.id : "";
+    if (!scene || !draggedLayerId || draggedLayerId === targetId) {
+      setLayerListDrag({ type: "", id: "", overId: "" });
+      return;
+    }
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      if (type === "popup") {
+        const popups = reorderById(scenePopupList(item), draggedLayerId, targetId);
+        const firstPopup = popups[0] ?? defaultPopupConfig(`${item.id}-popup-1`);
+        return { ...item, popups, ...popupSceneFields(firstPopup) };
+      }
+      if (type === "text") {
+        const textOverlays = reorderById(item.textOverlays ?? [], draggedLayerId, targetId);
+        const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${item.id}-text-1`);
+        return { ...item, textOverlays, ...textOverlaySceneFields(firstTextOverlay) };
+      }
+      return { ...item, sceneImages: reorderById(item.sceneImages ?? [], draggedLayerId, targetId) };
+    }));
+    if (type === "popup") setSelectedPopupId(draggedLayerId);
+    if (type === "text") setSelectedTextOverlayId(draggedLayerId);
+    if (type === "image") setSelectedSceneImageId(draggedLayerId);
+    setLayerListDrag({ type: "", id: "", overId: "" });
+  };
+
+  const clearLayerListDrag = () => setLayerListDrag({ type: "", id: "", overId: "" });
+
   const toggleRuler = () => {
+    if (playing) {
+      setRulerEnabled(false);
+      setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      return;
+    }
     const next = !rulerEnabled;
     setRulerEnabled(next);
     if (!next) setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
   };
 
   const togglePreviewFullscreen = () => setPreviewFullscreen((current) => !current);
+
+  const adjustReviewZoom = (delta: number, viewport?: HTMLDivElement | null) => {
+    const oldZoom = reviewZoomRef.current;
+    const nextZoom = clampReviewZoom(oldZoom + delta);
+    if (nextZoom === oldZoom) return;
+    reviewZoomRef.current = nextZoom;
+    if (viewport) {
+      const bounds = viewport.getBoundingClientRect();
+      const pointerOffsetX = bounds.width / 2;
+      const pointerOffsetY = bounds.height / 2;
+      const contentPositionX = viewport.scrollLeft + pointerOffsetX;
+      const contentPositionY = viewport.scrollTop + pointerOffsetY;
+      const scaleRatio = nextZoom / oldZoom;
+      window.requestAnimationFrame(() => {
+        viewport.scrollLeft = Math.max(0, contentPositionX * scaleRatio - pointerOffsetX);
+        viewport.scrollTop = Math.max(0, contentPositionY * scaleRatio - pointerOffsetY);
+      });
+    }
+    setReviewZoom(nextZoom);
+  };
+
+  const handleReviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
+    event.preventDefault();
+    adjustReviewZoom(event.deltaY < 0 ? 10 : -10, event.currentTarget);
+  };
 
   const copySelectedScene = () => {
     if (!scene) return;
@@ -4181,13 +6254,16 @@ function Home() {
   const startPopupResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (!activePopup) return;
+    selectPreviewLayer("popup", activePopup.id);
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
-    const startWidth = activePopup?.width ?? 90;
-    const startHeight = activePopup?.height ?? 255;
+    const startWidth = activePopup.width ?? 90;
+    const startGeometry = popupSectionGeometry(activePopup);
+    const startHeight = startGeometry.height || activePopup.height || 255;
     const maxPopupHeight = Math.min(440, bounds.height * 0.88);
 
     const resize = (moveEvent: PointerEvent) => {
@@ -4199,8 +6275,21 @@ function Home() {
         maxPopupHeight,
         Math.max(170, startHeight + moveEvent.clientY - startY),
       );
-      updatePopup("width", Math.round(width));
-      updatePopup("height", Math.round(height));
+      const layout = popupDimensionLayout(activePopup.layout);
+      const nextDimensions = layout === "split"
+        ? {
+            imageHeight: Math.round(height),
+            contentHeight: Math.round(height),
+          }
+        : startGeometry.imageHeight > 0 && startGeometry.contentHeight > 0
+          ? {
+              imageHeight: startGeometry.imageHeight,
+              contentHeight: Math.round(Math.max(48, height - startGeometry.imageHeight)),
+            }
+          : startGeometry.imageHeight > 0
+            ? { imageHeight: Math.round(height), contentHeight: 0 }
+            : { imageHeight: 0, contentHeight: Math.round(height) };
+      updatePopupValues({ width: Math.round(width), height: Math.round(height), ...nextDimensions });
     };
     const stop = () => {
       window.removeEventListener("pointermove", resize);
@@ -4208,6 +6297,67 @@ function Home() {
     };
     window.addEventListener("pointermove", resize);
     window.addEventListener("pointerup", stop);
+  };
+
+  const startPopupSectionResize = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    section: "image" | "content",
+    popupId = activePopup?.id,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (playing || !popupId) return;
+    const preview = event.currentTarget.closest(".phone-preview");
+    if (!(preview instanceof HTMLElement)) return;
+    const popup = scenePopups.find((item) => item.id === popupId) ?? activePopup;
+    if (!popup) return;
+    selectPreviewLayer("popup", popup.id);
+    const bounds = preview.getBoundingClientRect();
+    if (bounds.height <= 0) return;
+    const geometry = popupSectionGeometry(popup);
+    const layout = popupDimensionLayout(popup.layout);
+    const startHeight = section === "image" ? geometry.imageHeight : geometry.contentHeight;
+    const otherHeight = section === "image" ? geometry.contentHeight : geometry.imageHeight;
+    const maxPopupHeight = Math.min(440, bounds.height * 0.88);
+    const maxHeight = layout === "split"
+      ? maxPopupHeight
+      : Math.max(48, maxPopupHeight - otherHeight);
+    const startY = event.clientY;
+    const field = section === "image" ? "imageHeight" : "contentHeight";
+    const resize = (moveEvent: PointerEvent) => {
+      const nextHeight = Math.min(
+        maxHeight,
+        Math.max(48, startHeight + moveEvent.clientY - startY),
+      );
+      const nextTotalHeight = layout === "split"
+        ? Math.max(nextHeight, otherHeight)
+        : nextHeight + otherHeight;
+      updatePopupValues({
+        [field]: Math.round(nextHeight),
+        height: Math.round(nextTotalHeight),
+      } as Partial<PopupConfig>, popupId);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const resetPopupSize = (popupId: string) => {
+    const popup = scenePopups.find((item) => item.id === popupId);
+    if (!popup) return;
+    const defaults = popupSectionDefaults(popup.layout, 255);
+    updatePopupValues({
+      width: 90,
+      height: defaults.height,
+      imageHeight: defaults.imageHeight,
+      contentHeight: defaults.contentHeight,
+    }, popupId);
+    setSelectedPopupId(popupId);
+    setToast("Đã đặt lại kích thước Popup");
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const getAlignmentPoints = (
@@ -4304,15 +6454,17 @@ function Home() {
   };
 
   const startPopupDrag = (event: React.PointerEvent<HTMLElement>, popupId = activePopup?.id) => {
-    if (playing || (event.target as HTMLElement).closest(".popup-resize-handle")) return;
+    if ((event.target as HTMLElement).closest(".popup-resize-handle")) return;
+    const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
+    if (!draggedPopup) return;
+    selectPreviewLayer("popup", draggedPopup.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
     if (!(preview instanceof HTMLElement)) return;
     const bounds = preview.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
-    if (!draggedPopup) return;
     const draggedPopupElement = popupId
       ? Array.from(preview.querySelectorAll<HTMLElement>("[data-popup-id]"))
         .find((element) => element.dataset.popupId === popupId)
@@ -4388,10 +6540,12 @@ function Home() {
     event: React.PointerEvent<HTMLDivElement>,
     overlayId = activeTextOverlay?.id,
   ) => {
-    if (playing) return;
+    if ((event.target as HTMLElement).closest(".map-text-resize-handle")) return;
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const draggedOverlay = sceneTextOverlays[overlayIndex];
     if (!draggedOverlay) return;
+    selectPreviewLayer("text", draggedOverlay.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4443,8 +6597,63 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startTextOverlayResize = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    overlayId = activeTextOverlay?.id,
+  ) => {
+    if (playing || !scene || !overlayId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
+    const resizedOverlay = sceneTextOverlays[overlayIndex];
+    if (!resizedOverlay) return;
+    selectPreviewLayer("text", resizedOverlay.id);
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".map-text-overlay");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = Number.isFinite(Number(resizedOverlay.width))
+      ? Number(resizedOverlay.width)
+      : (targetBounds.width / bounds.width) * 100;
+    const startHeight = Number.isFinite(Number(resizedOverlay.height))
+      ? Number(resizedOverlay.height)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingTextOverlay(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(4, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== scene.id) return item;
+        const overlays = item.textOverlays ?? [];
+        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+          ? { ...overlay, width: Number(width.toFixed(1)), height: Number(height.toFixed(1)) }
+          : overlay);
+        const nextOverlay = nextOverlays[overlayIndex];
+        return {
+          ...item,
+          textOverlays: nextOverlays,
+          ...(overlayIndex === 0 && nextOverlay ? textOverlaySceneFields(nextOverlay) : {}),
+        };
+      }));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingTextOverlay(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (playing || !scene || !activeSubtitle) return;
+    if (playing || !scene || !subtitleGuideVisible) return;
+    if ((event.target as HTMLElement).closest(".subtitle-resize-handle")) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4499,14 +6708,49 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
+  const startSubtitleResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (playing || !scene || !subtitleGuideVisible) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const preview = event.currentTarget.closest(".phone-preview");
+    const target = event.currentTarget.closest(".subtitle-layout-guide");
+    if (!(preview instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+    const bounds = preview.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = subtitleStyle.boxWidth;
+    const startHeight = Number.isFinite(Number(subtitleStyle.boxHeight))
+      ? Number(subtitleStyle.boxHeight)
+      : (targetBounds.height / bounds.height) * 100;
+    setDraggingSubtitleResize(true);
+    const resize = (moveEvent: PointerEvent) => {
+      const width = Math.min(100, Math.max(40, startWidth + ((moveEvent.clientX - startX) / bounds.width) * 100));
+      const height = Math.min(40, Math.max(3, startHeight + ((moveEvent.clientY - startY) / bounds.height) * 100));
+      updateSubtitleStyle("boxWidth", Number(width.toFixed(1)));
+      updateSubtitleStyle("boxHeight", Number(height.toFixed(1)));
+    };
+    resize(event.nativeEvent);
+    const move = (moveEvent: PointerEvent) => resize(moveEvent);
+    const stop = () => {
+      setDraggingSubtitleResize(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const startMapDecorationDrag = (
     event: React.PointerEvent<HTMLDivElement>,
     decorationId = activeDecoration?.id,
   ) => {
-    if (playing) return;
     const decorationIndex = sceneDecorations.findIndex((item) => item.id === decorationId);
     const draggedDecoration = sceneDecorations[decorationIndex];
     if (!draggedDecoration) return;
+    selectPreviewLayer("decoration", draggedDecoration.id);
+    if (playing) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -4654,6 +6898,7 @@ function Home() {
         aspectRatio,
         resolution: renderResolution,
         fps: renderFps,
+        renderProfile,
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
@@ -4684,6 +6929,8 @@ function Home() {
             out: popup.out,
             width: popup.width,
             height: popup.height,
+            imageHeight: popup.imageHeight,
+            contentHeight: popup.contentHeight,
             borderWidth: popup.borderWidth,
             layout: popup.layout,
             theme: popup.theme,
@@ -4729,9 +6976,12 @@ function Home() {
              sceneImages: (item.sceneImages ?? []).map((image) => ({
               ...image,
               url: assetReference(image.url),
+              spriteSheet: image.spriteSheet === true,
+              spriteDelay: image.spriteDelay,
               transparent: image.transparent === true,
              })),
              subtitleEnabled: item.subtitleEnabled !== false,
+             subtitleStart: item.subtitleStart,
              subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
              subtitles: (item.subtitles ?? []).map((subtitle) => ({
               id: subtitle.id,
@@ -4741,6 +6991,7 @@ function Home() {
               visible: subtitle.visible !== false,
             })),
             sceneVisible: item.sceneVisible !== false,
+            ...(safeTrim(item.avatar) ? { avatar: assetReference(item.avatar) } : {}),
             popupDuration: firstPopup.duration,
             popupStart: firstPopup.start,
             body: firstPopup.body,
@@ -4755,6 +7006,8 @@ function Home() {
             popupOut: firstPopup.out,
             popupWidth: firstPopup.width,
             popupHeight: firstPopup.height,
+            popupImageHeight: firstPopup.imageHeight,
+            popupContentHeight: firstPopup.contentHeight,
             popupBorderWidth: firstPopup.borderWidth,
             popupLayout: firstPopup.layout,
             popupTheme: firstPopup.theme,
@@ -4778,6 +7031,7 @@ function Home() {
       aspectRatio,
       renderResolution,
       renderFps,
+      renderProfile,
       projectTitle,
       background,
       previewBackground,
@@ -4881,7 +7135,7 @@ function Home() {
       ? { ...item, mapDecorations: [...(item.mapDecorations ?? []), nextDecoration] }
       : item));
     setSelectedDecorationId(nextDecoration.id);
-    setEditorSections((items) => ({ ...items, text: true }));
+    setEditorSectionOpen("text", true);
     setToast(`Đã thêm hiệu ứng ${asset.name}`);
     window.setTimeout(() => setToast(""), 2400);
   };
@@ -5095,6 +7349,7 @@ function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không thể bắt đầu render");
       const jobId = String(result.jobId);
+      localRenderJobId.current = jobId;
       for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}`);
@@ -5107,10 +7362,29 @@ function Home() {
             message: "Render hoàn tất. Video đã sẵn sàng để tải xuống.",
             downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`,
           });
+          localRenderJobId.current = "";
+          return;
+        }
+        if (status.status === "cancelled") {
+          localRenderJobId.current = "";
+          setLocalRenderState({
+            status: "idle",
+            progress: 0,
+            message: "Đã dừng render. Sẵn sàng render lại.",
+          });
           return;
         }
         if (status.status === "failed") {
+          localRenderJobId.current = "";
           throw Object.assign(new Error(status.message || "Render thất bại"), { log: status.log });
+        }
+        if (status.status === "cancelling") {
+          setLocalRenderState({
+            status: "cancelling",
+            progress: Number(status.progress) || 0,
+            message: status.message || "Đang dừng render…",
+          });
+          continue;
         }
         setLocalRenderState({
           status: "rendering",
@@ -5119,12 +7393,34 @@ function Home() {
         });
       }
     } catch (error) {
+      localRenderJobId.current = "";
       setLocalRenderState({
         status: "failed",
         progress: 0,
         message: error instanceof Error ? error.message : "Không thể render video",
         log: error && typeof error === "object" && "log" in error ? String(error.log || "") : "",
       });
+    }
+  };
+
+  const stopLocalRender = async () => {
+    const jobId = localRenderJobId.current;
+    if (!jobId || !["rendering", "cancelling"].includes(localRenderState.status)) return;
+    setLocalRenderState((state) => ({
+      ...state,
+      status: "cancelling",
+      message: "Đang dừng render…",
+    }));
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/render/${jobId}/cancel`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Không thể dừng render");
+    } catch (error) {
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "rendering",
+        message: error instanceof Error ? error.message : "Không thể dừng render",
+      }));
     }
   };
 
@@ -5227,6 +7523,7 @@ function Home() {
     checking: "Đang kiểm tra",
     uploading: "Đang tải tài nguyên",
     rendering: "Đang render",
+    cancelling: "Đang dừng",
     completed: "Hoàn tất",
     failed: "Lỗi",
   }[localRenderState.status];
@@ -5237,6 +7534,153 @@ function Home() {
       : localRenderState.status === "idle"
         ? "idle"
         : "progress";
+
+  const reviewAssetSource = (value: string) => assetPreviewSource(value);
+  const reviewLayoutLabel = (value: PopupConfig["layout"]) => ({
+    "image-top": "Ảnh trên",
+    split: "Chia đôi",
+    quote: "Trích dẫn",
+    stats: "Số liệu",
+    "image-only": "Chỉ hình",
+    "content-only": "Chỉ nội dung",
+  }[value ?? "image-top"] ?? "Ảnh trên");
+  const reviewThemeLabel = (value: PopupConfig["theme"]) => ({
+    travel: "Travel",
+    sunset: "Sunset",
+    ocean: "Ocean",
+    minimal: "Minimal",
+  }[value ?? "travel"] ?? "Travel");
+  const reviewEffectSummary = (item: Scene) => {
+    const effects = normalizeSceneEffects(item.effects);
+    const entries = [
+      ["Tuyết", effects.snowEnabled, effects.snowIntensity, effects.snowSpeed],
+      ["Mưa", effects.rainEnabled, effects.rainIntensity, effects.rainSpeed],
+      ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
+      ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
+      ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+    ] as const;
+    return entries.filter(([, enabled]) => enabled).map(([label, , intensity, speed]) => ({
+      label,
+      intensity,
+      speed,
+    }));
+  };
+  const reviewEffectConfiguration = (item: Scene) => {
+    const effects = normalizeSceneEffects(item.effects);
+    const entries = [
+      ["Tuyết", effects.snowEnabled, effects.snowIntensity, effects.snowSpeed],
+      ["Mưa", effects.rainEnabled, effects.rainIntensity, effects.rainSpeed],
+      ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
+      ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
+      ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+    ] as const;
+    return entries.map(([label, enabled, intensity, speed]) => ({ label, enabled, intensity, speed }));
+  };
+  const reviewTextEffectLabel = (value: unknown) =>
+    TEXT_OVERLAY_EFFECT_OPTIONS.find((option) => option.value === value)?.label ?? "Không hiệu ứng";
+  const reviewImageTransitionLabel = (value: unknown) =>
+    sceneImageTransitionOptions.find((option) => option.value === value)?.label ?? "Cắt trực tiếp";
+
+  const renderReviewVisibility = (
+    visible: boolean,
+    label: string,
+    onClick: () => void,
+  ) => (
+    <button
+      type="button"
+      className={`review-visibility ${visible ? "is-visible" : "is-hidden"}`}
+      aria-label={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      title={visible ? `Ẩn ${label}` : `Hiện ${label}`}
+      onClick={onClick}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+        <circle cx="12" cy="12" r="2.2" />
+        {!visible && <path d="m4 4 16 16" />}
+      </svg>
+    </button>
+  );
+
+  const reviewLayerFocus = (
+    item: Scene,
+    section: "images" | "popup" | "effects",
+    layerId = "",
+  ) => {
+    setSelectedId(item.id);
+    setSelectedSceneIds([item.id]);
+    if (section === "images") setSelectedSceneImageId(layerId);
+    if (section === "popup") setSelectedPopupId(layerId);
+    setEditorSectionOpen(section, true);
+    setReviewOpen(false);
+  };
+
+  const reviewSceneCountLabel = `${visibleScenes.length} cảnh đang hiện`;
+  const timelineEffectItems = visibleScenes.flatMap((item) => {
+    const sceneLength = Math.max(0.1, item.end - item.start);
+    const clampSceneTime = (value: unknown, fallback = 0) => Math.min(
+      sceneLength,
+      Math.max(0, Number.isFinite(Number(value)) ? Number(value) : fallback),
+    );
+    const effects = normalizeSceneEffects(item.effects);
+    const entries: Array<{
+      id: string;
+      scene: Scene;
+      start: number;
+      end: number;
+      label: string;
+      kind: "zoom" | "dark" | "transition" | "weather";
+    }> = [];
+    const addEntry = (
+      id: string,
+      start: number,
+      end: number,
+      label: string,
+      kind: "zoom" | "dark" | "transition" | "weather",
+    ) => {
+      const safeStart = clampSceneTime(start);
+      const safeEnd = clampSceneTime(end, safeStart + 0.1);
+      if (safeEnd <= safeStart) return;
+      entries.push({ id: `${item.id}-${id}`, scene: item, start: item.start + safeStart, end: item.start + safeEnd, label, kind });
+    };
+    if (item.zoomEnabled !== false) {
+      addEntry(
+        "zoom",
+        item.zoomStart,
+        item.zoomEnd,
+        `Zoom ${Number(item.zoom ?? 1).toFixed(1)}×`,
+        "zoom",
+      );
+    }
+    effects.sceneStartDarkEffects.filter((effect) => effect.enabled).forEach((effect, index) => {
+      addEntry(
+        `dark-${effect.id}`,
+        effect.start,
+        effect.end,
+        `Tối ${index + 1} · giữ ${Number(effect.holdDuration ?? 0).toFixed(1)}s`,
+        "dark",
+      );
+    });
+    (item.sceneImages ?? [])
+      .filter((image) => image.visible !== false && normalizeSceneImageTransition(image.transition) !== "cut")
+      .forEach((image, index) => {
+        addEntry(
+          `transition-${image.id || index}`,
+          image.start,
+          sceneImageTransitionEnd(image),
+          `${image.name || `Hình ${index + 1}`} · ${sceneImageTransitionOptions.find((option) => option.value === image.transition)?.label ?? "Chuyển hình"}`,
+          "transition",
+        );
+      });
+    const weatherLabels = [
+      effects.snowEnabled ? "Tuyết" : "",
+      effects.rainEnabled ? "Mưa" : "",
+      effects.cloudEnabled ? "Mây" : "",
+      effects.lightFlickerEnabled ? "Chớp" : "",
+      effects.thunderEnabled ? "Sấm" : "",
+    ].filter(Boolean);
+    if (weatherLabels.length) addEntry("weather", 0, sceneLength, `Nền · ${weatherLabels.join(" · ")}`, "weather");
+    return entries;
+  });
 
   return (
     <main
@@ -5423,12 +7867,14 @@ function Home() {
               const visibleIndex = visibleScenes.findIndex(
                 (visibleItem) => visibleItem.id === item.id,
               );
+              const displayDuration = Math.max(0.1, displayItem.end - displayItem.start);
               const playbackActive =
                 playing &&
                 visibleIndex >= 0 &&
                 playTime >= displayItem.start &&
                 playTime < displayItem.end;
               const thumbSource =
+                assetPreviewSource(item.avatar) ||
                 assetPreviewSource(item.image) ||
                 assetPreviewSource(item.background ?? "") ||
                 assetPreviewSource(legacyBackgroundPreview);
@@ -5498,8 +7944,8 @@ function Home() {
                   <strong>{item.sceneName || `Cảnh ${item.number}`}</strong>
                   <small>
                     {item.sceneVisible === false
-                      ? "Đang ẩn"
-                      : `${formatTime(displayItem.start)}–${formatTime(displayItem.end)}`}
+                      ? `Đang ẩn · ${displayDuration.toFixed(1)} giây`
+                      : `${formatTime(displayItem.start)}–${formatTime(displayItem.end)} · ${displayDuration.toFixed(1)} giây`}
                   </small>
                 </span>
                 <span
@@ -5597,9 +8043,69 @@ function Home() {
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
                 {!hydrated ? "Đang tải..." : playing ? "Tạm dừng" : "Xem thử"}
               </button>
+              <button
+                type="button"
+                className="preview-replay-button"
+                disabled={!hydrated || !visibleScenes.length}
+                aria-label="Chạy lại từ đầu"
+                title="Chạy lại toàn bộ video từ đầu"
+                onClick={replayPlayback}
+              >
+                <span aria-hidden="true">↻</span>
+                <b>Chạy lại</b>
+              </button>
+              <button
+                type="button"
+                className={`preview-audio-toggle ${previewAudioMuted ? "muted" : ""}`}
+                aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
+                aria-pressed={previewAudioMuted}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                onClick={togglePreviewAudio}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 10v4h3l4 3V7l-4 3H4Z" />
+                  {previewAudioMuted ? (
+                    <path d="m16 9 5 6m0-6-5 6" />
+                  ) : (
+                    <path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" />
+                  )}
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
+                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-pressed={subtitleGuideVisible}
+                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                onClick={() => setSubtitleGuideVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="preview-review-toggle"
+                aria-label="Mở Review tổng quan"
+                title="Review tổng quan các cảnh đang hiện"
+                onClick={() => {
+                  setPlaying(false);
+                  setPreviewFullscreen(false);
+                  setReviewOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M8 4v16M3 9h18M3 14h18" />
+                </svg>
+                <span>Review</span>
+              </button>
               <div className="preview-ruler-control">
                 <button
                   type="button"
+                  ref={rulerToggleRef}
                   className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
                   aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
                   aria-pressed={rulerEnabled}
@@ -5613,7 +8119,13 @@ function Home() {
                   </svg>
                 </button>
                 {rulerEnabled && (
-                  <div className="preview-ruler-style-popover" role="group" aria-label="Kiểu thước căn chỉnh">
+                  <div
+                    ref={rulerPopoverRef}
+                    className="preview-ruler-style-popover"
+                    role="group"
+                    aria-label="Kiểu thước căn chỉnh"
+                    style={{ top: rulerPopoverPosition.top, left: rulerPopoverPosition.left }}
+                  >
                     <span>Kiểu thước</span>
                     <button
                       type="button"
@@ -5671,6 +8183,8 @@ function Home() {
               <i style={{ left: `${sceneProgress * 100}%` }} />
             </div>
           </div>
+          <div className="preview-stage-layout">
+            <div className="preview-stage">
           <div
             className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
             style={{ transform: `scale(${previewZoom / 100})` }}
@@ -5799,13 +8313,16 @@ function Home() {
                 }}
               />
             )}
-            {sceneIsVisibleInPlayback && sceneTextOverlays.filter((overlay) => overlay.visible !== false).map((overlay) => safeTrim(overlay.text) ? (
+            {sceneIsVisibleInPlayback && previewTextOverlayItems.map((overlay) => safeTrim(overlay.text) ? (
               <div
                 key={overlay.id}
-                className={`map-text-overlay ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
+                className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
+                  zIndex: previewLayerZIndex("text", overlay.id),
+                  ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
+                  ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
@@ -5817,6 +8334,7 @@ function Home() {
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
                   ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
                   ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
                 }}
                 role="button"
                 tabIndex={0}
@@ -5824,27 +8342,54 @@ function Home() {
                 onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
               >
                 {overlay.text}
+                {overlay.id === activeTextOverlay?.id && !playing && (
+                  <button
+                    type="button"
+                    className="map-text-resize-handle"
+                    aria-label="Kéo để thay đổi kích thước chữ viết"
+                    title="Kéo để tăng hoặc giảm chiều rộng, chiều cao"
+                    onPointerDown={(event) => startTextOverlayResize(event, overlay.id)}
+                  />
+                )}
               </div>
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
-              const imageSource = assetPreviewSource(image.url);
+              const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
               const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
+              const imageIsTransparent = image.transparent || Boolean(sceneImageSpritePreviewUrls[image.id]);
               const squareSize = Math.min(image.width, image.height);
               const width = image.shape === "square" ? squareSize : image.width;
               const height = image.shape === "square" ? squareSize : image.height;
+              const imageTransition = sceneImagePreviewTransition(image);
+              const transitionProgress = imageTransition.progress;
+              const transitionTransform = imageTransition.transition === "slide-left"
+                ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
+                : imageTransition.transition === "slide-right"
+                  ? `translate(-50%, -50%) translateX(${(1 - transitionProgress) * 110}%)`
+                  : imageTransition.transition === "zoom"
+                    ? `translate(-50%, -50%) scale(${1.14 - transitionProgress * 0.14})`
+                    : undefined;
+              const transitionFilter = imageTransition.transition === "blur"
+                ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
+                : undefined;
               return (
                 <div
                   key={image.id}
                   data-scene-image-id={image.id}
-                  className={`scene-image-overlay scene-image-shape-${image.shape} ${image.transparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
+                  className={`scene-image-overlay scene-image-shape-${image.shape} ${imageIsTransparent ? "is-transparent-media" : ""} ${draggingSceneImage && image.id === activeSceneImage?.id ? "is-dragging" : ""}`}
                   style={{
                     left: `${image.x}%`,
                     top: `${image.y}%`,
+                    zIndex: previewLayerZIndex("image", image.id),
                     width: `${width}%`,
                     height: `${height}%`,
-                    opacity: image.opacity / 100,
                     clipPath: sceneImageClipPath(image.shape),
+                    backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
                     border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
+                    opacity: (image.opacity / 100) * (imageTransition.transition === "crossfade" ? transitionProgress : 1),
+                    transform: transitionTransform,
+                    filter: transitionFilter,
+                    transformOrigin: "center center",
                   }}
                   role="button"
                   tabIndex={0}
@@ -5890,6 +8435,7 @@ function Home() {
                   style={{
                     left: `${decoration.x}%`,
                     top: `${decoration.y}%`,
+                    zIndex: previewLayerZIndex("decoration", decoration.id),
                     opacity: decoration.opacity / 100,
                     color: colorWithAlpha(decoration.color, decoration.opacity / 100, "#ffd166"),
                     fontSize: `${decoration.size}px`,
@@ -5906,19 +8452,29 @@ function Home() {
                 </div>
               );
             })}
-            {activeSubtitle && (
+            {playing && activeSubtitle && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
-                role="status"
+                role="button"
+                tabIndex={0}
                 aria-live="polite"
-                aria-label="Phụ đề trên bản đồ. Kéo để di chuyển khung chữ."
-                title="Kéo để di chuyển khung chữ phụ đề"
+                aria-label="Mở phần Phụ đề trong Âm thanh"
+                title="Bấm để mở Phụ đề trong Âm thanh"
                 onPointerDown={startSubtitleDrag}
+                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTimelineEditor(scene, "editor-subtitle");
+                  }
+                }}
                 style={{
                   left: `${subtitleStyle.x}%`,
                   top: `${subtitleStyle.y + subtitleAnimationOffset}%`,
+                  zIndex: previewLayerZIndex("subtitle", "subtitle"),
                   right: "auto",
                   width: `${subtitleStyle.boxWidth}%`,
+                  ...(Number.isFinite(Number(subtitleStyle.boxHeight)) ? { height: `${subtitleStyle.boxHeight}%` } : {}),
                   maxWidth: "100%",
                   boxSizing: "border-box",
                   color: colorWithAlpha(subtitleStyle.color, (subtitleStyle.opacity / 100) * subtitleAnimationOpacity, "#ffffff"),
@@ -5938,6 +8494,40 @@ function Home() {
                 }}
               >
                 {activeSubtitle.text}
+              </div>
+            )}
+            {subtitleGuideVisible && !playing && (
+              <div
+                className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""}`}
+                style={{
+                  left: `${subtitleStyle.x}%`,
+                  top: `${subtitleStyle.y}%`,
+                  zIndex: previewLayerZIndex("subtitle", "subtitle"),
+                  width: `${subtitleStyle.boxWidth}%`,
+                  height: `${subtitleGuideHeight}%`,
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="Mở phần Phụ đề trong Âm thanh hoặc kéo để di chuyển"
+                title="Bấm để mở Phụ đề trong Âm thanh · Kéo để di chuyển vùng phụ đề"
+                onPointerDown={startSubtitleDrag}
+                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTimelineEditor(scene, "editor-subtitle");
+                  }
+                }}
+              >
+                <span>{subtitleGuideMetrics}</span>
+                <button
+                  type="button"
+                  className="subtitle-resize-handle"
+                  aria-label="Kéo để thay đổi kích thước phụ đề"
+                  title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
+                  onPointerDown={startSubtitleResize}
+                  onClick={(event) => event.stopPropagation()}
+                />
               </div>
             )}
             {playing && sceneIsVisibleInPlayback && (
@@ -5983,6 +8573,7 @@ function Home() {
               const popupMediaOnly = popupShowMedia && !popupShowText;
               const popupTransparentMedia = popup.transparentMedia === true && popupShowMedia;
               const popupEmptyFrame = !popupShowMedia && !popupShowText;
+              const popupGeometry = popupSectionGeometry(popup, popupShowMedia, popupShowText);
               return (
                 <article
                   key={popup.id}
@@ -5994,18 +8585,21 @@ function Home() {
                   }`}
                   style={{
                     width: `${popup.width ?? 90}%`,
-                    height: `min(${popup.height ?? 255}px, 88%)`,
+                    height: `min(${popupGeometry.height || popup.height || 255}px, 88%)`,
                     left: `${popup.x ?? 5}%`,
                     top: `${popup.y ?? 55}%`,
+                    zIndex: previewLayerZIndex("popup", popup.id),
                     right: "auto",
                     bottom: "auto",
                     ["--popup-transition-duration" as string]: `${popupTransition}s`,
                     ["--popup-border-width" as string]: `${popup.borderWidth ?? 1}px`,
                   }}
+                  tabIndex={0}
+                  aria-label={`Popup ${popup.title || popup.id}. Dùng phím mũi tên để di chuyển`}
                   onPointerDown={(event) => startPopupDrag(event, popup.id)}
                 >
                   {popupShowMedia && (
-                    <div className="photo-placeholder">
+                    <div className="photo-placeholder" style={{ height: `${popupGeometry.imageHeight}px` }}>
                       {popupVideoSource ? (
                         <video
                           className={`popup-video ${popupTransparentMedia ? "popup-transparent-media-asset" : ""}`}
@@ -6025,9 +8619,18 @@ function Home() {
                           <span>Không tải được tài nguyên popup</span>
                         </>
                       )}
+                      {popup.id === activePopup?.id && !playing && (
+                        <button
+                          type="button"
+                          className="popup-section-resize-handle popup-section-resize-handle-image"
+                          aria-label="Kéo để thay đổi chiều cao phần hình ảnh Popup"
+                          title="Kéo để tăng hoặc giảm chiều cao phần Hình ảnh"
+                          onPointerDown={(event) => startPopupSectionResize(event, "image", popup.id)}
+                        />
+                      )}
                     </div>
                   )}
-                  {popupShowText && <div className="card-content">
+                  {popupShowText && <div className="card-content" style={{ height: `${popupGeometry.contentHeight}px` }}>
                      {popupLayout === "stats" && (
                       <div className="popup-stat-row">
                         <span>{scene.location || "HÀNH TRÌNH"}</span>
@@ -6037,6 +8640,15 @@ function Home() {
                     {popup.layout === "quote" && <span className="popup-quote-mark">“</span>}
                     {safeTrim(popup.title) && <h3>{popup.title}</h3>}
                     {safeTrim(popup.body) && <p>{popup.body}</p>}
+                    {popup.id === activePopup?.id && !playing && (
+                      <button
+                        type="button"
+                        className="popup-section-resize-handle popup-section-resize-handle-content"
+                        aria-label="Kéo để thay đổi chiều cao phần nội dung Popup"
+                        title="Kéo để tăng hoặc giảm chiều cao phần Nội dung"
+                        onPointerDown={(event) => startPopupSectionResize(event, "content", popup.id)}
+                      />
+                    )}
                    </div>}
                   {popup.id === activePopup?.id && (
                     <button
@@ -6049,6 +8661,27 @@ function Home() {
                 </article>
               );
             })}
+            {activeFadeBlackImage && fadeBlackOpacity > 0 && (
+              <div
+                className="scene-image-fade-black"
+                aria-hidden="true"
+                style={{ opacity: fadeBlackOpacity }}
+              />
+            )}
+            {sceneIsVisibleInPlayback && sceneStartDarkOverlayItems.map((item) => (
+              <div
+                key={`scene-start-dark-${item.effect.id}`}
+                className="scene-start-dark-effect"
+                aria-hidden="true"
+                style={{
+                  ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
+                  ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
+                  ["--scene-start-dark-mid-opacity" as string]: String(item.midOpacity),
+                  ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
+                  ["--scene-start-dark-blur" as string]: `${item.blur}px`,
+                }}
+              />
+            ))}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
@@ -6083,15 +8716,59 @@ function Home() {
               </div>
             )}
           </div>
-          <div className="preview-navigation" aria-label="Điều hướng cảnh và tỷ lệ xem trước">
-            <button
-              type="button"
-              className="preview-scene-navigation preview-scene-navigation-previous"
-              onClick={() => selectAdjacentScene(-1)}
-              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) <= 0}
-            >
-              ← Cảnh trước
-            </button>
+            </div>
+            <aside className="preview-layer-panel" aria-label="Các lớp trong màn hình xem trước">
+              <div className="preview-layer-panel-heading">
+                <strong>Layer</strong>
+                <small>Trên cùng ở phía dưới</small>
+              </div>
+              <label className="preview-layer-search">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="10.8" cy="10.8" r="6.4" />
+                  <path d="m16 16 4.2 4.2" />
+                </svg>
+                <input
+                  type="search"
+                  value={previewLayerQuery}
+                  onChange={(event) => setPreviewLayerQuery(event.target.value)}
+                  placeholder="Tìm layer"
+                  aria-label="Tìm layer trong màn hình xem trước"
+                />
+              </label>
+              <div className="preview-layer-list">
+                {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => (
+                  <button
+                    type="button"
+                    key={item.token}
+                    draggable
+                    className={`preview-layer-item ${
+                      item.token === explicitlySelectedPreviewLayerToken
+                        ? "active"
+                        : ""
+                    } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
+                    title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
+                    aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
+                    onClick={() => selectPreviewLayerItem(item)}
+                    onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
+                    onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
+                    onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
+                    onDragEnd={clearPreviewLayerDrag}
+                  >
+                    <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
+                    <span className="preview-layer-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="preview-layer-label">
+                      <strong>{item.label}</strong>
+                      <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
+                    </span>
+                  </button>
+                )) : (
+                  <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
+                )}
+              </div>
+              <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
+            </aside>
+          </div>
+          <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
             <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
               <button
                 type="button"
@@ -6111,55 +8788,55 @@ function Home() {
                 +
               </button>
             </div>
-            <button
-              type="button"
-              className="preview-scene-navigation preview-scene-navigation-next"
-              onClick={() => selectAdjacentScene(1)}
-              disabled={!visibleScenes.some((item) => item.id === scene.id) || visibleScenes.findIndex((item) => item.id === scene.id) >= visibleScenes.length - 1}
-            >
-              Cảnh tiếp theo →
-            </button>
           </div>
         </section>
 
         <aside className={`editor-panel ${!hydrated ? "is-loading" : ""}`}>
-          <div className="panel-heading">
+          <div className="panel-heading editor-panel-heading">
             <h2>Biên soạn</h2>
             <div className="editor-heading-actions">
-              <button
-                type="button"
-                className="accordion-toggle-all"
-                onClick={() => {
-                  const shouldOpen = !Object.values(editorSections).every(Boolean);
-                  setEditorSections({
-                    visual: shouldOpen,
-                    content: shouldOpen,
-                    audio: shouldOpen,
-                    effects: shouldOpen,
-                    popup: shouldOpen,
-                    text: shouldOpen,
-                  });
-                }}
-              >
-                {Object.values(editorSections).every(Boolean) ? "Thu tất cả" : "Mở tất cả"}
-              </button>
               <span className="scene-pill">
                 {selectedSceneIds.length > 1
                   ? `${selectedSceneIds.length} cảnh`
                   : `Cảnh ${scene.number}`}
               </span>
+              <label className="quick-scene-duration">
+                <span>Thời lượng</span>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={Number(sceneDuration.toFixed(1))}
+                  aria-label="Thay đổi nhanh thời lượng cảnh (giây)"
+                  onChange={(event) => updateSelectedSceneDuration(Number(event.target.value))}
+                />
+                <b>s</b>
+              </label>
             </div>
+            <nav className="editor-section-shortcuts" aria-label="Đi tới nhanh mục biên soạn">
+              {EDITOR_SECTION_SHORTCUTS.map((shortcut) => (
+                <button
+                  type="button"
+                  key={shortcut.key}
+                  className={`editor-section-shortcut ${editorSections[shortcut.key] ? "active" : ""}`}
+                  title={`Mở mục ${shortcut.label}`}
+                  aria-label={`Mở mục ${shortcut.number} ${shortcut.label}`}
+                  onClick={() => focusEditorSection(shortcut.key)}
+                >
+                  <span>{shortcut.number}</span>
+                  <b>{shortcut.label}</b>
+                </button>
+              ))}
+            </nav>
           </div>
-          <div className="editor-scroll">
+          <div className="editor-scroll" ref={editorScrollRef}>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-visual"
+              data-editor-section="visual"
               open={editorSections.visual}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  visual: open,
-                }));
+                setEditorSectionOpen("visual", open);
               }}
             >
               <summary className="editor-group-label">
@@ -6195,6 +8872,22 @@ function Home() {
               )}
               <small>Nhập URL hoặc tên file ảnh/clip riêng cho cảnh (.jpg, .png, .webp, .mp4, .webm, .mov). URL sẽ được renderer tự tải về.</small>
             </label>
+            <label className="field scene-avatar-field">
+              <span>Ảnh avatar cho Cảnh {scene.number}</span>
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="https://example.com/avatar.jpg"
+                value={scene.avatar ?? ""}
+                onChange={(event) => updateScene("avatar", event.target.value)}
+              />
+              {sceneAvatarPreviewSource && (
+                <div className="image-url-preview scene-avatar-preview">
+                  <img src={sceneAvatarPreviewSource} alt={`Ảnh avatar Cảnh ${scene.number}`} />
+                </div>
+              )}
+              <small>Ảnh này chỉ dùng làm avatar/thumbnail của Cảnh trong danh sách, không thay thế background khi render.</small>
+            </label>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
@@ -6216,15 +8909,16 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-images"
+              data-editor-section="images"
               open={editorSections.images}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({ ...items, images: open }));
+                setEditorSectionOpen("images", open);
               }}
             >
               <summary className="editor-group-label">
-                <span>02</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
+                <span>03</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <div className="scene-image-manager">
@@ -6236,7 +8930,25 @@ function Home() {
                   {sceneImages.length > 0 ? (
                     <div className="scene-image-list">
                       {sceneImages.map((image, index) => (
-                        <div key={image.id} className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""}`}>
+                        <div
+                          key={image.id}
+                          id={`editor-layer-images-${image.id}`}
+                          tabIndex={-1}
+                          aria-selected={image.id === activeSceneImage?.id}
+                          className={`scene-image-item ${image.id === activeSceneImage?.id ? "active" : ""} ${image.visible === false ? "is-hidden" : ""} ${image.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === image.id && layerListDrag.type === "image" ? "is-drag-over" : ""}`}
+                          onDragOver={(event) => updateLayerListDragOver("image", image.id, event)}
+                          onDrop={(event) => finishLayerListDrop("image", image.id, event)}
+                        >
+                          <span
+                            className="layer-drag-handle"
+                            draggable
+                            role="button"
+                            tabIndex={0}
+                            title="Kéo để sắp xếp hình ảnh"
+                            aria-label={`Kéo để sắp xếp ${sceneImageLabel(image, index)}`}
+                            onDragStart={(event) => beginLayerListDrag("image", image.id, event)}
+                            onDragEnd={clearLayerListDrag}
+                          >⠿</span>
                           {renamingSceneImageId === image.id ? (
                             <div className="layer-name-editor">
                               <input
@@ -6275,6 +8987,15 @@ function Home() {
                           <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
                             {image.visible === false ? "○" : "◉"}
                           </button>
+                          <button
+                            type="button"
+                            className={`scene-image-action editor-layer-visibility ${image.editorVisible === false ? "is-hidden" : ""}`}
+                            title={image.editorVisible === false ? "Hiện lớp khi biên soạn" : "Ẩn lớp khi biên soạn"}
+                            aria-label={image.editorVisible === false ? `Hiện ${sceneImageLabel(image, index)} khi biên soạn` : `Ẩn ${sceneImageLabel(image, index)} khi biên soạn`}
+                            onClick={() => toggleSceneImageEditorVisibility(image.id)}
+                          >
+                            {editorVisibilityIcon(image.editorVisible === false)}
+                          </button>
                           <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
                           <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
                         </div>
@@ -6285,6 +9006,59 @@ function Home() {
                   )}
                   {activeSceneImage && (
                     <div className="scene-image-controls">
+                      <div className="scene-image-sprite-action-row">
+                        <label className="field scene-image-sprite-speed-field">
+                          <span>Tốc độ chuyển động (ms/frame)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              min="60"
+                              max="1000"
+                              step="10"
+                              value={activeSceneImageSpriteDelayInput}
+                              disabled={sceneImageSpriteNotice.status === "processing"}
+                              onChange={(event) => updateSceneImageSpriteDelay(event.target.value)}
+                              onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)}
+                            />
+                            <b>ms</b>
+                          </div>
+                          <small>Giá trị lớn hơn sẽ làm chuyển động chậm hơn.</small>
+                        </label>
+                        <button
+                          type="button"
+                          className="button ghost scene-image-sprite-button"
+                          disabled={!activeSceneImage.url || sceneImageSpriteNotice.status === "processing"}
+                          onClick={() => {
+                            const delay = commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput);
+                            void prepareSceneImageSprite(activeSceneImage.id, activeSceneImage.url, true, delay);
+                          }}
+                        >
+                          {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.status === "processing"
+                            ? "\u0110ang chuy\u1ec3n th\u00e0nh h\u00ecnh \u0111\u1ed9ng\u2026"
+                            : activeSceneImage.spriteSheet
+                              ? "Chuy\u1ec3n l\u1ea1i h\u00ecnh \u0111\u1ed9ng"
+                              : "Chuy\u1ec3n sprite th\u00e0nh h\u00ecnh \u0111\u1ed9ng"}
+                        </button>
+                        {sceneImageSpriteNotice.imageId === activeSceneImage.id && sceneImageSpriteNotice.message && (
+                          <small className={`scene-image-sprite-notice ${sceneImageSpriteNotice.status}`}>
+                            {sceneImageSpriteNotice.message}
+                          </small>
+                        )}
+                      </div>
+                      <label className="field scene-image-sprite-file-field">
+                        <span>Hoặc chọn file sprite từ máy</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/apng"
+                          disabled={sceneImageSpriteNotice.status === "processing"}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0] ?? null;
+                            void handleSceneImageSpriteFile(file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                        <small>Ảnh sẽ được tự nhận diện lưới cột × hàng và tự thêm vào tài nguyên render.</small>
+                      </label>
                       <label className="field">
                         <span>URL hình ảnh hoặc video</span>
                         <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
@@ -6294,6 +9068,37 @@ function Home() {
                         <span />
                         Giữ nền trong suốt cho lớp media
                       </label>
+                      <div className="field-row scene-image-transition-row">
+                        <label className="field scene-image-transition-field">
+                          <span>Hiệu ứng chuyển hình</span>
+                          <select
+                            value={activeSceneImage.transition}
+                            onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}
+                          >
+                            {sceneImageTransitionOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                          <small>{sceneImageTransitionOptions.find((option) => option.value === activeSceneImage.transition)?.hint}</small>
+                        </label>
+                        <label className="field scene-image-transition-end-field">
+                          <span>Thời gian kết thúc hiệu ứng</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={Math.max(0.1, activeSceneImage.start + 0.1)}
+                              step="0.1"
+                              value={activeSceneImageTransitionEndInput}
+                              disabled={activeSceneImage.transition === "cut"}
+                              onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)}
+                              onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)}
+                            />
+                            <b>s</b>
+                          </div>
+                          <small>Tính từ đầu cảnh. Khi chạy đến mốc này, hiệu ứng sẽ tự động kết thúc; không giới hạn 1.5 giây.</small>
+                        </label>
+                      </div>
                       <div className="field-row">
                         <label className="field">
                           <span>Kiểu khung</span>
@@ -6308,12 +9113,22 @@ function Home() {
                       </div>
                       <div className="field-row">
                         <label className="field">
+                          <span>Vị trí X</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <span>Vị trí Y</span>
+                          <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field">
                           <span>Chiều rộng</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                         <label className="field">
                           <span>Chiều cao</span>
-                          <div className="number-with-unit"><input type="number" min="1" max="96" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(96, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
+                          <div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">
@@ -6324,7 +9139,37 @@ function Home() {
                         <label className="field color-field"><span>Màu border</span><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
                       </div>
                       <div className="field-row">
-                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => updateSceneImage("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
+                        <label className="field color-field scene-image-border-fill-field">
+                          <span>Màu nền bên trong border</span>
+                          <div className="color-input-row">
+                            <input
+                              className="text-color-picker"
+                              type="color"
+                              value={normalizeHexColor(activeSceneImage.borderFill, "#ffffff")}
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value)}
+                            />
+                            <input
+                              className="text-color-code"
+                              type="text"
+                              inputMode="text"
+                              maxLength={11}
+                              value={activeSceneImage.borderFill === "transparent" ? "" : activeSceneImage.borderFill}
+                              placeholder="transparent / #FFFFFF"
+                              onChange={(event) => updateSceneImage("borderFill", event.target.value || "transparent")}
+                              onBlur={(event) => updateSceneImage("borderFill", normalizeSceneImageBorderFill(event.target.value))}
+                            />
+                          </div>
+                          <small>Để trống hoặc nhập transparent để giữ nền trong suốt.</small>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <label className="field"><span>Bắt đầu</span><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeSceneImage.start} onChange={(event) => {
+                          const nextStart = Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0));
+                          updateSceneImage("start", nextStart);
+                          if (activeSceneImage.transitionEnd < nextStart + 0.1) {
+                            updateSceneImage("transitionEnd", nextStart + 0.1);
+                          }
+                        }} /><b>s</b></div></label>
                         <label className="field"><span>Thời lượng</span><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeSceneImage.duration)} onChange={(event) => updateSceneImage("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
@@ -6335,18 +9180,16 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-scene-content"
+              data-editor-section="content"
               open={editorSections.content}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  content: open,
-                }));
+                setEditorSectionOpen("content", open);
               }}
             >
               <summary className="editor-group-label">
-                <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
             <label className="field">
@@ -6379,14 +9222,12 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-text"
+              data-editor-section="text"
               open={editorSections.text}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  text: open,
-                }));
+                setEditorSectionOpen("text", open);
               }}
             >
               <summary className="editor-group-label">
@@ -6408,7 +9249,25 @@ function Home() {
                     {sceneTextOverlays.length > 0 ? (
                       <div className="text-overlay-list">
                         {sceneTextOverlays.map((overlay, index) => (
-                          <div key={overlay.id} className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""}`}>
+                          <div
+                            key={overlay.id}
+                            id={`editor-layer-text-${overlay.id}`}
+                            tabIndex={-1}
+                            aria-selected={overlay.id === activeTextOverlay?.id}
+                            className={`text-overlay-item ${overlay.id === activeTextOverlay?.id ? "active" : ""} ${overlay.visible === false ? "is-hidden" : ""} ${overlay.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === overlay.id && layerListDrag.type === "text" ? "is-drag-over" : ""}`}
+                            onDragOver={(event) => updateLayerListDragOver("text", overlay.id, event)}
+                            onDrop={(event) => finishLayerListDrop("text", overlay.id, event)}
+                          >
+                            <span
+                              className="layer-drag-handle"
+                              draggable
+                              role="button"
+                              tabIndex={0}
+                              title="Kéo để sắp xếp chữ viết"
+                              aria-label={`Kéo để sắp xếp ${textOverlayLabel(overlay, index)}`}
+                              onDragStart={(event) => beginLayerListDrag("text", overlay.id, event)}
+                              onDragEnd={clearLayerListDrag}
+                            >⠿</span>
                             {renamingTextOverlayId === overlay.id ? (
                               <div className="layer-name-editor">
                                 <input
@@ -6457,6 +9316,15 @@ function Home() {
                                 {overlay.visible === false && <path d="m4 4 16 16" />}
                               </svg>
                             </button>
+                            <button
+                              type="button"
+                              className={`text-overlay-visibility editor-layer-visibility ${overlay.editorVisible === false ? "is-hidden" : ""}`}
+                              aria-label={overlay.editorVisible === false ? `Hiện chữ ${index + 1} khi biên soạn` : `Ẩn chữ ${index + 1} khi biên soạn`}
+                              title={overlay.editorVisible === false ? `Hiện chữ ${index + 1} khi biên soạn` : `Ẩn chữ ${index + 1} khi biên soạn`}
+                              onClick={() => toggleTextOverlayEditorVisibility(overlay.id)}
+                            >
+                              {editorVisibilityIcon(overlay.editorVisible === false)}
+                            </button>
                             <button type="button" className="text-overlay-delete" aria-label={`Xóa chữ ${index + 1}`} onClick={() => deleteTextOverlay(overlay.id)}>×</button>
                           </div>
                         ))}
@@ -6492,9 +9360,90 @@ function Home() {
                       <option value="bold">Đậm</option>
                       <option value="italic">Nghiêng</option>
                       <option value="bold-italic">Đậm + nghiêng</option>
+                 </select>
+                 </label>
+                 </div>
+                <div className="field-row text-effect-controls">
+                  <label className="field">
+                    <span>Hiệu ứng chữ</span>
+                    <select
+                      value={activeTextOverlay?.textEffect ?? "none"}
+                      onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}
+                    >
+                      {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
                     </select>
                   </label>
-                 </div>
+                  <label className="field">
+                    <span>Thời lượng hiệu ứng</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="number"
+                        min="0.05"
+                        max="8"
+                        step="0.05"
+                        value={activeTextOverlay?.textEffectDuration ?? 0.6}
+                        disabled={!activeTextOverlay || activeTextOverlay.textEffect === "none"}
+                        onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))}
+                      />
+                      <b>s</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
+                <div className="field-row text-overlay-timing-fields">
+                  <label className="field">
+                    <span>Thời gian bắt đầu chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "start") : "0"}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "start", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "start")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>Thời gian kết thúc chữ</span>
+                    <div className="number-with-unit">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "end") : String(sceneDuration)}
+                        disabled={!activeTextOverlay}
+                        onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "end", event.target.value)}
+                        onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "end")}
+                      />
+                      <b>giây</b>
+                    </div>
+                  </label>
+                </div>
+                <small>Chữ chỉ hiển thị trong khoảng thời gian này. Khi để mặc định, chữ hiển thị suốt cảnh hiện tại.</small>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.x ?? 50} onChange={(event) => updateTextOverlay("x", clampPercent(event.target.value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.y ?? 18} onChange={(event) => updateTextOverlay("y", clampPercent(event.target.value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label className="field">
+                    <span>Chiều rộng</span>
+                    <div className="number-with-unit"><input type="number" min="4" max="100" step="0.1" value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("width", event.target.value === "" ? undefined : Math.min(100, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("height", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Kéo nút ở góc chữ để thay đổi cả chiều rộng và chiều cao. Để trống để dùng kích thước tự động.</small>
                  <div className="field-row">
                    <label className="field">
                      <span>Độ trong suốt</span>
@@ -6886,14 +9835,12 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-audio"
+              data-editor-section="audio"
               open={editorSections.audio}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  audio: open,
-                }));
+                setEditorSectionOpen("audio", open);
               }}
             >
               <summary className="editor-group-label">
@@ -6966,7 +9913,22 @@ function Home() {
                   inputMode="url"
                   value={scene.voiceFile}
                 placeholder="voice.mp3 hoặc https://example.com/voice.mp3"
-                  onChange={(event) => updateScene("voiceFile", event.target.value)}
+                  onChange={(event) => {
+                    updateScene("voiceFile", event.target.value);
+                    setAudioFiles((items) => {
+                      if (!items[scene.id]) return items;
+                      const next = { ...items };
+                      delete next[scene.id];
+                      return next;
+                    });
+                    setAudioPreview((items) => {
+                      if (!items[scene.id]) return items;
+                      URL.revokeObjectURL(items[scene.id]);
+                      const next = { ...items };
+                      delete next[scene.id];
+                      return next;
+                    });
+                  }}
                 />
                 <label className="file-picker">
                   Chọn file
@@ -6986,6 +9948,22 @@ function Home() {
                     }}
                   />
                 </label>
+              </div>
+              <div className="field audio-volume-field">
+                <span>Thời gian bắt đầu phát âm thanh (giây)</span>
+                <div className="number-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max={sceneDuration}
+                    step="0.1"
+                    aria-label="Thời gian bắt đầu phát âm thanh (giây)"
+                    value={scene.voiceStart ?? 0}
+                    onChange={(event) => updateScene("voiceStart", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))}
+                  />
+                  <b>s</b>
+                </div>
+                <small>0 giây = phát ngay khi cảnh bắt đầu.</small>
               </div>
               <div className="field audio-volume-field">
                 <span>Âm lượng thuyết minh (%)</span>
@@ -7018,12 +9996,32 @@ function Home() {
                     type="button"
                     className="button primary subtitle-generate-button"
                     onClick={() => void generateSubtitlesFromNarration()}
-                    disabled={subtitleAlignState.status === "running"}
+                    disabled={subtitleAlignState.status === "running" || subtitleImportBusy}
                   >
                     {subtitleAlignState.status === "running" && subtitleAlignState.sceneId === scene.id
                       ? "Đang tạo…"
                       : "✦ Tạo từ lời thuyết minh"}
                   </button>
+                  <button
+                    type="button"
+                    className="button subtitle-add-button"
+                    onClick={() => subtitleFileInput.current?.click()}
+                    disabled={subtitleImportBusy || subtitleAlignState.status === "running"}
+                  >
+                    {subtitleImportBusy ? "Đang đọc…" : "⇧ Import SRT/VTT"}
+                  </button>
+                  <input
+                    ref={subtitleFileInput}
+                    className="visually-hidden"
+                    type="file"
+                    accept=".srt,.vtt,application/x-subrip,text/vtt,text/plain"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void importSubtitlesFromFile(file);
+                    }}
+                    aria-label="Chọn file phụ đề SRT hoặc VTT"
+                  />
                   <button type="button" className="button subtitle-add-button" onClick={addSubtitleCue}>
                     ＋ Thêm câu
                   </button>
@@ -7042,12 +10040,36 @@ function Home() {
                 <span>1. Nhập <b>Lời thuyết minh</b></span>
                 <span>2. Chọn <b>file audio</b></span>
                 <span>3. Bấm <b>Tạo từ lời thuyết minh</b></span>
+                <span>Hoặc import <b>SRT/VTT</b> đã có timestamp</span>
                 <span>4. Phát từng cue để rà soát</span>
               </div>
               {subtitleAlignState.sceneId === scene.id && subtitleAlignState.message && (
-                <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
+                <>
+                  {subtitleAlignState.status === "running" && (
+                    <div
+                      className="subtitle-align-progress"
+                      role="status"
+                      aria-label={`Tiến độ tạo phụ đề ${subtitleAlignState.progress ?? 0}%`}
+                    >
+                      <div className="subtitle-align-progress-heading">
+                        <span>Tiến độ xử lý</span>
+                        <b>{subtitleAlignState.progress ?? 0}%</b>
+                      </div>
+                      <div
+                        className="subtitle-align-progress-track"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={subtitleAlignState.progress ?? 0}
+                      >
+                        <i style={{ width: `${subtitleAlignState.progress ?? 0}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
                   {subtitleAlignState.message}
-                </p>
+                  </p>
+                </>
               )}
               <div className="subtitle-style-editor">
                 <div className="subtitle-style-heading">
@@ -7099,6 +10121,21 @@ function Home() {
                     <div className="number-with-unit"><input type="number" min="40" max="100" step="1" value={subtitleStyle.boxWidth} onChange={(event) => updateSubtitleStyle("boxWidth", Math.min(100, Math.max(40, Number(event.target.value) || 40)))} /><b>%</b></div>
                   </label>
                 </div>
+                <div className="field-row subtitle-style-fields subtitle-geometry-fields">
+                  <label className="field">
+                    <span>Vị trí X</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.x} onChange={(event) => updateSubtitleStyle("x", clampPercent(event.target.value, subtitleStyle.x))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Vị trí Y</span>
+                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.y} onChange={(event) => updateSubtitleStyle("y", clampPercent(event.target.value, subtitleStyle.y))} /><b>%</b></div>
+                  </label>
+                  <label className="field">
+                    <span>Chiều cao khung chữ</span>
+                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSubtitleStyle("boxHeight", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                  </label>
+                </div>
+                <small>Chỉ hiện vùng chỉnh sửa này sau khi bấm “Xem thử”. Có thể kéo khung hoặc nhập trực tiếp X/Y, rộng/cao.</small>
                 <div className="subtitle-border-heading"><strong>Border / nền phụ đề</strong><small>Điều chỉnh viền, màu viền, độ trong suốt và nền.</small></div>
                 <div className="field-row subtitle-style-fields">
                   <label className="field">
@@ -7118,6 +10155,27 @@ function Home() {
                     <div className="number-with-unit"><input type="number" min="0" max="100" step="5" value={subtitleStyle.borderOpacity} onChange={(event) => updateSubtitleStyle("borderOpacity", Number(event.target.value))} /><b>%</b></div>
                   </label>
                 </div>
+              </div>
+              <div className="field-row subtitle-global-timing-row">
+                <label className="field">
+                  <span>Thời gian bắt đầu phát tất cả phụ đề</span>
+                  <div className="number-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max={sceneDuration}
+                      step="0.1"
+                      value={scene.subtitleStart}
+                      disabled={!hydrated}
+                      onChange={(event) => updateScene(
+                        "subtitleStart",
+                        Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)),
+                      )}
+                    />
+                    <b>s</b>
+                  </div>
+                  <small>Dịch toàn bộ cue phụ đề theo thời gian này; thời gian bắt đầu/kết thúc từng câu vẫn giữ nguyên.</small>
+                </label>
               </div>
               <label className="zoom-effect-toggle">
                 <input
@@ -7200,14 +10258,12 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-effects"
+              data-editor-section="effects"
               open={editorSections.effects}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  effects: open,
-                }));
+                setEditorSectionOpen("effects", open);
               }}
             >
               <summary className="editor-group-label">
@@ -7234,13 +10290,12 @@ function Home() {
                       <span>Thời gian bắt đầu zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0"
-                          max={Math.max(0, sceneDuration - 0.1)}
-                          step="0.1"
-                          value={scene.zoomStart}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomStart", scene.zoomStart)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomStart(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomStart", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomStart")}
                         />
                         <b>giây</b>
                       </div>
@@ -7249,13 +10304,12 @@ function Home() {
                       <span>Tỉ lệ zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="1"
-                          max="5"
-                          step="0.05"
-                          value={scene.zoom}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoom", scene.zoom)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateScene("zoom", Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoom", event.target.value)}
+                          onBlur={() => commitZoomInput("zoom")}
                         />
                         <b>×</b>
                       </div>
@@ -7264,13 +10318,12 @@ function Home() {
                       <span>Thời gian kết thúc zoom</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min={Math.min(sceneDuration, scene.zoomStart + scene.zoomInDuration)}
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomEnd}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomEnd", scene.zoomEnd)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomEnd(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomEnd", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomEnd")}
                         />
                         <b>giây</b>
                       </div>
@@ -7279,13 +10332,12 @@ function Home() {
                       <span>Thời gian tới tỉ lệ đó</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0.1"
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomInDuration}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomInDuration", scene.zoomInDuration)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateZoomInDuration(Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomInDuration", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomInDuration")}
                         />
                         <b>giây</b>
                       </div>
@@ -7294,19 +10346,108 @@ function Home() {
                       <span>Khoảng thời gian zoom về</span>
                       <div className="number-with-unit">
                         <input
-                          type="number"
-                          min="0"
-                          max={sceneDuration}
-                          step="0.1"
-                          value={scene.zoomOutDuration}
+                          type="text"
+                          inputMode="decimal"
+                          value={zoomInputValue("zoomOutDuration", scene.zoomOutDuration)}
                           disabled={!zoomEnabled}
-                          onChange={(event) => updateScene("zoomOutDuration", Number(event.target.value))}
+                          onChange={(event) => updateZoomInput("zoomOutDuration", event.target.value)}
+                          onBlur={() => commitZoomInput("zoomOutDuration")}
                         />
                         <b>giây</b>
                       </div>
                     </label>
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
+                </div>
+                <div className="scene-visual-effect-card scene-start-dark-effect-card" aria-label="Hiệu ứng tối dần từ ngoài vào trong">
+                  <div className="scene-visual-effect-heading scene-start-dark-panel-heading">
+                    <div>
+                      <strong>Tối dần từ ngoài vào trong</strong>
+                      <span>Viền tối lan dần vào tâm cảnh, giống hiệu ứng kết thúc phim.</span>
+                    </div>
+                    <button type="button" className="button secondary scene-start-dark-add" onClick={addSceneDarkEffect} disabled={!hydrated}>＋ Thêm hiệu ứng tối</button>
+                  </div>
+                  <div className="scene-start-dark-list">
+                    {sceneEffects.sceneStartDarkEffects.length > 0 ? sceneEffects.sceneStartDarkEffects.map((effect, index) => (
+                      <div className="scene-start-dark-effect-item" key={effect.id}>
+                        <div className="scene-start-dark-effect-item-heading">
+                          <strong>Hiệu ứng tối {index + 1}</strong>
+                          <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneDarkEffect(effect.id)} aria-label={`Xóa hiệu ứng tối ${index + 1}`} title="Xóa hiệu ứng tối">×</button>
+                        </div>
+                        <label className="zoom-effect-toggle">
+                          <input
+                            type="checkbox"
+                            checked={effect.enabled}
+                            disabled={!hydrated}
+                            onChange={(event) => updateSceneDarkEffect(effect.id, "enabled", event.target.checked)}
+                          />
+                          <span aria-hidden="true" />
+                          <span>Bật hiệu ứng tối này</span>
+                        </label>
+                        <div className="field-row scene-start-dark-time-row">
+                          <label className="field">
+                            <span>Thời gian bắt đầu</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "start")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "start", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "start")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                          <label className="field">
+                            <span>Thời gian kết thúc</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "end")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "end", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "end")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                          <label className="field">
+                            <span>Thời gian giữ tối</span>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "holdDuration")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "holdDuration", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "holdDuration")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                        </div>
+                        <label className="field scene-start-dark-intensity-field">
+                          <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={darkEffectInputValue(effect, "intensity")}
+                              disabled={!hydrated || !effect.enabled}
+                              onChange={(event) => updateSceneDarkEffectInput(effect, "intensity", event.target.value)}
+                              onBlur={() => commitSceneDarkEffectInput(effect, "intensity")}
+                            />
+                            <b>%</b>
+                          </div>
+                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; sau khi tối hẳn, hiệu ứng sẽ giữ theo thời gian đã nhập rồi mới reverse.</small>
+                        </label>
+                      </div>
+                    )) : (
+                      <div className="scene-start-dark-empty">Chưa có hiệu ứng tối. Bấm “Thêm hiệu ứng tối” để tạo một lớp.</div>
+                    )}
+                  </div>
                 </div>
                   <div className="scene-visual-effects">
                     <div className="scene-visual-effect-card">
@@ -7329,13 +10470,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.snowIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("snowIntensity", sceneEffects.snowIntensity)}
                               disabled={!sceneEffects.snowEnabled}
-                              onChange={(event) => updateSceneEffects("snowIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("snowIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("snowIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -7344,13 +10484,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.snowSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("snowSpeed", sceneEffects.snowSpeed)}
                               disabled={!sceneEffects.snowEnabled}
-                              onChange={(event) => updateSceneEffects("snowSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("snowSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("snowSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -7377,13 +10516,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.lightFlickerIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("lightFlickerIntensity", sceneEffects.lightFlickerIntensity)}
                               disabled={!sceneEffects.lightFlickerEnabled}
-                              onChange={(event) => updateSceneEffects("lightFlickerIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("lightFlickerIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("lightFlickerIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -7392,13 +10530,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.lightFlickerSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("lightFlickerSpeed", sceneEffects.lightFlickerSpeed)}
                               disabled={!sceneEffects.lightFlickerEnabled}
-                              onChange={(event) => updateSceneEffects("lightFlickerSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("lightFlickerSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("lightFlickerSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -7425,13 +10562,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.rainIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("rainIntensity", sceneEffects.rainIntensity)}
                               disabled={!sceneEffects.rainEnabled}
-                              onChange={(event) => updateSceneEffects("rainIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("rainIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("rainIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -7440,13 +10576,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.rainSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("rainSpeed", sceneEffects.rainSpeed)}
                               disabled={!sceneEffects.rainEnabled}
-                              onChange={(event) => updateSceneEffects("rainSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("rainSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("rainSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -7473,13 +10608,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.thunderIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("thunderIntensity", sceneEffects.thunderIntensity)}
                               disabled={!sceneEffects.thunderEnabled}
-                              onChange={(event) => updateSceneEffects("thunderIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("thunderIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("thunderIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -7488,13 +10622,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.thunderSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("thunderSpeed", sceneEffects.thunderSpeed)}
                               disabled={!sceneEffects.thunderEnabled}
-                              onChange={(event) => updateSceneEffects("thunderSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("thunderSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("thunderSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -7521,13 +10654,12 @@ function Home() {
                           <span>Cường độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={sceneEffects.cloudIntensity}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("cloudIntensity", sceneEffects.cloudIntensity)}
                               disabled={!sceneEffects.cloudEnabled}
-                              onChange={(event) => updateSceneEffects("cloudIntensity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                              onChange={(event) => updateEffectInput("cloudIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("cloudIntensity")}
                             />
                             <b>%</b>
                           </div>
@@ -7536,13 +10668,12 @@ function Home() {
                           <span>Tốc độ</span>
                           <div className="number-with-unit">
                             <input
-                              type="number"
-                              min="0.2"
-                              max="3"
-                              step="0.1"
-                              value={sceneEffects.cloudSpeed}
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("cloudSpeed", sceneEffects.cloudSpeed)}
                               disabled={!sceneEffects.cloudEnabled}
-                              onChange={(event) => updateSceneEffects("cloudSpeed", Math.min(3, Math.max(0.2, Number(event.target.value) || 0.2)))}
+                              onChange={(event) => updateEffectInput("cloudSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("cloudSpeed")}
                             />
                             <b>×</b>
                           </div>
@@ -7554,14 +10685,12 @@ function Home() {
               </div>
             </details>
             <details
-              className="editor-accordion"
+              className="editor-accordion editor-accordion-popup"
+              data-editor-section="popup"
               open={editorSections.popup}
               onToggle={(event) => {
                 const open = event.currentTarget.open;
-                setEditorSections((items) => ({
-                  ...items,
-                  popup: open,
-                }));
+                setEditorSectionOpen("popup", open);
               }}
             >
               <summary className="editor-group-label">
@@ -7577,8 +10706,23 @@ function Home() {
                 {scenePopups.map((popup, index) => (
                   <div
                     key={popup.id}
-                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""}`}
+                    id={`editor-layer-popup-${popup.id}`}
+                    tabIndex={-1}
+                    aria-selected={popup.id === activePopup?.id}
+                    className={`popup-manager-item ${popup.id === activePopup?.id ? "active" : ""} ${popup.visible === false ? "is-hidden" : ""} ${popup.editorVisible === false ? "is-editor-hidden" : ""} ${layerListDrag.overId === popup.id && layerListDrag.type === "popup" ? "is-drag-over" : ""}`}
+                    onDragOver={(event) => updateLayerListDragOver("popup", popup.id, event)}
+                    onDrop={(event) => finishLayerListDrop("popup", popup.id, event)}
                   >
+                    <span
+                      className="layer-drag-handle"
+                      draggable
+                      role="button"
+                      tabIndex={0}
+                      title="Kéo để sắp xếp Popup"
+                      aria-label={`Kéo để sắp xếp Popup ${index + 1}`}
+                      onDragStart={(event) => beginLayerListDrag("popup", popup.id, event)}
+                      onDragEnd={clearLayerListDrag}
+                    >⠿</span>
                     <button
                       type="button"
                       className="popup-manager-select"
@@ -7602,6 +10746,24 @@ function Home() {
                     </button>
                     <button
                       type="button"
+                      className={`popup-visibility-button editor-layer-visibility ${popup.editorVisible === false ? "is-hidden" : ""}`}
+                      aria-label={popup.editorVisible === false ? `Hiện Popup ${index + 1} khi biên soạn` : `Ẩn Popup ${index + 1} khi biên soạn`}
+                      title={popup.editorVisible === false ? `Hiện Popup ${index + 1} khi biên soạn` : `Ẩn Popup ${index + 1} khi biên soạn`}
+                      onClick={() => togglePopupEditorVisibility(popup.id)}
+                    >
+                      {editorVisibilityIcon(popup.editorVisible === false)}
+                    </button>
+                    <button
+                      type="button"
+                      className="popup-size-reset"
+                      aria-label={`Đặt lại kích thước Popup ${index + 1}`}
+                      title="Đặt lại kích thước Popup về mặc định"
+                      onClick={() => resetPopupSize(popup.id)}
+                    >
+                      ↺
+                    </button>
+                    <button
+                      type="button"
                       className="popup-delete-button"
                       aria-label={`Xóa Popup ${index + 1}`}
                       title={`Xóa Popup ${index + 1}`}
@@ -7612,6 +10774,7 @@ function Home() {
                   </div>
                 ))}
               </div>
+              <small className="popup-size-help">Trong khung xem trước, kéo vạch xanh ở cuối Hình ảnh hoặc Nội dung để chỉnh riêng chiều cao. Nút ↺ sẽ đặt lại kích thước mặc định.</small>
             </div>
             {activePopup ? (
             <div className="popup-motion-settings-card" id="editor-popup">
@@ -7697,6 +10860,27 @@ function Home() {
                 </div>
                 <small>Nhập 0 để tắt viền.</small>
               </label>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Vị trí X</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.x ?? 5} onChange={(event) => updatePopup("x", clampPercent(event.target.value, activePopup?.x ?? 5))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Vị trí Y</span>
+                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.y ?? 55} onChange={(event) => updatePopup("y", clampPercent(event.target.value, activePopup?.y ?? 55))} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row popup-geometry-fields">
+                <label className="field">
+                  <span>Chiều rộng</span>
+                  <div className="number-with-unit"><input type="number" min="55" max="96" step="1" value={activePopup?.width ?? 90} onChange={(event) => updatePopup("width", Math.min(96, Math.max(55, Number(event.target.value) || 55)))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <span>Chiều cao</span>
+                  <div className="number-with-unit"><input type="number" min="170" max="440" step="1" value={activePopup?.height ?? 255} onChange={(event) => updatePopupHeight(Number(event.target.value), activePopup?.id)} /><b>px</b></div>
+                </label>
+              </div>
+              <small className="popup-geometry-help">Kéo Popup hoặc nút ở góc để các thông số này tự cập nhật.</small>
               <label className="field popup-image-field">
                 <span>Ảnh / video popup riêng</span>
                 <input
@@ -7715,22 +10899,6 @@ function Home() {
                   <span />
                   Giữ nền trong suốt cho ảnh / video popup
                 </label>
-                {popupMediaPreviewSource && (
-                  <div className="image-url-preview">
-                    {popupMediaIsVideo ? (
-                      <video
-                        src={popupMediaPreviewSource}
-                        muted
-                        loop
-                        playsInline
-                        controls
-                      />
-                    ) : (
-                      <img src={popupMediaPreviewSource} alt="Xem trước ảnh popup" />
-                    )}
-                    <span>Ảnh hoặc video này chỉ dùng cho popup đang chọn.</span>
-                  </div>
-                )}
               </label>
               <label className="field">
                 <span>Thời gian bắt đầu xuất hiện popup</span>
@@ -7826,7 +10994,7 @@ function Home() {
         <div className="timeline-heading">
           <div>
             <h2>Timeline</h2>
-            <span>{projectDuration} giây · {visibleScenes.length} cảnh hiện · {renderFps} FPS</span>
+            <span>{projectDuration} giây · {visibleScenes.length} cảnh hiện · {renderFps} FPS · Zoom {timelineZoom}% · Cuộn chuột để thu/phóng</span>
           </div>
           <div className="timeline-transport" aria-label="Điều khiển phát timeline">
             <button
@@ -7878,199 +11046,198 @@ function Home() {
           </div>
         </div>
         <div className="timeline">
-          <div className="ruler-labels">
-            <span />
-            <div className="ruler-scale">
-              {Array.from({ length: 6 }, (_, index) => {
-                const time = (projectDuration / 5) * index;
-                return (
-                  <i key={index} style={{ left: `${index * 20}%` }}>
-                    {formatTime(time)}
-                  </i>
-                );
-              })}
-            </div>
-          </div>
-          <div className="track scene-time-track">
-            <strong>Thời gian</strong>
-            <div className="track-content grid">
-              {visibleScenes.map((item) => (
-                <Fragment key={`${item.id}-time`}>
-                  <button
-                    type="button"
-                    className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
-                    onClick={() => {
-                      setSelectedId(item.id);
-                      setSelectedSceneIds([item.id]);
-                      setSelectedPopupId("");
-                      setSelectedTextOverlayId("");
-                      setPlayTime(item.start);
-                      setPlaying(false);
-                    }}
-                    style={{
-                      left: timelinePercent(item.start),
-                      width: timelinePercent(item.end - item.start),
-                    }}
-                    title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
-                  >
-                    <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
-                    <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
-                  </button>
-                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
-                    {formatTime(item.start)}
-                  </span>
-                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
-                    {formatTime(item.end)}
-                  </span>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          <div className="track popup-track">
-            <strong>Popup</strong>
-            <div className="track-content grid">
-              {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && popupHasContent(popup)).map(({ item, popup }) => {
-                const sceneLength = Math.max(0.1, item.end - item.start);
-                const popupStart = Math.min(
-                  sceneLength,
-                  Math.max(0, Number(popup.start) || 0),
-                );
-                const popupDuration = Math.min(
-                  Math.max(0.1, Number(popup.duration) || 0.1),
-                  Math.max(0.1, sceneLength - popupStart),
-                );
-                const popupGlobalStart = item.start + popupStart;
-                const popupGlobalEnd = popupGlobalStart + popupDuration;
-                return (
-                  <Fragment key={`${item.id}-${popup.id}`}>
-                  <button
-                    onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
-                    onClick={(event) => {
-                      if (timelinePopupMoved.current) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        timelinePopupMoved.current = false;
-                        return;
-                      }
-                      setSelectedPopupId(popup.id);
-                      openTimelineEditor(item, "editor-popup");
-                    }}
-                    className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
-                    style={{
-                      left: timelinePercent(popupGlobalStart),
-                      width: timelinePercent(popupDuration),
-                    }}
-                  >
-                    <span
-                      className="timeline-edge-handle timeline-edge-start"
-                      title="Kéo để đổi thời gian bắt đầu popup"
-                      aria-label="Điểm bắt đầu popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                    <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {popupDuration}s</span>
-                    <span
-                      className="timeline-edge-handle timeline-edge-end"
-                      title="Kéo để đổi thời lượng popup"
-                      aria-label="Điểm kết thúc popup"
-                      onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  </button>
-                  <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(popupGlobalStart) }}>
-                    {formatTime(popupGlobalStart)}
-                  </span>
-                  <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(popupGlobalEnd) }}>
-                    {formatTime(popupGlobalEnd)}
-                  </span>
-                  </Fragment>
-                );
-              })}
-            </div>
-          </div>
-          <div className="track narration-track">
-            <strong>Thuyết minh</strong>
-            <div className="track-content grid">
-              {narrationEnabled && visibleScenes.map((item) => (
-                <Fragment key={`${item.id}-narration`}>
-                <button
-                  key={item.id}
-                  className="clip voice-clip"
-                  onClick={() => openTimelineEditor(item, "editor-audio")}
-                  style={{
-                    left: timelinePercent(item.start),
-                    width: timelinePercent(item.end - item.start),
-                  }}
-                >
-                  🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
-                </button>
-                <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
-                  {formatTime(item.start)}
-                </span>
-                <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
-                  {formatTime(item.end)}
-                </span>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          <div className="track subtitle-track">
-            <strong>Phụ đề</strong>
-            <div className="track-content grid">
-              {visibleScenes.flatMap((item) => (item.subtitleEnabled === false ? [] : (item.subtitles ?? []).map((subtitle) => ({ item, subtitle }))))
-                .filter(({ subtitle }) => subtitle.visible !== false && safeTrim(subtitle.text))
-                .map(({ item, subtitle }) => {
-                  const sceneLength = Math.max(0.1, item.end - item.start);
-                  const subtitleStart = Math.min(sceneLength, Math.max(0, Number(subtitle.start) || 0));
-                  const subtitleEnd = Math.min(
-                    sceneLength,
-                    Math.max(subtitleStart + 0.1, Number(subtitle.end) || subtitleStart + 0.1),
-                  );
-                  const subtitleGlobalStart = item.start + subtitleStart;
-                  const subtitleDuration = Math.max(0.1, subtitleEnd - subtitleStart);
-                  return (
-                    <button
-                      key={`${item.id}-${subtitle.id}`}
-                      type="button"
-                      className="clip subtitle-clip"
-                      onClick={() => {
-                        setSelectedId(item.id);
-                        setSelectedSceneIds([item.id]);
-                        setPlaying(false);
-                        openTimelineEditor(item, "editor-subtitle");
-                        setPlayTime(Number(subtitleGlobalStart.toFixed(2)));
-                      }}
-                      style={{
-                        left: timelinePercent(subtitleGlobalStart),
-                        width: timelinePercent(subtitleDuration),
-                      }}
-                      title={`Phụ đề: ${formatTime(subtitleGlobalStart)} – ${formatTime(subtitleGlobalStart + subtitleDuration)}`}
-                    >
-                      <span className="timeline-clip-label">{subtitle.text}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
           <div
-            className="timeline-playhead-layer"
-            aria-label="Thanh tua timeline"
-            aria-hidden={playing}
+            className="timeline-scroll"
+            ref={timelineScrollRef}
+            role="region"
+            tabIndex={0}
+            aria-label="Nội dung Timeline có thể cuộn ngang"
+            title="Cuộn bánh xe chuột để thu hẹp hoặc dãn Timeline"
+            onWheel={handleTimelineWheel}
           >
-            <div
-              className={`playhead-grabber ${!playing ? "is-draggable" : ""}`}
-              style={{ left: `${timelineProgress * 100}%` }}
-              role={!playing ? "slider" : undefined}
-              tabIndex={!playing ? 0 : -1}
-              aria-label={!playing ? "Kéo để tua timeline" : undefined}
-              aria-valuemin={!playing ? 0 : undefined}
-              aria-valuemax={!playing ? projectDuration : undefined}
-              aria-valuenow={!playing ? Number(playTime.toFixed(1)) : undefined}
-              aria-valuetext={!playing ? formatTime(playTime) : undefined}
-              onPointerDown={startTimelineScrub}
-            >
-              <div className={`playhead ${playing ? "is-playing" : ""}`}>
-                <span>{formatTime(playTime)}</span>
+            <div className="timeline-scroll-content" style={{ minWidth: `${timelineCanvasWidth}px` }}>
+              <div className="ruler-labels">
+                <span />
+                <div className="ruler-scale">
+                  {Array.from({ length: 6 }, (_, index) => {
+                    const time = (projectDuration / 5) * index;
+                    return (
+                      <i key={index} style={{ left: `${index * 20}%` }}>
+                        {formatTime(time)}
+                      </i>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="track scene-time-track">
+                <strong>Thời gian</strong>
+                <div className="track-content grid">
+                  {visibleScenes.map((item) => (
+                    <Fragment key={`${item.id}-time`}>
+                      <button
+                        type="button"
+                        className={`clip time-clip ${!playing && item.id === selectedId ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedId(item.id);
+                          setSelectedSceneIds([item.id]);
+                          setSelectedPopupId("");
+                          setSelectedTextOverlayId("");
+                          setPlayTime(item.start);
+                          setPlaying(false);
+                        }}
+                        style={{
+                          left: timelinePercent(item.start),
+                          width: timelinePercent(item.end - item.start),
+                        }}
+                        title={`Cảnh ${item.number}: ${formatTime(item.start)} – ${formatTime(item.end)}`}
+                      >
+                        <span className="time-clip-scene">{item.sceneName || `Cảnh ${item.number}`}</span>
+                        <span className="time-clip-range">{formatTime(item.start)} – {formatTime(item.end)}</span>
+                      </button>
+                      <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                        {formatTime(item.start)}
+                      </span>
+                      <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                        {formatTime(item.end)}
+                      </span>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="track popup-track">
+                <strong>Popup</strong>
+                <div className="track-content grid">
+                  {visibleScenes.filter((item) => item.sceneVisible !== false).flatMap((item) => scenePopupList(item).map((popup) => ({ item, popup }))).filter(({ popup }) => popup.visible !== false && popupHasContent(popup)).map(({ item, popup }) => {
+                    const sceneLength = Math.max(0.1, item.end - item.start);
+                    const popupStart = Math.min(
+                      sceneLength,
+                      Math.max(0, Number(popup.start) || 0),
+                    );
+                    const popupDuration = Math.min(
+                      Math.max(0.1, Number(popup.duration) || 0.1),
+                      Math.max(0.1, sceneLength - popupStart),
+                    );
+                    const popupGlobalStart = item.start + popupStart;
+                    const popupGlobalEnd = popupGlobalStart + popupDuration;
+                    return (
+                      <Fragment key={`${item.id}-${popup.id}`}>
+                      <button
+                        onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
+                        onClick={(event) => {
+                          if (timelinePopupMoved.current) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            timelinePopupMoved.current = false;
+                            return;
+                          }
+                          setSelectedPopupId(popup.id);
+                          openTimelineEditor(item, "editor-popup");
+                        }}
+                        className={`clip popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
+                        style={{
+                          left: timelinePercent(popupGlobalStart),
+                          width: timelinePercent(popupDuration),
+                        }}
+                      >
+                        <span
+                          className="timeline-edge-handle timeline-edge-start"
+                          title="Kéo để đổi thời gian bắt đầu popup"
+                          aria-label="Điểm bắt đầu popup"
+                          onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                        <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {popupDuration}s</span>
+                        <span
+                          className="timeline-edge-handle timeline-edge-end"
+                          title="Kéo để đổi thời lượng popup"
+                          aria-label="Điểm kết thúc popup"
+                          onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      </button>
+                      <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(popupGlobalStart) }}>
+                        {formatTime(popupGlobalStart)}
+                      </span>
+                      <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(popupGlobalEnd) }}>
+                        {formatTime(popupGlobalEnd)}
+                      </span>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="track narration-track">
+                <strong>Thuyết minh</strong>
+                <div className="track-content grid">
+                  {narrationEnabled && visibleScenes.map((item) => (
+                    <Fragment key={`${item.id}-narration`}>
+                    <button
+                      key={item.id}
+                      className="clip voice-clip"
+                      onClick={() => openTimelineEditor(item, "editor-audio")}
+                      style={{
+                        left: timelinePercent(item.start),
+                        width: timelinePercent(item.end - item.start),
+                      }}
+                    >
+                      🎙 {item.voiceFile || `Thuyết minh ${item.number}`}
+                    </button>
+                    <span className="timeline-boundary timeline-boundary-start" style={{ left: timelinePercent(item.start) }}>
+                      {formatTime(item.start)}
+                    </span>
+                    <span className="timeline-boundary timeline-boundary-end" style={{ left: timelinePercent(item.end) }}>
+                      {formatTime(item.end)}
+                    </span>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="track effects-track">
+                <strong>Hiệu ứng</strong>
+                <div className="track-content grid">
+                  {timelineEffectItems.length ? timelineEffectItems.map((effect) => (
+                    <button
+                      key={effect.id}
+                      type="button"
+                      className={`clip effect-clip effect-clip-${effect.kind} ${!playing && effect.scene.id === selectedId ? "selected" : ""}`}
+                      style={{
+                        left: timelinePercent(effect.start),
+                        width: timelinePercent(effect.end - effect.start),
+                      }}
+                      title={`${effect.label} · ${formatTime(effect.start)} – ${formatTime(effect.end)}`}
+                      onClick={() => {
+                        openTimelineEditor(effect.scene, "editor-effects");
+                        setPlayTime(effect.start);
+                      }}
+                    >
+                      <span className="timeline-clip-label">{effect.label}</span>
+                    </button>
+                  )) : (
+                    <span className="timeline-track-empty">Chưa có hiệu ứng</span>
+                  )}
+                </div>
+              </div>
+              <div
+                className="timeline-playhead-layer"
+                aria-label="Thanh tua timeline"
+                aria-hidden={playing}
+              >
+                <div
+                  className={`playhead-grabber ${!playing ? "is-draggable" : ""}`}
+                  style={{ left: `${timelineProgress * 100}%` }}
+                  role={!playing ? "slider" : undefined}
+                  tabIndex={!playing ? 0 : -1}
+                  aria-label={!playing ? "Kéo để tua timeline" : undefined}
+                  aria-valuemin={!playing ? 0 : undefined}
+                  aria-valuemax={!playing ? projectDuration : undefined}
+                  aria-valuenow={!playing ? Number(playTime.toFixed(1)) : undefined}
+                  aria-valuetext={!playing ? formatTime(playTime) : undefined}
+                  onPointerDown={startTimelineScrub}
+                >
+                  <div className={`playhead ${playing ? "is-playing" : ""}`}>
+                    <span>{formatTime(playTime)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -8152,6 +11319,23 @@ function Home() {
                           ))}
                         </div>
                       </div>
+                      <label className="export-field render-profile-field">
+                        <span>Chế độ render</span>
+                        <select
+                          className="render-profile-select"
+                          value={renderProfile}
+                          aria-label="Chế độ render"
+                          onChange={(event) => setRenderProfile(normalizeRenderProfile(event.target.value))}
+                        >
+                          <option value="quality">Chất lượng cao</option>
+                          <option value="fast">Render nhanh</option>
+                        </select>
+                        <small className="export-field-hint">
+                          {renderProfile === "fast"
+                            ? "Giảm độ phân giải, FPS và thời gian encode để xem thử nhanh."
+                            : "Giữ nguyên độ phân giải và FPS đang chọn cho bản xuất cuối."}
+                        </small>
+                      </label>
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>
@@ -8279,10 +11463,11 @@ function Home() {
               activeProjectId={projectId}
               projectTitle={projectTitle}
               aspectRatio={aspectRatio}
-              assetPreviewSource={assetPreviewSource}
-              onAddClip={() => setShowNewProject(true)}
-              onRenameClip={renameProjectClip}
-              onDuplicateClip={duplicateProjectClip}
+                assetPreviewSource={assetPreviewSource}
+                onAddClip={() => setShowNewProject(true)}
+                onRenameClip={renameProjectClip}
+                onReorderClips={reorderProjectClips}
+                onDuplicateClip={duplicateProjectClip}
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
               onSave={() => void saveProjectNow()}
@@ -8457,17 +11642,387 @@ function Home() {
                 <a className="button primary local-download-button" href={localRenderState.downloadUrl}>
                   ↓ Tải video MP4
                 </a>
+              ) : localRenderState.status === "rendering" || localRenderState.status === "cancelling" ? (
+                <button
+                  className="button settings-danger-button"
+                  type="button"
+                  disabled={localRenderState.status === "cancelling"}
+                  onClick={() => void stopLocalRender()}
+                >
+                  {localRenderState.status === "cancelling" ? "Đang dừng…" : "Dừng render"}
+                </button>
               ) : (
                 <button
                   className="button primary"
-                  disabled={localRenderState.status === "uploading" || localRenderState.status === "rendering"}
+                  disabled={localRenderState.status === "uploading" || localRenderState.status === "cancelling"}
                   onClick={() => void startLocalRender()}
                 >
-                  {localRenderState.status === "rendering" ? "Đang render…" : "Bắt đầu render"}
+                  {localRenderState.status === "uploading" ? "Đang chuẩn bị…" : "Bắt đầu render"}
                 </button>
               )}
             </div>
           </div>
+        </div>
+      )}
+      {reviewOpen && (
+        <div className="review-overlay" role="dialog" aria-modal="true" aria-labelledby="review-heading">
+          <section className="review-shell">
+            <header className="review-topbar">
+              <div className="review-title-wrap">
+                <div className="review-brand-mark" aria-hidden="true">
+                  <span /><span /><span /><span />
+                </div>
+                <div>
+                  <div className="review-kicker">KITO VIDEO STUDIO · XEM TRƯỚC</div>
+                  <h1 id="review-heading">Review tổng quan</h1>
+                  <p>{projectTitle} · {reviewSceneCountLabel} · {formatTime(totalDuration)}</p>
+                </div>
+              </div>
+              <div className="review-top-actions">
+                <span className="review-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <div
+                  className="review-zoom-control"
+                  aria-label="Thu phóng cột cảnh"
+                  title="Cuộn chuột tại đây hoặc dùng Ctrl/Alt + cuộn trong bảng để phóng to, thu nhỏ"
+                  onWheel={(event) => {
+                    event.preventDefault();
+                    adjustReviewZoom(event.deltaY < 0 ? 10 : -10);
+                  }}
+                >
+                  <button type="button" onClick={() => adjustReviewZoom(-10)} disabled={reviewZoom <= 35} aria-label="Thu nhỏ cột cảnh">−</button>
+                  <output>{reviewZoom}%</output>
+                  <button type="button" onClick={() => adjustReviewZoom(10)} disabled={reviewZoom >= REVIEW_ZOOM_MAX} aria-label="Phóng to cột cảnh">＋</button>
+                </div>
+                <button type="button" className="button primary review-save-button" onClick={() => void saveProjectNow()}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></svg>
+                  Lưu thay đổi
+                </button>
+                <button
+                  type="button"
+                  className="review-close-button"
+                  aria-label="Đóng Review"
+                  title="Đóng Review (Esc)"
+                  onClick={() => setReviewOpen(false)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+              </div>
+            </header>
+
+            <div className="review-notice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v6M12 7h.01" /></svg>
+              <span>Double-click vào thông số để chỉnh sửa và đồng bộ ngay về khu vực “Biên soạn”. Enter để xác nhận · Esc để hủy.</span>
+            </div>
+
+            <div className="review-body">
+              <div className="review-scroll-area" onWheel={handleReviewWheel}>
+                {visibleScenes.length ? (
+                  <div
+                    className="review-table-grid"
+                    style={{ gridTemplateColumns: `178px repeat(${visibleScenes.length}, ${Math.round(165 * reviewZoom / 50)}px)` }}
+                  >
+                    <div className="review-corner">Thông tin cảnh</div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      return (
+                        <div className="review-scene-header" key={`review-head-${item.id}`}>
+                          <div className="review-scene-heading">
+                            <b>{String(item.number).padStart(2, "0")}</b>
+                            <ReviewEditable
+                              value={item.sceneName || `Cảnh ${item.number}`}
+                              label={`Tên cảnh ${item.number}`}
+                              className="review-scene-name"
+                              onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                            />
+                          </div>
+                          <div className="review-scene-time"><strong>{formatTime(item.start)} → {formatTime(item.end)}</strong><span>{duration.toFixed(1)} giây</span></div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Tên cảnh <small>text</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-name-${item.id}`}>
+                        <ReviewEditable
+                          value={item.sceneName || `Cảnh ${item.number}`}
+                          label={`Tên cảnh ${item.number}`}
+                          onCommit={(value) => updateReviewSceneField(item.id, "sceneName", value)}
+                        />
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Bắt đầu <small>timeline</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-start-${item.id}`}>
+                        <span className="review-readonly-value mono">{formatTime(item.start)}</span>
+                        <small className="review-cell-help">Tự tính theo thứ tự cảnh</small>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Thời lượng <small>giây</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-duration-${item.id}`}>
+                        <ReviewEditable
+                          value={Math.max(0.1, item.end - item.start).toFixed(2)}
+                          label={`Thời lượng cảnh ${item.number}`}
+                          numeric
+                          onCommit={(value) => updateReviewSceneDuration(item.id, value)}
+                        />
+                        <span className="review-unit">giây</span>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Âm thanh <small>voice</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-audio-${item.id}`}>
+                        <ReviewEditable
+                          value={fileNameOnly(item.voiceFile) || "Chưa có file âm thanh"}
+                          label={`File âm thanh cảnh ${item.number}`}
+                          className="review-audio-value"
+                          onCommit={(value) => updateReviewSceneField(item.id, "voiceFile", value)}
+                        />
+                        <div className="review-detail-line">Âm lượng {Number(item.voiceVolume ?? 95).toFixed(0)}%</div>
+                        <div className="review-detail-line">Bắt đầu phát <ReviewEditable value={Number(item.voiceStart ?? 0).toFixed(2)} label={`Thời gian bắt đầu âm thanh cảnh ${item.number}`} numeric onCommit={(value) => updateReviewSceneField(item.id, "voiceStart", Math.max(0, reviewNumber(value, Number(item.voiceStart ?? 0))))} /> <span>giây</span></div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label">Phụ đề <small>cues</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-subtitle-${item.id}`}>
+                        <button type="button" className={`review-toggle-row ${item.subtitleEnabled !== false ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "subtitleEnabled", item.subtitleEnabled === false)}>
+                          <span className="review-toggle-dot" /> {item.subtitleEnabled !== false ? `${(item.subtitles ?? []).filter((cue) => cue.visible !== false).length} cue đang bật` : "Đang tắt phụ đề"}
+                        </button>
+                        <div className="review-detail-line">Style: {normalizeSubtitleStyle(item.subtitleStyle).animation} · {normalizeSubtitleStyle(item.subtitleStyle).size}px</div>
+                      </div>
+                    ))}
+
+                    <div className="review-row-label review-section-label">Hình ảnh <small>{"item"}</small></div>
+                    {visibleScenes.map((item) => {
+                      const images = item.sceneImages ?? [];
+                      return (
+                        <div className="review-grid-cell review-section-cell review-images-cell" key={`review-images-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{images.length} hình ảnh</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {images.length ? images.map((image) => {
+                            const source = reviewAssetSource(image.url);
+                            return (
+                              <article className="review-layer-card" key={image.id}>
+                                <div className="review-layer-topline">
+                                  <span className="review-drag-dots" aria-hidden="true">⋮</span>
+                                  <div className="review-media-thumb">
+                                    {source && image.mediaType === "video" ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>IMG</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={image.name || "Hình ảnh"} label={`Tên hình ảnh ${image.name}`} onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "name", value)} />
+                                    <small>{fileNameOnly(image.url) || "Chưa nhập URL"} · {image.mediaType === "video" ? "video" : "image"}</small>
+                                  </div>
+                                  {renderReviewVisibility(image.visible !== false, `hình ảnh ${image.name}`, () => updateReviewSceneImageValue(item.id, image.id, "visible", image.visible === false))}
+                                </div>
+                                <div className="review-metric-grid">
+                                  <div><b>X</b><ReviewEditable value={String(image.x)} label="Vị trí X" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "x", clampPercent(reviewNumber(value, image.x), image.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(image.y)} label="Vị trí Y" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "y", clampPercent(reviewNumber(value, image.y), image.y))} /><em>%</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(image.width)} label="Chiều rộng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "width", Math.min(200, Math.max(1, reviewNumber(value, image.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(image.height)} label="Chiều cao hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "height", Math.min(200, Math.max(1, reviewNumber(value, image.height))))} /><em>%</em></div>
+                                </div>
+                                <div className="review-metric-grid review-metric-grid-secondary">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(image.start).toFixed(2)} label="Thời gian bắt đầu hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "start", Math.max(0, reviewNumber(value, image.start)))} /><em>s</em></div>
+                                  <div><b>Thời lượng</b><ReviewEditable value={Number(image.duration).toFixed(2)} label="Thời lượng hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "duration", Math.max(0.1, reviewNumber(value, image.duration)))} /><em>s</em></div>
+                                  <div><b>Opacity</b><ReviewEditable value={String(image.opacity)} label="Độ trong suốt hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "opacity", Math.min(100, Math.max(0, reviewNumber(value, image.opacity))))} /><em>%</em></div>
+                                  <div><b>Border</b><ReviewEditable value={String(image.borderWidth)} label="Độ dày border hình ảnh" numeric onCommit={(value) => updateReviewSceneImageValue(item.id, image.id, "borderWidth", Math.min(12, Math.max(0, reviewNumber(value, image.borderWidth))))} /><em>px</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${image.transparent ? "is-on" : ""}`} onClick={() => updateReviewSceneImageValue(item.id, image.id, "transparent", !image.transparent)}><span /> Giữ nền trong suốt</button>
+                                  <span className="review-chip">{image.spriteSheet ? `Sprite · ${image.spriteDelay}ms` : image.shape}</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "images", image.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          }) : <div className="review-empty-layer">Chưa có hình ảnh trong cảnh này.</div>}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "images", images[0]?.id ?? "")}>＋ Thêm hình ảnh trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Popup <small>items</small></div>
+                    {visibleScenes.map((item) => {
+                      const popups = scenePopupList(item);
+                      return (
+                        <div className="review-grid-cell review-section-cell review-popups-cell" key={`review-popups-${item.id}`}>
+                          <div className="review-section-heading">
+                            <strong>{popups.length} popup</strong>
+                            <button type="button" className="review-add-link" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>+ Mở Biên soạn</button>
+                          </div>
+                          {popups.map((popup) => {
+                            const mediaValue = safeTrim(popup.video) || safeTrim(popup.image);
+                            const source = reviewAssetSource(mediaValue);
+                            return (
+                              <article className="review-layer-card review-popup-card" key={popup.id}>
+                                <div className="review-layer-topline">
+                                  <div className="review-media-thumb popup-thumb">
+                                    {source && isVideoMedia(mediaValue) ? <video src={source} muted playsInline preload="metadata" /> : source ? <img src={source} alt="" /> : <span>POPUP</span>}
+                                  </div>
+                                  <div className="review-layer-title">
+                                    <ReviewEditable value={popup.title || "Popup"} label={`Tiêu đề popup ${popup.title}`} onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "title", value)} />
+                                    <small>{reviewLayoutLabel(popup.layout)} · {reviewThemeLabel(popup.theme)} · {popup.textEffect || "none"}</small>
+                                  </div>
+                                  {renderReviewVisibility(popup.visible !== false, `popup ${popup.title}`, () => updateReviewPopupValue(item.id, popup.id, "visible", popup.visible === false))}
+                                </div>
+                                <ReviewEditable value={popup.body || "Chưa có nội dung popup"} label={`Nội dung popup ${popup.title}`} multiline className="review-popup-body" onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "body", value)} />
+                                <div className="review-popup-meta-grid">
+                                  <div><b>Bắt đầu</b><ReviewEditable value={Number(popup.start).toFixed(2)} label="Thời gian bắt đầu popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "start", Math.max(0, reviewNumber(value, popup.start)))} /><em>s</em></div>
+                                  <div><b>Độ dài</b><ReviewEditable value={Number(popup.duration).toFixed(2)} label="Thời lượng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "duration", Math.min(Math.max(0.1, reviewNumber(value, popup.duration)), Math.max(0.1, item.end - item.start - popup.start)))} /><em>s</em></div>
+                                  <div><b>Rộng</b><ReviewEditable value={String(popup.width)} label="Chiều rộng popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "width", Math.min(96, Math.max(55, reviewNumber(value, popup.width))))} /><em>%</em></div>
+                                  <div><b>Cao</b><ReviewEditable value={String(popup.height)} label="Chiều cao popup" numeric onCommit={(value) => updateReviewPopupHeight(item.id, popup.id, value)} /><em>px</em></div>
+                                  <div><b>X</b><ReviewEditable value={String(popup.x)} label="Vị trí X popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "x", clampPercent(reviewNumber(value, popup.x), popup.x))} /><em>%</em></div>
+                                  <div><b>Y</b><ReviewEditable value={String(popup.y)} label="Vị trí Y popup" numeric onCommit={(value) => updateReviewPopupValue(item.id, popup.id, "y", clampPercent(reviewNumber(value, popup.y), popup.y))} /><em>%</em></div>
+                                </div>
+                                <div className="review-layer-footer">
+                                  <button type="button" className={`review-toggle-button ${popup.transparentMedia ? "is-on" : ""}`} onClick={() => updateReviewPopupValue(item.id, popup.id, "transparentMedia", !popup.transparentMedia)}><span /> Nền trong suốt</button>
+                                  <span className="review-chip review-chip-orange">Border {popup.borderWidth}px</span>
+                                  <button type="button" className="review-open-layer" onClick={() => reviewLayerFocus(item, "popup", popup.id)}>Mở</button>
+                                </div>
+                              </article>
+                            );
+                          })}
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "popup", popups[0]?.id ?? "")}>＋ Thêm popup trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label review-section-label">Hiệu ứng <small>motion</small></div>
+                    {visibleScenes.map((item) => {
+                      const duration = Math.max(0.1, item.end - item.start);
+                      const effectSummaries = reviewEffectSummary(item);
+                      const effectConfigurations = reviewEffectConfiguration(item);
+                      const sceneEffects = normalizeSceneEffects(item.effects);
+                      const darkEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.enabled);
+                      const imageTransitions = (item.sceneImages ?? []).filter((image) => normalizeSceneImageTransition(image.transition) !== "cut");
+                      return (
+                        <div className="review-grid-cell review-section-cell review-effects-cell" key={`review-effects-${item.id}`}>
+                          <div className="review-effect-heading">
+                            <button type="button" className={`review-effect-toggle ${item.zoomEnabled ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "zoomEnabled", !item.zoomEnabled)}><span /> Hiệu ứng zoom</button>
+                            <span className={`review-chip ${item.zoomEnabled ? "review-chip-orange" : "review-chip-muted"}`}>{item.zoomEnabled ? "Đang bật" : "Đang tắt"}</span>
+                          </div>
+                          <div className="review-effect-columns">
+                            <div className="review-effect-group">
+                              <strong>Zoom vào</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Number(item.zoomStart).toFixed(2)} label="Thời gian bắt đầu zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomStart", Math.max(0, reviewNumber(value, item.zoomStart)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><ReviewEditable value={Number(item.zoomEnd).toFixed(2)} label="Thời gian kết thúc zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomEnd", Math.max(0, reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                            </div>
+                            <div className="review-effect-group">
+                              <strong>Zoom ra</strong>
+                              <div><b>Bắt đầu</b><ReviewEditable value={Math.max(0, item.zoomEnd - item.zoomOutDuration).toFixed(2)} label="Thời gian bắt đầu zoom ra" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomOutDuration", Math.max(0, item.zoomEnd - reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
+                              <div><b>Kết thúc</b><span className="review-readonly-value mono">{formatTime(duration)}</span></div>
+                            </div>
+                          </div>
+                          <div className="review-metric-grid review-effect-metrics">
+                            <div><b>Tỉ lệ zoom</b><ReviewEditable value={Number(item.zoom).toFixed(2)} label="Tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoom", Math.max(1, reviewNumber(value, item.zoom)))} /><em>×</em></div>
+                            <div><b>Zoom vào</b><ReviewEditable value={Number(item.zoomInDuration).toFixed(2)} label="Thời gian tới tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomInDuration", Math.max(0, reviewNumber(value, item.zoomInDuration)))} /><em>s</em></div>
+                            <div><b>Tâm X</b><ReviewEditable value={String(item.centerX)} label="Tâm bản đồ X" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerX", clampPercent(reviewNumber(value, item.centerX), item.centerX))} /><em>%</em></div>
+                            <div><b>Tâm Y</b><ReviewEditable value={String(item.centerY)} label="Tâm bản đồ Y" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerY", clampPercent(reviewNumber(value, item.centerY), item.centerY))} /><em>%</em></div>
+                          </div>
+                          <div className="review-effect-timeline" aria-label={`Timeline hiệu ứng cảnh ${item.number}`}>
+                            <span><b>{formatTime(0)}</b><b>{formatTime(duration / 2)}</b><b>{formatTime(duration)}</b></span>
+                            <div><i className={item.zoomEnabled ? "is-active" : ""} style={{ left: `${Math.min(100, Math.max(0, (item.zoomStart / duration) * 100))}%`, width: `${Math.min(100, Math.max(1, ((item.zoomEnd - item.zoomStart) / duration) * 100))}%` }} /></div>
+                          </div>
+                          <div className="review-active-effects">
+                            <span>Hiệu ứng nền:</span>
+                            {effectSummaries.length ? effectSummaries.map((effect) => <span className="review-chip" key={effect.label}>{effect.label} · {effect.intensity}% · ×{effect.speed}</span>) : <span className="review-chip review-chip-muted">Không có</span>}
+                          </div>
+                          <div className="review-effect-detail-list">
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Chi tiết nền:</b>{" "}
+                              {effectConfigurations.map((effect) => (
+                                <span key={effect.label} className={`review-effect-status ${effect.enabled ? "is-on" : "is-off"}`}>
+                                  {effect.label} {effect.enabled ? `${effect.intensity}% · ×${effect.speed}` : "tắt"}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Hiệu ứng tối:</b>{" "}
+                              {darkEffects.length ? darkEffects.map((effect, index) => (
+                                <span key={effect.id} className="review-effect-status is-on">
+                                  #{index + 1} {formatTime(effect.start)}–{formatTime(effect.end)} · giữ {Number(effect.holdDuration ?? 0).toFixed(1)}s · cường độ {effect.intensity}%
+                                </span>
+                              )) : <span className="review-effect-status is-off">tắt</span>}
+                            </div>
+                            <div className="review-detail-line review-effect-detail-line">
+                              <b>Chuyển hình:</b>{" "}
+                              {imageTransitions.length ? imageTransitions.map((image) => (
+                                <span key={image.id} className="review-effect-status is-on">
+                                  {image.name || "Hình ảnh"}: {reviewImageTransitionLabel(image.transition)} · {formatTime(image.start)}–{formatTime(image.transitionEnd)}
+                                </span>
+                              )) : <span className="review-effect-status is-off">Cắt trực tiếp hoặc chưa có hình</span>}
+                            </div>
+                          </div>
+                          <button type="button" className="review-add-link review-add-bottom" onClick={() => reviewLayerFocus(item, "effects")}>Mở mục Hiệu ứng trong Biên soạn</button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Chữ viết <small>items</small></div>
+                    {visibleScenes.map((item) => {
+                      const textOverlays = item.textOverlays ?? [];
+                      const visibleTextOverlays = textOverlays.filter((overlay) => overlay.visible !== false);
+                      const decorations = item.mapDecorations ?? [];
+                      return (
+                        <div className="review-grid-cell review-basic-cell review-text-cell" key={`review-text-${item.id}`}>
+                          <div className="review-text-summary">
+                            <span className="review-count-chip">{visibleTextOverlays.length}/{textOverlays.length} lớp chữ đang hiện</span>
+                            <span className="review-detail-line">{visibleTextOverlays.map((overlay) => overlay.name || overlay.text).slice(0, 2).join(" · ") || "Chưa có lớp chữ"}</span>
+                          </div>
+                          {textOverlays.length ? (
+                            <div className="review-text-detail-list">
+                              {textOverlays.map((overlay, index) => (
+                                <article className={`review-text-detail ${overlay.visible === false ? "is-hidden" : ""}`} key={overlay.id}>
+                                  <div className="review-text-detail-heading">
+                                    <strong>{overlay.name || `Chữ ${index + 1}`}</strong>
+                                    <span className={`review-chip ${overlay.visible === false ? "review-chip-muted" : "review-chip-orange"}`}>
+                                      {overlay.visible === false ? "Đang ẩn" : "Đang hiện"}
+                                    </span>
+                                  </div>
+                                  <p>{safeTrim(overlay.text) || "Chưa có nội dung chữ"}</p>
+                                  <div className="review-detail-line">Thời gian {formatTime(overlay.start)}–{formatTime(overlay.end)} · {overlay.size}px · {overlay.style} · {overlay.font}</div>
+                                  <div className="review-detail-line">Hiệu ứng: {reviewTextEffectLabel(overlay.textEffect)} · {Number(overlay.textEffectDuration ?? 0.6).toFixed(2)}s · Opacity {overlay.opacity}%</div>
+                                  <div className="review-detail-line">Vị trí X {Number(overlay.x).toFixed(1)}% · Y {Number(overlay.y).toFixed(1)}% · khung {Number(overlay.width ?? 60).toFixed(1)}% × {Number(overlay.height ?? 10).toFixed(1)}%</div>
+                                  <div className="review-detail-line">Màu {overlay.color} · viền {overlay.strokeWidth}px {overlay.strokeColor} · nền {overlay.borderWidth}px {overlay.borderOpacity}%</div>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="review-empty-layer">Chưa có lớp chữ trong cảnh này.</div>
+                          )}
+                          <div className="review-detail-line review-decoration-summary">
+                            <b>Trang trí bản đồ:</b>{" "}
+                            {decorations.length ? decorations.map((decoration) => `${decoration.name || mapDecorationTypeLabel(decoration.type)} · ${mapDecorationTypeLabel(decoration.type)} · X${Number(decoration.x).toFixed(0)} Y${Number(decoration.y).toFixed(0)} · ${decoration.opacity}%`).join(" | ") : "Chưa có"}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="review-row-label">Ghi chú <small>review</small></div>
+                    {visibleScenes.map((item) => (
+                      <div className="review-grid-cell review-basic-cell" key={`review-note-${item.id}`}>
+                        <ReviewEditable value={item.reference || "Double-click để thêm ghi chú"} label={`Ghi chú cảnh ${item.number}`} multiline className="review-note-value" onCommit={(value) => updateReviewSceneField(item.id, "reference", value)} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="review-empty-state">
+                    <strong>Chưa có cảnh đang hiện</strong>
+                    <span>Hãy bật hiển thị ít nhất một cảnh để mở Review tổng quan.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <footer className="review-footer">
+              <span><i /> {reviewSceneCountLabel} · Cột mặc định 50% · Ctrl/Alt + cuộn chuột để phóng to/thu nhỏ</span>
+              <span>Thay đổi được cập nhật trực tiếp vào Biên soạn</span>
+            </footer>
+          </section>
         </div>
       )}
     </main>

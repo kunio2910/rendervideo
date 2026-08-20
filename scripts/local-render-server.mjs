@@ -1,14 +1,18 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { alignSubtitles } from "./align-subtitles.mjs";
+import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
 const root = process.cwd();
 const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
 const jobsRoot = path.join(root, "work", "local-render-jobs");
+const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
+const renderCacheRoot = path.join(jobsRoot, "render-cache");
+const spriteProcessVersion = "alpha-v5-auto-grid-local-file";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const jobs = new Map();
@@ -53,6 +57,12 @@ const runJob = async (job, project, files) => {
       await fs.writeFile(path.join(job.sourceDir, filename), Buffer.from(await file.arrayBuffer()));
     }
     await fs.writeFile(job.projectPath, JSON.stringify(project, null, 2), "utf8");
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+      return;
+    }
     job.status = "rendering";
     job.message = `Đang dựng 0/${project.scenes?.length || 0} cảnh`;
 
@@ -74,6 +84,7 @@ const runJob = async (job, project, files) => {
           FFMPEG_PATH: ffmpegPath,
           RENDER_SOURCE_DIR: job.sourceDir,
           RENDER_WORK_DIR: job.renderDir,
+          RENDER_CACHE_DIR: renderCacheRoot,
         },
       },
     );
@@ -93,14 +104,26 @@ const runJob = async (job, project, files) => {
       child.once("error", reject);
       child.once("exit", resolve);
     });
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+      return;
+    }
     if (exitCode !== 0) throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}`);
     job.status = "completed";
     job.progress = 100;
     job.message = "Render hoàn tất";
     job.downloadUrl = `/api/render/${job.id}/download`;
   } catch (error) {
-    job.status = "failed";
-    job.message = error instanceof Error ? error.message : "Không thể render video";
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.progress = 0;
+      job.message = "Đã dừng render";
+    } else {
+      job.status = "failed";
+      job.message = error instanceof Error ? error.message : "Không thể render video";
+    }
   } finally {
     job.child = null;
     activeJobId = null;
@@ -108,6 +131,8 @@ const runJob = async (job, project, files) => {
 };
 
 await fs.mkdir(jobsRoot, { recursive: true });
+await fs.mkdir(spriteAssetsRoot, { recursive: true });
+await fs.mkdir(renderCacheRoot, { recursive: true });
 
 const server = http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
@@ -127,6 +152,115 @@ const server = http.createServer(async (request, response) => {
         ? "Dịch vụ render cục bộ đã sẵn sàng"
         : "Chưa tìm thấy FFmpeg. Hãy chạy npm run render:setup",
     });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/process-sprite") {
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const body = await webRequest.json();
+      const sourceUrl = String(body?.sourceUrl || "").trim();
+      const sourceData = String(body?.sourceData || "");
+      const sourceName = safeName(body?.sourceName || "sprite-sheet");
+      if (!sourceUrl && !sourceData) throw new Error("Hãy nhập URL hoặc chọn file sprite");
+      let parsed = null;
+      if (sourceUrl) {
+        parsed = new URL(sourceUrl);
+        if (!/^https?:$/.test(parsed.protocol)) throw new Error("URL hình phải dùng http hoặc https");
+      }
+      if (sourceData && !/^data:[^;]+;base64,[a-z0-9+/=\s]+$/i.test(sourceData)) {
+        throw new Error(`Dữ liệu file ${sourceName} không hợp lệ`);
+      }
+      const requestedDelay = Number(body?.delay);
+      const delay = Number.isFinite(requestedDelay)
+        ? Math.min(1000, Math.max(60, Math.round(requestedDelay)))
+        : 180;
+      const requestedFrameSize = Number(body?.frameSize);
+      const frameSize = Number.isFinite(requestedFrameSize)
+        ? Math.min(1024, Math.max(128, Math.round(requestedFrameSize)))
+        : 0;
+      const sourceKey = sourceUrl || createHash("sha256").update(sourceData).digest("hex");
+      const cacheKey = createHash("sha256")
+        .update(`${spriteProcessVersion}\0${sourceKey}\0${delay}\0${frameSize || "auto"}`)
+        .digest("hex");
+      const outputPath = path.join(spriteAssetsRoot, `${cacheKey}.webp`);
+      const assetUrl = `http://${host}:${port}/api/sprite-assets/${cacheKey}.webp`;
+      try {
+        await fs.access(outputPath);
+        sendJson(response, 200, { processed: true, assetUrl, delay, ...(frameSize ? { frameSize } : {}) });
+        return;
+      } catch {
+        // Cache miss: read the selected file or download the remote source below.
+      }
+      let sourceBuffer;
+      if (sourceData) {
+        const encoded = sourceData.slice(sourceData.indexOf(",") + 1).replace(/\s+/g, "");
+        sourceBuffer = Buffer.from(encoded, "base64");
+      } else {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 45000);
+        let remote;
+        try {
+          remote = await fetch(parsed, { signal: controller.signal });
+        } finally {
+          clearTimeout(timeout);
+        }
+        if (!remote.ok) throw new Error(`Không tải được hình (${remote.status})`);
+        const contentLength = Number(remote.headers.get("content-length") || 0);
+        if (contentLength > 25 * 1024 * 1024) throw new Error("Hình sprite vượt quá giới hạn 25 MB");
+        sourceBuffer = Buffer.from(await remote.arrayBuffer());
+      }
+      if (sourceBuffer.length > 25 * 1024 * 1024) throw new Error("Hình sprite vượt quá giới hạn 25 MB");
+      const result = await processSpriteSheetBuffer(sourceBuffer, {
+        delay,
+        ...(frameSize ? { frameSize } : {}),
+      });
+      if (!result.detected) {
+        sendJson(response, 200, { processed: false, reason: result.reason });
+        return;
+      }
+      await fs.writeFile(outputPath, result.buffer);
+      sendJson(response, 200, {
+        processed: true,
+        assetUrl,
+        frameCount: result.frameCount,
+        frameSize: result.frameSize,
+        delay: result.delay,
+        ...(result.columns ? { columns: result.columns } : {}),
+        ...(result.rows ? { rows: result.rows } : {}),
+        ...(result.confidence ? { confidence: result.confidence } : {}),
+        ...(result.mode ? { mode: result.mode } : {}),
+      });
+    } catch (error) {
+      sendJson(response, 400, {
+        error: error instanceof Error ? error.message : "Không thể xử lý sprite sheet",
+      });
+    }
+    return;
+  }
+
+  const spriteAssetMatch = url.pathname.match(/^\/api\/sprite-assets\/([a-f0-9]{64})\.webp$/i);
+  if (request.method === "GET" && spriteAssetMatch) {
+    const assetPath = path.join(spriteAssetsRoot, `${spriteAssetMatch[1].toLowerCase()}.webp`);
+    const download = url.searchParams.get("download") === "1";
+    try {
+      const stat = await fs.stat(assetPath);
+      response.writeHead(200, {
+        ...corsHeaders,
+        "Content-Type": "image/webp",
+        "Content-Length": stat.size,
+        ...(download ? { "Content-Disposition": "attachment; filename=\"kito-sprite-animation.webp\"" } : {}),
+      });
+      const file = await import("node:fs");
+      file.createReadStream(assetPath).pipe(response);
+    } catch {
+      sendJson(response, 404, { error: "Không tìm thấy ảnh sprite đã xử lý" });
+    }
     return;
   }
 
@@ -214,6 +348,7 @@ const server = http.createServer(async (request, response) => {
       const job = {
         id,
         status: "queued",
+        cancelRequested: false,
         progress: 0,
         message: "Đang chuẩn bị tài nguyên",
         log: "",
@@ -229,6 +364,31 @@ const server = http.createServer(async (request, response) => {
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : "Dữ liệu render không hợp lệ" });
     }
+    return;
+  }
+
+  const cancelMatch = url.pathname.match(/^\/api\/render\/([^/]+)\/cancel$/);
+  if (request.method === "POST" && cancelMatch) {
+    const job = jobs.get(cancelMatch[1]);
+    if (!job) {
+      sendJson(response, 404, { error: "Không tìm thấy phiên render" });
+      return;
+    }
+    if (["completed", "failed", "cancelled"].includes(job.status)) {
+      sendJson(response, 200, { id: job.id, status: job.status });
+      return;
+    }
+    job.cancelRequested = true;
+    job.status = "cancelling";
+    job.message = "Đang dừng render…";
+    if (job.child?.pid) {
+      if (process.platform === "win32") {
+        execFile("taskkill", ["/PID", String(job.child.pid), "/T", "/F"], () => undefined);
+      } else {
+        job.child.kill("SIGTERM");
+      }
+    }
+    sendJson(response, 202, { id: job.id, status: job.status });
     return;
   }
 

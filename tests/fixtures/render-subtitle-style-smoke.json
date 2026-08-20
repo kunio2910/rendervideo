@@ -1,0 +1,51 @@
+{
+  "title": "Subtitle style smoke",
+  "duration": 5,
+  "aspectRatio": "9:16",
+  "resolution": "720x1280",
+  "fps": 24,
+  "scenes": [
+    {
+      "milestone": 1,
+      "sceneName": "Cảnh phụ đề",
+      "start": 0,
+      "end": 5,
+      "background": "map.png",
+      "voiceFile": "vuadavit_canh01.mp3",
+      "subtitleEnabled": true,
+      "subtitleStyle": {
+        "size": 24,
+        "style": "bold",
+        "color": "#ffffff",
+        "opacity": 100,
+        "font": "Arial",
+        "strokeWidth": 1,
+        "strokeColor": "#000000",
+        "borderWidth": 4,
+        "borderColor": "#ffd166",
+        "borderOpacity": 90,
+        "borderFill": "#14202e",
+        "x": 50,
+        "y": 82,
+        "animation": "typewriter",
+        "animationDuration": 0.25
+      },
+      "subtitles": [
+        {
+          "id": "style-1",
+          "text": "Phụ đề có border và hiệu ứng trượt lên.",
+          "start": 0.2,
+          "end": 2.5,
+          "visible": true
+        },
+        {
+          "id": "style-2",
+          "text": "Bạn có thể rà soát và chỉnh lại timestamp.",
+          "start": 2.7,
+          "end": 4.8,
+          "visible": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import sharp from "sharp";
+import { processSpriteSheetBuffer } from "../scripts/sprite-sheet.mjs";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -51,6 +53,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /indexedDB/);
   assert.match(page, /timelineProgress/);
   assert.match(page, /timeline-playhead-layer/);
+  assert.match(page, /timelineEffectItems/);
+  assert.match(page, /effect-clip/);
   assert.match(page, /startTimelineScrub/);
   assert.match(page, /startTimelinePopupDrag/);
   assert.match(page, /popupStart/);
@@ -70,7 +74,18 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /popupLayout/);
   assert.match(page, /popupTheme/);
   assert.match(page, /popupTextEffect/);
+  assert.match(page, /const focusEditorLayer/);
+  assert.match(page, /const selectPreviewLayer/);
+  assert.match(page, /editor-layer-popup-/);
+  assert.match(page, /editor-layer-text-/);
+  assert.match(page, /editor-layer-images-/);
+  assert.match(page, /previewAudioMuted/);
+  assert.match(page, /togglePreviewAudio/);
+  assert.match(page, /preview-audio-toggle/);
+  assert.match(page, /previewAudioMuted \|\|/);
   assert.match(page, /popupVideo/);
+  assert.match(page, /typeof rawPopup\.transparentMedia === "boolean"/);
+  assert.match(page, /typeof rawPopup\.popupTransparentMedia === "boolean"/);
   assert.match(page, /const updatePopupMedia = \(value: string, popupId = selectedPopupId\)/);
   assert.match(page, /copyEditorSection/);
   assert.match(page, /pasteEditorSection/);
@@ -89,8 +104,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /layer-name-input/);
   assert.match(css, /Compose layer lists need their labels to remain legible/);
   assert.match(css, /scene-image-select strong/);
-  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.width\}/);
-  assert.match(page, /min="1" max="96" step="1" value=\{activeSceneImage\.height\}/);
+  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.width\}/);
+  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.height\}/);
   assert.match(page, /event\.currentTarget\.select\(\)/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
@@ -102,6 +117,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /normalizeRulerStyle/);
   assert.match(page, /toggleRuler/);
   assert.match(page, /preview-ruler-style-popover/);
+  assert.match(page, /rulerPopoverPosition/);
+  assert.match(page, /rulerPopoverRef/);
+  assert.match(page, /REVIEW_ZOOM_MAX = 200/);
+  assert.match(page, /readReviewZoomPreference/);
   assert.match(page, /snapDragPosition/);
   assert.match(page, /preview-ruler-toggle/);
   assert.match(page, /preview-alignment-guides/);
@@ -113,7 +132,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /setTimelineHeight\(normalizeTimelineHeight/);
   assert.match(page, /data-popup-id=\{popup\.id\}/);
   assert.match(page, /draggedPopupBounds/);
-  assert.match(page, /height: `min\(\$\{popup\.height \?\? 255\}px, 88%\)`/);
+  assert.match(page, /height: `min\(\$\{popupGeometry\.height \|\| popup\.height \|\| 255\}px, 88%\)`/);
   assert.match(page, /popupX/);
   assert.match(page, /popupY/);
   assert.match(page, /zoomStart/);
@@ -149,6 +168,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
+  assert.match(page, /replayPlayback/);
+  assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
   assert.match(page, /id="editor-narration"/);
   assert.match(page, /value=\{scene\.narration\}/);
@@ -168,7 +189,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startSubtitleDrag/);
   assert.match(page, /deleteAllSubtitleCues/);
   assert.match(page, /Xóa tất cả/);
-  assert.match(page, /subtitle-track/);
+  assert.doesNotMatch(page, /className="track subtitle-track"/);
   assert.match(page, /editor-subtitle/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
   assert.match(page, /activeStudioTab === "settings"/);
@@ -191,12 +212,16 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.doesNotMatch(page, /settings-nav-title/);
   assert.doesNotMatch(page, /settings-page-heading/);
   assert.match(page, /settings-add-clip-action/);
-  assert.match(page, /Cảnh tiếp theo/);
+  assert.doesNotMatch(page, /Cảnh trước|Cảnh tiếp theo/);
   assert.doesNotMatch(page, /preview-footer.*Background.*Popup/s);
   assert.match(page, /const updateScene[\s\S]{0,180}if \(!hydrated\) return;/);
-  assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera|editor-effects/);
+  assert.doesNotMatch(page, /zoomMarkerEnabled|editor-camera/);
   assert.match(css, /zoom-focus-target/);
   assert.match(page, /event\.key === " "/);
+  assert.match(page, /const moveSelectedMapLayer/);
+  assert.match(page, /event\.shiftKey \? 5 : 1/);
+  assert.match(page, /ArrowUp/);
+  assert.match(page, /Dùng phím mũi tên để di chuyển/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /timeline-edge-handle/);
   assert.match(css, /timeline-playhead-layer/);
@@ -218,8 +243,14 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-ruler-style-popover/);
   assert.match(css, /preview-ruler-grid/);
   assert.match(css, /preview-alignment-guides/);
+  assert.match(css, /preview-stage-layout/);
+  assert.match(css, /preview-layer-panel/);
+  assert.match(css, /preview-layer-item/);
+  assert.match(css, /pointer-events: none !important/);
   assert.match(css, /preview-fullscreen::before/);
   assert.match(css, /preview-fullscreen-panel/);
+  assert.match(css, /preview-fullscreen-panel \.phone-preview\.preview-portrait[\s\S]{0,180}width: min\(100%, 360px\) !important/);
+  assert.match(css, /preview-fullscreen-panel \.phone-preview\.preview-landscape[\s\S]{0,180}height: auto !important/);
   assert.match(css, /data-theme="dark".*field > span/s);
   assert.match(css, /data-theme="dark"\]\s+\.button\.ghost/);
   assert.match(css, /subtitle-add-button:hover/);
@@ -255,6 +286,15 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /aspect-ratio: 9 \/ 16/);
   assert.match(css, /preview-control-panel/);
   assert.match(css, /preview-panel-progress/);
+  assert.match(css, /preview-audio-toggle/);
+  assert.match(css, /preview-replay-button/);
+  assert.match(page, /Math\.min\(REVIEW_ZOOM_MAX/);
+  assert.match(page, /localStorage\.setItem\(LOCAL_REVIEW_ZOOM_KEY/);
+  assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
+  assert.match(css, /preview-control-bar \.preview-review-toggle span/);
+  assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
+  assert.match(css, /\.preview-ruler-style-popover \{[\s\S]{0,180}position: fixed;/);
+  assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
   assert.match(css, /width: min\(100%, 420px\)/);
   assert.match(css, /popup-layout-split/);
   assert.match(css, /popup-theme-ocean/);
@@ -273,7 +313,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
   assert.match(renderer, /popupPixelHeight/);
-  assert.match(renderer, /const height = popupPixelHeight\(scene\)/);
+  assert.match(renderer, /const geometry = popupSectionGeometry\(/);
+  assert.match(renderer, /const height = Math\.min\(/);
+  assert.match(renderer, /Number\(popup\.width\)/);
+  assert.match(renderer, /Number\(popup\.height\)/);
+  assert.match(renderer, /popupImageHeight/);
+  assert.match(renderer, /popupContentHeight/);
   assert.match(renderer, /const animatedStickerSize = Math\.max\(1, Math\.round\(previewPx\(220\)\)\)/);
   assert.match(renderer, /const ffmpegMediaFit = \(width, height, fit = "cover"\)/);
   assert.match(renderer, /force_original_aspect_ratio=decrease,pad=\$\{width\}:\$\{height\}/);
@@ -307,13 +352,58 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /decorationRenders/);
   assert.match(renderer, /createTextOverlay/);
   assert.match(renderer, /createSubtitleOverlay/);
-  assert.match(renderer, /requestedWidth = clamp\(Number\(image\?\.width \?\? 42\) \/ 100, 0\.01, 0\.96\)/);
+  assert.match(renderer, /requestedWidth = clamp\(Number\(image\?\.width \?\? 42\) \/ 100, 0\.01, 2\)/);
   assert.match(renderer, /subtitleStyle\.boxWidth/);
   assert.match(renderer, /const borderSvg = borderWidth > 0/);
   assert.match(renderer, /const hasImageBorder = Boolean\(imageRender\.borderPath\)/);
   assert.match(renderer, /const imageFit = image\.transparent === true \? "contain" : "cover"/);
   assert.match(renderer, /animatedStickerFit/);
-  assert.match(renderer, /sceneImageInputIndex \+= hasImageBorder \? 3 : 2/);
+  assert.match(page, /layerOrder\?: string\[\]/);
+  assert.match(page, /previewLayerItems/);
+  assert.match(page, /reorderPreviewLayers/);
+  assert.match(page, /visiblePreviewLayerItems/);
+  assert.match(page, /preview-layer-search/);
+  assert.match(page, /explicitlySelectedPreviewLayerToken/);
+  assert.match(page, /label: "Phụ đề"/);
+  assert.match(page, /sceneImageTransitionOptions/);
+  assert.match(page, /value: "fade-black"/);
+  assert.match(page, /Hiệu ứng chuyển hình/);
+  assert.match(page, /sceneImagePreviewTransition/);
+  assert.match(page, /scene-image-fade-black/);
+  assert.match(page, /sceneStartDarkEffectProgress/);
+  assert.match(page, /easedProgress = progress \* progress \* \(3 - 2 \* progress\)/);
+  assert.match(page, /scene-start-dark-mid-opacity/);
+  assert.match(page, /elapsed < halfDuration/);
+  assert.match(page, /elapsed < halfDuration \+ holdDuration/);
+  assert.match(page, /sceneLocalTime < end/);
+  assert.match(page, /subtitleStart/);
+  assert.match(page, /Thời gian bắt đầu phát tất cả phụ đề/);
+  assert.match(page, /holdDuration/);
+  assert.match(page, /Thời gian giữ tối/);
+  assert.match(page, /editor-section-shortcuts/);
+  assert.match(page, /reviewEffectConfiguration/);
+  assert.match(page, /reviewTextEffectLabel/);
+  assert.match(page, /review-text-detail-list/);
+  assert.match(page, /Hiệu ứng tối/);
+  assert.match(page, /Chuyển hình/);
+  assert.match(renderer, /orderedLayerTokens/);
+  assert.match(renderer, /layerToken = \(kind, id\)/);
+  assert.match(renderer, /appendSceneImageLayer/);
+  assert.match(renderer, /sceneImageTransitionNeedsOverlap/);
+  assert.match(renderer, /imageTransitionFilter/);
+  assert.match(renderer, /sceneImageFadeBlack/);
+  assert.match(renderer, /boxblur=luma_radius/);
+  assert.match(renderer, /darkHalfDuration/);
+  assert.match(renderer, /darkProgressRaw/);
+  assert.match(renderer, /3-2\*\(\$\{darkProgressRaw\}\)/);
+  assert.match(renderer, /darkHoldDuration/);
+  assert.match(renderer, /darkHoldStart/);
+  assert.match(renderer, /darkProgressRaw = `if\(lt\(T/);
+  assert.match(renderer, /\$\{darkEnd\}-T/);
+  assert.match(renderer, /subtitleOffset/);
+  assert.match(renderer, /enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
+  assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
+  assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);
   assert.match(renderer, /subtitleRenders/);
   assert.match(renderer, /geq=r='r\(X,Y\)':g='g\(X,Y\)':b='b\(X,Y\)':a='if\(lt\(X\/W,/);
@@ -326,15 +416,61 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /-stream_loop/);
   assert.match(renderer, /d=1,trim=duration/);
   assert.match(renderer, /popup\.video/);
+  assert.match(renderer, /typeof popup\.transparentMedia === "boolean"/);
+  assert.match(renderer, /typeof popup\.popupTransparentMedia === "boolean"/);
+  assert.match(renderer, /const animatedImageDetected = isAnimatedImageMedia\(imageValue\)/);
+  assert.match(renderer, /const image = animatedImage && !resolvedVideo \? null : resolvedImage/);
+  assert.match(renderer, /videoFrameSequence/);
+  assert.match(renderer, /const writeAnimatedImageFrameSequence/);
+  assert.match(renderer, /animatedImage = await writeAnimatedImageFrameSequence/);
+  assert.match(renderer, /const writeAnimatedWebpFrameSequence/);
+  assert.match(renderer, /args\.push\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);
   assert.match(renderer, /scene\.popupY/);
   assert.match(renderer, /volume=\$\{voiceVolume\.toFixed\(3\)\}/);
   assert.match(renderer, /"-c:v", "copy"/);
   assert.match(renderer, /"-c:a", "aac"/);
-  assert.doesNotMatch(renderer, /adelay=/);
+  assert.match(renderer, /adelay=\$\{Math\.round\(voiceStart \* 1000\)\}/);
   assert.doesNotMatch(renderer, /fallback-\$\{index \+ 1\}/);
   assert.match(localServer, /--use-system-ca/);
   assert.match(localServer, /\/api\/align-subtitles/);
   assert.match(localServer, /alignSubtitles/);
+  assert.match(page, /fileToDataUrl/);
+  assert.match(page, /sourceData/);
+  assert.match(page, /tự nhận diện/);
+  assert.match(localServer, /alpha-v5-auto-grid-local-file/);
+  assert.match(localServer, /sourceData/);
+  assert.match(renderer, /processSpriteSheetBuffer/);
+});
+
+test("auto-detects a solid-background sprite sheet grid", async () => {
+  const columns = 6;
+  const rows = 5;
+  const cellSize = 64;
+  const width = columns * cellSize;
+  const height = rows * cellSize;
+  const raw = Buffer.alloc(width * height * 4);
+  for (let index = 3; index < raw.length; index += 4) raw[index] = 255;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      for (let y = 10; y < 54; y += 1) {
+        for (let x = 10; x < 54; x += 1) {
+          const index = ((row * cellSize + y) * width + column * cellSize + x) * 4;
+          raw[index] = 180 + column * 10;
+          raw[index + 1] = 60 + row * 20;
+          raw[index + 2] = 40;
+        }
+      }
+    }
+  }
+  const result = await processSpriteSheetBuffer(
+    await sharp(raw, { raw: { width, height, channels: 4 } }).png().toBuffer(),
+    { frameSize: 128, delay: 60 },
+  );
+  assert.equal(result.detected, true);
+  assert.equal(result.columns, columns);
+  assert.equal(result.rows, rows);
+  assert.equal(result.frameCount, columns * rows);
+  assert.equal(result.mode, "regular-grid");
 });

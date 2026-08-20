@@ -1,0 +1,32 @@
+{
+  "title": "render-text-effects-smoke",
+  "duration": 2,
+  "resolution": "720x1280",
+  "fps": 12,
+  "background": "map.png",
+  "scenes": [
+    {
+      "sceneName": "Kiểm tra hiệu ứng chữ",
+      "start": 0,
+      "end": 2,
+      "background": "map.png",
+      "effects": {
+        "sceneStartDarkEffects": [
+          { "id": "dark-1", "enabled": true, "start": 0, "end": 0.5, "intensity": 15 },
+          { "id": "dark-2", "enabled": true, "start": 0.8, "end": 1.4, "intensity": 45 }
+        ]
+      },
+      "textOverlays": [
+        { "id": "fade", "text": "Fade", "textEffect": "fade", "textEffectDuration": 0.4, "start": 0.2, "end": 1.5, "x": 20, "y": 10, "size": 16, "visible": true },
+        { "id": "slide", "text": "Slide", "textEffect": "slide-left", "textEffectDuration": 0.4, "start": 0.4, "end": 1.8, "x": 50, "y": 18, "size": 16, "visible": true },
+        { "id": "type", "text": "Type writer", "textEffect": "typewriter", "textEffectDuration": 0.4, "x": 50, "y": 26, "size": 16, "visible": true },
+        { "id": "words", "text": "Word by word", "textEffect": "word-by-word", "textEffectDuration": 0.4, "x": 50, "y": 34, "size": 16, "visible": true },
+        { "id": "zoom", "text": "Zoom Pop", "textEffect": "zoom", "textEffectDuration": 0.4, "x": 50, "y": 42, "size": 16, "visible": true },
+        { "id": "glow", "text": "Glow", "textEffect": "glow", "textEffectDuration": 0.4, "x": 50, "y": 50, "size": 16, "visible": true },
+        { "id": "blur", "text": "Blur", "textEffect": "blur", "textEffectDuration": 0.4, "x": 50, "y": 58, "size": 16, "visible": true },
+        { "id": "stroke", "text": "Stroke", "textEffect": "stroke-draw", "textEffectDuration": 0.4, "x": 50, "y": 66, "size": 16, "visible": true },
+        { "id": "rest", "text": "Shake Glitch Kinetic", "textEffect": "shake", "textEffectDuration": 0.4, "x": 50, "y": 74, "size": 16, "visible": true }
+      ]
+    }
+  ]
+}
