@@ -274,7 +274,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /updateSceneStructureTiming/);
   assert.match(page, /openSceneStructureItemInEditor/);
   assert.match(page, /sceneStructurePreviewMode/);
-  assert.match(page, /renderSceneStructureLivePreview/);
+  assert.match(page, /createPortal/);
+  assert.match(page, /const previewCanvas/);
+  assert.match(page, /sceneStructurePreviewPortalHost/);
+  assert.match(page, /sceneStructureZoom/);
+  assert.match(page, /adjustSceneStructureZoom/);
   assert.match(page, /returnFromSceneStructurePreview/);
   assert.match(page, /scene-structure-return-button/);
   assert.match(page, /isLive/);
@@ -285,11 +289,18 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /\.scene-structure-card\.is-live/);
   assert.match(css, /\.scene-structure-inspector/);
   assert.match(css, /\.scene-structure-live-preview/);
+  assert.match(css, /\.scene-structure-tool-group/);
+  assert.match(css, /\.scene-structure-zoom-control/);
+  assert.match(css, /\.scene-structure-preview-portal-host/);
   const sceneStructureMarkup = page.slice(
     page.indexOf("{sceneStructureOpen &&"),
     page.indexOf("{reviewOpen &&"),
   );
   assert.doesNotMatch(sceneStructureMarkup, /\bdraggable\b/);
+  assert.doesNotMatch(sceneStructureMarkup, /renderSceneStructureLivePreview\(\)/);
+  assert.match(sceneStructureMarkup, /Hoàn tác \(Ctrl\+Z\)/);
+  assert.match(sceneStructureMarkup, /Làm lại \(Ctrl\+Y\)/);
+  assert.match(sceneStructureMarkup, /Thu phóng sơ đồ cảnh/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });

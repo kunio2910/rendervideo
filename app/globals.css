@@ -9246,7 +9246,7 @@ body {
   height: 14px;
   background: #45586c;
 }
-.scene-structure-top-actions { flex: 0 0 auto; justify-content: flex-end; gap: 12px; }
+.scene-structure-top-actions { flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .scene-structure-sync-state { gap: 7px; color: #8fb9a0; font-size: 10px; font-weight: 700; }
 .scene-structure-sync-state i {
   width: 7px;
@@ -9254,6 +9254,59 @@ body {
   border-radius: 50%;
   background: #45bd79;
   box-shadow: 0 0 0 4px rgba(69, 189, 121, .12);
+}
+.scene-structure-tool-group,
+.scene-structure-zoom-control {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  overflow: hidden;
+  border: 1px solid #3c5065;
+  border-radius: 9px;
+  background: #142131;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+.scene-structure-tool-button,
+.scene-structure-zoom-control button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #dce8f3;
+  cursor: pointer;
+  font-size: 18px;
+}
+.scene-structure-tool-button + .scene-structure-tool-button,
+.scene-structure-zoom-control output,
+.scene-structure-zoom-control output + button {
+  border-left: 1px solid #314458;
+}
+.scene-structure-tool-button:hover:not(:disabled),
+.scene-structure-zoom-control button:hover:not(:disabled) { background: #213349; color: #fff; }
+.scene-structure-tool-button:focus-visible,
+.scene-structure-zoom-control button:focus-visible { position: relative; z-index: 1; outline: 2px solid #4da3ff; outline-offset: -2px; }
+.scene-structure-tool-button:disabled,
+.scene-structure-zoom-control button:disabled { color: #5f7081; cursor: not-allowed; opacity: .58; }
+.scene-structure-tool-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.scene-structure-zoom-control output {
+  display: grid;
+  place-items: center;
+  min-width: 58px;
+  height: 40px;
+  color: #b9c8d7;
+  font: 700 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .scene-structure-play-button,
 .scene-structure-close-button {
@@ -9314,6 +9367,7 @@ body {
   position: relative;
   width: 100%;
   min-width: 1040px;
+  transition: min-width .18s ease;
   overflow: hidden;
   padding: 0 24px 82px;
   background:
@@ -9753,6 +9807,23 @@ body {
 .scene-structure-live-preview.preview-landscape { aspect-ratio: 16 / 9; height: auto !important; }
 .scene-structure-live-preview::before { display: none; }
 .scene-structure-live-preview .scene-structure-live-layer { pointer-events: none; }
+.scene-structure-preview-portal-host {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 180px;
+  margin: 0 auto 16px;
+}
+.scene-structure-preview-portal-host .phone-preview {
+  margin: 0 auto;
+  pointer-events: none;
+  user-select: none;
+}
+.scene-structure-preview-portal-host .zoom-focus-target,
+.scene-structure-preview-portal-host .popup-resize-handle,
+.scene-structure-preview-portal-host .popup-section-resize-handle,
+.scene-structure-preview-portal-host .subtitle-resize-handle,
+.scene-structure-preview-portal-host .preview-alignment-guides { display: none !important; }
 .scene-structure-live-preview .map-text-overlay { cursor: default; user-select: none; }
 .scene-structure-live-preview .scene-image-overlay img,
 .scene-structure-live-preview .scene-image-overlay video { width: 100%; height: 100%; object-fit: cover; }
@@ -9782,7 +9853,10 @@ body {
 @media (max-width: 760px) {
   .scene-structure-return-button { flex: 1 1 0; min-height: 42px; padding-inline: 10px; }
   .scene-structure-live-preview { width: min(100%, 260px) !important; }
+  .scene-structure-tool-group,
+  .scene-structure-zoom-control { flex: 1 1 auto; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   .scene-structure-card.is-live { animation: none; }
+  .scene-structure-flow-content { transition: none; }
 }

@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { User as FirebaseUser } from "firebase/auth";
 import {
   loadWorkspaceFromFirestore,
@@ -699,6 +700,9 @@ const LOCAL_REVIEW_ZOOM_KEY = "kito-video-studio-review-zoom";
 const REVIEW_ZOOM_MIN = 35;
 const REVIEW_ZOOM_MAX = 200;
 const REVIEW_ZOOM_DEFAULT = 50;
+const SCENE_STRUCTURE_ZOOM_MIN = 75;
+const SCENE_STRUCTURE_ZOOM_MAX = 200;
+const SCENE_STRUCTURE_ZOOM_STEP = 25;
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 
 const clampReviewZoom = (value: unknown) => {
@@ -2730,10 +2734,12 @@ function Home() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
   const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
+  const [sceneStructureZoom, setSceneStructureZoom] = useState(100);
   const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
+  const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -2940,6 +2946,12 @@ function Home() {
   };
   const adjustPreviewZoom = (delta: number) => {
     setPreviewZoom((value) => Math.min(125, Math.max(75, value + delta)));
+  };
+  const adjustSceneStructureZoom = (delta: number) => {
+    setSceneStructureZoom((value) => Math.min(
+      SCENE_STRUCTURE_ZOOM_MAX,
+      Math.max(SCENE_STRUCTURE_ZOOM_MIN, value + delta),
+    ));
   };
   const selectAdjacentScene = (direction: -1 | 1) => {
     const candidates = visibleScenes.length ? visibleScenes : scenes;
@@ -9265,12 +9277,14 @@ function Home() {
           </div>
           <div className="preview-stage-layout">
             <div className="preview-stage">
+          {(() => {
+            const previewCanvas = (
           <div
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${rulerEnabled ? "ruler-enabled" : ""} ${mapEffectDragActive ? "effect-drop-target" : ""}`}
-            style={{ transform: `scale(${previewZoom / 100})` }}
-            onDragOver={handleMapEffectDragOver}
-            onDragLeave={() => setMapEffectDragActive(false)}
-            onDrop={handleMapEffectDrop}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
+            style={{ transform: sceneStructurePreviewMode ? "none" : `scale(${previewZoom / 100})` }}
+            onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
+            onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}
+            onDrop={sceneStructurePreviewMode ? undefined : handleMapEffectDrop}
           >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
@@ -9280,6 +9294,7 @@ function Home() {
                   className="project-background"
                   src={backgroundVideoPreviewSource}
                   muted
+                  autoPlay={playing}
                   loop
                   playsInline
                   preload="metadata"
@@ -9796,6 +9811,11 @@ function Home() {
               </div>
             )}
           </div>
+            );
+            return sceneStructurePreviewMode && sceneStructurePreviewPortalHost
+              ? createPortal(previewCanvas, sceneStructurePreviewPortalHost)
+              : previewCanvas;
+          })()}
           <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
             <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
               <button
@@ -12811,6 +12831,55 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <div className="scene-structure-tool-group" role="group" aria-label="Hoàn tác và làm lại">
+                  <button
+                    type="button"
+                    className="scene-structure-tool-button"
+                    aria-label="Hoàn tác"
+                    title="Hoàn tác (Ctrl+Z)"
+                    disabled={!historyPast.current.length}
+                    onClick={() => {
+                      setPlaying(false);
+                      undo();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7-5 5 5 5M5 12h8a6 6 0 0 1 6 6" /></svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="scene-structure-tool-button"
+                    aria-label="Làm lại"
+                    title="Làm lại (Ctrl+Y)"
+                    disabled={!historyFuture.current.length}
+                    onClick={() => {
+                      setPlaying(false);
+                      redo();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5M19 12h-8a6 6 0 0 0-6 6" /></svg>
+                  </button>
+                </div>
+                <div className="scene-structure-zoom-control" role="group" aria-label="Thu phóng sơ đồ cảnh">
+                  <button
+                    type="button"
+                    aria-label="Thu nhỏ sơ đồ"
+                    title="Thu nhỏ sơ đồ"
+                    disabled={sceneStructureZoom <= SCENE_STRUCTURE_ZOOM_MIN}
+                    onClick={() => adjustSceneStructureZoom(-SCENE_STRUCTURE_ZOOM_STEP)}
+                  >
+                    −
+                  </button>
+                  <output aria-label={`Tỷ lệ sơ đồ ${sceneStructureZoom}%`}>{sceneStructureZoom}%</output>
+                  <button
+                    type="button"
+                    aria-label="Phóng to sơ đồ"
+                    title="Phóng to sơ đồ"
+                    disabled={sceneStructureZoom >= SCENE_STRUCTURE_ZOOM_MAX}
+                    onClick={() => adjustSceneStructureZoom(SCENE_STRUCTURE_ZOOM_STEP)}
+                  >
+                    +
+                  </button>
+                </div>
                 <button
                   type="button"
                   className={`scene-structure-play-button ${playing ? "is-playing" : ""}`}
@@ -12847,7 +12916,10 @@ function Home() {
                 <div className="scene-structure-flow-scroll">
                   <div
                     className="scene-structure-flow-content"
-                    style={{ minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px` }}
+                    style={{
+                      minWidth: `${Math.round(1040 * sceneStructureZoom / 100)}px`,
+                      minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px`,
+                    }}
                   >
                     <div className="scene-structure-ruler" aria-label="Trục thời gian của cảnh">
                       {sceneStructureTicks.map((tick) => (
@@ -12947,7 +13019,11 @@ function Home() {
                       </div>
                       <strong>{formatPreciseTime(sceneStructureLocalTime)}</strong>
                     </div>
-                    {renderSceneStructureLivePreview()}
+                    <div
+                      ref={setSceneStructurePreviewPortalHost}
+                      className="scene-structure-preview-portal-host"
+                      aria-label="Màn hình xem trước đang chạy thử"
+                    />
                     <p className="scene-structure-live-hint">Thẻ đang phát sẽ sáng viền trên sơ đồ. Bấm “Quay lại” để dừng và trở về đầu cảnh.</p>
                   </>
                 ) : (
