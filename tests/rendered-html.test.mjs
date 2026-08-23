@@ -357,6 +357,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /scene-structure-quick-editor/);
   assert.match(page, /showSceneStructureHoverPreview/);
   assert.match(page, /renderSceneStructureHoverPreview/);
+  assert.match(page, /Layer tại mốc:/);
+  assert.match(page, /className="scene-structure-ruler"/);
   assert.match(page, /sceneStartDarkOverlayItemsAtTime/);
   assert.match(page, /staticFrame: true/);
   assert.match(page, /startSceneStructureItemDrag/);
@@ -371,6 +373,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /scene-structure-quick-editor-overlay/);
   assert.match(css, /scene-structure-card\.is-movable/);
   assert.match(css, /scene-structure-hover-preview/);
+  assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);

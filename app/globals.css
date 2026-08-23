@@ -10559,7 +10559,7 @@ body {
 .scene-structure-hover-preview {
   position: fixed;
   z-index: 1500;
-  width: 146px;
+  width: min(300px, calc(100vw - 24px));
   overflow: hidden;
   border: 1px solid rgba(116, 188, 255, .82);
   border-radius: 10px;
@@ -10570,6 +10570,7 @@ body {
 }
 .scene-structure-hover-preview-frame {
   width: 146px;
+  margin-inline: auto;
   overflow: hidden;
   background: #07131f;
 }
@@ -10595,7 +10596,7 @@ body {
   background: linear-gradient(180deg, rgba(13, 34, 51, .98), rgba(7, 19, 31, .98));
 }
 .scene-structure-hover-preview-caption strong { color: #8fd1ff; font: 800 10px var(--font-mono); }
-.scene-structure-hover-preview-caption span { overflow: hidden; color: #d8e8f6; font-size: 9px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.scene-structure-hover-preview-caption span { overflow-wrap: anywhere; color: #d8e8f6; font-size: 9px; line-height: 1.35; white-space: normal; }
 .scene-structure-preview-portal-host {
   display: grid;
   place-items: center;

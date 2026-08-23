@@ -9301,8 +9301,17 @@ function Home() {
     const timelineWidth = Math.max(1, bounds.width - horizontalPadding * 2);
     const ratio = Math.min(1, Math.max(0, (event.clientX - timelineLeft) / timelineWidth));
     const localTime = Number((ratio * sceneStructureDuration).toFixed(2));
-    const previewWidth = 146;
-    const previewHeight = aspectRatio === "16:9" ? 132 : 310;
+    const activeLayerNames = sceneStructureItems
+      .filter((candidate) => localTime >= candidate.start && localTime < candidate.end)
+      .map((candidate) => `${sceneStructureKindLabel(candidate.kind)}: ${candidate.label}`);
+    const label = item
+      ? `Layer: ${sceneStructureKindLabel(item.kind)} — ${item.label}`
+      : activeLayerNames.length
+        ? `Layer tại mốc: ${activeLayerNames.join(" · ")}`
+        : "Không có layer nào tại mốc này";
+    const previewWidth = 300;
+    const captionLineCount = Math.max(2, Math.ceil(label.length / 38));
+    const previewHeight = (aspectRatio === "16:9" ? 86 : 260) + Math.min(132, captionLineCount * 13 + 28);
     const margin = 12;
     const left = Math.min(
       Math.max(margin, window.innerWidth - previewWidth - margin),
@@ -9316,7 +9325,7 @@ function Home() {
       localTime,
       left,
       top,
-      label: item ? `${sceneStructureKindLabel(item.kind)} · ${item.label}` : `Cảnh ${String(sceneStructureScene.number).padStart(2, "0")}`,
+      label,
     });
   };
 
@@ -15448,14 +15457,17 @@ function Home() {
                   <div
                     ref={sceneStructureFlowContentRef}
                     className={`scene-structure-flow-content ${sceneStructureDropTime !== null ? "is-template-drop-target" : ""}`}
-                    onPointerMove={(event) => showSceneStructureHoverPreview(event)}
-                    onPointerLeave={hideSceneStructureHoverPreview}
                     style={{
                       minWidth: `${Math.round(1040 * sceneStructureZoom / 100)}px`,
                       minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px`,
                     }}
                   >
-                    <div className="scene-structure-ruler" aria-label="Trục thời gian của cảnh">
+                    <div
+                      className="scene-structure-ruler"
+                      aria-label="Trục thời gian của cảnh"
+                      onPointerMove={(event) => showSceneStructureHoverPreview(event)}
+                      onPointerLeave={hideSceneStructureHoverPreview}
+                    >
                       {sceneStructureTicks.map((tick) => (
                         <span
                           key={`scene-structure-tick-${tick}`}
