@@ -367,7 +367,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /const returnFromSceneStructurePreview = \(\) => \{[\s\S]{0,260}setPreviewPlaybackMode\(false\);/);
   assert.match(page, /if \(!sceneStructureOpen \|\| sceneStructurePreviewMode\) return;\s*setPreviewPlaybackMode\(false\);/);
   assert.match(page, /setSceneStructurePreviewPortalHost\(null\);/);
-  assert.match(page, /!sceneStructurePreviewPortalHost && renderSceneStructureLivePreview\(\)/);
+  assert.match(page, /data-preview-source="editor"/);
+  assert.match(page, /sceneStructurePreviewMode\) \{\s*return sceneStructurePreviewPortalHost\s*\? createPortal\(previewCanvas, sceneStructurePreviewPortalHost\)/);
+  assert.match(page, /data-scene-structure-review-preview="true"/);
+  assert.match(page, /Đang đồng bộ màn hình Xem trước/);
   assert.match(page, /scene-structure-minimap/);
   assert.match(page, /syncSceneStructureMinimapViewport/);
   assert.match(page, /Kéo vùng xanh để di chuyển vùng đang xem/);
@@ -382,6 +385,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /scene-structure-hover-preview/);
   assert.match(css, /scene-structure-minimap-viewport/);
   assert.match(css, /scene-structure-minimap-labels/);
+  assert.match(css, /scene-structure-review-loading/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);

@@ -11519,6 +11519,7 @@ function Home() {
           {(() => {
             const previewCanvas = (
           <div
+            data-preview-source="editor"
             className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${previewPlaybackMode && !playing ? "is-playback-paused" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
             style={{ transform: sceneStructurePreviewMode ? "none" : `scale(${previewZoom / 100})` }}
             onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
@@ -12051,9 +12052,12 @@ function Home() {
             )}
           </div>
             );
-            return sceneStructurePreviewMode && sceneStructurePreviewPortalHost
-              ? createPortal(previewCanvas, sceneStructurePreviewPortalHost)
-              : previewCanvas;
+            if (sceneStructurePreviewMode) {
+              return sceneStructurePreviewPortalHost
+                ? createPortal(previewCanvas, sceneStructurePreviewPortalHost)
+                : null;
+            }
+            return previewCanvas;
           })()}
           <div className="preview-navigation preview-navigation-zoom-only" aria-label="Tỷ lệ zoom xem trước">
             <div className="preview-zoom-control" role="group" aria-label="Tỷ lệ zoom xem trước">
@@ -15959,9 +15963,16 @@ function Home() {
                     <div
                       ref={setSceneStructurePreviewPortalHost}
                       className="scene-structure-preview-portal-host"
+                      data-scene-structure-review-preview="true"
                       aria-label="Màn hình xem trước đang chạy thử"
+                      aria-busy={!sceneStructurePreviewPortalHost}
                     >
-                      {!sceneStructurePreviewPortalHost && renderSceneStructureLivePreview()}
+                      {!sceneStructurePreviewPortalHost && (
+                        <div className="scene-structure-review-loading" role="status">
+                          <span>Đang đồng bộ màn hình Xem trước…</span>
+                          <small>Hình ảnh, âm thanh, phụ đề và hiệu ứng sẽ dùng cùng một canvas.</small>
+                        </div>
+                      )}
                     </div>
                     <p className="scene-structure-live-hint">Thẻ đang phát sẽ sáng viền trên sơ đồ. Bấm “Quay lại” để dừng và trở về đầu cảnh.</p>
                   </>
