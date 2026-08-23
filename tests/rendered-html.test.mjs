@@ -355,6 +355,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /localStorage\.setItem\(LOCAL_SCENE_STRUCTURE_ZOOM_KEY/);
   assert.match(page, /onDoubleClick=\{\(\) => openSceneStructureQuickEditor\(item\)\}/);
   assert.match(page, /scene-structure-quick-editor/);
+  assert.match(page, /scene-structure-theme-toggle/);
+  assert.match(page, /sceneStructureLibraryCollapsed/);
+  assert.match(page, /sceneStructureInspectorCollapsed/);
+  assert.match(page, /scene-structure-panel-toggle-library/);
+  assert.match(page, /scene-structure-panel-toggle-inspector/);
+  assert.match(page, /scene-structure-\$\{theme\}/);
   assert.match(page, /showSceneStructureHoverPreview/);
   assert.match(page, /renderSceneStructureHoverPreview/);
   assert.match(page, /Layer tại mốc:/);
@@ -390,6 +396,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /scene-structure-minimap-viewport/);
   assert.match(css, /scene-structure-minimap-labels/);
   assert.match(css, /scene-structure-review-loading/);
+  assert.match(css, /scene-structure-light/);
+  assert.match(css, /scene-structure-body\.library-collapsed/);
+  assert.match(css, /scene-structure-panel-toggle/);
+  assert.match(css, /scene-structure-quick-editor > footer \.button\.secondary/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);

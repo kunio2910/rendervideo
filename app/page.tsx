@@ -3161,6 +3161,8 @@ function Home() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
   const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
+  const [sceneStructureLibraryCollapsed, setSceneStructureLibraryCollapsed] = useState(false);
+  const [sceneStructureInspectorCollapsed, setSceneStructureInspectorCollapsed] = useState(false);
   const [sceneStructureViewMode, setSceneStructureViewMode] = useState<SceneStructureViewMode>("timeline");
   const [sceneStructureZoom, setSceneStructureZoom] = useState(readSceneStructureZoomPreference);
   const [sceneStructureSceneId, setSceneStructureSceneId] = useState("");
@@ -15379,7 +15381,7 @@ function Home() {
       )}
       {sceneStructureOpen && (
         <div
-          className="scene-structure-overlay"
+          className={`scene-structure-overlay scene-structure-${theme}`}
           role="dialog"
           aria-modal="true"
           aria-labelledby="scene-structure-heading"
@@ -15404,6 +15406,23 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <button
+                  type="button"
+                  className="scene-structure-theme-toggle"
+                  aria-label={theme === "dark" ? "Chuyển Cấu trúc cảnh sang giao diện sáng" : "Chuyển Cấu trúc cảnh sang giao diện tối"}
+                  aria-pressed={theme === "light"}
+                  title={theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}
+                  onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    {theme === "dark" ? (
+                      <path d="M12 3v2m0 14v2M3 12h2m14 0h2m-3.36-6.64-1.42 1.42M6.78 17.22l-1.42 1.42m0-13.28 1.42 1.42m10.44 10.44 1.42 1.42M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />
+                    ) : (
+                      <path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" />
+                    )}
+                  </svg>
+                  <span>{theme === "dark" ? "Sáng" : "Tối"}</span>
+                </button>
                 <div className="scene-structure-tool-group" role="group" aria-label="Hoàn tác và làm lại">
                   <button
                     type="button"
@@ -15511,8 +15530,25 @@ function Home() {
               </span>
             </nav>
 
-            <div className="scene-structure-body">
-              <aside className="scene-structure-library" aria-label="Thư viện thành phần cảnh">
+            <div className={`scene-structure-body ${sceneStructureLibraryCollapsed ? "library-collapsed" : ""} ${sceneStructureInspectorCollapsed ? "inspector-collapsed" : ""}`}>
+              <aside
+                id="scene-structure-library-panel"
+                className={`scene-structure-library ${sceneStructureLibraryCollapsed ? "is-collapsed" : ""}`}
+                aria-label="Thư viện thành phần cảnh"
+              >
+                <button
+                  type="button"
+                  className="scene-structure-panel-toggle scene-structure-panel-toggle-library"
+                  aria-label={sceneStructureLibraryCollapsed ? "Hiện Thư viện thẻ" : "Ẩn Thư viện thẻ"}
+                  aria-controls="scene-structure-library-panel"
+                  aria-expanded={!sceneStructureLibraryCollapsed}
+                  title={sceneStructureLibraryCollapsed ? "Hiện Thư viện thẻ" : "Ẩn Thư viện thẻ"}
+                  onClick={() => setSceneStructureLibraryCollapsed((value) => !value)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d={sceneStructureLibraryCollapsed ? "m9 5 7 7-7 7" : "m15 5-7 7 7 7"} />
+                  </svg>
+                </button>
                 <div className="scene-structure-library-heading">
                   <span>THÊM THÀNH PHẦN</span>
                   <strong>Thư viện thẻ</strong>
@@ -15955,7 +15991,24 @@ function Home() {
                 )}
               </div>
 
-              <aside className="scene-structure-inspector" aria-label="Thông tin tài nguyên">
+              <aside
+                id="scene-structure-inspector-panel"
+                className={`scene-structure-inspector ${sceneStructureInspectorCollapsed ? "is-collapsed" : ""}`}
+                aria-label="Thông tin tài nguyên"
+              >
+                <button
+                  type="button"
+                  className="scene-structure-panel-toggle scene-structure-panel-toggle-inspector"
+                  aria-label={sceneStructureInspectorCollapsed ? "Hiện Thông tin tài nguyên" : "Ẩn Thông tin tài nguyên"}
+                  aria-controls="scene-structure-inspector-panel"
+                  aria-expanded={!sceneStructureInspectorCollapsed}
+                  title={sceneStructureInspectorCollapsed ? "Hiện Thông tin tài nguyên" : "Ẩn Thông tin tài nguyên"}
+                  onClick={() => setSceneStructureInspectorCollapsed((value) => !value)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d={sceneStructureInspectorCollapsed ? "m15 5-7 7 7 7" : "m9 5 7 7-7 7"} />
+                  </svg>
+                </button>
                 {sceneStructurePreviewMode ? (
                   <>
                     <div className="scene-structure-live-heading">
