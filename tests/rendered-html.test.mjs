@@ -366,6 +366,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /const playSceneStructure = \(\) => \{[\s\S]{0,700}setPreviewPlaybackMode\(true\);/);
   assert.match(page, /const returnFromSceneStructurePreview = \(\) => \{[\s\S]{0,260}setPreviewPlaybackMode\(false\);/);
   assert.match(page, /if \(!sceneStructureOpen \|\| sceneStructurePreviewMode\) return;\s*setPreviewPlaybackMode\(false\);/);
+  assert.match(page, /setSceneStructurePreviewPortalHost\(null\);/);
+  assert.match(page, /!sceneStructurePreviewPortalHost && renderSceneStructureLivePreview\(\)/);
   assert.match(page, /playbackEnd = sceneStructureOpen \? sceneStructureScene\.end/);
   assert.match(page, /Lời thuyết minh popup/);
   assert.match(page, /Nội dung từng câu/);

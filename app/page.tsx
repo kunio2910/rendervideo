@@ -4454,6 +4454,7 @@ function Home() {
       setPlaying(false);
       setSceneStructurePreviewMode(false);
       setPreviewPlaybackMode(false);
+      setSceneStructurePreviewPortalHost(null);
       setSceneStructureOpen(false);
     };
     const previousOverflow = document.body.style.overflow;
@@ -9238,6 +9239,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructurePreviewPortalHost(null);
     sceneStructureItemPointerDrag.current = null;
     sceneStructureItemDidDrag.current = false;
     setSceneStructureItemDragToken("");
@@ -9259,6 +9261,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructurePreviewPortalHost(null);
     setSceneStructureQuickEditToken("");
     sceneStructureItemPointerDrag.current = null;
     sceneStructureItemDidDrag.current = false;
@@ -9796,6 +9799,7 @@ function Home() {
     if (shouldRestart) setPlayTime(sceneStructureScene.start);
     setPlaybackRestartToken((value) => value + 1);
     setPreviewPlaybackMode(true);
+    setSceneStructurePreviewPortalHost(null);
     setSceneStructurePreviewMode(true);
     setPlaying(true);
   };
@@ -9804,6 +9808,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructurePreviewPortalHost(null);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     setPlayTime(sceneStructureScene.start);
@@ -15776,7 +15781,9 @@ function Home() {
                       ref={setSceneStructurePreviewPortalHost}
                       className="scene-structure-preview-portal-host"
                       aria-label="Màn hình xem trước đang chạy thử"
-                    />
+                    >
+                      {!sceneStructurePreviewPortalHost && renderSceneStructureLivePreview()}
+                    </div>
                     <p className="scene-structure-live-hint">Thẻ đang phát sẽ sáng viền trên sơ đồ. Bấm “Quay lại” để dừng và trở về đầu cảnh.</p>
                   </>
                 ) : (
