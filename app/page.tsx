@@ -4,6 +4,7 @@ import {
   Component,
   Fragment,
   type ErrorInfo,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -243,6 +244,13 @@ type SceneStructureItemPointerDrag = {
   grabOffset: number;
   duration: number;
   active: boolean;
+};
+
+type SceneStructureHoverPreview = {
+  localTime: number;
+  left: number;
+  top: number;
+  label: string;
 };
 
 const SCENE_STRUCTURE_TEMPLATES: SceneStructureTemplate[] = [
@@ -3165,6 +3173,7 @@ function Home() {
   const [sceneStructureDraggedTemplate, setSceneStructureDraggedTemplate] = useState<SceneStructureTemplateKind | "">("");
   const [sceneStructureDropTime, setSceneStructureDropTime] = useState<number | null>(null);
   const [sceneStructureItemDragToken, setSceneStructureItemDragToken] = useState("");
+  const [sceneStructureHoverPreview, setSceneStructureHoverPreview] = useState<SceneStructureHoverPreview | null>(null);
   const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
@@ -3432,7 +3441,7 @@ function Home() {
     Math.max(0, playTime - scene.start),
   );
   const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
-  const sceneStartDarkEffectProgress = (effect: SceneDarkEffect) => {
+  const sceneStartDarkEffectProgress = (effect: SceneDarkEffect, localTime = sceneLocalTime) => {
     const start = Math.max(0, Number(effect.start) || 0);
     const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
     const duration = end - start;
@@ -3442,20 +3451,20 @@ function Home() {
     );
     const transitionDuration = Math.max(0.1, duration - holdDuration);
     const halfDuration = transitionDuration / 2;
-    const elapsed = sceneLocalTime - start;
+    const elapsed = localTime - start;
     if (elapsed <= 0 || elapsed >= duration) return 0;
     if (elapsed < halfDuration) return elapsed / halfDuration;
     if (elapsed < halfDuration + holdDuration) return 1;
     return Math.max(0, (duration - elapsed) / halfDuration);
   };
-  const sceneStartDarkOverlayItems = sceneStartDarkEffects
+  const sceneStartDarkOverlayItemsAtTime = (localTime: number) => sceneStartDarkEffects
     .filter((effect) => {
       const start = Math.max(0, Number(effect.start) || 0);
       const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
-      return effect.enabled && sceneLocalTime >= start && sceneLocalTime < end;
+      return effect.enabled && localTime >= start && localTime < end;
     })
     .map((effect) => {
-      const progress = sceneStartDarkEffectProgress(effect);
+      const progress = sceneStartDarkEffectProgress(effect, localTime);
       const easedProgress = progress * progress * (3 - 2 * progress);
       const strength = 1 - Math.min(100, Math.max(0, Number(effect.intensity) || 0)) / 100;
       const edgeOpacity = Math.min(0.74, easedProgress * 0.9 * strength);
@@ -3469,6 +3478,7 @@ function Home() {
         blur: Math.round(easedProgress * 8),
       };
     });
+  const sceneStartDarkOverlayItems = sceneStartDarkOverlayItemsAtTime(sceneLocalTime);
   const sceneImagePlaybackWindow = (image: SceneImage, imageIndex: number) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(image.start) || 0));
     const baseEnd = start + Math.max(0.1, Number(image.duration) || 0.1);
@@ -9251,6 +9261,7 @@ function Home() {
     sceneStructureTemplateDidDrag.current = false;
     setSceneStructureDraggedTemplate("");
     setSceneStructureDropTime(null);
+    setSceneStructureHoverPreview(null);
     setSceneStructureSceneDragId("");
     setSceneStructureSceneDragOverId("");
     setSceneStructureOpen(false);
@@ -9269,6 +9280,40 @@ function Home() {
     ).toFixed(2));
   };
 
+  const showSceneStructureHoverPreview = (
+    event: ReactPointerEvent<HTMLElement>,
+    item?: SceneStructureItem,
+  ) => {
+    if (event.pointerType !== "mouse" || sceneStructurePreviewMode || sceneStructureItemPointerDrag.current?.active) return;
+    const flowContent = sceneStructureFlowContentRef.current;
+    if (!flowContent) return;
+    const bounds = flowContent.getBoundingClientRect();
+    const horizontalPadding = 24;
+    const timelineLeft = bounds.left + horizontalPadding;
+    const timelineWidth = Math.max(1, bounds.width - horizontalPadding * 2);
+    const ratio = Math.min(1, Math.max(0, (event.clientX - timelineLeft) / timelineWidth));
+    const localTime = Number((ratio * sceneStructureDuration).toFixed(2));
+    const previewWidth = 146;
+    const previewHeight = aspectRatio === "16:9" ? 132 : 310;
+    const margin = 12;
+    const left = Math.min(
+      Math.max(margin, window.innerWidth - previewWidth - margin),
+      Math.max(margin, event.clientX - previewWidth / 2),
+    );
+    const belowTop = event.clientY + 18;
+    const top = belowTop + previewHeight <= window.innerHeight - margin
+      ? belowTop
+      : Math.max(margin, event.clientY - previewHeight - 18);
+    setSceneStructureHoverPreview({
+      localTime,
+      left,
+      top,
+      label: item ? `${sceneStructureKindLabel(item.kind)} · ${item.label}` : `Cảnh ${String(sceneStructureScene.number).padStart(2, "0")}`,
+    });
+  };
+
+  const hideSceneStructureHoverPreview = () => setSceneStructureHoverPreview(null);
+
   const startSceneStructureItemDrag = (
     event: React.PointerEvent<HTMLButtonElement>,
     item: SceneStructureItem,
@@ -9278,6 +9323,7 @@ function Home() {
     if (!flowContent) return;
     event.preventDefault();
     event.stopPropagation();
+    hideSceneStructureHoverPreview();
     const pointerTime = sceneStructureDropTimeFromClientX(event.clientX, flowContent);
     sceneStructureItemPointerDrag.current = {
       token: item.token,
@@ -10530,7 +10576,12 @@ function Home() {
     );
   };
 
-  const renderSceneStructureLivePreview = () => {
+  const renderSceneStructureLivePreview = (
+    localTime = sceneStructureLocalTime,
+    options: { staticFrame?: boolean } = {},
+  ) => {
+    const staticFrame = options.staticFrame === true;
+    const previewIsPlaying = !staticFrame && playing;
     const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
     const liveSubtitleOffset = Math.min(
       sceneStructureDuration,
@@ -10545,15 +10596,15 @@ function Home() {
           );
           return subtitle.visible !== false
             && safeTrim(subtitle.text)
-            && sceneStructureLocalTime >= Math.min(sceneStructureDuration, liveSubtitleOffset + cueStart)
-            && sceneStructureLocalTime < cueEnd;
+            && localTime >= Math.min(sceneStructureDuration, liveSubtitleOffset + cueStart)
+            && localTime < cueEnd;
         })
       : null;
     const liveSubtitleStart = liveSubtitle
       ? Math.min(sceneStructureDuration, liveSubtitleOffset + Math.max(0, Number(liveSubtitle.start) || 0))
       : 0;
     const liveSubtitleProgress = liveSubtitle
-      ? Math.min(1, Math.max(0, (sceneStructureLocalTime - liveSubtitleStart) / Math.max(0.05, liveSubtitleStyle.animationDuration)))
+      ? Math.min(1, Math.max(0, (localTime - liveSubtitleStart) / Math.max(0.05, liveSubtitleStyle.animationDuration)))
       : 1;
     const liveSubtitleOpacity = liveSubtitleStyle.animation === "fade" ? liveSubtitleProgress : 1;
     const liveSubtitleScale = liveSubtitleStyle.animation === "pop" ? 0.92 + liveSubtitleProgress * 0.08 : 1;
@@ -10567,21 +10618,23 @@ function Home() {
         .filter((image) => {
           const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
           const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
-          return sceneStructureLocalTime >= start && sceneStructureLocalTime < end;
+          return localTime >= start && localTime < end;
         })
         .map((image) => image.id),
     );
 
+    const liveDarkOverlayItems = sceneStartDarkOverlayItemsAtTime(localTime);
+
     return (
-      <div className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : "is-paused"}`} aria-label="Màn hình xem trước đang chạy thử">
+      <div className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
         {sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
-              key={`${sceneStructureBackgroundSource}-${playing ? "playing" : "paused"}`}
+              key={`${sceneStructureBackgroundSource}-${previewIsPlaying ? "playing" : "paused"}`}
               className="project-background"
               src={sceneStructureBackgroundSource}
               muted
-              autoPlay={playing}
+              autoPlay={previewIsPlaying}
               loop
               playsInline
               preload="metadata"
@@ -10608,11 +10661,11 @@ function Home() {
           .map((overlay, index) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
             const end = Math.min(sceneStructureDuration, Math.max(start + 0.1, Number(overlay.end) || sceneStructureDuration));
-            if (sceneStructureLocalTime < start || sceneStructureLocalTime >= end) return null;
+            if (localTime < start || localTime >= end) return null;
             return (
               <div
                 key={`live-text-${overlay.id}`}
-                className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""}`}
+                className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${previewIsPlaying ? "is-playing" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
@@ -10646,6 +10699,22 @@ function Home() {
             const squareSize = Math.min(image.width, image.height);
             const width = image.shape === "square" ? squareSize : image.width;
             const height = image.shape === "square" ? squareSize : image.height;
+            const transition = normalizeSceneImageTransition(image.transition);
+            const transitionDuration = sceneImageTransitionDuration(image);
+            const imageStart = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
+            const transitionProgress = staticFrame && transition !== "cut" && transitionDuration > 0
+              ? Math.min(1, Math.max(0, (localTime - imageStart) / transitionDuration))
+              : 1;
+            const transitionTransform = transition === "slide-left"
+              ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
+              : transition === "slide-right"
+                ? `translate(-50%, -50%) translateX(${(1 - transitionProgress) * 110}%)`
+                : transition === "zoom"
+                  ? `translate(-50%, -50%) scale(${1.14 - transitionProgress * 0.14})`
+                  : undefined;
+            const transitionFilter = transition === "blur"
+              ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
+              : undefined;
             return (
               <div
                 key={`live-image-${image.id}`}
@@ -10659,11 +10728,14 @@ function Home() {
                   clipPath: sceneImageClipPath(image.shape),
                   backgroundColor: image.borderFill === "transparent" ? undefined : image.borderFill,
                   border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
-                  opacity: image.opacity / 100,
+                  opacity: (image.opacity / 100) * (transition === "crossfade" ? transitionProgress : 1),
+                  transform: transitionTransform,
+                  filter: transitionFilter,
+                  transformOrigin: "center center",
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={playing} loop muted playsInline preload="metadata" />
+                  ? <video src={imageSource} autoPlay={previewIsPlaying} loop muted playsInline preload="metadata" />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -10676,7 +10748,7 @@ function Home() {
           .filter((decoration) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(decoration.start) || 0));
             const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(decoration.duration) || sceneStructureDuration));
-            return sceneStructureLocalTime >= start && sceneStructureLocalTime < end;
+            return localTime >= start && localTime < end;
           })
           .map((decoration, index) => {
             const stickerSource = decoration.type === "sticker" || decoration.type === "animated-sticker"
@@ -10685,7 +10757,7 @@ function Home() {
             const animatedVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
             const content = decoration.type === "animated-sticker" && stickerSource
               ? animatedVideo
-                ? <video src={stickerSource} autoPlay={playing} loop muted playsInline aria-hidden="true" />
+                ? <video src={stickerSource} autoPlay={previewIsPlaying} loop muted playsInline aria-hidden="true" />
                 : <img src={stickerSource} alt="" draggable={false} />
               : decoration.type === "sticker" && stickerSource
                 ? <img src={stickerSource} alt="" draggable={false} />
@@ -10693,7 +10765,7 @@ function Home() {
             return (
               <div
                 key={`live-decoration-${decoration.id}`}
-                className={`map-decoration scene-structure-live-layer map-decoration-${decoration.type} map-decoration-animation-${decoration.animation} ${playing ? "is-playing" : ""}`}
+                className={`map-decoration scene-structure-live-layer map-decoration-${decoration.type} map-decoration-animation-${decoration.animation} ${previewIsPlaying ? "is-playing" : ""}`}
                 style={{
                   left: `${decoration.x}%`,
                   top: `${decoration.y}%`,
@@ -10717,7 +10789,7 @@ function Home() {
             const popupStart = Math.min(sceneStructureDuration, Math.max(0, Number(popup.start) || 0));
             const popupDuration = Math.max(0.1, Number(popup.duration) || 0.1);
             const popupEnd = Math.min(sceneStructureDuration, popupStart + popupDuration);
-            if (sceneStructureLocalTime < popupStart || sceneStructureLocalTime >= popupEnd) return null;
+            if (localTime < popupStart || localTime >= popupEnd) return null;
             const popupImageSource = imageEnabled && popup.imageVisible !== false ? assetPreviewSource(popup.image) : "";
             const popupVideoSource = assetPreviewSource(popup.video);
             const popupHasMedia = Boolean(popupVideoSource || popupImageSource);
@@ -10742,7 +10814,7 @@ function Home() {
               >
                 {popupShowMedia && (
                   <div className="photo-placeholder" style={{ height: `${popupGeometry.imageHeight}px` }}>
-                    {popupVideoSource ? <video className="popup-video" src={popupVideoSource} muted autoPlay={playing} loop playsInline /> : popupImageSource ? <img src={popupImageSource} alt="" /> : null}
+                    {popupVideoSource ? <video className="popup-video" src={popupVideoSource} muted autoPlay={previewIsPlaying} loop playsInline /> : popupImageSource ? <img src={popupImageSource} alt="" /> : null}
                   </div>
                 )}
                 {popupShowText && (
@@ -10755,7 +10827,7 @@ function Home() {
             );
           })}
 
-        {sceneStructurePreviewMode && liveSubtitle && (
+        {(sceneStructurePreviewMode || staticFrame) && liveSubtitle && (
           <div
             className="subtitle-overlay scene-structure-live-layer"
             style={{
@@ -10785,7 +10857,7 @@ function Home() {
           </div>
         )}
 
-        {sceneStartDarkOverlayItems.map((item) => (
+        {liveDarkOverlayItems.map((item) => (
           <div
             key={`live-dark-${item.effect.id}`}
             className="scene-start-dark-effect scene-structure-live-layer"
@@ -10799,7 +10871,30 @@ function Home() {
             }}
           />
         ))}
-        <div className="scene-structure-live-badge"><i /> {playing ? "ĐANG PHÁT" : "ĐÃ TẠM DỪNG"}</div>
+        {!staticFrame && <div className="scene-structure-live-badge"><i /> {previewIsPlaying ? "ĐANG PHÁT" : "ĐÃ TẠM DỪNG"}</div>}
+      </div>
+    );
+  };
+
+  const renderSceneStructureHoverPreview = () => {
+    if (!sceneStructureHoverPreview || sceneStructurePreviewMode) return null;
+    return (
+      <div
+        className="scene-structure-hover-preview"
+        role="tooltip"
+        aria-label={`Khung hình xem trước tại ${formatPreciseTime(sceneStructureHoverPreview.localTime)}`}
+        style={{
+          left: `${sceneStructureHoverPreview.left}px`,
+          top: `${sceneStructureHoverPreview.top}px`,
+        }}
+      >
+        <div className={`scene-structure-hover-preview-frame ${aspectRatio === "16:9" ? "is-landscape" : "is-portrait"}`}>
+          {renderSceneStructureLivePreview(sceneStructureHoverPreview.localTime, { staticFrame: true })}
+        </div>
+        <div className="scene-structure-hover-preview-caption">
+          <strong>{formatPreciseTime(sceneStructureHoverPreview.localTime)}</strong>
+          <span>{sceneStructureHoverPreview.label}</span>
+        </div>
       </div>
     );
   };
@@ -15342,6 +15437,8 @@ function Home() {
                   <div
                     ref={sceneStructureFlowContentRef}
                     className={`scene-structure-flow-content ${sceneStructureDropTime !== null ? "is-template-drop-target" : ""}`}
+                    onPointerMove={(event) => showSceneStructureHoverPreview(event)}
+                    onPointerLeave={hideSceneStructureHoverPreview}
                     style={{
                       minWidth: `${Math.round(1040 * sceneStructureZoom / 100)}px`,
                       minHeight: `${Math.max(620, sceneStructureItems.length * 76 + 178)}px`,
@@ -15411,9 +15508,14 @@ function Home() {
                             aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
                             title={item.timingMode !== "none" ? "Kéo thẻ để đổi vị trí · Click đúp để chỉnh sửa · Nhấn Delete để xóa" : "Click đúp để chỉnh sửa · Nhấn Delete để xóa tài nguyên"}
                             onPointerDown={(event) => startSceneStructureItemDrag(event, item)}
-                            onPointerMove={(event) => moveSceneStructureItemDrag(event, item)}
+                            onPointerMove={(event) => {
+                              moveSceneStructureItemDrag(event, item);
+                              showSceneStructureHoverPreview(event, item);
+                              event.stopPropagation();
+                            }}
                             onPointerUp={endSceneStructureItemDrag}
                             onPointerCancel={endSceneStructureItemDrag}
+                            onPointerLeave={hideSceneStructureHoverPreview}
                             onClick={() => {
                               if (sceneStructureItemDidDrag.current) {
                                 sceneStructureItemDidDrag.current = false;
@@ -15768,6 +15870,7 @@ function Home() {
               </aside>
             </div>
           </section>
+          {renderSceneStructureHoverPreview()}
           {renderSceneStructureQuickEditor()}
         </div>
       )}
