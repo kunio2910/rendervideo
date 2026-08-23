@@ -371,6 +371,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /setSceneStructurePreviewPortalHost\(null\);/);
   assert.match(page, /data-preview-source="editor"/);
   assert.match(page, /sceneStructurePreviewMode\) \{\s*return sceneStructurePreviewPortalHost\s*\? createPortal\(previewCanvas, sceneStructurePreviewPortalHost\)/);
+  assert.match(page, /const sceneStructureScene = visibleScenes\.find\(\(item\) => item\.id === sceneStructureSceneId\)/);
+  assert.doesNotMatch(css, /scene-structure-live-preview \.map-decoration-sticker img/);
   assert.match(page, /data-scene-structure-review-preview="true"/);
   assert.match(page, /Đang đồng bộ màn hình Xem trước/);
   assert.match(page, /scene-structure-minimap/);

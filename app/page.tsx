@@ -3760,7 +3760,12 @@ function Home() {
       <img src={source} alt="" />
     );
   };
-  const sceneStructureScene = scenes.find((item) => item.id === sceneStructureSceneId) ?? scene;
+  // Cấu trúc cảnh phải dùng đúng bản scene đã reflow như màn hình Xem trước.
+  // Nếu dùng `scenes` thô ở đây, các cảnh ẩn phía trước sẽ làm lệch start/end
+  // và review sẽ không còn đứng cùng một mốc với preview chính.
+  const sceneStructureScene = visibleScenes.find((item) => item.id === sceneStructureSceneId)
+    ?? scenes.find((item) => item.id === sceneStructureSceneId)
+    ?? scene;
   const sceneStructureDuration = Math.max(0.1, sceneStructureScene.end - sceneStructureScene.start);
   const sceneStructurePopups = scenePopupList(sceneStructureScene);
   const sceneStructureImages = sceneStructureScene.sceneImages ?? [];
