@@ -774,7 +774,7 @@ const formatPreciseTime = (value: number) => {
 };
 
 const parsePreciseTime = (value: string, fallback: number) => {
-  const normalized = value.trim().replace(",", ".");
+  const normalized = String(value ?? "").trim().replace(",", ".");
   if (!normalized) return fallback;
   const parts = normalized.split(":");
   const seconds = parts.length === 1
@@ -9878,7 +9878,7 @@ function Home() {
   };
 
   const playSceneStructure = () => {
-    if (playing) {
+    if (sceneStructurePreviewMode && playing) {
       setPlaying(false);
       return;
     }
