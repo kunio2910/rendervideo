@@ -236,6 +236,15 @@ type SceneStructureTemplatePointerDrag = {
   active: boolean;
 };
 
+type SceneStructureItemPointerDrag = {
+  token: string;
+  pointerId: number;
+  originX: number;
+  grabOffset: number;
+  duration: number;
+  active: boolean;
+};
+
 const SCENE_STRUCTURE_TEMPLATES: SceneStructureTemplate[] = [
   {
     kind: "image",
@@ -3155,6 +3164,7 @@ function Home() {
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
   const [sceneStructureDraggedTemplate, setSceneStructureDraggedTemplate] = useState<SceneStructureTemplateKind | "">("");
   const [sceneStructureDropTime, setSceneStructureDropTime] = useState<number | null>(null);
+  const [sceneStructureItemDragToken, setSceneStructureItemDragToken] = useState("");
   const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
@@ -3194,6 +3204,8 @@ function Home() {
   const sceneStructureTemplateDidDrag = useRef(false);
   const sceneStructureTemplatePointerDrag = useRef<SceneStructureTemplatePointerDrag | null>(null);
   const sceneStructureTemplateMouseCleanup = useRef<(() => void) | null>(null);
+  const sceneStructureItemPointerDrag = useRef<SceneStructureItemPointerDrag | null>(null);
+  const sceneStructureItemDidDrag = useRef(false);
   const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
@@ -3942,7 +3954,7 @@ function Home() {
       icon: "CC",
       start: subtitleStart,
       end: subtitleEnd,
-      timingMode: "none",
+      timingMode: "start",
       canHide: true,
       thumbnail: "",
       thumbnailIsVideo: false,
@@ -4601,9 +4613,10 @@ function Home() {
     }
 
     const startedAt = performance.now() - playTime * 1000;
+    const playbackEnd = sceneStructureOpen ? sceneStructureScene.end : sceneTimelineDuration;
     const tick = () => {
       const nextTime = (performance.now() - startedAt) / 1000;
-      if (nextTime >= sceneTimelineDuration) {
+      if (nextTime >= playbackEnd) {
         if (sceneStructureOpen) {
           setPlayTime(sceneStructureScene.end);
           setPlaying(false);
@@ -4623,6 +4636,12 @@ function Home() {
         return;
       }
       setPlayTime(nextTime);
+      if (sceneStructureOpen) {
+        setSelectedId(sceneStructureScene.id);
+        setSelectedSceneIds([sceneStructureScene.id]);
+        animationFrame.current = requestAnimationFrame(tick);
+        return;
+      }
       const activeScene = visibleScenes.find(
         (item) => nextTime >= item.start && nextTime < item.end,
       );
@@ -4643,7 +4662,16 @@ function Home() {
     return () => {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     };
-  }, [playing, playbackRestartToken, sceneStructureOpen, sceneStructureScene.end, sceneTimelineDuration, scenes, visibleScenes]);
+  }, [
+    playing,
+    playbackRestartToken,
+    sceneStructureOpen,
+    sceneStructureScene.id,
+    sceneStructureScene.end,
+    sceneTimelineDuration,
+    scenes,
+    visibleScenes,
+  ]);
 
   useEffect(() => {
     sceneAudioPlayers.current.forEach(({ audio, startTimer, stopTimer }) => {
@@ -9193,6 +9221,9 @@ function Home() {
   const openSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    sceneStructureItemPointerDrag.current = null;
+    sceneStructureItemDidDrag.current = false;
+    setSceneStructureItemDragToken("");
     sceneStructureTemplateMouseCleanup.current?.();
     sceneStructureTemplateMouseCleanup.current = null;
     sceneStructureTemplatePointerDrag.current = null;
@@ -9211,6 +9242,9 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setSceneStructureQuickEditToken("");
+    sceneStructureItemPointerDrag.current = null;
+    sceneStructureItemDidDrag.current = false;
+    setSceneStructureItemDragToken("");
     sceneStructureTemplateMouseCleanup.current?.();
     sceneStructureTemplateMouseCleanup.current = null;
     sceneStructureTemplatePointerDrag.current = null;
@@ -9233,6 +9267,65 @@ function Home() {
       Math.max(0, sceneStructureDuration - 0.1),
       Math.max(0, snapped),
     ).toFixed(2));
+  };
+
+  const startSceneStructureItemDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    item: SceneStructureItem,
+  ) => {
+    if (sceneStructurePreviewMode || item.timingMode === "none" || sceneStructureItemPointerDrag.current) return;
+    const flowContent = sceneStructureFlowContentRef.current;
+    if (!flowContent) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerTime = sceneStructureDropTimeFromClientX(event.clientX, flowContent);
+    sceneStructureItemPointerDrag.current = {
+      token: item.token,
+      pointerId: event.pointerId,
+      originX: event.clientX,
+      grabOffset: pointerTime - item.start,
+      duration: Math.max(0.1, item.end - item.start),
+      active: false,
+    };
+    sceneStructureItemDidDrag.current = false;
+    setSceneStructureItemDragToken(item.token);
+    setSelectedSceneStructureToken(item.token);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveSceneStructureItemDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    item: SceneStructureItem,
+  ) => {
+    const drag = sceneStructureItemPointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId || drag.token !== item.token) return;
+    if (Math.abs(event.clientX - drag.originX) > 3) {
+      drag.active = true;
+      sceneStructureItemDidDrag.current = true;
+    }
+    if (!drag.active) return;
+    const flowContent = sceneStructureFlowContentRef.current;
+    if (!flowContent) return;
+    const pointerTime = sceneStructureDropTimeFromClientX(event.clientX, flowContent);
+    const nextStart = Math.min(
+      Math.max(0, sceneStructureDuration - drag.duration),
+      Math.max(0, pointerTime - drag.grabOffset),
+    );
+    updateSceneStructureTiming(item, nextStart, nextStart + drag.duration);
+  };
+
+  const endSceneStructureItemDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = sceneStructureItemPointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    sceneStructureItemPointerDrag.current = null;
+    setSceneStructureItemDragToken("");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (drag.active) {
+      setToast("Đã cập nhật vị trí trên timeline");
+      window.setTimeout(() => setToast(""), 1800);
+    }
   };
 
   const sceneStructurePlayheadTime = () => Math.min(
@@ -9736,6 +9829,14 @@ function Home() {
           : track);
         return syncLegacyVoiceFields(currentScene, nextTracks);
       }
+      if (item.kind === "subtitle") {
+        const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
+        const shiftedOffset = Math.min(
+          duration,
+          Math.max(0, currentOffset + roundedStart - item.start),
+        );
+        return { ...currentScene, subtitleStart: Number(shiftedOffset.toFixed(2)) };
+      }
       if (item.kind === "effect" && item.id === "zoom") {
         return { ...currentScene, zoomStart: roundedStart, zoomEnd: roundedEnd };
       }
@@ -10141,6 +10242,10 @@ function Home() {
               }}
             />
           </label>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-field"><span>Hình dạng</span><select value={image.shape} onChange={(event) => updateSceneStructureQuickImage(image.id, { shape: event.target.value as SceneImageShape })}>{sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label className="scene-structure-quick-field"><span>Chuyển hình</span><select value={image.transition} onChange={(event) => updateSceneStructureQuickImage(image.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="number" min="0" max="100" value={image.x} onChange={(event) => updateSceneStructureQuickImage(image.id, { x: clampPercent(event.target.value, image.x) })} /></label>
             <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="number" min="0" max="100" value={image.y} onChange={(event) => updateSceneStructureQuickImage(image.id, { y: clampPercent(event.target.value, image.y) })} /></label>
@@ -10148,12 +10253,17 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><input type="number" min="1" max="200" value={image.width} onChange={(event) => updateSceneStructureQuickImage(image.id, { width: Math.min(200, Math.max(1, numberValue(event.target.value, image.width))) })} /></label>
             <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><input type="number" min="1" max="200" value={image.height} onChange={(event) => updateSceneStructureQuickImage(image.id, { height: Math.min(200, Math.max(1, numberValue(event.target.value, image.height))) })} /></label>
             <label className="scene-structure-quick-field"><span>Đường viền (px)</span><input type="number" min="0" max="12" value={image.borderWidth} onChange={(event) => updateSceneStructureQuickImage(image.id, { borderWidth: Math.min(12, Math.max(0, numberValue(event.target.value, image.borderWidth))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Kết thúc chuyển (giây)</span><input type="number" min={image.start + 0.1} max={sceneStructureDuration} step="0.1" value={image.transitionEnd} onChange={(event) => updateSceneStructureQuickImage(image.id, { transitionEnd: Math.min(sceneStructureDuration, Math.max(image.start + 0.1, numberValue(event.target.value, image.transitionEnd))) })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-            <label className="scene-structure-quick-field"><span>Hiệu ứng chuyển hình</span><select value={image.transition} onChange={(event) => updateSceneStructureQuickImage(image.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label className="scene-structure-quick-field"><span>Màu đường viền</span><input type="color" value={normalizeHexColor(image.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickImage(image.id, { borderColor: event.target.value })} /></label>
+            <label className="scene-structure-quick-field"><span>Màu nền khung</span><input type="text" value={image.borderFill} placeholder="transparent / #FFFFFF" onChange={(event) => updateSceneStructureQuickImage(image.id, { borderFill: normalizeSceneImageBorderFill(event.target.value) })} /></label>
           </div>
-          <label className="scene-structure-quick-toggle"><input type="checkbox" checked={image.transparent} onChange={(event) => updateSceneStructureQuickImage(image.id, { transparent: event.target.checked })} /><span>Giữ nền trong suốt</span></label>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={image.transparent} onChange={(event) => updateSceneStructureQuickImage(image.id, { transparent: event.target.checked })} /><span>Giữ nền trong suốt</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={image.visible !== false} onChange={(event) => updateSceneStructureQuickImage(image.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={image.editorVisible !== false} onChange={(event) => updateSceneStructureQuickImage(image.id, { editorVisible: event.target.checked })} /><span>Hiển thị khi biên soạn</span></label>
+          </div>
         </div>
       ) : null;
     }
@@ -10165,6 +10275,7 @@ function Home() {
           {timingFields}
           <label className="scene-structure-quick-field"><span>Tiêu đề</span><input value={popup.title} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { title: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Nội dung</span><textarea rows={5} value={popup.body} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { body: event.target.value })} /></label>
+          <label className="scene-structure-quick-field"><span>Lời thuyết minh popup</span><textarea rows={3} value={popup.narration} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { narration: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Ảnh / video riêng</span><input type="url" value={safeTrim(popup.video) || popup.image} placeholder="https://..." onChange={(event) => {
             const value = event.target.value;
             updateSceneStructureQuickPopup(popup.id, {
@@ -10180,8 +10291,21 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Cao (px)</span><input type="number" min="170" max="440" value={popup.height} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { height: Math.min(440, Math.max(170, numberValue(event.target.value, popup.height))) })} /></label>
             <label className="scene-structure-quick-field"><span>Viền (px)</span><input type="number" min="0" max="12" value={popup.borderWidth} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { borderWidth: Math.min(12, Math.max(0, numberValue(event.target.value, popup.borderWidth))) })} /></label>
             <label className="scene-structure-quick-field"><span>Bố cục</span><select value={popup.layout} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { layout: event.target.value as PopupConfig["layout"] })}><option value="image-top">Ảnh trên</option><option value="split">Chia đôi</option><option value="quote">Trích dẫn</option><option value="stats">Thống kê</option><option value="image-only">Chỉ ảnh</option><option value="content-only">Chỉ nội dung</option></select></label>
+            <label className="scene-structure-quick-field"><span>Chủ đề</span><select value={popup.theme} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { theme: event.target.value as Scene["popupTheme"] })}><option value="travel">Travel</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="minimal">Minimal</option></select></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={popup.textEffect} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { textEffect: event.target.value as Scene["popupTextEffect"] })}><option value="none">Không hiệu ứng</option><option value="fade">Fade</option><option value="rise">Rise</option><option value="pop">Pop</option></select></label>
           </div>
-          <label className="scene-structure-quick-toggle"><input type="checkbox" checked={popup.transparentMedia} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { transparentMedia: event.target.checked })} /><span>Giữ nền trong suốt của ảnh / video</span></label>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-field"><span>Chiều cao ảnh (px)</span><input type="number" min="0" max="440" value={popup.imageHeight} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { imageHeight: Math.min(440, Math.max(0, numberValue(event.target.value, popup.imageHeight))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao nội dung (px)</span><input type="number" min="0" max="440" value={popup.contentHeight} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { contentHeight: Math.min(440, Math.max(0, numberValue(event.target.value, popup.contentHeight))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng mở</span><input value={popup.in} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { in: event.target.value })} placeholder="fade-slide-up" /></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng đóng</span><input value={popup.out} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { out: event.target.value })} placeholder="fade-slide-down" /></label>
+          </div>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={popup.transparentMedia} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { transparentMedia: event.target.checked })} /><span>Giữ nền trong suốt của ảnh / video</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={popup.imageVisible !== false} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { imageVisible: event.target.checked })} /><span>Hiển thị ảnh / video</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={popup.visible !== false} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={popup.editorVisible !== false} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { editorVisible: event.target.checked })} /><span>Hiển thị khi biên soạn</span></label>
+          </div>
         </div>
       ) : null;
     }
@@ -10201,7 +10325,23 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Kiểu chữ</span><select value={overlay.style} onChange={(event) => updateSceneStructureQuickText(overlay.id, { style: event.target.value as TextOverlay["style"] })}><option value="normal">Bình thường</option><option value="bold">Đậm</option><option value="italic">Nghiêng</option><option value="bold-italic">Đậm nghiêng</option></select></label>
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(overlay.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { color: event.target.value })} /></label>
           </div>
-          <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={overlay.textEffect} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffect: event.target.value as TextOverlayEffect })}>{TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={overlay.font} onChange={(event) => updateSceneStructureQuickText(overlay.id, { font: event.target.value as OverlayTextFont })}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={overlay.textEffect} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffect: event.target.value as TextOverlayEffect })}>{TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><input type="number" min="0.05" max="8" step="0.05" value={overlay.textEffectDuration} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffectDuration: Math.min(8, Math.max(0.05, numberValue(event.target.value, overlay.textEffectDuration))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><input type="number" min="4" max="100" value={overlay.width ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickText(overlay.id, { width: event.target.value === "" ? undefined : Math.min(100, Math.max(4, numberValue(event.target.value, overlay.width ?? 40))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><input type="number" min="3" max="40" value={overlay.height ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickText(overlay.id, { height: event.target.value === "" ? undefined : Math.min(40, Math.max(3, numberValue(event.target.value, overlay.height ?? 10))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ dày Stroke (px)</span><input type="number" min="0" max="12" value={overlay.strokeWidth} onChange={(event) => updateSceneStructureQuickText(overlay.id, { strokeWidth: Math.min(12, Math.max(0, numberValue(event.target.value, overlay.strokeWidth))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Màu Stroke</span><input type="color" value={normalizeHexColor(overlay.strokeColor, "#000000")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { strokeColor: event.target.value })} /></label>
+            <label className="scene-structure-quick-field"><span>Viền khung (px)</span><input type="number" min="0" max="12" value={overlay.borderWidth} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderWidth: Math.min(12, Math.max(0, numberValue(event.target.value, overlay.borderWidth))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Màu viền</span><input type="color" value={normalizeHexColor(overlay.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderColor: event.target.value })} /></label>
+            <label className="scene-structure-quick-field"><span>Màu nền khung</span><input type="color" value={normalizeHexColor(overlay.borderFill, "#14202e")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderFill: event.target.value })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ viền (%)</span><input type="number" min="0" max="100" value={overlay.borderOpacity} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderOpacity: Math.min(100, Math.max(0, numberValue(event.target.value, overlay.borderOpacity))) })} /></label>
+          </div>
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.visible !== false} onChange={(event) => updateSceneStructureQuickText(overlay.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.editorVisible !== false} onChange={(event) => updateSceneStructureQuickText(overlay.id, { editorVisible: event.target.checked })} /><span>Hiển thị khi biên soạn</span></label>
+          </div>
         </div>
       ) : null;
     }
@@ -10212,6 +10352,7 @@ function Home() {
         <div className="scene-structure-quick-stack">
           {timingFields}
           <label className="scene-structure-quick-field"><span>Tên trang trí</span><input value={decoration.name} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { name: event.target.value })} /></label>
+          <label className="scene-structure-quick-field"><span>Loại trang trí</span><select value={decoration.type} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { type: event.target.value as MapDecorationType })}><option value="text-3d">Chữ 3D</option><option value="sticker">Sticker</option><option value="animated-sticker">Sticker động</option><option value="icon">Icon</option><option value="effect">Hiệu ứng</option></select></label>
           {(decoration.type === "text-3d" || decoration.type === "icon" || decoration.type === "effect") && <label className="scene-structure-quick-field"><span>{decoration.type === "text-3d" ? "Nội dung" : "Biểu tượng"}</span><input value={decoration.type === "text-3d" ? decoration.text : decoration.symbol} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, decoration.type === "text-3d" ? { text: event.target.value } : { symbol: event.target.value })} /></label>}
           {(decoration.type === "sticker" || decoration.type === "animated-sticker") && <label className="scene-structure-quick-field"><span>URL tài nguyên</span><input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} /></label>}
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
@@ -10221,6 +10362,14 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Tỷ lệ</span><input type="number" min="0.1" max="5" step="0.1" value={decoration.scale} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { scale: Math.min(5, Math.max(0.1, numberValue(event.target.value, decoration.scale))) })} /></label>
             <label className="scene-structure-quick-field"><span>Xoay (°)</span><input type="number" min="-360" max="360" value={decoration.rotate} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { rotate: Math.min(360, Math.max(-360, numberValue(event.target.value, decoration.rotate))) })} /></label>
             <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><input type="number" min="0" max="100" value={decoration.opacity} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { opacity: Math.min(100, Math.max(0, numberValue(event.target.value, decoration.opacity))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ sâu bóng</span><input type="number" min="0" max="16" value={decoration.depth} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { depth: Math.min(16, Math.max(0, numberValue(event.target.value, decoration.depth))) })} /></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng chuyển động</span><select value={decoration.animation} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { animation: event.target.value as MapDecorationAnimation })}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="float">Trôi</option><option value="pulse">Nhấp nháy</option><option value="spin">Xoay</option></select></label>
+            <label className="scene-structure-quick-field"><span>Màu chính</span><input type="color" value={normalizeHexColor(decoration.color, "#ffd166")} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { color: event.target.value })} /></label>
+            <label className="scene-structure-quick-field"><span>Màu nhấn</span><input type="color" value={normalizeHexColor(decoration.accentColor, "#7c3aed")} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { accentColor: event.target.value })} /></label>
+          </div>
+          {decoration.type === "effect" && <label className="scene-structure-quick-field"><span>Kiểu hiệu ứng</span><select value={decoration.effect} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { effect: event.target.value as MapDecoration["effect"] })}><option value="sparkles">Lấp lánh</option><option value="ring">Vòng sáng</option><option value="confetti">Confetti</option><option value="glow">Glow</option></select></label>}
+          <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={decoration.visible !== false} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
           </div>
         </div>
       ) : null;
@@ -10234,24 +10383,57 @@ function Home() {
           <label className="scene-structure-quick-field"><span>Tên âm thanh</span><input value={track.name} onChange={(event) => updateSceneStructureQuickAudio(track.id, { name: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>File / URL âm thanh</span><input value={track.source} placeholder="audio/file.mp3 hoặc https://..." onChange={(event) => updateSceneStructureQuickAudio(track.id, { source: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Âm lượng (%)</span><input type="number" min="0" max="100" value={track.volume} onChange={(event) => updateSceneStructureQuickAudio(track.id, { volume: Math.min(100, Math.max(0, numberValue(event.target.value, track.volume))) })} /></label>
+          <label className="scene-structure-quick-toggle"><input type="checkbox" checked={track.visible !== false} onChange={(event) => updateSceneStructureQuickAudio(track.id, { visible: event.target.checked })} /><span>Phát track này khi xem thử và render</span></label>
         </div>
       ) : null;
     }
 
     if (item.kind === "subtitle") {
       const subtitleStyle = normalizeSubtitleStyle(quickScene.subtitleStyle);
+      const quickSubtitles = quickScene.subtitles ?? [];
+      const updateQuickSubtitle = (subtitleId: string, patch: Partial<SubtitleCue>) => updateSceneStructureQuickScene((currentScene) => ({
+        ...currentScene,
+        subtitles: (currentScene.subtitles ?? []).map((subtitle) => subtitle.id === subtitleId
+          ? { ...subtitle, ...patch }
+          : subtitle),
+      }));
       content = (
         <div className="scene-structure-quick-stack">
+          {timingFields}
           <label className="scene-structure-quick-toggle"><input type="checkbox" checked={quickScene.subtitleEnabled !== false} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleEnabled: event.target.checked }))} /><span>Hiển thị phụ đề</span></label>
           <label className="scene-structure-quick-field"><span>Thời gian bắt đầu toàn bộ phụ đề (giây)</span><input type="number" min="0" max={sceneStructureDuration} step="0.1" value={quickScene.subtitleStart} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: Math.min(sceneStructureDuration, Math.max(0, numberValue(event.target.value, currentScene.subtitleStart))) }))} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Cỡ chữ</span><input type="number" min="8" max="120" value={subtitleStyle.size} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), size: Math.min(120, Math.max(8, numberValue(event.target.value, subtitleStyle.size))) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={subtitleStyle.font} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), font: event.target.value as OverlayTextFont } }))}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
+            <label className="scene-structure-quick-field"><span>Kiểu chữ</span><select value={subtitleStyle.style} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), style: event.target.value as SubtitleStyle["style"] } }))}><option value="normal">Bình thường</option><option value="bold">Đậm</option><option value="italic">Nghiêng</option><option value="bold-italic">Đậm nghiêng</option></select></label>
             <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="number" min="0" max="100" value={subtitleStyle.x} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), x: clampPercent(event.target.value, subtitleStyle.x) } }))} /></label>
             <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="number" min="0" max="100" value={subtitleStyle.y} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), y: clampPercent(event.target.value, subtitleStyle.y) } }))} /></label>
             <label className="scene-structure-quick-field"><span>Độ rộng hộp (%)</span><input type="number" min="20" max="100" value={subtitleStyle.boxWidth} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxWidth: Math.min(100, Math.max(20, numberValue(event.target.value, subtitleStyle.boxWidth))) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao hộp (%)</span><input type="number" min="3" max="40" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: event.target.value === "" ? undefined : Math.min(40, Math.max(3, numberValue(event.target.value, subtitleStyle.boxHeight ?? 10))) } }))} /></label>
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(subtitleStyle.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), color: event.target.value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ chữ (%)</span><input type="number" min="0" max="100" value={subtitleStyle.opacity} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), opacity: Math.min(100, Math.max(0, numberValue(event.target.value, subtitleStyle.opacity))) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Border (px)</span><input type="number" min="0" max="12" value={subtitleStyle.borderWidth} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderWidth: Math.min(12, Math.max(0, numberValue(event.target.value, subtitleStyle.borderWidth))) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Màu border</span><input type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderColor: event.target.value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Màu nền</span><input type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#14202e")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderFill: event.target.value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Độ trong suốt nền (%)</span><input type="number" min="0" max="100" value={subtitleStyle.borderOpacity} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderOpacity: Math.min(100, Math.max(0, numberValue(event.target.value, subtitleStyle.borderOpacity))) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Hiệu ứng phụ đề</span><select value={subtitleStyle.animation} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animation: event.target.value as SubtitleAnimation } }))}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide-up">Trượt lên</option><option value="typewriter">Gõ chữ</option></select></label>
+            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><input type="number" min="0.05" max="1" step="0.05" value={subtitleStyle.animationDuration} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animationDuration: Math.min(1, Math.max(0.05, numberValue(event.target.value, subtitleStyle.animationDuration))) } }))} /></label>
           </div>
-          <small className="scene-structure-quick-note">{quickScene.subtitles.filter((cue) => cue.visible !== false).length} câu phụ đề sẽ đồng bộ theo các thông số này.</small>
+          <div className="scene-structure-quick-divider"><strong>Nội dung từng câu</strong><small>Thời gian tính từ mốc bắt đầu toàn bộ phụ đề.</small></div>
+          {quickSubtitles.length > 0 ? quickSubtitles.map((subtitle, index) => (
+            <div className={`scene-structure-quick-subtitle ${subtitle.visible === false ? "is-hidden" : ""}`} key={subtitle.id}>
+              <div className="scene-structure-quick-subtitle-heading">
+                <strong>Câu {index + 1}</strong>
+                <label className="scene-structure-quick-toggle"><input type="checkbox" checked={subtitle.visible !== false} onChange={(event) => updateQuickSubtitle(subtitle.id, { visible: event.target.checked })} /><span>Hiện</span></label>
+              </div>
+              <textarea rows={3} value={subtitle.text} placeholder="Nhập nội dung phụ đề..." onChange={(event) => updateQuickSubtitle(subtitle.id, { text: event.target.value })} />
+              <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+                <label className="scene-structure-quick-field"><span>Bắt đầu (giây)</span><input type="number" min="0" max={sceneStructureDuration} step="0.1" value={subtitle.start} onChange={(event) => updateQuickSubtitle(subtitle.id, { start: Math.min(sceneStructureDuration, Math.max(0, numberValue(event.target.value, subtitle.start))) })} /></label>
+                <label className="scene-structure-quick-field"><span>Kết thúc (giây)</span><input type="number" min="0.1" max={sceneStructureDuration} step="0.1" value={subtitle.end} onChange={(event) => updateQuickSubtitle(subtitle.id, { end: Math.min(sceneStructureDuration, Math.max(subtitle.start + 0.1, numberValue(event.target.value, subtitle.end))) })} /></label>
+              </div>
+            </div>
+          )) : <small className="scene-structure-quick-note">Chưa có câu phụ đề.</small>}
+          <small className="scene-structure-quick-note">{quickSubtitles.filter((cue) => cue.visible !== false).length} câu phụ đề đang hiển thị.</small>
         </div>
       );
     }
@@ -10286,20 +10468,32 @@ function Home() {
         ) : null;
       } else {
         const effects = normalizeSceneEffects(quickScene.effects);
+        const weatherControls: Array<{
+          enabled: keyof SceneEffects;
+          intensity: keyof SceneEffects;
+          speed: keyof SceneEffects;
+          label: string;
+        }> = [
+          { enabled: "snowEnabled", intensity: "snowIntensity", speed: "snowSpeed", label: "Tuyết rơi" },
+          { enabled: "rainEnabled", intensity: "rainIntensity", speed: "rainSpeed", label: "Mưa" },
+          { enabled: "cloudEnabled", intensity: "cloudIntensity", speed: "cloudSpeed", label: "Mây trôi" },
+          { enabled: "lightFlickerEnabled", intensity: "lightFlickerIntensity", speed: "lightFlickerSpeed", label: "Chớp sáng" },
+          { enabled: "thunderEnabled", intensity: "thunderIntensity", speed: "thunderSpeed", label: "Sấm chớp" },
+        ];
         content = (
           <div className="scene-structure-quick-stack">
             <p className="scene-structure-quick-note">Bật/tắt từng hiệu ứng môi trường cho cảnh này.</p>
-            {([
-              ["snowEnabled", "Tuyết rơi"],
-              ["rainEnabled", "Mưa"],
-              ["cloudEnabled", "Mây trôi"],
-              ["lightFlickerEnabled", "Chớp sáng"],
-              ["thunderEnabled", "Sấm chớp"],
-            ] as Array<[keyof SceneEffects, string]>).map(([key, label]) => (
-              <label className="scene-structure-quick-toggle" key={key}>
-                <input type="checkbox" checked={Boolean(effects[key])} onChange={(event) => updateSceneStructureQuickEffects({ [key]: event.target.checked } as Partial<SceneEffects>)} />
-                <span>{label}</span>
-              </label>
+            {weatherControls.map(({ enabled, intensity, speed, label }) => (
+              <div className="scene-structure-quick-environment" key={enabled}>
+                <label className="scene-structure-quick-toggle">
+                  <input type="checkbox" checked={Boolean(effects[enabled])} onChange={(event) => updateSceneStructureQuickEffects({ [enabled]: event.target.checked } as Partial<SceneEffects>)} />
+                  <span>{label}</span>
+                </label>
+                <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+                  <label className="scene-structure-quick-field"><span>Cường độ (%)</span><input type="number" min="0" max="100" value={Number(effects[intensity])} disabled={!Boolean(effects[enabled])} onChange={(event) => updateSceneStructureQuickEffects({ [intensity]: Math.min(100, Math.max(0, numberValue(event.target.value, Number(effects[intensity]) || 0))) } as Partial<SceneEffects>)} /></label>
+                  <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><input type="number" min="0.2" max="3" step="0.1" value={Number(effects[speed])} disabled={!Boolean(effects[enabled])} onChange={(event) => updateSceneStructureQuickEffects({ [speed]: Math.min(3, Math.max(0.2, numberValue(event.target.value, Number(effects[speed]) || 1))) } as Partial<SceneEffects>)} /></label>
+                </div>
+              </div>
             ))}
           </div>
         );
@@ -15207,7 +15401,7 @@ function Home() {
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
                             type="button"
-                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${isLive ? "is-live" : ""}`}
+                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${isLive ? "is-live" : ""} ${item.token === sceneStructureItemDragToken ? "is-dragging" : ""} ${item.timingMode !== "none" ? "is-movable" : ""}`}
                             style={{
                               left: `${leftPercent}%`,
                               width: `${widthPercent}%`,
@@ -15215,8 +15409,18 @@ function Home() {
                             }}
                             aria-pressed={item.token === selectedSceneStructureItem?.token}
                             aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
-                            title="Click đúp để chỉnh sửa · Nhấn Delete để xóa tài nguyên"
-                            onClick={() => selectSceneStructureItem(item)}
+                            title={item.timingMode !== "none" ? "Kéo thẻ để đổi vị trí · Click đúp để chỉnh sửa · Nhấn Delete để xóa" : "Click đúp để chỉnh sửa · Nhấn Delete để xóa tài nguyên"}
+                            onPointerDown={(event) => startSceneStructureItemDrag(event, item)}
+                            onPointerMove={(event) => moveSceneStructureItemDrag(event, item)}
+                            onPointerUp={endSceneStructureItemDrag}
+                            onPointerCancel={endSceneStructureItemDrag}
+                            onClick={() => {
+                              if (sceneStructureItemDidDrag.current) {
+                                sceneStructureItemDidDrag.current = false;
+                                return;
+                              }
+                              selectSceneStructureItem(item);
+                            }}
                             onDoubleClick={() => openSceneStructureQuickEditor(item)}
                             onKeyDown={(event) => {
                               if (event.key !== "Delete") return;

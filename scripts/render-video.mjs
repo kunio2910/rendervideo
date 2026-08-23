@@ -1622,12 +1622,15 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
       filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
     } else if (effect === "blur") {
+      const sharpSourceLabel = `textBlurSharpSource${textIndex}`;
       const sharpLabel = `textBlurSharp${textIndex}`;
       const blurSourceLabel = `textBlurSource${textIndex}`;
       const blurLabel = `textBlurred${textIndex}`;
-      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
-      filter += `[${blurSourceLabel}]gblur=sigma=10,fade=t=out:st=${textStart}:d=${effectDuration}:alpha=1[${blurLabel}];`;
-      filter += `[${sharpLabel}][${blurLabel}]overlay=0:0[${inputLabel}];`;
+      const blurProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpSourceLabel}][${blurSourceLabel}];`;
+      filter += `[${blurSourceLabel}]gblur=sigma=10,${geqRgba({ alpha: `alpha(X,Y)*(1-(${blurProgress}))` })}[${blurLabel}];`;
+      filter += `[${sharpSourceLabel}]${geqRgba({ alpha: `alpha(X,Y)*(${blurProgress})` })}[${sharpLabel}];`;
+      filter += `[${blurLabel}][${sharpLabel}]overlay=0:0:format=auto[${inputLabel}];`;
     } else {
       let inputFilter = `[${inputIndex}:v]format=rgba`;
       if (effect === "fade") {

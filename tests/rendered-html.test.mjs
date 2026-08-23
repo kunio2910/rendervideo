@@ -355,7 +355,14 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /localStorage\.setItem\(LOCAL_SCENE_STRUCTURE_ZOOM_KEY/);
   assert.match(page, /onDoubleClick=\{\(\) => openSceneStructureQuickEditor\(item\)\}/);
   assert.match(page, /scene-structure-quick-editor/);
+  assert.match(page, /startSceneStructureItemDrag/);
+  assert.match(page, /sceneStructureItemDragToken/);
+  assert.match(page, /playbackEnd = sceneStructureOpen \? sceneStructureScene\.end/);
+  assert.match(page, /Lời thuyết minh popup/);
+  assert.match(page, /Nội dung từng câu/);
+  assert.match(page, /weatherControls/);
   assert.match(css, /scene-structure-quick-editor-overlay/);
+  assert.match(css, /scene-structure-card\.is-movable/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
   assert.match(css, /\.preview-control-bar \{\s*overflow: visible;/);
@@ -387,6 +394,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /Number\(popup\.height\)/);
   assert.match(renderer, /popupImageHeight/);
   assert.match(renderer, /popupContentHeight/);
+  assert.match(renderer, /textBlurSharpSource/);
+  assert.match(renderer, /alpha\(X,Y\)\*\(1-\(/);
+  assert.match(renderer, /alpha\(X,Y\)\*\(/);
   assert.match(renderer, /const animatedStickerSize = Math\.max\(1, Math\.round\(previewPx\(220\)\)\)/);
   assert.match(renderer, /const ffmpegMediaFit = \(width, height, fit = "cover"\)/);
   assert.match(renderer, /force_original_aspect_ratio=decrease,pad=\$\{width\}:\$\{height\}/);
