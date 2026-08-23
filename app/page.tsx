@@ -3175,6 +3175,7 @@ function Home() {
   const [sceneStructureItemDragToken, setSceneStructureItemDragToken] = useState("");
   const [sceneStructureHoverPreview, setSceneStructureHoverPreview] = useState<SceneStructureHoverPreview | null>(null);
   const [sceneStructurePreviewPortalHost, setSceneStructurePreviewPortalHost] = useState<HTMLDivElement | null>(null);
+  const [sceneStructureMinimapViewport, setSceneStructureMinimapViewport] = useState({ left: 0, width: 100 });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(readReviewZoomPreference);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -3216,6 +3217,8 @@ function Home() {
   const sceneStructureItemPointerDrag = useRef<SceneStructureItemPointerDrag | null>(null);
   const sceneStructureItemDidDrag = useRef(false);
   const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
+  const sceneStructureFlowScrollRef = useRef<HTMLDivElement | null>(null);
+  const sceneStructureMinimapPointerId = useRef<number | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
   const localConcatJobId = useRef("");
@@ -4017,6 +4020,82 @@ function Home() {
     sceneStructureDuration,
     Math.max(0, playTime - sceneStructureScene.start),
   );
+  const sceneStructureMinimapTracks: Array<{
+    key: string;
+    label: string;
+    kinds: SceneStructureItem["kind"][];
+  }> = [
+    { key: "visual", label: "Hình", kinds: ["background", "image"] },
+    { key: "popup", label: "Popup", kinds: ["popup"] },
+    { key: "copy", label: "Chữ", kinds: ["text", "subtitle"] },
+    { key: "effect", label: "Hiệu ứng", kinds: ["effect", "decoration"] },
+    { key: "audio", label: "Âm thanh", kinds: ["audio"] },
+  ];
+
+  const syncSceneStructureMinimapViewport = () => {
+    const scroll = sceneStructureFlowScrollRef.current;
+    if (!scroll) return;
+    const scrollWidth = Math.max(1, scroll.scrollWidth);
+    const viewportWidth = Math.min(100, scroll.clientWidth / scrollWidth * 100);
+    const viewportLeft = Math.min(
+      100 - viewportWidth,
+      Math.max(0, scroll.scrollLeft / scrollWidth * 100),
+    );
+    setSceneStructureMinimapViewport((current) => (
+      Math.abs(current.left - viewportLeft) < 0.05 && Math.abs(current.width - viewportWidth) < 0.05
+        ? current
+        : { left: viewportLeft, width: viewportWidth }
+    ));
+  };
+
+  const moveSceneStructureMinimapViewport = (clientX: number, target: HTMLElement) => {
+    const scroll = sceneStructureFlowScrollRef.current;
+    if (!scroll) return;
+    const bounds = target.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - bounds.left) / Math.max(1, bounds.width)));
+    const maxScrollLeft = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
+    scroll.scrollLeft = Math.round(Math.min(
+      maxScrollLeft,
+      Math.max(0, ratio * scroll.scrollWidth - scroll.clientWidth / 2),
+    ));
+    syncSceneStructureMinimapViewport();
+  };
+
+  const startSceneStructureMinimapDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    sceneStructureMinimapPointerId.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    moveSceneStructureMinimapViewport(event.clientX, event.currentTarget);
+  };
+
+  const moveSceneStructureMinimapDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sceneStructureMinimapPointerId.current !== event.pointerId) return;
+    moveSceneStructureMinimapViewport(event.clientX, event.currentTarget);
+  };
+
+  const endSceneStructureMinimapDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sceneStructureMinimapPointerId.current !== event.pointerId) return;
+    sceneStructureMinimapPointerId.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const navigateSceneStructureMinimapWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const scroll = sceneStructureFlowScrollRef.current;
+    if (!scroll) return;
+    const viewportStep = Math.max(80, scroll.clientWidth * 0.7);
+    const maxScrollLeft = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
+    let nextScrollLeft: number | null = null;
+    if (event.key === "ArrowLeft") nextScrollLeft = scroll.scrollLeft - viewportStep;
+    if (event.key === "ArrowRight") nextScrollLeft = scroll.scrollLeft + viewportStep;
+    if (event.key === "Home") nextScrollLeft = 0;
+    if (event.key === "End") nextScrollLeft = maxScrollLeft;
+    if (nextScrollLeft === null) return;
+    event.preventDefault();
+    scroll.scrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft));
+    syncSceneStructureMinimapViewport();
+  };
 
   useEffect(() => {
     if (!sceneStructureOpen) return;
@@ -4029,6 +4108,16 @@ function Home() {
     sceneStructureFirstToken,
     sceneStructureSelectedTokenExists,
   ]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen || sceneStructureViewMode !== "timeline") return;
+    const frame = window.requestAnimationFrame(syncSceneStructureMinimapViewport);
+    window.addEventListener("resize", syncSceneStructureMinimapViewport);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", syncSceneStructureMinimapViewport);
+    };
+  }, [sceneStructureOpen, sceneStructureViewMode, sceneStructureZoom]);
 
   useEffect(() => {
     if (!sceneStructureOpen || !selectedSceneStructureItemToken) return;
@@ -15457,8 +15546,12 @@ function Home() {
                 </div>
               </aside>
               <div className="scene-structure-flow-panel">
-                {sceneStructureViewMode === "timeline" ? (
-                <div className="scene-structure-flow-scroll">
+                {sceneStructureViewMode === "timeline" ? (<>
+                <div
+                  ref={sceneStructureFlowScrollRef}
+                  className="scene-structure-flow-scroll"
+                  onScroll={syncSceneStructureMinimapViewport}
+                >
                   <div
                     ref={sceneStructureFlowContentRef}
                     className={`scene-structure-flow-content ${sceneStructureDropTime !== null ? "is-template-drop-target" : ""}`}
@@ -15591,7 +15684,70 @@ function Home() {
                     </footer>
                   </div>
                 </div>
-                ) : (
+                <section className="scene-structure-minimap" aria-label="Minimap timeline của cảnh">
+                  <header className="scene-structure-minimap-heading">
+                    <div>
+                      <strong>Tổng quan timeline</strong>
+                      <span>Kéo vùng xanh để di chuyển vùng đang xem</span>
+                    </div>
+                    <output>{formatPreciseTime(sceneStructureLocalTime)} / {formatPreciseTime(sceneStructureDuration)}</output>
+                  </header>
+                  <div
+                    className="scene-structure-minimap-map"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Minimap timeline. Kéo hoặc click để điều hướng vùng đang xem; dùng phím mũi tên trái phải để di chuyển."
+                    title="Kéo vùng xanh để di chuyển vùng đang xem"
+                    onPointerDown={startSceneStructureMinimapDrag}
+                    onPointerMove={moveSceneStructureMinimapDrag}
+                    onPointerUp={endSceneStructureMinimapDrag}
+                    onPointerCancel={endSceneStructureMinimapDrag}
+                    onKeyDown={navigateSceneStructureMinimapWithKeyboard}
+                  >
+                    <div className="scene-structure-minimap-ticks" aria-hidden="true">
+                      {sceneStructureTicks.map((tick) => (
+                        <i
+                          key={`scene-structure-minimap-tick-${tick}`}
+                          style={{ left: `${Math.min(100, Math.max(0, tick / sceneStructureDuration * 100))}%` }}
+                        />
+                      ))}
+                    </div>
+                    <div className="scene-structure-minimap-tracks" aria-hidden="true">
+                      {sceneStructureMinimapTracks.map((track) => (
+                        <div key={track.key} className="scene-structure-minimap-track">
+                          <span>{track.label}</span>
+                          <div>
+                            {sceneStructureItems
+                              .filter((item) => track.kinds.includes(item.kind))
+                              .map((item) => {
+                                const left = Math.min(99, Math.max(0, item.start / sceneStructureDuration * 100));
+                                const width = Math.min(100 - left, Math.max(1.2, (item.end - item.start) / sceneStructureDuration * 100));
+                                return (
+                                  <i
+                                    key={item.token}
+                                    className={`scene-structure-minimap-item scene-structure-minimap-item-${item.kind}`}
+                                    style={{ left: `${left}%`, width: `${width}%` }}
+                                    title={`${item.label} · ${formatPreciseTime(item.start)}–${formatPreciseTime(item.end)}`}
+                                  />
+                                );
+                              })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <i
+                      className="scene-structure-minimap-playhead"
+                      aria-hidden="true"
+                      style={{ left: `${Math.min(100, Math.max(0, sceneStructureLocalTime / sceneStructureDuration * 100))}%` }}
+                    />
+                    <span
+                      className="scene-structure-minimap-viewport"
+                      aria-hidden="true"
+                      style={{ left: `${sceneStructureMinimapViewport.left}%`, width: `${sceneStructureMinimapViewport.width}%` }}
+                    ><i /><i /></span>
+                  </div>
+                </section>
+                </>) : (
                   <div
                     className={`scene-structure-alt-scroll scene-structure-alt-${sceneStructureViewMode}`}
                   >

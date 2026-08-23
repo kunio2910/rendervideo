@@ -368,6 +368,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /if \(!sceneStructureOpen \|\| sceneStructurePreviewMode\) return;\s*setPreviewPlaybackMode\(false\);/);
   assert.match(page, /setSceneStructurePreviewPortalHost\(null\);/);
   assert.match(page, /!sceneStructurePreviewPortalHost && renderSceneStructureLivePreview\(\)/);
+  assert.match(page, /scene-structure-minimap/);
+  assert.match(page, /syncSceneStructureMinimapViewport/);
+  assert.match(page, /Kéo vùng xanh để di chuyển vùng đang xem/);
   assert.match(page, /playbackEnd = sceneStructureOpen \? sceneStructureScene\.end/);
   assert.match(page, /Lời thuyết minh popup/);
   assert.match(page, /Nội dung từng câu/);
@@ -375,6 +378,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /scene-structure-quick-editor-overlay/);
   assert.match(css, /scene-structure-card\.is-movable/);
   assert.match(css, /scene-structure-hover-preview/);
+  assert.match(css, /scene-structure-minimap-viewport/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);
