@@ -4453,6 +4453,7 @@ function Home() {
       }
       setPlaying(false);
       setSceneStructurePreviewMode(false);
+      setPreviewPlaybackMode(false);
       setSceneStructureOpen(false);
     };
     const previousOverflow = document.body.style.overflow;
@@ -4463,6 +4464,11 @@ function Home() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [sceneStructureOpen, sceneStructureQuickEditToken]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen || sceneStructurePreviewMode) return;
+    setPreviewPlaybackMode(false);
+  }, [sceneStructureOpen, sceneStructurePreviewMode]);
 
   useEffect(() => {
     if (!hydrated || saveStatus === "loading" || saveStatus === "saving") return;
@@ -9231,6 +9237,7 @@ function Home() {
   const openSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    setPreviewPlaybackMode(false);
     sceneStructureItemPointerDrag.current = null;
     sceneStructureItemDidDrag.current = false;
     setSceneStructureItemDragToken("");
@@ -9251,6 +9258,7 @@ function Home() {
   const closeSceneStructure = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    setPreviewPlaybackMode(false);
     setSceneStructureQuickEditToken("");
     sceneStructureItemPointerDrag.current = null;
     sceneStructureItemDidDrag.current = false;
@@ -9778,6 +9786,7 @@ function Home() {
     setSelectedSceneIds([sceneStructureScene.id]);
     if (shouldRestart) setPlayTime(sceneStructureScene.start);
     setPlaybackRestartToken((value) => value + 1);
+    setPreviewPlaybackMode(true);
     setSceneStructurePreviewMode(true);
     setPlaying(true);
   };
@@ -9785,6 +9794,7 @@ function Home() {
   const returnFromSceneStructurePreview = () => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    setPreviewPlaybackMode(false);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     setPlayTime(sceneStructureScene.start);
@@ -10118,6 +10128,7 @@ function Home() {
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
+    setPreviewPlaybackMode(false);
     setSceneStructureQuickEditToken("");
     setSceneStructureOpen(false);
     setActiveStudioTab("compose");
