@@ -123,7 +123,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /previewAudioMuted/);
   assert.match(page, /togglePreviewAudio/);
   assert.match(page, /const \[previewPlaybackMode, setPreviewPlaybackMode\] = useState\(false\)/);
-  assert.match(page, /sceneIsVisibleInPlayback = !previewPlaybackMode/);
+  assert.match(page, /sceneIsVisibleInPlayback = sceneStructurePreviewMode \|\| !previewPlaybackMode/);
   assert.match(page, /setPreviewPlaybackMode\(true\);/);
   assert.match(page, /playing \? "Tạm dừng" : previewPlaybackMode \? "Tiếp tục" : "Xem thử"/);
   assert.match(page, /preview-audio-toggle/);
@@ -371,6 +371,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /scene-structure-minimap/);
   assert.match(page, /syncSceneStructureMinimapViewport/);
   assert.match(page, /Kéo vùng xanh để di chuyển vùng đang xem/);
+  assert.match(page, /scene-structure-minimap-markers/);
+  assert.match(page, /scene-structure-minimap-labels/);
   assert.match(page, /playbackEnd = sceneStructureOpen \? sceneStructureScene\.end/);
   assert.match(page, /Lời thuyết minh popup/);
   assert.match(page, /Nội dung từng câu/);
@@ -379,6 +381,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /scene-structure-card\.is-movable/);
   assert.match(css, /scene-structure-hover-preview/);
   assert.match(css, /scene-structure-minimap-viewport/);
+  assert.match(css, /scene-structure-minimap-labels/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /\.preview-control-bar \{\s*display: flex;\s*flex-wrap: nowrap;/);
   assert.match(css, /preview-control-bar \.preview-review-toggle span/);

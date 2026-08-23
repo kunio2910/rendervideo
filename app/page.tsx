@@ -3529,7 +3529,7 @@ function Home() {
   const timelineProgress = projectDuration > 0
     ? Math.min(1, Math.max(0, playTime / projectDuration))
     : 0;
-  const sceneIsVisibleInPlayback = !previewPlaybackMode || visibleScenes.some((item) =>
+  const sceneIsVisibleInPlayback = sceneStructurePreviewMode || !previewPlaybackMode || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
   );
   const textOverlayTiming = (overlay: TextOverlay) => {
@@ -15692,6 +15692,12 @@ function Home() {
                     </div>
                     <output>{formatPreciseTime(sceneStructureLocalTime)} / {formatPreciseTime(sceneStructureDuration)}</output>
                   </header>
+                  <div className="scene-structure-minimap-legend" aria-label="Chú thích màu layer">
+                    {sceneStructureMinimapTracks.map((track) => (
+                      <span key={track.key} className={`scene-structure-minimap-legend-${track.key}`}><i />{track.label}</span>
+                    ))}
+                    <span className="scene-structure-minimap-legend-marker"><i />Mốc đáng chú ý</span>
+                  </div>
                   <div
                     className="scene-structure-minimap-map"
                     role="button"
@@ -15704,47 +15710,64 @@ function Home() {
                     onPointerCancel={endSceneStructureMinimapDrag}
                     onKeyDown={navigateSceneStructureMinimapWithKeyboard}
                   >
-                    <div className="scene-structure-minimap-ticks" aria-hidden="true">
-                      {sceneStructureTicks.map((tick) => (
-                        <i
-                          key={`scene-structure-minimap-tick-${tick}`}
-                          style={{ left: `${Math.min(100, Math.max(0, tick / sceneStructureDuration * 100))}%` }}
-                        />
-                      ))}
+                    <div className="scene-structure-minimap-labels" aria-hidden="true">
+                      {sceneStructureMinimapTracks.map((track) => <span key={track.key}>{track.label}</span>)}
                     </div>
-                    <div className="scene-structure-minimap-tracks" aria-hidden="true">
-                      {sceneStructureMinimapTracks.map((track) => (
-                        <div key={track.key} className="scene-structure-minimap-track">
-                          <span>{track.label}</span>
-                          <div>
-                            {sceneStructureItems
-                              .filter((item) => track.kinds.includes(item.kind))
-                              .map((item) => {
-                                const left = Math.min(99, Math.max(0, item.start / sceneStructureDuration * 100));
-                                const width = Math.min(100 - left, Math.max(1.2, (item.end - item.start) / sceneStructureDuration * 100));
-                                return (
-                                  <i
-                                    key={item.token}
-                                    className={`scene-structure-minimap-item scene-structure-minimap-item-${item.kind}`}
-                                    style={{ left: `${left}%`, width: `${width}%` }}
-                                    title={`${item.label} · ${formatPreciseTime(item.start)}–${formatPreciseTime(item.end)}`}
-                                  />
-                                );
-                              })}
+                    <div className="scene-structure-minimap-timeline" aria-hidden="true">
+                      <div className="scene-structure-minimap-ticks">
+                        {sceneStructureTicks.map((tick) => (
+                          <i
+                            key={`scene-structure-minimap-tick-${tick}`}
+                            style={{ left: `${Math.min(100, Math.max(0, tick / sceneStructureDuration * 100))}%` }}
+                          ><b>{formatTime(tick)}</b></i>
+                        ))}
+                      </div>
+                      <div className="scene-structure-minimap-tracks">
+                        {sceneStructureMinimapTracks.map((track) => (
+                          <div key={track.key} className="scene-structure-minimap-track">
+                            <div>
+                              {sceneStructureItems
+                                .filter((item) => track.kinds.includes(item.kind))
+                                .map((item) => {
+                                  const left = Math.min(99, Math.max(0, item.start / sceneStructureDuration * 100));
+                                  const width = Math.min(100 - left, Math.max(1.2, (item.end - item.start) / sceneStructureDuration * 100));
+                                  return (
+                                    <i
+                                      key={item.token}
+                                      className={`scene-structure-minimap-item scene-structure-minimap-item-${item.kind}`}
+                                      style={{ left: `${left}%`, width: `${width}%` }}
+                                    />
+                                  );
+                                })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                      <div className="scene-structure-minimap-markers">
+                        {sceneStructureItems
+                          .filter((item) => item.kind === "popup" || item.kind === "effect" || item.kind === "subtitle")
+                          .slice(0, 24)
+                          .map((item) => (
+                            <i
+                              key={`scene-structure-minimap-marker-${item.token}`}
+                              className={`scene-structure-minimap-marker-${item.kind}`}
+                              style={{ left: `${Math.min(100, Math.max(0, item.start / sceneStructureDuration * 100))}%` }}
+                            />
+                          ))}
+                      </div>
+                      <i
+                        className="scene-structure-minimap-playhead"
+                        style={{ left: `${Math.min(100, Math.max(0, sceneStructureLocalTime / sceneStructureDuration * 100))}%` }}
+                      ><b>{formatPreciseTime(sceneStructureLocalTime)}</b></i>
+                      <span
+                        className="scene-structure-minimap-viewport"
+                        style={{ left: `${sceneStructureMinimapViewport.left}%`, width: `${sceneStructureMinimapViewport.width}%` }}
+                      ><b>Vùng xem</b><i /><i /></span>
                     </div>
-                    <i
-                      className="scene-structure-minimap-playhead"
-                      aria-hidden="true"
-                      style={{ left: `${Math.min(100, Math.max(0, sceneStructureLocalTime / sceneStructureDuration * 100))}%` }}
-                    />
                     <span
-                      className="scene-structure-minimap-viewport"
+                      className="scene-structure-minimap-hint"
                       aria-hidden="true"
-                      style={{ left: `${sceneStructureMinimapViewport.left}%`, width: `${sceneStructureMinimapViewport.width}%` }}
-                    ><i /><i /></span>
+                    >Click hoặc kéo để xem phần khác của timeline</span>
                   </div>
                 </section>
                 </>) : (
