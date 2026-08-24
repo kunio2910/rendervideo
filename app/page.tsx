@@ -10222,67 +10222,148 @@ function Home() {
 
   const applySceneStructureSubtitleImages = () => {
     const groups = sceneStructureSubtitleImageGroups;
-    const generatedImages = groups.flatMap((group, groupIndex) => group.segments.map((segment) => {
-      const imageId = `${sceneStructureScene.id}-subtitle-image-${groupIndex + 1}`;
-      const transition = group.template.transition;
-      const start = Math.min(
-        Math.max(0, segment.start),
-        Math.max(0, sceneStructureDuration - 0.1),
-      );
-      const duration = Number(Math.max(0.1, Math.min(
-        Math.max(0.1, sceneStructureDuration - start),
-        Math.max(0.1, group.totalDuration),
-      )).toFixed(2));
-      const transitionDuration = transition === "cut"
-        ? 0
-        : Math.min(0.6, duration);
-      return defaultSceneImage(imageId, {
-        name: group.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
-        url: group.imageUrl,
-        mediaType: isVideoMedia(group.imageUrl) ? "video" : "image",
-        transparent: group.template.transparent,
-        shape: group.template.shape,
-        x: group.template.x,
-        y: group.template.y,
-        width: group.template.width,
-        height: group.template.height,
-        opacity: group.template.opacity,
-        borderWidth: group.template.borderWidth,
-        borderColor: group.template.borderColor,
-        borderFill: group.template.borderFill,
-        start,
-        duration,
-        transition,
-        transitionEnd: transition === "cut"
-          ? start
-          : Number(Math.min(sceneStructureDuration, start + transitionDuration).toFixed(2)),
-        subtitleGenerated: true,
-        subtitleGroupId: group.groupId,
-        subtitleCueIds: segment.cueIds,
-        subtitleGroupTotalDuration: group.totalDuration,
-      });
-    }));
+    const mergeGeneratedSubtitleImages = (currentImages: SceneImage[]) => {
+      const existingGeneratedImages = currentImages.filter((image) => image.subtitleGenerated === true);
+      const usedExistingIds = new Set<string>();
+      const usedImageIds = new Set(currentImages.map((image) => image.id));
+      let nextImageNumber = 1;
+
+      const allocateImageId = () => {
+        let imageId = `${sceneStructureScene.id}-subtitle-image-${nextImageNumber}`;
+        while (usedImageIds.has(imageId)) {
+          nextImageNumber += 1;
+          imageId = `${sceneStructureScene.id}-subtitle-image-${nextImageNumber}`;
+        }
+        usedImageIds.add(imageId);
+        nextImageNumber += 1;
+        return imageId;
+      };
+
+      const findExistingImage = (group: SceneStructureSubtitleImageGroup) => {
+        let bestMatch: SceneImage | null = null;
+        let bestScore = 0;
+        for (const image of existingGeneratedImages) {
+          if (usedExistingIds.has(image.id)) continue;
+          const cueIds = new Set(image.subtitleCueIds ?? []);
+          const overlapCount = group.cueIds.filter((cueId) => cueIds.has(cueId)).length;
+          const sameGroup = image.subtitleGroupId === group.groupId;
+          const sameSource = safeTrim(image.url) === safeTrim(group.imageUrl);
+          const score = (sameGroup ? 10000 : 0) + overlapCount * 100 + (sameSource ? 10 : 0);
+          if (score > bestScore) {
+            bestMatch = image;
+            bestScore = score;
+          }
+        }
+        if (bestMatch) usedExistingIds.add(bestMatch.id);
+        return bestMatch;
+      };
+
+      return groups.flatMap((group, groupIndex) => group.segments.map((segment) => {
+        const existingImage = findExistingImage(group);
+        const imageId = existingImage?.id ?? allocateImageId();
+        const transition = group.template.transition;
+        const start = Math.min(
+          Math.max(0, segment.start),
+          Math.max(0, sceneStructureDuration - 0.1),
+        );
+        const duration = Number(Math.max(0.1, Math.min(
+          Math.max(0.1, sceneStructureDuration - start),
+          Math.max(0.1, group.totalDuration),
+        )).toFixed(2));
+        const transitionDuration = transition === "cut"
+          ? 0
+          : Math.min(0.6, duration);
+        const syncedFields = {
+          name: group.imageName || existingImage?.name || `Ảnh phụ đề ${groupIndex + 1}`,
+          url: group.imageUrl,
+          mediaType: isVideoMedia(group.imageUrl) ? "video" as const : "image" as const,
+          transparent: group.template.transparent,
+          shape: group.template.shape,
+          x: group.template.x,
+          y: group.template.y,
+          width: group.template.width,
+          height: group.template.height,
+          opacity: group.template.opacity,
+          borderWidth: group.template.borderWidth,
+          borderColor: group.template.borderColor,
+          borderFill: group.template.borderFill,
+          transition,
+          subtitleGenerated: true,
+          subtitleGroupId: group.groupId,
+          subtitleCueIds: segment.cueIds,
+          subtitleGroupTotalDuration: group.totalDuration,
+        } satisfies Partial<SceneImage>;
+        if (existingImage) {
+          // Keep the existing Timeline values (ID, start, duration and layer
+          // position). Only synchronize source/style fields from the subtitle
+          // editor, so a second update does not rebuild old cards.
+          return {
+            ...existingImage,
+            ...syncedFields,
+          } satisfies SceneImage;
+        }
+        return defaultSceneImage(imageId, {
+          ...syncedFields,
+          start,
+          duration,
+          transitionEnd: transition === "cut"
+            ? start
+            : Number(Math.min(sceneStructureDuration, start + transitionDuration).toFixed(2)),
+        });
+      }));
+    };
+
+    const generatedImages = mergeGeneratedSubtitleImages(sceneStructureScene.sceneImages ?? []);
 
     setScenes((items) => items.map((currentScene) => {
       if (currentScene.id !== sceneStructureScene.id) return currentScene;
       const currentImages = currentScene.sceneImages ?? [];
-      const keptImages = currentImages.filter((image) => image.subtitleGenerated !== true);
-      const generatedTokens = new Set(currentImages
+      const nextGeneratedImages = mergeGeneratedSubtitleImages(currentImages);
+      const nextGeneratedById = new Map(nextGeneratedImages.map((image) => [image.id, image]));
+      const nextImages: SceneImage[] = [];
+      const emittedGeneratedIds = new Set<string>();
+      currentImages.forEach((image) => {
+        if (image.subtitleGenerated !== true) {
+          nextImages.push(image);
+          return;
+        }
+        const replacement = nextGeneratedById.get(image.id);
+        if (!replacement) return;
+        nextImages.push(replacement);
+        emittedGeneratedIds.add(image.id);
+      });
+      nextGeneratedImages.forEach((image) => {
+        if (!emittedGeneratedIds.has(image.id)) nextImages.push(image);
+      });
+      const oldGeneratedTokens = new Set(currentImages
         .filter((image) => image.subtitleGenerated === true)
         .map((image) => `image:${image.id}`));
-      const layerOrder = (currentScene.layerOrder ?? [])
-        .filter((token) => !generatedTokens.has(token))
-        .concat(generatedImages.map((image) => `image:${image.id}`));
+      const nextGeneratedTokens = new Set(nextGeneratedImages.map((image) => `image:${image.id}`));
+      const layerOrder = (currentScene.layerOrder ?? []).filter((token) => (
+        !oldGeneratedTokens.has(token) || nextGeneratedTokens.has(token)
+      ));
+      const presentLayerTokens = new Set(layerOrder);
+      nextGeneratedImages.forEach((image) => {
+        const token = `image:${image.id}`;
+        if (!presentLayerTokens.has(token)) {
+          layerOrder.push(token);
+          presentLayerTokens.add(token);
+        }
+      });
       return {
         ...currentScene,
-        sceneImages: [...keptImages, ...generatedImages],
+        sceneImages: nextImages,
         layerOrder,
       };
     }));
     setSceneStructureViewMode("timeline");
     setSelectedSceneStructureToken(generatedImages[0] ? `image:${generatedImages[0].id}` : "");
+    const previousGeneratedIds = new Set((sceneStructureScene.sceneImages ?? [])
+      .filter((image) => image.subtitleGenerated === true)
+      .map((image) => image.id));
+    const newImageCount = generatedImages.filter((image) => !previousGeneratedIds.has(image.id)).length;
     setToast(generatedImages.length
-      ? `Đã tạo ${generatedImages.length} thẻ hình ảnh theo phụ đề trên Timeline`
+      ? `Đã đồng bộ ${generatedImages.length} thẻ hình ảnh theo phụ đề${newImageCount ? ` · thêm ${newImageCount} thẻ mới` : " · giữ nguyên thẻ cũ"}`
       : "Đã xóa các ảnh phụ đề đang chờ áp dụng");
     window.setTimeout(() => setToast(""), 2800);
   };
@@ -16201,6 +16282,16 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <button
+                  type="button"
+                  className="scene-structure-save-button"
+                  onClick={() => void saveProjectNow()}
+                  disabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
+                  title={googleUser ? "Lưu toàn bộ thay đổi của Cấu trúc cảnh" : "Đăng nhập Google để lưu"}
+                >
+                  <span aria-hidden="true">☁</span>
+                  {saveStatus === "saving" ? "Đang lưu" : "Lưu"}
+                </button>
                 <button
                   type="button"
                   className="scene-structure-theme-toggle"

@@ -9890,6 +9890,26 @@ body {
   font-size: 13px;
   font-weight: 750;
 }
+.scene-structure-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #b9772c;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #d8913d, #b96e20);
+  color: #fffaf1;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 7px 16px rgba(129, 75, 17, .2), inset 0 1px 0 rgba(255,255,255,.16);
+}
+.scene-structure-save-button:hover:not(:disabled),
+.scene-structure-save-button:focus-visible { filter: brightness(1.08); outline: 0; }
+.scene-structure-save-button:disabled { cursor: not-allowed; filter: grayscale(.5); opacity: .55; }
+.scene-structure-save-button span { font-size: 14px; }
 .scene-structure-play-button {
   border: 1px solid #317fdf;
   background: linear-gradient(180deg, #2f7bdf, #2465bc);
@@ -10789,6 +10809,7 @@ body {
   .scene-structure-title-wrap h1 { font-size: 21px; }
   .scene-structure-top-actions { justify-content: stretch; }
   .scene-structure-play-button,
+  .scene-structure-save-button,
   .scene-structure-close-button { flex: 1 1 0; min-height: 42px; padding-inline: 10px; }
   .scene-structure-body { display: block; overflow: visible; }
   .scene-structure-library {

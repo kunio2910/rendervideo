@@ -364,6 +364,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.doesNotMatch(page, /<aside className="preview-layer-panel"/);
   assert.match(css, /editor-scroll \.editor-layer-panel/);
   assert.match(css, /scene-structure-subtitle-toolbar-actions \.button\.secondary/);
+  assert.match(page, /scene-structure-save-button/);
+  assert.match(page, /mergeGeneratedSubtitleImages/);
+  assert.match(page, /giữ nguyên thẻ cũ/);
   assert.match(page, /scene-structure-panel-toggle-library/);
   assert.match(page, /scene-structure-panel-toggle-inspector/);
   assert.match(page, /scene-structure-\$\{theme\}/);
