@@ -3964,66 +3964,56 @@ function Home() {
 
   const sceneStructureSubtitleImageGroups = useMemo<SceneStructureSubtitleImageGroup[]>(() => {
     const cues = sceneStructureScene.subtitles ?? [];
-    const cueById = new Map(cues.map((cue) => [cue.id, cue]));
-    const grouped = new Map<string, SceneStructureSubtitleImageDraft[]>();
-    sceneStructureSubtitleImageDrafts
-      .filter((draft) => {
-        const cue = cueById.get(draft.cueId);
-        return cue?.visible !== false && Boolean(safeTrim(draft.imageUrl));
-      })
-      .forEach((draft) => {
-        const key = safeTrim(draft.imageUrl);
-        const current = grouped.get(key) ?? [];
-        current.push(draft);
-        grouped.set(key, current);
-      });
-
     const groups: SceneStructureSubtitleImageGroup[] = [];
-    Array.from(grouped.entries()).forEach(([key, drafts]) => {
-      const ordered = drafts
-        .map((draft) => ({ draft, cue: cueById.get(draft.cueId) }))
-        .filter((entry): entry is { draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue } => Boolean(entry.cue))
-        .sort((first, second) => Number(first.cue.start) - Number(second.cue.start));
-      let currentRun: Array<{ draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue; start: number; end: number }> = [];
-      let currentEnd = -Infinity;
+    const draftByCueId = new Map(sceneStructureSubtitleImageDrafts.map((draft) => [draft.cueId, draft]));
+    let currentRun: Array<{ draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue; start: number; end: number }> = [];
+    let currentKey = "";
 
-      const appendGroup = (run: typeof currentRun) => {
-        if (!run.length) return;
-        const first = run[0];
-        const last = run[run.length - 1];
-        const totalDuration = run.reduce((total, entry) => total + Math.max(0.1, entry.end - entry.start), 0);
-        const groupIndex = groups.length;
-        const cueIds = run.map(({ cue }) => cue.id);
-        groups.push({
-          key: `${key}::${first.start.toFixed(2)}::${last.end.toFixed(2)}`,
-          groupId: `subtitle-group-${sceneStructureScene.id}-${groupIndex + 1}`,
-          imageUrl: key,
-          imageName: first.draft.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
-          cueIds,
-          segments: [{ start: first.start, end: last.end, cueIds }],
-          totalDuration: Number(totalDuration.toFixed(2)),
-          template: first.draft,
-        });
-      };
-
-      ordered.forEach(({ draft, cue }) => {
-        const start = Math.min(
-          sceneStructureDuration,
-          Math.max(0, Number(cue.start) || 0),
-        );
-        const end = Math.min(
-          sceneStructureDuration,
-          Math.max(start + 0.1, Number(cue.end) || start + 0.1),
-        );
-        if (currentRun.length && start > currentEnd + 0.01) {
-          appendGroup(currentRun);
-          currentRun = [];
-        }
-        currentRun.push({ draft, cue, start, end });
-        currentEnd = Math.max(currentEnd, end);
+    const appendGroup = (run: typeof currentRun) => {
+      if (!run.length) return;
+      const first = run[0];
+      const last = run[run.length - 1];
+      const totalDuration = run.reduce((total, entry) => total + Math.max(0.1, entry.end - entry.start), 0);
+      const groupIndex = groups.length;
+      const cueIds = run.map(({ cue }) => cue.id);
+      groups.push({
+        key: `${currentKey}::${first.cue.id}::${last.cue.id}`,
+        groupId: `subtitle-group-${sceneStructureScene.id}-${groupIndex + 1}`,
+        imageUrl: currentKey,
+        imageName: first.draft.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
+        cueIds,
+        segments: [{ start: first.start, end: last.end, cueIds }],
+        totalDuration: Number(totalDuration.toFixed(2)),
+        template: first.draft,
       });
-      appendGroup(currentRun);
+    };
+
+    cues.forEach((cue) => {
+      if (cue.visible === false) return;
+      const draft = draftByCueId.get(cue.id);
+      const key = safeTrim(draft?.imageUrl);
+      if (!draft || !key) {
+        appendGroup(currentRun);
+        currentRun = [];
+        currentKey = "";
+        return;
+      }
+      if (currentRun.length && key !== currentKey) {
+        appendGroup(currentRun);
+        currentRun = [];
+      }
+      const start = Math.min(
+        sceneStructureDuration,
+        Math.max(0, Number(cue.start) || 0),
+      );
+      const end = Math.min(
+        sceneStructureDuration,
+        Math.max(start + 0.1, Number(cue.end) || start + 0.1),
+      );
+      currentKey = key;
+      currentRun.push({ draft, cue, start, end });
     });
+    appendGroup(currentRun);
     return groups;
   }, [sceneStructureDuration, sceneStructureScene.id, sceneStructureScene.subtitles, sceneStructureSubtitleImageDrafts]);
 
@@ -11344,7 +11334,7 @@ function Home() {
         <div className="scene-structure-subtitle-toolbar">
           <div>
             <strong>Nhóm hình theo câu phụ đề</strong>
-            <p>Nhập cùng một URL cho nhiều câu để hệ thống tự gom thành một nhóm. Các đoạn không liền nhau vẫn được giữ riêng khi render.</p>
+            <p>Nhập cùng một URL cho các câu liên tiếp để hệ thống tự gom thành một nhóm và tạo một thẻ Timeline.</p>
           </div>
           <div className="scene-structure-subtitle-toolbar-actions">
             <span>{sceneStructureSubtitleImageGroups.length} nhóm · {sceneStructureSubtitleImageDrafts.filter((item) => safeTrim(item.imageUrl)).length} câu đã gán ảnh</span>
