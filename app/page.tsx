@@ -1040,6 +1040,7 @@ const reflowSceneTimeline = (items: Scene[]) => {
 
 type StoredProject = {
   version: 1;
+  activeSceneId?: string;
   projectDuration: number;
   timelineHeight?: number;
   rulerEnabled?: boolean;
@@ -4240,6 +4241,7 @@ function Home() {
     () => ({
       id: projectId,
       title: projectTitle,
+      activeSceneId: selectedId,
       projectDuration,
       timelineHeight,
       rulerEnabled,
@@ -4261,6 +4263,7 @@ function Home() {
     [
       projectId,
       projectTitle,
+      selectedId,
       projectDuration,
       timelineHeight,
       rulerEnabled,
@@ -4336,7 +4339,8 @@ function Home() {
     }));
     if (!preserveHistory) setEditorSections(normalizeEditorSections(project.editorSections));
     setScenes(restoredScenes);
-    const restoredSelectedScene = restoredScenes.find((item) => item.id === preservedSelectedId)
+    const preferredSelectedId = preserveHistory ? preservedSelectedId : safeTrim(project.activeSceneId);
+    const restoredSelectedScene = restoredScenes.find((item) => item.id === preferredSelectedId)
       ?? restoredScenes[0];
     const restoredSelectedSceneIds = preservedSelectedSceneIds.filter((id) =>
       restoredScenes.some((item) => item.id === id),
@@ -9776,6 +9780,27 @@ function Home() {
     setSelectedTextOverlayId(item.kind === "text" ? item.id : "");
     setSelectedSceneImageId(item.kind === "image" ? item.id : "");
     setSelectedDecorationId(item.kind === "decoration" ? item.id : "");
+  };
+
+  const navigateSceneStructureCardVertically = (
+    item: SceneStructureItem,
+    direction: "up" | "down",
+  ) => {
+    if (sceneStructureViewMode !== "timeline") return false;
+    const currentIndex = sceneStructureItems.findIndex((candidate) => candidate.token === item.token);
+    if (currentIndex < 0) return false;
+    const nextIndex = currentIndex + (direction === "up" ? -1 : 1);
+    const nextItem = sceneStructureItems[nextIndex];
+    if (!nextItem) return false;
+    selectSceneStructureItem(nextItem);
+    window.requestAnimationFrame(() => {
+      const nextCard = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("[data-scene-structure-card]"),
+      ).find((card) => card.dataset.sceneStructureCard === nextItem.token);
+      nextCard?.focus({ preventScroll: true });
+      nextCard?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    return true;
   };
 
   const openSceneStructureQuickEditor = (item: SceneStructureItem) => {
@@ -15674,6 +15699,7 @@ function Home() {
                               width: `${widthPercent}%`,
                               maxWidth: `calc(100% - ${leftPercent}% - 12px)`,
                             }}
+                            data-scene-structure-card={item.token}
                             aria-pressed={item.token === selectedSceneStructureItem?.token}
                             aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
                             title={item.timingMode !== "none" ? "Kéo thẻ để đổi vị trí · Click đúp để chỉnh sửa · Nhấn Delete để xóa" : "Click đúp để chỉnh sửa · Nhấn Delete để xóa tài nguyên"}
@@ -15695,6 +15721,12 @@ function Home() {
                             }}
                             onDoubleClick={() => openSceneStructureQuickEditor(item)}
                             onKeyDown={(event) => {
+                              if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                navigateSceneStructureCardVertically(item, event.key === "ArrowUp" ? "up" : "down");
+                                return;
+                              }
                               if (event.key !== "Delete") return;
                               event.preventDefault();
                               event.stopPropagation();
