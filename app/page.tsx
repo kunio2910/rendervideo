@@ -227,6 +227,8 @@ type PreviewLayerItem = {
   id: string;
   label: string;
   icon: string;
+  visible?: boolean;
+  editorVisible?: boolean;
 };
 
 type SceneStructureKind =
@@ -3818,41 +3820,62 @@ function Home() {
     : null;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
     const candidates: PreviewLayerItem[] = [
-      ...previewTextOverlayItems
+      // The layer panel describes the selected scene, not only the items that
+      // happen to be visible at the current playhead. Keep hidden/out-of-time
+      // items in this list so they can still be inspected and reordered.
+      ...sceneTextOverlays
+        .filter((overlay) => Boolean(safeTrim(overlay.text)))
         .map((overlay, index) => ({
           token: previewLayerToken("text", overlay.id),
           kind: "text" as const,
           id: overlay.id,
           label: safeTrim(overlay.name) || safeTrim(overlay.text).slice(0, 32) || `Chữ ${index + 1}`,
           icon: "T",
+          visible: overlay.visible !== false,
+          editorVisible: overlay.editorVisible !== false,
         })),
-      ...previewPopupItems.map((popup, index) => ({
-        token: previewLayerToken("popup", popup.id),
-        kind: "popup" as const,
-        id: popup.id,
-        label: safeTrim(popup.title) || `Popup ${index + 1}`,
-        icon: "P",
-      })),
-      ...previewDecorationItems.map((decoration, index) => ({
-        token: previewLayerToken("decoration", decoration.id),
-        kind: "decoration" as const,
-        id: decoration.id,
-        label: safeTrim(decoration.name) || `${decoration.type === "text-3d" ? "Chữ 3D" : decoration.type === "animated-sticker" ? "GIF / WebM / APNG" : decoration.type === "sticker" ? "Sticker" : decoration.type === "icon" ? "Icon" : "Hiệu ứng"} ${index + 1}`,
-        icon: "✦",
-      })),
-      ...previewSceneImageItems.map((image, index) => ({
-        token: previewLayerToken("image", image.id),
-        kind: "image" as const,
-        id: image.id,
-        label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
-        icon: "IMG",
-      })),
+      ...scenePopups
+        .filter((popup) => popupHasContent(popup))
+        .map((popup, index) => ({
+          token: previewLayerToken("popup", popup.id),
+          kind: "popup" as const,
+          id: popup.id,
+          label: safeTrim(popup.title) || `Popup ${index + 1}`,
+          icon: "P",
+          visible: popup.visible !== false,
+          editorVisible: popup.editorVisible !== false,
+        })),
+      ...sceneDecorations
+        .filter((decoration) => decorationHasContent(decoration))
+        .map((decoration, index) => ({
+          token: previewLayerToken("decoration", decoration.id),
+          kind: "decoration" as const,
+          id: decoration.id,
+          label: safeTrim(decoration.name) || `${decoration.type === "text-3d" ? "Chữ 3D" : decoration.type === "animated-sticker" ? "GIF / WebM / APNG" : decoration.type === "sticker" ? "Sticker" : decoration.type === "icon" ? "Icon" : "Hiệu ứng"} ${index + 1}`,
+          icon: "✦",
+          visible: decoration.visible !== false,
+          editorVisible: true,
+        })),
+      ...sceneImages
+        .filter((image) => Boolean(safeTrim(image.url)))
+        .map((image, index) => ({
+          token: previewLayerToken("image", image.id),
+          kind: "image" as const,
+          id: image.id,
+          label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
+          icon: "IMG",
+          visible: image.visible !== false,
+          editorVisible: image.editorVisible !== false,
+        })),
       ...(((scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) ? [{
         token: previewLayerToken("subtitle", "subtitle"),
         kind: "subtitle" as const,
         id: "subtitle",
         label: "Phụ đề",
         icon: "CC",
+        visible: scene.subtitleEnabled !== false
+          && (scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text)),
+        editorVisible: true,
       }] : []),
     ];
     const candidateTokens = new Set(candidates.map((item) => item.token));
@@ -3868,14 +3891,14 @@ function Home() {
       .map((token) => itemByToken.get(token))
       .filter((item): item is PreviewLayerItem => Boolean(item));
   }, [
-    previewPlaybackMode,
-    previewDecorationItems,
-    previewPopupItems,
-    previewSceneImageItems,
-    previewTextOverlayItems,
+    imageEnabled,
+    sceneDecorations,
+    sceneImages,
     scene.layerOrder,
+    scenePopups,
     scene.subtitleEnabled,
     scene.subtitles,
+    sceneTextOverlays,
   ]);
   const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
@@ -3904,19 +3927,19 @@ function Home() {
     let source = "";
     let isVideo = false;
     if (item.kind === "image") {
-      const image = previewSceneImageItems.find((entry) => entry.id === item.id);
+      const image = sceneImages.find((entry) => entry.id === item.id);
       if (image) {
         source = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
         isVideo = image.mediaType === "video" || isVideoMedia(image.url);
       }
     } else if (item.kind === "popup") {
-      const popup = previewPopupItems.find((entry) => entry.id === item.id);
+      const popup = scenePopups.find((entry) => entry.id === item.id);
       if (popup) {
         source = assetPreviewSource(popup.video) || assetPreviewSource(popup.image);
         isVideo = Boolean(safeTrim(popup.video));
       }
     } else if (item.kind === "decoration") {
-      const decoration = previewDecorationItems.find((entry) => entry.id === item.id);
+      const decoration = sceneDecorations.find((entry) => entry.id === item.id);
       if (decoration && (decoration.type === "sticker" || decoration.type === "animated-sticker")) {
         source = assetPreviewSource(decoration.asset);
         isVideo = decoration.type === "animated-sticker" && decoration.assetType === "webm";
@@ -11783,8 +11806,8 @@ function Home() {
     <div className="preview-layer-panel editor-layer-panel" aria-label="Các lớp trong màn hình xem trước">
       <div className="preview-layer-panel-heading">
         <span className="preview-layer-panel-heading-copy">
-          <strong>Layer</strong>
-          <small>Trên cùng ở phía dưới</small>
+          <strong>Layer · {previewLayerItems.length}</strong>
+          <small>Tất cả item của cảnh · trên cùng ở phía dưới</small>
         </span>
       </div>
       <label className="preview-layer-search">
@@ -11801,32 +11824,44 @@ function Home() {
         />
       </label>
       <div className="preview-layer-list">
-        {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => (
-          <button
-            type="button"
-            key={item.token}
-            draggable
-            className={`preview-layer-item ${
-              item.token === explicitlySelectedPreviewLayerToken
-                ? "active"
-                : ""
-            } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
-            title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
-            aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
-            onClick={() => selectPreviewLayerItem(item)}
-            onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
-            onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
-            onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
-            onDragEnd={clearPreviewLayerDrag}
-          >
-            <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
-            <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
-            <span className="preview-layer-label">
-              <strong>{item.label}</strong>
-              <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
-            </span>
-          </button>
-        )) : (
+        {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => {
+          const isHidden = item.visible === false || item.editorVisible === false;
+          const kindLabel = item.kind === "text"
+            ? "Chữ viết"
+            : item.kind === "popup"
+              ? "Popup"
+              : item.kind === "image"
+                ? "Hình ảnh / video"
+                : item.kind === "decoration"
+                  ? "Sticker / hiệu ứng"
+                  : "Phụ đề";
+          return (
+            <button
+              type="button"
+              key={item.token}
+              draggable
+              className={`preview-layer-item ${
+                item.token === explicitlySelectedPreviewLayerToken
+                  ? "active"
+                  : ""
+              } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""} ${isHidden ? "is-hidden" : ""}`}
+              title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
+              aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
+              onClick={() => selectPreviewLayerItem(item)}
+              onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
+              onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
+              onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
+              onDragEnd={clearPreviewLayerDrag}
+            >
+              <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
+              <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
+              <span className="preview-layer-label">
+                <strong>{item.label}</strong>
+                <small>{isHidden ? `Đang ẩn · ${kindLabel}` : item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? `Trên cùng · ${kindLabel}` : kindLabel}</small>
+              </span>
+            </button>
+          );
+        }) : (
           <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
         )}
       </div>

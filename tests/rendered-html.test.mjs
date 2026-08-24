@@ -510,6 +510,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /animatedStickerFit/);
   assert.match(page, /layerOrder\?: string\[\]/);
   assert.match(page, /previewLayerItems/);
+  assert.match(page, /Tất cả item của cảnh/);
+  assert.match(page, /item\.visible === false \|\| item\.editorVisible === false/);
+  assert.match(page, /is-hidden/);
   assert.match(page, /reorderPreviewLayers/);
   assert.match(page, /visiblePreviewLayerItems/);
   assert.match(page, /preview-layer-search/);
