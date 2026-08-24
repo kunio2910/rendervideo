@@ -10144,6 +10144,31 @@ body {
 }
 .scene-structure-phase-grid span { border-right: 1px solid rgba(66, 86, 108, .48); }
 .scene-structure-phase-grid span:last-child { border-right: 0; }
+.scene-structure-playhead-hitarea {
+  position: absolute;
+  top: 44px;
+  bottom: 64px;
+  z-index: 9;
+  width: 24px;
+  margin-left: 12px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.scene-structure-playhead-hitarea:focus-visible {
+  outline: 2px solid #7ab7ff;
+  outline-offset: 2px;
+  border-radius: 5px;
+}
+.scene-structure-playhead-hitarea .scene-structure-playhead {
+  top: 8px;
+  right: auto;
+  bottom: 8px;
+  left: 11px;
+  width: 1px;
+  margin-left: 0;
+  pointer-events: none;
+}
 .scene-structure-playhead {
   position: absolute;
   top: 52px;

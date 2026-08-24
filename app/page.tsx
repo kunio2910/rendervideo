@@ -3225,6 +3225,7 @@ function Home() {
   const sceneStructureItemDidDrag = useRef(false);
   const sceneStructureFlowContentRef = useRef<HTMLDivElement | null>(null);
   const sceneStructureFlowScrollRef = useRef<HTMLDivElement | null>(null);
+  const sceneStructurePlayheadPointerId = useRef<number | null>(null);
   const sceneStructureMinimapPointerId = useRef<number | null>(null);
   const [rulerPopoverPosition, setRulerPopoverPosition] = useState({ top: 8, left: 8 });
   const localRenderJobId = useRef("");
@@ -9395,6 +9396,42 @@ function Home() {
     ).toFixed(2));
   };
 
+  const updateSceneStructurePlayheadFromClientX = (clientX: number) => {
+    const flowContent = sceneStructureFlowContentRef.current;
+    if (!flowContent) return;
+    const nextLocalTime = sceneStructureDropTimeFromClientX(clientX, flowContent);
+    setPlaying(false);
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setPlayTime(Number((sceneStructureScene.start + nextLocalTime).toFixed(2)));
+  };
+
+  const startSceneStructurePlayheadDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    sceneStructurePlayheadPointerId.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateSceneStructurePlayheadFromClientX(event.clientX);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const moveSceneStructurePlayheadDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sceneStructurePlayheadPointerId.current !== event.pointerId) return;
+    updateSceneStructurePlayheadFromClientX(event.clientX);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const endSceneStructurePlayheadDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sceneStructurePlayheadPointerId.current !== event.pointerId) return;
+    sceneStructurePlayheadPointerId.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   const showSceneStructureHoverPreview = (
     event: ReactPointerEvent<HTMLElement>,
     item?: SceneStructureItem,
@@ -9918,13 +9955,14 @@ function Home() {
       setPlaying(false);
       return;
     }
+    const enteringPreview = !sceneStructurePreviewMode;
     const shouldRestart = !sceneStructurePreviewMode || playTime >= sceneStructureScene.end;
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     if (shouldRestart) setPlayTime(sceneStructureScene.start);
     setPlaybackRestartToken((value) => value + 1);
     setPreviewPlaybackMode(true);
-    setSceneStructurePreviewPortalHost(null);
+    if (enteringPreview) setSceneStructurePreviewPortalHost(null);
     setSceneStructurePreviewMode(true);
     setPlaying(true);
   };
@@ -15669,12 +15707,25 @@ function Home() {
                       </div>
                     )}
                     <div
-                      className="scene-structure-playhead"
-                      aria-hidden="true"
+                      className="scene-structure-playhead-hitarea"
+                      role="slider"
+                      tabIndex={0}
+                      aria-label="Kéo để tua phát thử tới mốc thời gian"
+                      aria-valuemin={0}
+                      aria-valuemax={sceneStructureDuration}
+                      aria-valuenow={Number(sceneStructureLocalTime.toFixed(1))}
+                      aria-valuetext={formatPreciseTime(sceneStructureLocalTime)}
+                      title="Nắm kéo để tua tới mốc thả"
                       style={{ left: `${Math.min(100, Math.max(0, sceneStructureLocalTime / sceneStructureDuration * 100))}%` }}
+                      onPointerDown={startSceneStructurePlayheadDrag}
+                      onPointerMove={moveSceneStructurePlayheadDrag}
+                      onPointerUp={endSceneStructurePlayheadDrag}
+                      onPointerCancel={endSceneStructurePlayheadDrag}
                     >
-                      <b>{formatPreciseTime(sceneStructureLocalTime)}</b>
-                      <i />
+                      <div className="scene-structure-playhead" aria-hidden="true">
+                        <b>{formatPreciseTime(sceneStructureLocalTime)}</b>
+                        <i />
+                      </div>
                     </div>
 
                     {sceneStructureItems.length ? sceneStructureItems.map((item, index) => {
