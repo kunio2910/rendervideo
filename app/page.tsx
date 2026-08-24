@@ -1200,6 +1200,8 @@ type StoredProject = {
   renderFps?: 24 | 30 | 60;
   renderProfile?: RenderProfile;
   editorSections?: EditorSectionState;
+  sceneStructureLibraryCollapsed?: boolean;
+  sceneStructureInspectorCollapsed?: boolean;
   scenes: Scene[];
 };
 
@@ -1211,6 +1213,7 @@ type EditorSectionState = {
   popup: boolean;
   text: boolean;
   images: boolean;
+  layer: boolean;
 };
 
 type EditorSectionKey = keyof EditorSectionState;
@@ -1227,6 +1230,7 @@ const EDITOR_SECTION_SHORTCUTS: Array<{
   { key: "audio", number: "05", label: "Âm thanh" },
   { key: "effects", number: "06", label: "Hiệu ứng" },
   { key: "popup", number: "07", label: "Popup" },
+  { key: "layer", number: "08", label: "Layer" },
 ];
 
 type EditorSectionClipboard =
@@ -1276,6 +1280,9 @@ type EditorSectionClipboard =
   | {
       section: "images";
       sceneImages: SceneImage[];
+    }
+  | {
+      section: "layer";
     };
 
 type StudioTab = "compose" | "export" | "settings";
@@ -1288,6 +1295,7 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   popup: false,
   text: false,
   images: false,
+  layer: false,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1829,6 +1837,7 @@ const normalizeEditorSections = (
         popup: firstOpen === "popup",
         text: firstOpen === "text",
         images: firstOpen === "images",
+        layer: firstOpen === "layer",
       }
     : {
         visual: false,
@@ -1838,6 +1847,7 @@ const normalizeEditorSections = (
         popup: false,
         text: false,
         images: false,
+        layer: false,
       };
 };
 
@@ -4495,6 +4505,8 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      sceneStructureLibraryCollapsed,
+      sceneStructureInspectorCollapsed,
       scenes,
     }),
     [
@@ -4517,6 +4529,8 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      sceneStructureLibraryCollapsed,
+      sceneStructureInspectorCollapsed,
       scenes,
     ],
   );
@@ -4565,6 +4579,8 @@ function Home() {
     setBackgroundVisible(project.backgroundVisible ?? true);
     setBackgroundMusic(project.backgroundMusic ?? "");
     setBackgroundMusicVolume(clampVolume(project.backgroundMusicVolume, 18));
+    setSceneStructureLibraryCollapsed(project.sceneStructureLibraryCollapsed === true);
+    setSceneStructureInspectorCollapsed(project.sceneStructureInspectorCollapsed === true);
     setBackgroundMusicPreview((current) => {
       if (current) URL.revokeObjectURL(current);
       return "";
@@ -5908,7 +5924,9 @@ function Home() {
                   section,
                   popups: scenePopupList(scene).map((popup) => ({ ...popup })),
                 }
-              : section === "text"
+              : section === "layer"
+                ? { section }
+                : section === "text"
                 ? {
                     section,
                     textOverlays: sceneTextOverlays.map((overlay) => ({ ...overlay })),
@@ -6008,6 +6026,8 @@ function Home() {
           }));
           return { ...item, sceneImages };
         }
+        case "layer":
+          return item;
         default:
           return item;
       }
@@ -11759,6 +11779,61 @@ function Home() {
     );
   };
 
+  const renderPreviewLayerPanel = () => (
+    <div className="preview-layer-panel editor-layer-panel" aria-label="Các lớp trong màn hình xem trước">
+      <div className="preview-layer-panel-heading">
+        <span className="preview-layer-panel-heading-copy">
+          <strong>Layer</strong>
+          <small>Trên cùng ở phía dưới</small>
+        </span>
+      </div>
+      <label className="preview-layer-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10.8" cy="10.8" r="6.4" />
+          <path d="m16 16 4.2 4.2" />
+        </svg>
+        <input
+          type="search"
+          value={previewLayerQuery}
+          onChange={(event) => setPreviewLayerQuery(event.target.value)}
+          placeholder="Tìm layer"
+          aria-label="Tìm layer trong màn hình xem trước"
+        />
+      </label>
+      <div className="preview-layer-list">
+        {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => (
+          <button
+            type="button"
+            key={item.token}
+            draggable
+            className={`preview-layer-item ${
+              item.token === explicitlySelectedPreviewLayerToken
+                ? "active"
+                : ""
+            } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
+            title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
+            aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
+            onClick={() => selectPreviewLayerItem(item)}
+            onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
+            onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
+            onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
+            onDragEnd={clearPreviewLayerDrag}
+          >
+            <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
+            <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
+            <span className="preview-layer-label">
+              <strong>{item.label}</strong>
+              <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
+            </span>
+          </button>
+        )) : (
+          <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
+        )}
+      </div>
+      <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
+    </div>
+  );
+
   return (
     <main
       className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
@@ -12129,6 +12204,20 @@ function Home() {
               >
                 <span aria-hidden="true">↻</span>
                 <b>Chạy lại</b>
+              </button>
+              <button
+                type="button"
+                className="preview-scene-structure-button"
+                aria-label="Mở Cấu trúc cảnh"
+                title="Cấu trúc cảnh"
+                onClick={openSceneStructure}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="6" height="5" rx="1" />
+                  <rect x="15" y="4" width="6" height="5" rx="1" />
+                  <rect x="9" y="15" width="6" height="5" rx="1" />
+                  <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
+                </svg>
               </button>
               <button
                 type="button"
@@ -12826,72 +12915,6 @@ function Home() {
             </div>
           </div>
             </div>
-            <aside className="preview-layer-panel" aria-label="Các lớp trong màn hình xem trước">
-              <div className="preview-layer-panel-heading">
-                <span className="preview-layer-panel-heading-copy">
-                  <strong>Layer</strong>
-                  <small>Trên cùng ở phía dưới</small>
-                </span>
-                <button
-                  type="button"
-                  className="preview-scene-structure-button"
-                  aria-label="Mở Cấu trúc cảnh"
-                  title="Cấu trúc cảnh"
-                  onClick={openSceneStructure}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="3" y="4" width="6" height="5" rx="1" />
-                    <rect x="15" y="4" width="6" height="5" rx="1" />
-                    <rect x="9" y="15" width="6" height="5" rx="1" />
-                    <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
-                  </svg>
-                </button>
-              </div>
-              <label className="preview-layer-search">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="10.8" cy="10.8" r="6.4" />
-                  <path d="m16 16 4.2 4.2" />
-                </svg>
-                <input
-                  type="search"
-                  value={previewLayerQuery}
-                  onChange={(event) => setPreviewLayerQuery(event.target.value)}
-                  placeholder="Tìm layer"
-                  aria-label="Tìm layer trong màn hình xem trước"
-                />
-              </label>
-              <div className="preview-layer-list">
-                {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => (
-                  <button
-                    type="button"
-                    key={item.token}
-                    draggable
-                    className={`preview-layer-item ${
-                      item.token === explicitlySelectedPreviewLayerToken
-                        ? "active"
-                        : ""
-                    } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""}`}
-                    title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
-                    aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
-                    onClick={() => selectPreviewLayerItem(item)}
-                    onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
-                    onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
-                    onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
-                    onDragEnd={clearPreviewLayerDrag}
-                  >
-                    <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
-                    <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
-                    <span className="preview-layer-label">
-                      <strong>{item.label}</strong>
-                      <small>{item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? "Trên cùng" : item.kind}</small>
-                    </span>
-                  </button>
-                )) : (
-                  <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
-                )}
-              </div>
-              <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
-            </aside>
           </div>
         </section>
 
@@ -15147,6 +15170,22 @@ function Home() {
               </div>
             )}
             </div>
+            </details>
+            <details
+              className="editor-accordion editor-accordion-layer"
+              data-editor-section="layer"
+              open={editorSections.layer}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSectionOpen("layer", open);
+              }}
+            >
+              <summary className="editor-group-label">
+                <span>08</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
+              </summary>
+              <div className="editor-accordion-content editor-layer-panel-content">
+                {renderPreviewLayerPanel()}
+              </div>
             </details>
           </div>
         </aside>

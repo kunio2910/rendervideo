@@ -4952,6 +4952,7 @@ body {
 .studio-shell[data-studio-tab="compose"] .editor-accordion-audio { order: 5; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-effects { order: 6; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-popup { order: 7; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-layer { order: 8; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion {
   flex: 0 0 auto;
   min-height: max-content;
@@ -11764,6 +11765,41 @@ body {
 }
 .studio-shell[data-theme="dark"] .scene-structure-quick-editor > footer .button.secondary:hover,
 .studio-shell[data-theme="dark"] .scene-structure-quick-editor > footer .button.secondary:focus-visible {
+  border-color: #a9d8ff;
+  background: linear-gradient(180deg, #2d6b9f, #21547d);
+  color: #fff;
+  outline: 0;
+}
+
+/* The Layers panel now lives inside Biên soạn mục 08, so let it use the
+   editor column instead of retaining the narrow preview-side dimensions. */
+.studio-shell[data-studio-tab="compose"] .editor-scroll .editor-layer-panel {
+  width: 100%;
+  flex: 0 0 auto;
+  max-height: 360px;
+  min-height: 220px;
+}
+.studio-shell[data-studio-tab="compose"] .editor-layer-panel-content {
+  padding-bottom: 14px;
+}
+
+/* Keep the structure icon compact when it is moved into the preview toolbar. */
+.preview-control-bar .preview-scene-structure-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+
+/* Make the subtitle timeline update action readable in dark structure mode. */
+.studio-shell[data-theme="dark"] .scene-structure-subtitle-toolbar-actions .button.secondary {
+  border-color: #6eabe0;
+  background: linear-gradient(180deg, #24547d, #1a3e60);
+  color: #eff8ff;
+  box-shadow: 0 5px 14px rgba(16, 77, 128, .28), inset 0 1px 0 rgba(255,255,255,.16);
+  font-weight: 800;
+}
+.studio-shell[data-theme="dark"] .scene-structure-subtitle-toolbar-actions .button.secondary:hover,
+.studio-shell[data-theme="dark"] .scene-structure-subtitle-toolbar-actions .button.secondary:focus-visible {
   border-color: #a9d8ff;
   background: linear-gradient(180deg, #2d6b9f, #21547d);
   color: #fff;

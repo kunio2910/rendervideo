@@ -149,8 +149,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /layer-name-input/);
   assert.match(css, /Compose layer lists need their labels to remain legible/);
   assert.match(css, /scene-image-select strong/);
-  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.width\}/);
-  assert.match(page, /min="1" max="200" step="1" value=\{activeSceneImage\.height\}/);
+  assert.match(page, /<NumericInput min=\{1\} max=\{200\} step=\{1\} value=\{activeSceneImage\.width\}/);
+  assert.match(page, /<NumericInput min=\{1\} max=\{200\} step=\{1\} value=\{activeSceneImage\.height\}/);
   assert.match(page, /event\.currentTarget\.select\(\)/);
   assert.match(page, /isVideoMedia/);
   assert.match(page, /backgroundVideoPreviewSource/);
@@ -358,6 +358,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /scene-structure-theme-toggle/);
   assert.match(page, /sceneStructureLibraryCollapsed/);
   assert.match(page, /sceneStructureInspectorCollapsed/);
+  assert.match(page, /data-editor-section="layer"/);
+  assert.match(page, /<span>08<\/span><strong>Layer<\/strong>/);
+  assert.match(page, /renderPreviewLayerPanel/);
+  assert.doesNotMatch(page, /<aside className="preview-layer-panel"/);
+  assert.match(css, /editor-scroll \.editor-layer-panel/);
+  assert.match(css, /scene-structure-subtitle-toolbar-actions \.button\.secondary/);
   assert.match(page, /scene-structure-panel-toggle-library/);
   assert.match(page, /scene-structure-panel-toggle-inspector/);
   assert.match(page, /scene-structure-\$\{theme\}/);
