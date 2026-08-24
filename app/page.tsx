@@ -172,6 +172,44 @@ type SceneImage = {
   transitionEnd: number;
   visible: boolean;
   editorVisible: boolean;
+  subtitleGenerated?: boolean;
+  subtitleGroupId?: string;
+  subtitleCueIds?: string[];
+  subtitleGroupTotalDuration?: number;
+};
+
+type SceneStructureSubtitleImageDraft = {
+  cueId: string;
+  imageUrl: string;
+  imageName: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  borderWidth: number;
+  borderColor: string;
+  borderFill: string;
+  shape: SceneImageShape;
+  transition: SceneImageTransition;
+  transparent: boolean;
+};
+
+type SceneStructureSubtitleImageSegment = {
+  start: number;
+  end: number;
+  cueIds: string[];
+};
+
+type SceneStructureSubtitleImageGroup = {
+  key: string;
+  groupId: string;
+  imageUrl: string;
+  imageName: string;
+  cueIds: string[];
+  segments: SceneStructureSubtitleImageSegment[];
+  totalDuration: number;
+  template: SceneStructureSubtitleImageDraft;
 };
 
 type AlignmentGuides = {
@@ -219,7 +257,7 @@ type SceneStructureItem = {
 
 type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect" | "audio";
 
-type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script";
+type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script" | "subtitles";
 
 type SceneStructureTemplate = {
   kind: SceneStructureTemplateKind;
@@ -303,6 +341,7 @@ const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
   { value: "table", label: "Bảng", icon: "▤", description: "So sánh thuộc tính" },
   { value: "tree", label: "Cây", icon: "⌘", description: "Cấu trúc thành phần" },
   { value: "script", label: "Kịch bản", icon: "✓", description: "Nội dung và kiểm tra" },
+  { value: "subtitles", label: "Phụ đề", icon: "CC", description: "Nhóm hình ảnh theo từng câu phụ đề" },
 ];
 
 // Tạm ẩn minimap khỏi giao diện Cấu trúc cảnh; giữ nguyên phần render và logic
@@ -1317,6 +1356,14 @@ const normalizeSceneImage = (
     transitionEnd,
     visible: raw.visible !== false,
     editorVisible: raw.editorVisible !== false,
+    subtitleGenerated: raw.subtitleGenerated === true,
+    subtitleGroupId: typeof raw.subtitleGroupId === "string" ? raw.subtitleGroupId : undefined,
+    subtitleCueIds: Array.isArray(raw.subtitleCueIds)
+      ? raw.subtitleCueIds.map((cueId) => String(cueId))
+      : undefined,
+    subtitleGroupTotalDuration: Number.isFinite(Number(raw.subtitleGroupTotalDuration))
+      ? Number(raw.subtitleGroupTotalDuration)
+      : undefined,
   };
 };
 
@@ -3175,8 +3222,11 @@ function Home() {
   const [sceneStructureSceneDragOverId, setSceneStructureSceneDragOverId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [sceneStructureQuickEditToken, setSceneStructureQuickEditToken] = useState("");
+  const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
+  const [sceneStructureSubtitleImageDrafts, setSceneStructureSubtitleImageDrafts] = useState<SceneStructureSubtitleImageDraft[]>([]);
+  const [sceneStructureSubtitleClipboard, setSceneStructureSubtitleClipboard] = useState<SceneStructureSubtitleImageDraft | null>(null);
   const [sceneStructureDraggedTemplate, setSceneStructureDraggedTemplate] = useState<SceneStructureTemplateKind | "">("");
   const [sceneStructureDropTime, setSceneStructureDropTime] = useState<number | null>(null);
   const [sceneStructureItemDragToken, setSceneStructureItemDragToken] = useState("");
@@ -3783,6 +3833,89 @@ function Home() {
   const sceneStructureEffects = normalizeSceneEffects(sceneStructureScene.effects);
   const sceneStructureBackgroundValue = safeTrim(sceneStructureScene.background) || legacyBackgroundPreview;
   const sceneStructureBackgroundSource = assetPreviewSource(sceneStructureBackgroundValue);
+
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    const generatedImages = (sceneStructureScene.sceneImages ?? []).filter((image) => image.subtitleGenerated === true);
+    const nextDrafts = (sceneStructureScene.subtitles ?? []).map((cue) => {
+      const linkedImage = generatedImages.find((image) => image.subtitleCueIds?.includes(cue.id));
+      const fallback = defaultSceneImage(`subtitle-draft-${cue.id}`);
+      return {
+        cueId: cue.id,
+        imageUrl: safeTrim(linkedImage?.url),
+        imageName: safeTrim(linkedImage?.name) || `Ảnh câu ${cue.id}`,
+        x: linkedImage?.x ?? fallback.x,
+        y: linkedImage?.y ?? fallback.y,
+        width: linkedImage?.width ?? fallback.width,
+        height: linkedImage?.height ?? fallback.height,
+        opacity: linkedImage?.opacity ?? fallback.opacity,
+        borderWidth: linkedImage?.borderWidth ?? fallback.borderWidth,
+        borderColor: linkedImage?.borderColor ?? fallback.borderColor,
+        borderFill: linkedImage?.borderFill ?? fallback.borderFill,
+        shape: linkedImage?.shape ?? fallback.shape,
+        transition: linkedImage?.transition ?? fallback.transition,
+        transparent: linkedImage?.transparent ?? fallback.transparent,
+      } satisfies SceneStructureSubtitleImageDraft;
+    });
+    setSceneStructureSubtitleImageDrafts(nextDrafts);
+    setSceneStructureSubtitleClipboard(null);
+  }, [sceneStructureOpen, sceneStructureScene.id]);
+
+  const sceneStructureSubtitleImageGroups = useMemo<SceneStructureSubtitleImageGroup[]>(() => {
+    const cues = sceneStructureScene.subtitles ?? [];
+    const cueById = new Map(cues.map((cue) => [cue.id, cue]));
+    const grouped = new Map<string, SceneStructureSubtitleImageDraft[]>();
+    sceneStructureSubtitleImageDrafts
+      .filter((draft) => {
+        const cue = cueById.get(draft.cueId);
+        return cue?.visible !== false && Boolean(safeTrim(draft.imageUrl));
+      })
+      .forEach((draft) => {
+        const key = safeTrim(draft.imageUrl);
+        const current = grouped.get(key) ?? [];
+        current.push(draft);
+        grouped.set(key, current);
+      });
+
+    return Array.from(grouped.entries()).map(([key, drafts], groupIndex) => {
+      const ordered = drafts
+        .map((draft) => ({ draft, cue: cueById.get(draft.cueId) }))
+        .filter((entry): entry is { draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue } => Boolean(entry.cue))
+        .sort((first, second) => Number(first.cue.start) - Number(second.cue.start));
+      const segments: SceneStructureSubtitleImageSegment[] = [];
+      let totalDuration = 0;
+      ordered.forEach(({ draft, cue }) => {
+        const start = Math.min(
+          sceneStructureDuration,
+          Math.max(0, Number(cue.start) || 0),
+        );
+        const end = Math.min(
+          sceneStructureDuration,
+          Math.max(start + 0.1, Number(cue.end) || start + 0.1),
+        );
+        totalDuration += Math.max(0.1, end - start);
+        const previous = segments.at(-1);
+        if (previous && start <= previous.end + 0.01) {
+          previous.end = Math.max(previous.end, end);
+          previous.cueIds.push(cue.id);
+        } else {
+          segments.push({ start, end, cueIds: [cue.id] });
+        }
+      });
+      const template = ordered[0]?.draft ?? drafts[0];
+      return {
+        key,
+        groupId: `subtitle-group-${sceneStructureScene.id}-${groupIndex + 1}`,
+        imageUrl: key,
+        imageName: template.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
+        cueIds: ordered.map(({ cue }) => cue.id),
+        segments,
+        totalDuration: Number(totalDuration.toFixed(2)),
+        template,
+      };
+    });
+  }, [sceneStructureDuration, sceneStructureScene.id, sceneStructureScene.subtitles, sceneStructureSubtitleImageDrafts]);
+
   const clampSceneStructureTiming = (startValue: number, endValue: number) => {
     const start = Math.min(
       Math.max(0, sceneStructureDuration - 0.1),
@@ -3907,7 +4040,9 @@ function Home() {
         id: image.id,
         label: safeTrim(image.name) || `${image.mediaType === "video" ? "Video" : "Hình ảnh"} ${index + 1}`,
         detail: safeTrim(image.url)
-          ? transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh")
+          ? image.subtitleGenerated
+            ? `Theo phụ đề · ${(image.subtitleCueIds ?? []).length} câu · Tổng ${(image.subtitleGroupTotalDuration ?? image.duration).toFixed(2)} giây`
+            : transitionLabel || (image.mediaType === "video" ? "Video" : "Hình ảnh")
           : "Chưa nhập URL hình ảnh hoặc video",
         icon: "IMG",
         ...timing,
@@ -9845,6 +9980,94 @@ function Home() {
     setSceneStructureQuickEditToken(item.token);
   };
 
+  const updateSceneStructureSubtitleImageDraft = (
+    cueId: string,
+    values: Partial<SceneStructureSubtitleImageDraft>,
+  ) => {
+    setSceneStructureSubtitleImageDrafts((items) => items.map((item) => (
+      item.cueId === cueId ? { ...item, ...values } : item
+    )));
+  };
+
+  const copySceneStructureSubtitleImage = (cueId: string) => {
+    const draft = sceneStructureSubtitleImageDrafts.find((item) => item.cueId === cueId);
+    if (!draft || !safeTrim(draft.imageUrl)) {
+      setToast("Câu phụ đề này chưa có ảnh để sao chép");
+      window.setTimeout(() => setToast(""), 2200);
+      return;
+    }
+    setSceneStructureSubtitleClipboard({ ...draft });
+    setToast("Đã sao chép ảnh và cấu hình của câu phụ đề");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const pasteSceneStructureSubtitleImage = (cueId: string) => {
+    if (!sceneStructureSubtitleClipboard) return;
+    const { cueId: _clipboardCueId, ...values } = sceneStructureSubtitleClipboard;
+    updateSceneStructureSubtitleImageDraft(cueId, { ...values, cueId });
+    setToast("Đã dán ảnh và cấu hình vào câu phụ đề");
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const applySceneStructureSubtitleImages = () => {
+    const groups = sceneStructureSubtitleImageGroups;
+    const generatedImages = groups.flatMap((group, groupIndex) => group.segments.map((segment, segmentIndex) => {
+      const imageId = `${sceneStructureScene.id}-subtitle-image-${groupIndex + 1}-${segmentIndex + 1}`;
+      const transition = group.template.transition;
+      const transitionDuration = transition === "cut"
+        ? 0
+        : Math.min(0.6, Math.max(0.1, segment.end - segment.start));
+      return defaultSceneImage(imageId, {
+        name: group.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
+        url: group.imageUrl,
+        mediaType: isVideoMedia(group.imageUrl) ? "video" : "image",
+        transparent: group.template.transparent,
+        shape: group.template.shape,
+        x: group.template.x,
+        y: group.template.y,
+        width: group.template.width,
+        height: group.template.height,
+        opacity: group.template.opacity,
+        borderWidth: group.template.borderWidth,
+        borderColor: group.template.borderColor,
+        borderFill: group.template.borderFill,
+        start: segment.start,
+        duration: Number(Math.max(0.1, segment.end - segment.start).toFixed(2)),
+        transition,
+        transitionEnd: transition === "cut"
+          ? segment.start
+          : Number(Math.min(segment.end, segment.start + transitionDuration).toFixed(2)),
+        subtitleGenerated: true,
+        subtitleGroupId: group.groupId,
+        subtitleCueIds: segment.cueIds,
+        subtitleGroupTotalDuration: group.totalDuration,
+      });
+    }));
+
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const currentImages = currentScene.sceneImages ?? [];
+      const keptImages = currentImages.filter((image) => image.subtitleGenerated !== true);
+      const generatedTokens = new Set(currentImages
+        .filter((image) => image.subtitleGenerated === true)
+        .map((image) => `image:${image.id}`));
+      const layerOrder = (currentScene.layerOrder ?? [])
+        .filter((token) => !generatedTokens.has(token))
+        .concat(generatedImages.map((image) => `image:${image.id}`));
+      return {
+        ...currentScene,
+        sceneImages: [...keptImages, ...generatedImages],
+        layerOrder,
+      };
+    }));
+    setSceneStructureViewMode("timeline");
+    setSelectedSceneStructureToken(generatedImages[0] ? `image:${generatedImages[0].id}` : "");
+    setToast(generatedImages.length
+      ? `Đã tạo ${generatedImages.length} thẻ hình ảnh theo phụ đề trên Timeline`
+      : "Đã xóa các ảnh phụ đề đang chờ áp dụng");
+    window.setTimeout(() => setToast(""), 2800);
+  };
+
   const updateSceneStructureQuickScene = (updater: (currentScene: Scene) => Scene) => {
     if (!hydrated) return;
     setScenes((items) => items.map((currentScene) => (
@@ -10120,6 +10343,46 @@ function Home() {
     setSceneStructureEndDraft(formatPreciseTime(selectedSceneStructureItem.end));
   };
 
+  const quickTimingDraftFor = (item: SceneStructureItem) => {
+    const draft = sceneStructureQuickTimingDrafts[item.token];
+    return {
+      start: draft?.start ?? String(Number(item.start.toFixed(2))),
+      end: draft?.end ?? String(Number(item.end.toFixed(2))),
+    };
+  };
+
+  const updateQuickTimingDraft = (
+    item: SceneStructureItem,
+    field: "start" | "end",
+    value: string,
+  ) => {
+    const current = quickTimingDraftFor(item);
+    setSceneStructureQuickTimingDrafts((items) => ({
+      ...items,
+      [item.token]: { ...current, [field]: value },
+    }));
+  };
+
+  const commitQuickTimingDraft = (item: SceneStructureItem) => {
+    const draft = quickTimingDraftFor(item);
+    const nextStart = parsePreciseTime(draft.start, item.start);
+    const nextEnd = parsePreciseTime(draft.end, item.end);
+    updateSceneStructureTiming(item, nextStart, nextEnd);
+    setSceneStructureQuickTimingDrafts((items) => {
+      const next = { ...items };
+      delete next[item.token];
+      return next;
+    });
+  };
+
+  const resetQuickTimingDraft = (item: SceneStructureItem) => {
+    setSceneStructureQuickTimingDrafts((items) => {
+      const next = { ...items };
+      delete next[item.token];
+      return next;
+    });
+  };
+
   const toggleSceneStructureItemVisibility = (item: SceneStructureItem) => {
     if (!item.canHide) return;
     setScenes((items) => items.map((currentScene) => {
@@ -10385,6 +10648,7 @@ function Home() {
     const item = sceneStructureQuickEditItem;
     if (!item) return null;
     const quickScene = sceneStructureScene;
+    const quickTiming = quickTimingDraftFor(item);
     const numberValue = (value: string, fallback: number) => {
       const parsed = Number(value.replace(",", "."));
       return Number.isFinite(parsed) ? parsed : fallback;
@@ -10396,13 +10660,20 @@ function Home() {
           <input
             type="text"
             inputMode="decimal"
-            step="0.1"
-            value={Number(item.start.toFixed(2))}
-            onChange={(event) => updateSceneStructureTiming(
-              item,
-              numberValue(event.target.value, item.start),
-              item.end,
-            )}
+            value={quickTiming.start}
+            onChange={(event) => updateQuickTimingDraft(item, "start", event.target.value)}
+            onBlur={() => commitQuickTimingDraft(item)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitQuickTimingDraft(item);
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                resetQuickTimingDraft(item);
+                event.currentTarget.blur();
+              }
+            }}
           />
         </label>
         <label className="scene-structure-quick-field">
@@ -10410,14 +10681,21 @@ function Home() {
           <input
             type="text"
             inputMode="decimal"
-            step="0.1"
-            value={Number(item.end.toFixed(2))}
+            value={quickTiming.end}
             disabled={item.timingMode !== "both"}
-            onChange={(event) => updateSceneStructureTiming(
-              item,
-              item.start,
-              numberValue(event.target.value, item.end),
-            )}
+            onChange={(event) => updateQuickTimingDraft(item, "end", event.target.value)}
+            onBlur={() => commitQuickTimingDraft(item)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitQuickTimingDraft(item);
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                resetQuickTimingDraft(item);
+                event.currentTarget.blur();
+              }
+            }}
           />
         </label>
       </div>
@@ -10763,6 +11041,116 @@ function Home() {
             <button type="button" className="button primary" onClick={() => setSceneStructureQuickEditToken("")}>Xong</button>
           </footer>
         </section>
+      </div>
+    );
+  };
+
+  const renderSceneStructureSubtitleEditor = () => {
+    const cues = sceneStructureScene.subtitles ?? [];
+    const numericDraftValue = (value: string, fallback: number) => {
+      const parsed = Number(String(value).replace(",", "."));
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    if (!cues.length) {
+      return (
+        <div className="scene-structure-subtitle-empty">
+          <strong>Chưa có câu phụ đề</strong>
+          <p>Hãy tạo hoặc import SRT/VTT trong mục Phụ đề của Biên soạn trước khi nhóm hình ảnh.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="scene-structure-subtitle-editor">
+        <div className="scene-structure-subtitle-toolbar">
+          <div>
+            <strong>Nhóm hình theo câu phụ đề</strong>
+            <p>Nhập cùng một URL cho nhiều câu để hệ thống tự gom thành một nhóm. Các đoạn không liền nhau vẫn được giữ riêng khi render.</p>
+          </div>
+          <div className="scene-structure-subtitle-toolbar-actions">
+            <span>{sceneStructureSubtitleImageGroups.length} nhóm · {sceneStructureSubtitleImageDrafts.filter((item) => safeTrim(item.imageUrl)).length} câu đã gán ảnh</span>
+            <button type="button" className="button secondary" onClick={applySceneStructureSubtitleImages}>OK · Cập nhật Timeline</button>
+          </div>
+        </div>
+        <div className="scene-structure-subtitle-group-summary">
+          {sceneStructureSubtitleImageGroups.length ? sceneStructureSubtitleImageGroups.map((group) => (
+            <article key={group.groupId}>
+              <span className="scene-structure-subtitle-summary-thumb">
+                {assetPreviewSource(group.imageUrl) ? <img src={assetPreviewSource(group.imageUrl)} alt="" /> : <i>IMG</i>}
+              </span>
+              <div>
+                <strong>{group.imageName}</strong>
+                <small>{group.cueIds.length} câu · Tổng {group.totalDuration.toFixed(2)} giây · {group.segments.length} đoạn Timeline</small>
+              </div>
+            </article>
+          )) : (
+            <p className="scene-structure-subtitle-no-group">Chưa có ảnh nào được gán cho phụ đề.</p>
+          )}
+        </div>
+        <div className="scene-structure-subtitle-list">
+          {cues.map((cue, index) => {
+            const draft = sceneStructureSubtitleImageDrafts.find((item) => item.cueId === cue.id)
+              ?? defaultSceneImage(`subtitle-draft-${cue.id}`);
+            const imageDraft: SceneStructureSubtitleImageDraft = "cueId" in draft
+              ? draft as SceneStructureSubtitleImageDraft
+              : {
+                  cueId: cue.id,
+                  imageUrl: "",
+                  imageName: `Ảnh câu ${index + 1}`,
+                  x: draft.x,
+                  y: draft.y,
+                  width: draft.width,
+                  height: draft.height,
+                  opacity: draft.opacity,
+                  borderWidth: draft.borderWidth,
+                  borderColor: draft.borderColor,
+                  borderFill: draft.borderFill,
+                  shape: draft.shape,
+                  transition: draft.transition,
+                  transparent: draft.transparent,
+                };
+            const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+            const previewSource = assetPreviewSource(imageDraft.imageUrl);
+            return (
+              <article key={cue.id} className={`scene-structure-subtitle-row ${cue.visible === false ? "is-hidden" : ""}`} data-scene-structure-subtitle-cue={cue.id}>
+                <header>
+                  <span className="scene-structure-subtitle-number">{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{formatPreciseTime(cue.start)} → {formatPreciseTime(cue.end)}</strong>
+                    <small>{cue.visible === false ? "Đang ẩn" : group ? `${group.cueIds.length} câu dùng chung ảnh · Tổng ${group.totalDuration.toFixed(2)} giây` : "Chưa gán ảnh"}</small>
+                  </div>
+                  <div className="scene-structure-subtitle-row-actions">
+                    <button type="button" className="scene-structure-subtitle-copy" disabled={!safeTrim(imageDraft.imageUrl)} onClick={() => copySceneStructureSubtitleImage(cue.id)}>Sao chép</button>
+                    <button type="button" className="scene-structure-subtitle-copy" disabled={!sceneStructureSubtitleClipboard} onClick={() => pasteSceneStructureSubtitleImage(cue.id)}>Dán</button>
+                    <button type="button" className="scene-structure-subtitle-clear" disabled={!safeTrim(imageDraft.imageUrl)} onClick={() => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: "" })}>Bỏ ảnh</button>
+                  </div>
+                </header>
+                <div className="scene-structure-subtitle-row-body">
+                  <div className="scene-structure-subtitle-preview">
+                    {previewSource ? <img src={previewSource} alt="" /> : <span>Chưa có ảnh</span>}
+                  </div>
+                  <div className="scene-structure-subtitle-fields">
+                    <p className="scene-structure-subtitle-text">{cue.text || "(Câu phụ đề trống)"}</p>
+                    <label><span>Tên ảnh</span><input type="text" value={imageDraft.imageName} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageName: event.target.value })} placeholder={`Ảnh câu ${index + 1}`} /></label>
+                    <label className="scene-structure-subtitle-url-field"><span>URL hình ảnh</span><input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." /></label>
+                    <div className="scene-structure-subtitle-number-grid">
+                      <label><span>X (%)</span><input type="text" inputMode="decimal" value={imageDraft.x} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { x: numericDraftValue(event.target.value, imageDraft.x) })} /></label>
+                      <label><span>Y (%)</span><input type="text" inputMode="decimal" value={imageDraft.y} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { y: numericDraftValue(event.target.value, imageDraft.y) })} /></label>
+                      <label><span>Rộng (%)</span><input type="text" inputMode="decimal" value={imageDraft.width} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { width: numericDraftValue(event.target.value, imageDraft.width) })} /></label>
+                      <label><span>Cao (%)</span><input type="text" inputMode="decimal" value={imageDraft.height} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { height: numericDraftValue(event.target.value, imageDraft.height) })} /></label>
+                    </div>
+                    <div className="scene-structure-subtitle-number-grid">
+                      <label><span>Độ mờ (%)</span><input type="text" inputMode="decimal" value={imageDraft.opacity} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { opacity: numericDraftValue(event.target.value, imageDraft.opacity) })} /></label>
+                      <label><span>Viền (px)</span><input type="text" inputMode="decimal" value={imageDraft.borderWidth} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { borderWidth: numericDraftValue(event.target.value, imageDraft.borderWidth) })} /></label>
+                      <label><span>Hình dạng</span><select value={imageDraft.shape} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { shape: event.target.value as SceneImageShape })}>{sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                      <label><span>Chuyển hình</span><select value={imageDraft.transition} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                    </div>
+                    <label className="scene-structure-subtitle-checkbox"><input type="checkbox" checked={imageDraft.transparent} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { transparent: event.target.checked })} /><span>Giữ nền trong suốt</span></label>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -16087,6 +16475,8 @@ function Home() {
                           })}
                         </div>
                       )}
+
+                      {sceneStructureViewMode === "subtitles" && renderSceneStructureSubtitleEditor()}
                     </div>
                   </div>
                 )}
