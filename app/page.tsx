@@ -305,6 +305,10 @@ const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
   { value: "script", label: "Kịch bản", icon: "✓", description: "Nội dung và kiểm tra" },
 ];
 
+// Tạm ẩn minimap khỏi giao diện Cấu trúc cảnh; giữ nguyên phần render và logic
+// để có thể bật lại bằng một thay đổi cấu hình nhỏ khi cần.
+const SCENE_STRUCTURE_MINIMAP_ENABLED = false;
+
 const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
   <span className="field-label-with-hint">
     <span>{children}</span>
@@ -15729,7 +15733,7 @@ function Home() {
                     </footer>
                   </div>
                 </div>
-                <section className="scene-structure-minimap" aria-label="Minimap timeline của cảnh">
+                {SCENE_STRUCTURE_MINIMAP_ENABLED && <section className="scene-structure-minimap" aria-label="Minimap timeline của cảnh">
                   <header className="scene-structure-minimap-heading">
                     <div>
                       <strong>Tổng quan timeline</strong>
@@ -15814,7 +15818,7 @@ function Home() {
                       aria-hidden="true"
                     >Click hoặc kéo để xem phần khác của timeline</span>
                   </div>
-                </section>
+                </section>}
                 </>) : (
                   <div
                     className={`scene-structure-alt-scroll scene-structure-alt-${sceneStructureViewMode}`}
