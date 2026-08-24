@@ -10908,6 +10908,13 @@ body {
 }
 .scene-structure-hover-preview-caption strong { color: #8fd1ff; font: 800 10px var(--font-mono); }
 .scene-structure-hover-preview-caption span { overflow-wrap: anywhere; color: #d8e8f6; font-size: 9px; line-height: 1.35; white-space: normal; }
+.scene-structure-hover-preview-caption .scene-structure-hover-subtitle {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(129, 167, 201, .24);
+  color: #ffe3a7;
+  font-weight: 750;
+}
 .scene-structure-preview-portal-host {
   display: grid;
   place-items: center;
@@ -11597,6 +11604,34 @@ body {
 .scene-structure-light .scene-structure-quick-editor > header small,
 .scene-structure-light .scene-structure-quick-note { color: #907b64; }
 .scene-structure-light .scene-structure-quick-editor-body { scrollbar-color: #c4aa86 #f0e8dc; }
+.scene-structure-light .scene-structure-quick-field > span { color: #6f5135; }
+.scene-structure-light .scene-structure-quick-field input,
+.scene-structure-light .scene-structure-quick-field select,
+.scene-structure-light .scene-structure-quick-field textarea {
+  border-color: #c7ae8d;
+  background: #fffdf9;
+  color: #2f241b;
+  box-shadow: inset 0 1px 2px rgba(93, 64, 29, .08);
+}
+.scene-structure-light .scene-structure-quick-field input::placeholder,
+.scene-structure-light .scene-structure-quick-field textarea::placeholder { color: #9a846d; }
+.scene-structure-light .scene-structure-quick-field input:focus,
+.scene-structure-light .scene-structure-quick-field select:focus,
+.scene-structure-light .scene-structure-quick-field textarea:focus {
+  border-color: #b87323;
+  outline-color: rgba(184, 115, 35, .2);
+}
+.scene-structure-light .scene-structure-quick-toggle { color: #4c3826; }
+.scene-structure-light .scene-structure-quick-divider { border-color: #decbb3; color: #4c3826; }
+.scene-structure-light .scene-structure-quick-divider small,
+.scene-structure-light .scene-structure-quick-subtitle-heading,
+.scene-structure-light .scene-structure-quick-environment { color: #5e4934; }
+.scene-structure-light .scene-structure-quick-subtitle,
+.scene-structure-light .scene-structure-quick-environment {
+  border-color: #ddc8aa;
+  background: rgba(255, 251, 244, .82);
+}
+.scene-structure-light .scene-structure-quick-editor > footer { background: rgba(255, 250, 241, .82); }
 
 @media (max-width: 1050px) {
   .scene-structure-body.library-collapsed .scene-structure-library { min-height: 42px; max-height: 42px; padding-block: 8px; }
