@@ -4,6 +4,7 @@ import {
   Component,
   Fragment,
   type ErrorInfo,
+  type InputHTMLAttributes,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
@@ -824,6 +825,109 @@ const parsePreciseTime = (value: string, fallback: number) => {
     ? Number(parts[0])
     : Number(parts.at(-1)) + Number(parts.at(-2)) * 60;
   return Number.isFinite(seconds) ? seconds : fallback;
+};
+
+const parseLocaleNumber = (value: unknown): number | null => {
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") return null;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const clampNumericInputValue = (value: number, min?: number, max?: number) => {
+  let next = value;
+  if (typeof min === "number") next = Math.max(min, next);
+  if (typeof max === "number") next = Math.min(max, next);
+  return next;
+};
+
+type NumericInputProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "type" | "value" | "onChange" | "onBlur" | "onKeyDown" | "min" | "max" | "step"
+> & {
+  value: number | string | null | undefined;
+  onCommit: (value: number) => void;
+  onCommitEmpty?: () => void;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+const NumericInput = ({
+  value,
+  onCommit,
+  onCommitEmpty,
+  min,
+  max,
+  step,
+  onFocus,
+  ...rest
+}: NumericInputProps) => {
+  const committedValue = String(value ?? "");
+  const [draft, setDraft] = useState(committedValue);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(committedValue);
+  }, [committedValue, editing]);
+
+  const commit = () => {
+    const parsed = parseLocaleNumber(draft);
+    if (parsed === null) {
+      if (draft.trim() === "" && onCommitEmpty) {
+        onCommitEmpty();
+        setEditing(false);
+        return;
+      }
+      setDraft(committedValue);
+      setEditing(false);
+      return;
+    }
+    const normalized = clampNumericInputValue(parsed, min, max);
+    onCommit(normalized);
+    setDraft(String(normalized));
+    setEditing(false);
+  };
+
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode={rest.inputMode ?? "decimal"}
+      min={min}
+      max={max}
+      step={step}
+      value={draft}
+      onFocus={(event) => {
+        setEditing(true);
+        onFocus?.(event);
+      }}
+      onChange={(event) => {
+        const nextDraft = event.target.value;
+        setDraft(nextDraft);
+        const parsed = parseLocaleNumber(nextDraft);
+        if (parsed === null) {
+          if (nextDraft.trim() === "" && onCommitEmpty) onCommitEmpty();
+          return;
+        }
+        if ((typeof min === "number" && parsed < min) || (typeof max === "number" && parsed > max)) return;
+        onCommit(parsed);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(committedValue);
+          setEditing(false);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
 };
 
 const fileNameOnly = (value: unknown) => {
@@ -2355,15 +2459,13 @@ function SettingsResourcePanel() {
           <label className="field">
             <span>Tốc độ (ms/frame)</span>
             <div className="number-with-unit">
-              <input
-                type="number"
-                min="60"
-                max="1000"
-                step="1"
+              <NumericInput
                 value={delayInput}
+                min={60}
+                max={1000}
+                step={1}
                 disabled={isProcessing}
-                onChange={(event) => updateDelayInput(event.target.value)}
-                onBlur={commitDelayInput}
+                onCommit={(value) => updateDelayInput(String(Math.round(value)))}
               />
               <b>ms</b>
             </div>
@@ -2372,14 +2474,13 @@ function SettingsResourcePanel() {
                  <label className="field">
             <span>Kích thước frame</span>
             <div className="number-with-unit">
-              <input
-                type="number"
-                min="128"
-                max="1024"
-                step="16"
+              <NumericInput
                 value={frameSize}
+                min={128}
+                max={1024}
+                step={16}
                 disabled={isProcessing}
-                onChange={(event) => setFrameSize(Math.min(1024, Math.max(128, Number(event.target.value) || 576)))}
+                onCommit={(value) => setFrameSize(Math.min(1024, Math.max(128, Math.round(value))))}
               />
               <b>px</b>
             </div>
@@ -3021,7 +3122,7 @@ function ReviewEditable({ value, label, onCommit, numeric = false, multiline = f
         }
       },
     };
-    return multiline ? <textarea {...editorProps} rows={2} /> : <input {...editorProps} type={numeric ? "number" : "text"} />;
+    return multiline ? <textarea {...editorProps} rows={2} /> : <input {...editorProps} type="text" />;
   }
 
   return (
@@ -3877,13 +3978,34 @@ function Home() {
         grouped.set(key, current);
       });
 
-    return Array.from(grouped.entries()).map(([key, drafts], groupIndex) => {
+    const groups: SceneStructureSubtitleImageGroup[] = [];
+    Array.from(grouped.entries()).forEach(([key, drafts]) => {
       const ordered = drafts
         .map((draft) => ({ draft, cue: cueById.get(draft.cueId) }))
         .filter((entry): entry is { draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue } => Boolean(entry.cue))
         .sort((first, second) => Number(first.cue.start) - Number(second.cue.start));
-      const segments: SceneStructureSubtitleImageSegment[] = [];
-      let totalDuration = 0;
+      let currentRun: Array<{ draft: SceneStructureSubtitleImageDraft; cue: SubtitleCue; start: number; end: number }> = [];
+      let currentEnd = -Infinity;
+
+      const appendGroup = (run: typeof currentRun) => {
+        if (!run.length) return;
+        const first = run[0];
+        const last = run[run.length - 1];
+        const totalDuration = run.reduce((total, entry) => total + Math.max(0.1, entry.end - entry.start), 0);
+        const groupIndex = groups.length;
+        const cueIds = run.map(({ cue }) => cue.id);
+        groups.push({
+          key: `${key}::${first.start.toFixed(2)}::${last.end.toFixed(2)}`,
+          groupId: `subtitle-group-${sceneStructureScene.id}-${groupIndex + 1}`,
+          imageUrl: key,
+          imageName: first.draft.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
+          cueIds,
+          segments: [{ start: first.start, end: last.end, cueIds }],
+          totalDuration: Number(totalDuration.toFixed(2)),
+          template: first.draft,
+        });
+      };
+
       ordered.forEach(({ draft, cue }) => {
         const start = Math.min(
           sceneStructureDuration,
@@ -3893,27 +4015,16 @@ function Home() {
           sceneStructureDuration,
           Math.max(start + 0.1, Number(cue.end) || start + 0.1),
         );
-        totalDuration += Math.max(0.1, end - start);
-        const previous = segments.at(-1);
-        if (previous && start <= previous.end + 0.01) {
-          previous.end = Math.max(previous.end, end);
-          previous.cueIds.push(cue.id);
-        } else {
-          segments.push({ start, end, cueIds: [cue.id] });
+        if (currentRun.length && start > currentEnd + 0.01) {
+          appendGroup(currentRun);
+          currentRun = [];
         }
+        currentRun.push({ draft, cue, start, end });
+        currentEnd = Math.max(currentEnd, end);
       });
-      const template = ordered[0]?.draft ?? drafts[0];
-      return {
-        key,
-        groupId: `subtitle-group-${sceneStructureScene.id}-${groupIndex + 1}`,
-        imageUrl: key,
-        imageName: template.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
-        cueIds: ordered.map(({ cue }) => cue.id),
-        segments,
-        totalDuration: Number(totalDuration.toFixed(2)),
-        template,
-      };
+      appendGroup(currentRun);
     });
+    return groups;
   }, [sceneStructureDuration, sceneStructureScene.id, sceneStructureScene.subtitles, sceneStructureSubtitleImageDrafts]);
 
   const clampSceneStructureTiming = (startValue: number, endValue: number) => {
@@ -5476,8 +5587,8 @@ function Home() {
     const key = darkEffectInputKey(effect.id, field);
     setEffectInputDrafts((items) => ({ ...items, [key]: value }));
     if (!value.trim()) return;
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return;
+    const numericValue = parseLocaleNumber(value);
+    if (numericValue === null) return;
     const sceneLimit = Math.max(0.1, sceneDuration);
     if (field === "start") {
       updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
@@ -5496,10 +5607,18 @@ function Home() {
   const commitSceneDarkEffectInput = (effect: SceneDarkEffect, field: SceneDarkEffectNumberField) => {
     const key = darkEffectInputKey(effect.id, field);
     const draft = effectInputDrafts[key];
-    const numericValue = Number(draft);
-    if (draft !== undefined && Number.isFinite(numericValue)) {
-      updateSceneDarkEffectInput(effect, field, String(numericValue));
-      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+    const numericValue = parseLocaleNumber(draft);
+    if (draft !== undefined && numericValue !== null) {
+      const sceneLimit = Math.max(0.1, sceneDuration);
+      const normalized = field === "start"
+        ? Math.min(sceneLimit - 0.1, Math.max(0, numericValue))
+        : field === "end"
+          ? Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue))
+          : field === "holdDuration"
+            ? Math.min(Math.max(0, effect.end - effect.start - 0.1), Math.max(0, numericValue))
+            : Math.min(100, Math.max(0, numericValue));
+      updateSceneDarkEffectInput(effect, field, String(normalized));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(normalized) }));
       return;
     }
     setEffectInputDrafts((items) => {
@@ -6004,8 +6123,8 @@ function Home() {
     const key = textOverlayTimingKey(overlay.id, field);
     setTextOverlayTimingDrafts((items) => ({ ...items, [key]: value }));
     if (!value.trim()) return;
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return;
+    const numericValue = parseLocaleNumber(value);
+    if (numericValue === null) return;
     const sceneLimit = Math.max(0.1, sceneDuration);
     const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
     if (field === "start") {
@@ -6022,10 +6141,15 @@ function Home() {
   const commitTextOverlayTimingInput = (overlay: TextOverlay, field: TextOverlayTimingField) => {
     const key = textOverlayTimingKey(overlay.id, field);
     const draft = textOverlayTimingDrafts[key];
-    const numericValue = Number(draft);
-    if (draft !== undefined && Number.isFinite(numericValue)) {
-      updateTextOverlayTimingInput(overlay, field, String(numericValue));
-      setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+    const numericValue = parseLocaleNumber(draft);
+    if (draft !== undefined && numericValue !== null) {
+      const sceneLimit = Math.max(0.1, sceneDuration);
+      const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
+      const normalized = field === "start"
+        ? Math.min(sceneLimit - 0.1, Math.max(0, numericValue))
+        : Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue));
+      updateTextOverlayTimingInput(overlay, field, String(normalized));
+      setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(normalized) }));
       return;
     }
     setTextOverlayTimingDrafts((items) => {
@@ -6143,9 +6267,12 @@ function Home() {
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const zoomStart = Math.min(Math.max(0, duration - 0.1), Math.max(0, numericValue));
         return {
           ...item,
-          zoomStart: numericValue,
+          zoomStart,
+          zoomEnd: Math.max(zoomStart + 0.1, Math.min(duration, Number(item.zoomEnd) || duration)),
         };
       }),
     );
@@ -6160,9 +6287,13 @@ function Home() {
     setScenes((items) =>
       items.map((item) => {
         if (!targetIds.has(item.id)) return item;
+        const duration = Math.max(0.1, item.end - item.start);
+        const zoomStart = Math.min(Math.max(0, duration - 0.1), Math.max(0, Number(item.zoomStart) || 0));
+        const zoomEnd = Math.min(duration, Math.max(zoomStart + 0.1, numericValue));
         return {
           ...item,
-          zoomEnd: numericValue,
+          zoomStart,
+          zoomEnd,
         };
       }),
     );
@@ -6179,7 +6310,7 @@ function Home() {
         if (!targetIds.has(item.id)) return item;
         return {
           ...item,
-          zoomInDuration: numericValue,
+          zoomInDuration: Math.min(Math.max(0, numericValue), Math.max(0, item.end - item.start)),
         };
       }),
     );
@@ -6193,8 +6324,8 @@ function Home() {
     const key = zoomInputKey(field);
     setZoomInputDrafts((items) => ({ ...items, [key]: value }));
     if (!value.trim()) return;
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return;
+    const numericValue = parseLocaleNumber(value);
+    if (numericValue === null) return;
     if (field === "zoomStart") updateZoomStart(numericValue);
     if (field === "zoomEnd") updateZoomEnd(numericValue);
     if (field === "zoomInDuration") updateZoomInDuration(numericValue);
@@ -6203,10 +6334,20 @@ function Home() {
   const commitZoomInput = (field: ZoomInputField) => {
     const key = zoomInputKey(field);
     const draft = zoomInputDrafts[key];
-    const numericValue = Number(draft);
-    if (draft !== undefined && Number.isFinite(numericValue)) {
-      updateZoomInput(field, String(numericValue));
-      setZoomInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+    const numericValue = parseLocaleNumber(draft);
+    if (draft !== undefined && numericValue !== null) {
+      const duration = Math.max(0.1, sceneDuration);
+      const normalized = field === "zoom"
+        ? Math.min(4, Math.max(1, numericValue))
+        : field === "zoomOutDuration"
+          ? Math.min(duration, Math.max(0, numericValue))
+          : field === "zoomInDuration"
+            ? Math.min(duration, Math.max(0, numericValue))
+            : field === "zoomStart"
+              ? Math.min(Math.max(0, duration - 0.1), Math.max(0, numericValue))
+              : Math.min(duration, Math.max(0.1, numericValue));
+      updateZoomInput(field, String(normalized));
+      setZoomInputDrafts((items) => ({ ...items, [key]: String(normalized) }));
       return;
     }
     setZoomInputDrafts((items) => {
@@ -6230,16 +6371,27 @@ function Home() {
     const key = effectInputKey(field);
     setEffectInputDrafts((items) => ({ ...items, [key]: value }));
     if (!value.trim()) return;
-    const numericValue = Number(value);
-    if (Number.isFinite(numericValue)) updateSceneEffects(field, numericValue);
+    const numericValue = parseLocaleNumber(value);
+    if (numericValue === null) return;
+    const normalized = field.endsWith("Speed")
+      ? Math.min(3, Math.max(0.2, numericValue))
+      : field === "sceneStartDarkDuration"
+        ? Math.max(0.1, numericValue)
+        : Math.min(100, Math.max(0, numericValue));
+    updateSceneEffects(field, normalized);
   };
   const commitEffectInput = (field: SceneEffectNumberField) => {
     const key = effectInputKey(field);
     const draft = effectInputDrafts[key];
-    const numericValue = Number(draft);
-    if (draft !== undefined && Number.isFinite(numericValue)) {
-      updateEffectInput(field, String(numericValue));
-      setEffectInputDrafts((items) => ({ ...items, [key]: String(numericValue) }));
+    const numericValue = parseLocaleNumber(draft);
+    if (draft !== undefined && numericValue !== null) {
+      const normalized = field.endsWith("Speed")
+        ? Math.min(3, Math.max(0.2, numericValue))
+        : field === "sceneStartDarkDuration"
+          ? Math.max(0.1, numericValue)
+          : Math.min(100, Math.max(0, numericValue));
+      updateEffectInput(field, String(normalized));
+      setEffectInputDrafts((items) => ({ ...items, [key]: String(normalized) }));
       return;
     }
     setEffectInputDrafts((items) => {
@@ -6941,6 +7093,32 @@ function Home() {
       const decorations = item.mapDecorations ?? [];
       const current = decorations[decorationIndex];
       if (!current) return item;
+      const sceneDuration = Math.max(0.1, item.end - item.start);
+      if (key === "start") {
+        const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, Number(value) || 0));
+        const nextDuration = Math.min(
+          Math.max(0.1, Number(current.duration) || 0.1),
+          Math.max(0.1, sceneDuration - nextStart),
+        );
+        return {
+          ...item,
+          mapDecorations: decorations.map((decoration, index) => index === decorationIndex
+            ? { ...decoration, start: Number(nextStart.toFixed(2)), duration: Number(nextDuration.toFixed(2)) }
+            : decoration),
+        };
+      }
+      if (key === "duration") {
+        const nextDuration = Math.min(
+          Math.max(0.1, Number(value) || 0.1),
+          Math.max(0.1, sceneDuration - Math.max(0, Number(current.start) || 0)),
+        );
+        return {
+          ...item,
+          mapDecorations: decorations.map((decoration, index) => index === decorationIndex
+            ? { ...decoration, duration: Number(nextDuration.toFixed(2)) }
+            : decoration),
+        };
+      }
       return {
         ...item,
         mapDecorations: decorations.map((decoration, index) => index === decorationIndex
@@ -7098,21 +7276,21 @@ function Home() {
     if (!imageId || !activeSceneImage) return;
     setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: value }));
     if (!value.trim()) return;
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return;
+    const numericValue = parseLocaleNumber(value);
+    if (numericValue === null) return;
     updateSceneImage(
       "transitionEnd",
-      Math.max(activeSceneImage.start + 0.1, numericValue),
+      Math.min(sceneDuration, Math.max(activeSceneImage.start + 0.1, numericValue)),
     );
   };
 
   const commitSceneImageTransitionEnd = (imageId: string, value: string) => {
     const image = sceneImages.find((item) => item.id === imageId);
     if (!image) return;
-    const numericValue = Number(value);
-    const nextEnd = Number.isFinite(numericValue)
-      ? Math.max(image.start + 0.1, numericValue)
-      : Math.max(image.start + 0.1, image.transitionEnd);
+    const numericValue = parseLocaleNumber(value);
+    const nextEnd = numericValue !== null
+      ? Math.min(sceneDuration, Math.max(image.start + 0.1, numericValue))
+      : Math.min(sceneDuration, Math.max(image.start + 0.1, image.transitionEnd));
     setSceneImageTransitionEndDrafts((items) => ({ ...items, [imageId]: String(nextEnd) }));
     updateSceneImage("transitionEnd", nextEnd);
   };
@@ -10011,12 +10189,20 @@ function Home() {
 
   const applySceneStructureSubtitleImages = () => {
     const groups = sceneStructureSubtitleImageGroups;
-    const generatedImages = groups.flatMap((group, groupIndex) => group.segments.map((segment, segmentIndex) => {
-      const imageId = `${sceneStructureScene.id}-subtitle-image-${groupIndex + 1}-${segmentIndex + 1}`;
+    const generatedImages = groups.flatMap((group, groupIndex) => group.segments.map((segment) => {
+      const imageId = `${sceneStructureScene.id}-subtitle-image-${groupIndex + 1}`;
       const transition = group.template.transition;
+      const start = Math.min(
+        Math.max(0, segment.start),
+        Math.max(0, sceneStructureDuration - 0.1),
+      );
+      const duration = Number(Math.max(0.1, Math.min(
+        Math.max(0.1, sceneStructureDuration - start),
+        Math.max(0.1, group.totalDuration),
+      )).toFixed(2));
       const transitionDuration = transition === "cut"
         ? 0
-        : Math.min(0.6, Math.max(0.1, segment.end - segment.start));
+        : Math.min(0.6, duration);
       return defaultSceneImage(imageId, {
         name: group.imageName || `Ảnh phụ đề ${groupIndex + 1}`,
         url: group.imageUrl,
@@ -10031,12 +10217,12 @@ function Home() {
         borderWidth: group.template.borderWidth,
         borderColor: group.template.borderColor,
         borderFill: group.template.borderFill,
-        start: segment.start,
-        duration: Number(Math.max(0.1, segment.end - segment.start).toFixed(2)),
+        start,
+        duration,
         transition,
         transitionEnd: transition === "cut"
-          ? segment.start
-          : Number(Math.min(segment.end, segment.start + transitionDuration).toFixed(2)),
+          ? start
+          : Number(Math.min(sceneStructureDuration, start + transitionDuration).toFixed(2)),
         subtitleGenerated: true,
         subtitleGroupId: group.groupId,
         subtitleCueIds: segment.cueIds,
@@ -10076,12 +10262,36 @@ function Home() {
   };
 
   const updateSceneStructureQuickImage = (imageId: string, values: Partial<SceneImage>) => {
-    updateSceneStructureQuickScene((currentScene) => ({
-      ...currentScene,
-      sceneImages: (currentScene.sceneImages ?? []).map((image) => (
-        image.id === imageId ? { ...image, ...values } : image
-      )),
-    }));
+    updateSceneStructureQuickScene((currentScene) => {
+      const duration = Math.max(0.1, currentScene.end - currentScene.start);
+      return {
+        ...currentScene,
+        sceneImages: (currentScene.sceneImages ?? []).map((image) => {
+          if (image.id !== imageId) return image;
+          const next = { ...image, ...values } as SceneImage;
+          const start = Math.min(duration - 0.1, Math.max(0, Number(next.start) || 0));
+          const imageDuration = Math.min(
+            Math.max(0.1, Number(next.duration) || 0.1),
+            Math.max(0.1, duration - start),
+          );
+          const transitionEnd = next.transition === "cut"
+            ? start
+            : Math.min(duration, Math.max(start + 0.1, Number(next.transitionEnd) || start + 0.1));
+          return {
+            ...next,
+            x: clampPercent(next.x, image.x),
+            y: clampPercent(next.y, image.y),
+            width: Math.min(200, Math.max(1, Number(next.width) || image.width)),
+            height: Math.min(200, Math.max(1, Number(next.height) || image.height)),
+            opacity: Math.min(100, Math.max(0, Number(next.opacity) || 0)),
+            borderWidth: Math.min(12, Math.max(0, Number(next.borderWidth) || 0)),
+            start: Number(start.toFixed(2)),
+            duration: Number(imageDuration.toFixed(2)),
+            transitionEnd: Number(transitionEnd.toFixed(2)),
+          };
+        }),
+      };
+    });
   };
 
   const updateSceneStructureQuickPopup = (popupId: string, values: Partial<PopupConfig>) => {
@@ -10099,6 +10309,21 @@ function Home() {
         nextPopup.imageHeight = sections.imageHeight;
         nextPopup.contentHeight = sections.contentHeight;
       }
+      const duration = Math.max(0.1, currentScene.end - currentScene.start);
+      const popupStart = Math.min(
+        Math.max(0, duration - 0.1),
+        Math.max(0, Number(nextPopup.start) || 0),
+      );
+      nextPopup.start = Number(popupStart.toFixed(2));
+      nextPopup.duration = Number(Math.min(
+        Math.max(0.1, Number(nextPopup.duration) || 0.1),
+        Math.max(0.1, duration - popupStart),
+      ).toFixed(2));
+      nextPopup.x = clampPercent(nextPopup.x, currentPopup.x);
+      nextPopup.y = clampPercent(nextPopup.y, currentPopup.y);
+      nextPopup.width = Math.min(96, Math.max(55, Number(nextPopup.width) || currentPopup.width));
+      nextPopup.height = Math.min(440, Math.max(170, Number(nextPopup.height) || currentPopup.height));
+      nextPopup.borderWidth = Math.min(12, Math.max(0, Number(nextPopup.borderWidth) || 0));
       const nextPopups = popups.map((popup, index) => index === popupIndex ? nextPopup : popup);
       return {
         ...currentScene,
@@ -10114,6 +10339,21 @@ function Home() {
       const overlayIndex = overlays.findIndex((overlay) => overlay.id === textId);
       if (overlayIndex < 0) return currentScene;
       const nextOverlay = { ...overlays[overlayIndex], ...values } as TextOverlay;
+      const duration = Math.max(0.1, currentScene.end - currentScene.start);
+      const start = Math.min(duration - 0.1, Math.max(0, Number(nextOverlay.start) || 0));
+      const end = Math.min(duration, Math.max(start + 0.1, Number(nextOverlay.end) || start + 0.1));
+      nextOverlay.start = Number(start.toFixed(2));
+      nextOverlay.end = Number(end.toFixed(2));
+      nextOverlay.size = Math.min(120, Math.max(8, Number(nextOverlay.size) || overlays[overlayIndex].size));
+      nextOverlay.x = clampPercent(nextOverlay.x, overlays[overlayIndex].x);
+      nextOverlay.y = clampPercent(nextOverlay.y, overlays[overlayIndex].y);
+      nextOverlay.opacity = Math.min(100, Math.max(0, Number(nextOverlay.opacity) || 0));
+      nextOverlay.strokeWidth = Math.min(12, Math.max(0, Number(nextOverlay.strokeWidth) || 0));
+      nextOverlay.borderWidth = Math.min(12, Math.max(0, Number(nextOverlay.borderWidth) || 0));
+      nextOverlay.borderOpacity = Math.min(100, Math.max(0, Number(nextOverlay.borderOpacity) || 0));
+      nextOverlay.textEffectDuration = Math.min(8, Math.max(0.05, Number(nextOverlay.textEffectDuration) || 0.05));
+      if (nextOverlay.width !== undefined) nextOverlay.width = Math.min(100, Math.max(4, Number(nextOverlay.width) || 4));
+      if (nextOverlay.height !== undefined) nextOverlay.height = Math.min(40, Math.max(3, Number(nextOverlay.height) || 3));
       const nextOverlays = overlays.map((overlay, index) => index === overlayIndex ? nextOverlay : overlay);
       return {
         ...currentScene,
@@ -10124,12 +10364,33 @@ function Home() {
   };
 
   const updateSceneStructureQuickDecoration = (decorationId: string, values: Partial<MapDecoration>) => {
-    updateSceneStructureQuickScene((currentScene) => ({
-      ...currentScene,
-      mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => (
-        decoration.id === decorationId ? { ...decoration, ...values } : decoration
-      )),
-    }));
+    updateSceneStructureQuickScene((currentScene) => {
+      const duration = Math.max(0.1, currentScene.end - currentScene.start);
+      return {
+        ...currentScene,
+        mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => {
+          if (decoration.id !== decorationId) return decoration;
+          const next = { ...decoration, ...values } as MapDecoration;
+          const start = Math.min(duration - 0.1, Math.max(0, Number(next.start) || 0));
+          const decorationDuration = Math.min(
+            Math.max(0.1, Number(next.duration) || 0.1),
+            Math.max(0.1, duration - start),
+          );
+          return {
+            ...next,
+            x: clampPercent(next.x, decoration.x),
+            y: clampPercent(next.y, decoration.y),
+            scale: Math.min(3, Math.max(0.1, Number(next.scale) || decoration.scale)),
+            rotate: Math.min(180, Math.max(-180, Number(next.rotate) || 0)),
+            opacity: Math.min(100, Math.max(0, Number(next.opacity) || 0)),
+            depth: Math.min(16, Math.max(0, Math.round(Number(next.depth) || 0))),
+            size: Math.min(120, Math.max(14, Number(next.size) || decoration.size)),
+            start: Number(start.toFixed(2)),
+            duration: Number(decorationDuration.toFixed(2)),
+          };
+        }),
+      };
+    });
   };
 
   const updateSceneStructureQuickAudio = (trackId: string, values: Partial<SceneAudioTrack>) => {
@@ -10144,7 +10405,7 @@ function Home() {
           ...next,
           start: Number(start.toFixed(2)),
           end: Number(end.toFixed(2)),
-          volume: Number.isFinite(Number(next.volume)) ? Number(next.volume) : track.volume,
+          volume: clampVolume(next.volume, track.volume),
         };
       });
       return syncLegacyVoiceFields(currentScene, nextTracks);
@@ -10154,9 +10415,20 @@ function Home() {
   const updateSceneStructureQuickDarkEffect = (effectId: string, values: Partial<SceneDarkEffect>) => {
     updateSceneStructureQuickScene((currentScene) => {
       const effects = normalizeSceneEffects(currentScene.effects);
-      const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => (
-        effect.id === effectId ? { ...effect, ...values } : effect
-      ));
+      const duration = Math.max(0.1, currentScene.end - currentScene.start);
+      const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
+        if (effect.id !== effectId) return effect;
+        const next = { ...effect, ...values } as SceneDarkEffect;
+        const start = Math.min(duration - 0.1, Math.max(0, Number(next.start) || 0));
+        const end = Math.min(duration, Math.max(start + 0.1, Number(next.end) || start + 0.1));
+        return {
+          ...next,
+          start,
+          end,
+          holdDuration: Math.min(Math.max(0, end - start - 0.1), Math.max(0, Number(next.holdDuration) || 0)),
+          intensity: Math.min(100, Math.max(0, Number(next.intensity) || 0)),
+        };
+      });
       const firstEffect = nextDarkEffects[0] ?? defaultSceneDarkEffect();
       return {
         ...currentScene,
@@ -10174,7 +10446,7 @@ function Home() {
   const updateSceneStructureQuickEffects = (values: Partial<SceneEffects>) => {
     updateSceneStructureQuickScene((currentScene) => ({
       ...currentScene,
-      effects: { ...normalizeSceneEffects(currentScene.effects), ...values },
+      effects: normalizeSceneEffects({ ...normalizeSceneEffects(currentScene.effects), ...values }),
     }));
   };
 
@@ -10570,6 +10842,22 @@ function Home() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    const handleSceneStructureDelete = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" || sceneStructurePreviewMode || sceneStructureQuickEditToken) return;
+      if (!selectedSceneStructureItem) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (target?.closest("[data-scene-structure-card]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSceneStructureItem(selectedSceneStructureItem);
+    };
+    window.addEventListener("keydown", handleSceneStructureDelete);
+    return () => window.removeEventListener("keydown", handleSceneStructureDelete);
+  }, [sceneStructureOpen, sceneStructurePreviewMode, sceneStructureQuickEditToken, selectedSceneStructureItem?.token]);
+
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
@@ -10649,10 +10937,6 @@ function Home() {
     if (!item) return null;
     const quickScene = sceneStructureScene;
     const quickTiming = quickTimingDraftFor(item);
-    const numberValue = (value: string, fallback: number) => {
-      const parsed = Number(value.replace(",", "."));
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
     const timingFields = item.timingMode === "none" ? null : (
       <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
         <label className="scene-structure-quick-field">
@@ -10762,13 +11046,13 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Chuyển hình</span><select value={image.transition} onChange={(event) => updateSceneStructureQuickImage(image.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="text" inputMode="decimal" value={image.x} onChange={(event) => updateSceneStructureQuickImage(image.id, { x: numberValue(event.target.value, image.x) })} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="text" inputMode="decimal" value={image.y} onChange={(event) => updateSceneStructureQuickImage(image.id, { y: numberValue(event.target.value, image.y) })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><input type="text" inputMode="decimal" value={image.opacity} onChange={(event) => updateSceneStructureQuickImage(image.id, { opacity: numberValue(event.target.value, image.opacity) })} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><input type="text" inputMode="decimal" value={image.width} onChange={(event) => updateSceneStructureQuickImage(image.id, { width: numberValue(event.target.value, image.width) })} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><input type="text" inputMode="decimal" value={image.height} onChange={(event) => updateSceneStructureQuickImage(image.id, { height: numberValue(event.target.value, image.height) })} /></label>
-            <label className="scene-structure-quick-field"><span>Đường viền (px)</span><input type="text" inputMode="decimal" value={image.borderWidth} onChange={(event) => updateSceneStructureQuickImage(image.id, { borderWidth: numberValue(event.target.value, image.borderWidth) })} /></label>
-            <label className="scene-structure-quick-field"><span>Kết thúc chuyển (giây)</span><input type="text" inputMode="decimal" value={image.transitionEnd} onChange={(event) => updateSceneStructureQuickImage(image.id, { transitionEnd: numberValue(event.target.value, image.transitionEnd) })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={image.x} onCommit={(value) => updateSceneStructureQuickImage(image.id, { x: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={image.y} onCommit={(value) => updateSceneStructureQuickImage(image.id, { y: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><NumericInput min={0} max={100} step={1} value={image.opacity} onCommit={(value) => updateSceneStructureQuickImage(image.id, { opacity: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><NumericInput min={1} max={200} step={1} value={image.width} onCommit={(value) => updateSceneStructureQuickImage(image.id, { width: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><NumericInput min={1} max={200} step={1} value={image.height} onCommit={(value) => updateSceneStructureQuickImage(image.id, { height: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Đường viền (px)</span><NumericInput min={0} max={12} step={1} value={image.borderWidth} onCommit={(value) => updateSceneStructureQuickImage(image.id, { borderWidth: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Kết thúc chuyển (giây)</span><NumericInput min={0.1} max={Math.max(0.1, sceneStructureDuration)} step={0.1} value={image.transitionEnd} onCommit={(value) => updateSceneStructureQuickImage(image.id, { transitionEnd: value })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
             <label className="scene-structure-quick-field"><span>Màu đường viền</span><input type="color" value={normalizeHexColor(image.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickImage(image.id, { borderColor: event.target.value })} /></label>
@@ -10800,18 +11084,18 @@ function Home() {
             });
           }} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="text" inputMode="decimal" value={popup.x} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { x: numberValue(event.target.value, popup.x) })} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="text" inputMode="decimal" value={popup.y} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { y: numberValue(event.target.value, popup.y) })} /></label>
-            <label className="scene-structure-quick-field"><span>Rộng (%)</span><input type="text" inputMode="decimal" value={popup.width} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { width: numberValue(event.target.value, popup.width) })} /></label>
-            <label className="scene-structure-quick-field"><span>Cao (px)</span><input type="text" inputMode="decimal" value={popup.height} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { height: numberValue(event.target.value, popup.height) })} /></label>
-            <label className="scene-structure-quick-field"><span>Viền (px)</span><input type="text" inputMode="decimal" value={popup.borderWidth} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { borderWidth: numberValue(event.target.value, popup.borderWidth) })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={popup.x} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { x: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={popup.y} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { y: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Rộng (%)</span><NumericInput min={55} max={96} step={1} value={popup.width} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { width: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Cao (px)</span><NumericInput min={170} max={440} step={1} value={popup.height} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { height: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Viền (px)</span><NumericInput min={0} max={12} step={1} value={popup.borderWidth} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { borderWidth: value })} /></label>
             <label className="scene-structure-quick-field"><span>Bố cục</span><select value={popup.layout} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { layout: event.target.value as PopupConfig["layout"] })}><option value="image-top">Ảnh trên</option><option value="split">Chia đôi</option><option value="quote">Trích dẫn</option><option value="stats">Thống kê</option><option value="image-only">Chỉ ảnh</option><option value="content-only">Chỉ nội dung</option></select></label>
             <label className="scene-structure-quick-field"><span>Chủ đề</span><select value={popup.theme} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { theme: event.target.value as Scene["popupTheme"] })}><option value="travel">Travel</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="minimal">Minimal</option></select></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={popup.textEffect} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { textEffect: event.target.value as Scene["popupTextEffect"] })}><option value="none">Không hiệu ứng</option><option value="fade">Fade</option><option value="rise">Rise</option><option value="pop">Pop</option></select></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-            <label className="scene-structure-quick-field"><span>Chiều cao ảnh (px)</span><input type="text" inputMode="decimal" value={popup.imageHeight} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { imageHeight: numberValue(event.target.value, popup.imageHeight) })} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều cao nội dung (px)</span><input type="text" inputMode="decimal" value={popup.contentHeight} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { contentHeight: numberValue(event.target.value, popup.contentHeight) })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao ảnh (px)</span><NumericInput min={0} max={440} step={1} value={popup.imageHeight} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { imageHeight: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao nội dung (px)</span><NumericInput min={0} max={440} step={1} value={popup.contentHeight} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { contentHeight: value })} /></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng mở</span><input value={popup.in} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { in: event.target.value })} placeholder="fade-slide-up" /></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng đóng</span><input value={popup.out} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { out: event.target.value })} placeholder="fade-slide-down" /></label>
           </div>
@@ -10833,25 +11117,25 @@ function Home() {
           <label className="scene-structure-quick-field"><span>Tên lớp chữ</span><input value={overlay.name} onChange={(event) => updateSceneStructureQuickText(overlay.id, { name: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Nội dung</span><textarea rows={4} value={overlay.text} onChange={(event) => updateSceneStructureQuickText(overlay.id, { text: event.target.value })} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-            <label className="scene-structure-quick-field"><span>Cỡ chữ</span><input type="text" inputMode="decimal" value={overlay.size} onChange={(event) => updateSceneStructureQuickText(overlay.id, { size: numberValue(event.target.value, overlay.size) })} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="text" inputMode="decimal" value={overlay.x} onChange={(event) => updateSceneStructureQuickText(overlay.id, { x: numberValue(event.target.value, overlay.x) })} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="text" inputMode="decimal" value={overlay.y} onChange={(event) => updateSceneStructureQuickText(overlay.id, { y: numberValue(event.target.value, overlay.y) })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><input type="text" inputMode="decimal" value={overlay.opacity} onChange={(event) => updateSceneStructureQuickText(overlay.id, { opacity: numberValue(event.target.value, overlay.opacity) })} /></label>
+            <label className="scene-structure-quick-field"><span>Cỡ chữ</span><NumericInput min={8} max={120} step={1} value={overlay.size} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { size: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={overlay.x} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { x: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={overlay.y} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { y: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><NumericInput min={0} max={100} step={1} value={overlay.opacity} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { opacity: value })} /></label>
             <label className="scene-structure-quick-field"><span>Kiểu chữ</span><select value={overlay.style} onChange={(event) => updateSceneStructureQuickText(overlay.id, { style: event.target.value as TextOverlay["style"] })}><option value="normal">Bình thường</option><option value="bold">Đậm</option><option value="italic">Nghiêng</option><option value="bold-italic">Đậm nghiêng</option></select></label>
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(overlay.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { color: event.target.value })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
             <label className="scene-structure-quick-field"><span>Font chữ</span><select value={overlay.font} onChange={(event) => updateSceneStructureQuickText(overlay.id, { font: event.target.value as OverlayTextFont })}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={overlay.textEffect} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffect: event.target.value as TextOverlayEffect })}>{TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><input type="text" inputMode="decimal" value={overlay.textEffectDuration} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffectDuration: numberValue(event.target.value, overlay.textEffectDuration) })} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><input type="text" inputMode="decimal" value={overlay.width ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickText(overlay.id, { width: event.target.value === "" ? undefined : numberValue(event.target.value, overlay.width ?? 40) })} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><input type="text" inputMode="decimal" value={overlay.height ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickText(overlay.id, { height: event.target.value === "" ? undefined : numberValue(event.target.value, overlay.height ?? 10) })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ dày Stroke (px)</span><input type="text" inputMode="decimal" value={overlay.strokeWidth} onChange={(event) => updateSceneStructureQuickText(overlay.id, { strokeWidth: numberValue(event.target.value, overlay.strokeWidth) })} /></label>
+            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><NumericInput min={0.05} max={8} step={0.05} value={overlay.textEffectDuration} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { textEffectDuration: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><NumericInput min={4} max={100} step={0.1} value={overlay.width ?? ""} placeholder="Tự động" onCommit={(value) => updateSceneStructureQuickText(overlay.id, { width: value })} onCommitEmpty={() => updateSceneStructureQuickText(overlay.id, { width: undefined })} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao (%)</span><NumericInput min={3} max={40} step={0.1} value={overlay.height ?? ""} placeholder="Tự động" onCommit={(value) => updateSceneStructureQuickText(overlay.id, { height: value })} onCommitEmpty={() => updateSceneStructureQuickText(overlay.id, { height: undefined })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ dày Stroke (px)</span><NumericInput min={0} max={12} step={1} value={overlay.strokeWidth} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { strokeWidth: value })} /></label>
             <label className="scene-structure-quick-field"><span>Màu Stroke</span><input type="color" value={normalizeHexColor(overlay.strokeColor, "#000000")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { strokeColor: event.target.value })} /></label>
-            <label className="scene-structure-quick-field"><span>Viền khung (px)</span><input type="text" inputMode="decimal" value={overlay.borderWidth} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderWidth: numberValue(event.target.value, overlay.borderWidth) })} /></label>
+            <label className="scene-structure-quick-field"><span>Viền khung (px)</span><NumericInput min={0} max={12} step={1} value={overlay.borderWidth} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { borderWidth: value })} /></label>
             <label className="scene-structure-quick-field"><span>Màu viền</span><input type="color" value={normalizeHexColor(overlay.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderColor: event.target.value })} /></label>
             <label className="scene-structure-quick-field"><span>Màu nền khung</span><input type="color" value={normalizeHexColor(overlay.borderFill, "#14202e")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderFill: event.target.value })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ mờ viền (%)</span><input type="text" inputMode="decimal" value={overlay.borderOpacity} onChange={(event) => updateSceneStructureQuickText(overlay.id, { borderOpacity: numberValue(event.target.value, overlay.borderOpacity) })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ viền (%)</span><NumericInput min={0} max={100} step={1} value={overlay.borderOpacity} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { borderOpacity: value })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.visible !== false} onChange={(event) => updateSceneStructureQuickText(overlay.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
@@ -10871,13 +11155,13 @@ function Home() {
           {(decoration.type === "text-3d" || decoration.type === "icon" || decoration.type === "effect") && <label className="scene-structure-quick-field"><span>{decoration.type === "text-3d" ? "Nội dung" : "Biểu tượng"}</span><input value={decoration.type === "text-3d" ? decoration.text : decoration.symbol} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, decoration.type === "text-3d" ? { text: event.target.value } : { symbol: event.target.value })} /></label>}
           {(decoration.type === "sticker" || decoration.type === "animated-sticker") && <label className="scene-structure-quick-field"><span>URL tài nguyên</span><input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} /></label>}
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="text" inputMode="decimal" value={decoration.x} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { x: numberValue(event.target.value, decoration.x) })} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="text" inputMode="decimal" value={decoration.y} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { y: numberValue(event.target.value, decoration.y) })} /></label>
-            <label className="scene-structure-quick-field"><span>Kích thước</span><input type="text" inputMode="decimal" value={decoration.size} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { size: numberValue(event.target.value, decoration.size) })} /></label>
-            <label className="scene-structure-quick-field"><span>Tỷ lệ</span><input type="text" inputMode="decimal" value={decoration.scale} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { scale: numberValue(event.target.value, decoration.scale) })} /></label>
-            <label className="scene-structure-quick-field"><span>Xoay (°)</span><input type="text" inputMode="decimal" value={decoration.rotate} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { rotate: numberValue(event.target.value, decoration.rotate) })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><input type="text" inputMode="decimal" value={decoration.opacity} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { opacity: numberValue(event.target.value, decoration.opacity) })} /></label>
-            <label className="scene-structure-quick-field"><span>Độ sâu bóng</span><input type="text" inputMode="decimal" value={decoration.depth} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { depth: numberValue(event.target.value, decoration.depth) })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={decoration.x} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { x: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={decoration.y} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { y: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Kích thước</span><NumericInput min={14} max={120} step={1} value={decoration.size} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { size: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Tỷ lệ</span><NumericInput min={0.1} max={3} step={0.1} value={decoration.scale} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { scale: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Xoay (°)</span><NumericInput min={-180} max={180} step={1} value={decoration.rotate} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { rotate: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ (%)</span><NumericInput min={0} max={100} step={1} value={decoration.opacity} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { opacity: value })} /></label>
+            <label className="scene-structure-quick-field"><span>Độ sâu bóng</span><NumericInput min={0} max={16} step={1} value={decoration.depth} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { depth: value })} /></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng chuyển động</span><select value={decoration.animation} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { animation: event.target.value as MapDecorationAnimation })}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="float">Trôi</option><option value="pulse">Nhấp nháy</option><option value="spin">Xoay</option></select></label>
             <label className="scene-structure-quick-field"><span>Màu chính</span><input type="color" value={normalizeHexColor(decoration.color, "#ffd166")} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { color: event.target.value })} /></label>
             <label className="scene-structure-quick-field"><span>Màu nhấn</span><input type="color" value={normalizeHexColor(decoration.accentColor, "#7c3aed")} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { accentColor: event.target.value })} /></label>
@@ -10897,7 +11181,7 @@ function Home() {
           {timingFields}
           <label className="scene-structure-quick-field"><span>Tên âm thanh</span><input value={track.name} onChange={(event) => updateSceneStructureQuickAudio(track.id, { name: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>File / URL âm thanh</span><input value={track.source} placeholder="audio/file.mp3 hoặc https://..." onChange={(event) => updateSceneStructureQuickAudio(track.id, { source: event.target.value })} /></label>
-          <label className="scene-structure-quick-field"><span>Âm lượng (%)</span><input type="text" inputMode="decimal" value={track.volume} onChange={(event) => updateSceneStructureQuickAudio(track.id, { volume: numberValue(event.target.value, track.volume) })} /></label>
+          <label className="scene-structure-quick-field"><span>Âm lượng (%)</span><NumericInput min={0} max={100} step={1} value={track.volume} onCommit={(value) => updateSceneStructureQuickAudio(track.id, { volume: value })} /></label>
           <label className="scene-structure-quick-toggle"><input type="checkbox" checked={track.visible !== false} onChange={(event) => updateSceneStructureQuickAudio(track.id, { visible: event.target.checked })} /><span>Phát track này khi xem thử và render</span></label>
         </div>
       ) : null;
@@ -10916,23 +11200,23 @@ function Home() {
         <div className="scene-structure-quick-stack">
           {timingFields}
           <label className="scene-structure-quick-toggle"><input type="checkbox" checked={quickScene.subtitleEnabled !== false} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleEnabled: event.target.checked }))} /><span>Hiển thị phụ đề</span></label>
-          <label className="scene-structure-quick-field"><span>Thời gian bắt đầu toàn bộ phụ đề (giây)</span><input type="text" inputMode="decimal" value={quickScene.subtitleStart} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: numberValue(event.target.value, currentScene.subtitleStart) }))} /></label>
+          <label className="scene-structure-quick-field"><span>Thời gian bắt đầu toàn bộ phụ đề (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.subtitleStart} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: value }))} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-            <label className="scene-structure-quick-field"><span>Cỡ chữ</span><input type="text" inputMode="decimal" value={subtitleStyle.size} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), size: numberValue(event.target.value, subtitleStyle.size) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Cỡ chữ</span><NumericInput min={8} max={120} step={1} value={subtitleStyle.size} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), size: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Font chữ</span><select value={subtitleStyle.font} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), font: event.target.value as OverlayTextFont } }))}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
             <label className="scene-structure-quick-field"><span>Kiểu chữ</span><select value={subtitleStyle.style} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), style: event.target.value as SubtitleStyle["style"] } }))}><option value="normal">Bình thường</option><option value="bold">Đậm</option><option value="italic">Nghiêng</option><option value="bold-italic">Đậm nghiêng</option></select></label>
-            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.x} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), x: numberValue(event.target.value, subtitleStyle.x) } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.y} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), y: numberValue(event.target.value, subtitleStyle.y) } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Độ rộng hộp (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.boxWidth} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxWidth: numberValue(event.target.value, subtitleStyle.boxWidth) } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Chiều cao hộp (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: event.target.value === "" ? undefined : numberValue(event.target.value, subtitleStyle.boxHeight ?? 10) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), x: value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), y: value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Độ rộng hộp (%)</span><NumericInput min={40} max={100} step={1} value={subtitleStyle.boxWidth} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxWidth: value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Chiều cao hộp (%)</span><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: value } }))} onCommitEmpty={() => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: undefined } }))} /></label>
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(subtitleStyle.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), color: event.target.value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Độ mờ chữ (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.opacity} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), opacity: numberValue(event.target.value, subtitleStyle.opacity) } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Border (px)</span><input type="text" inputMode="decimal" value={subtitleStyle.borderWidth} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderWidth: numberValue(event.target.value, subtitleStyle.borderWidth) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Độ mờ chữ (%)</span><NumericInput min={0} max={100} step={1} value={subtitleStyle.opacity} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), opacity: value } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Border (px)</span><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderWidth: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Màu border</span><input type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderColor: event.target.value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Màu nền</span><input type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#14202e")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderFill: event.target.value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Độ trong suốt nền (%)</span><input type="text" inputMode="decimal" value={subtitleStyle.borderOpacity} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderOpacity: numberValue(event.target.value, subtitleStyle.borderOpacity) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Độ trong suốt nền (%)</span><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderOpacity: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng phụ đề</span><select value={subtitleStyle.animation} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animation: event.target.value as SubtitleAnimation } }))}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide-up">Trượt lên</option><option value="typewriter">Gõ chữ</option></select></label>
-            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><input type="text" inputMode="decimal" value={subtitleStyle.animationDuration} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animationDuration: numberValue(event.target.value, subtitleStyle.animationDuration) } }))} /></label>
+            <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animationDuration: value } }))} /></label>
           </div>
           <div className="scene-structure-quick-divider"><strong>Nội dung từng câu</strong><small>Thời gian tính từ mốc bắt đầu toàn bộ phụ đề.</small></div>
           {quickSubtitles.length > 0 ? quickSubtitles.map((subtitle, index) => (
@@ -10943,8 +11227,8 @@ function Home() {
               </div>
               <textarea rows={3} value={subtitle.text} placeholder="Nhập nội dung phụ đề..." onChange={(event) => updateQuickSubtitle(subtitle.id, { text: event.target.value })} />
               <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-                <label className="scene-structure-quick-field"><span>Bắt đầu (giây)</span><input type="text" inputMode="decimal" value={subtitle.start} onChange={(event) => updateQuickSubtitle(subtitle.id, { start: numberValue(event.target.value, subtitle.start) })} /></label>
-                <label className="scene-structure-quick-field"><span>Kết thúc (giây)</span><input type="text" inputMode="decimal" value={subtitle.end} onChange={(event) => updateQuickSubtitle(subtitle.id, { end: numberValue(event.target.value, subtitle.end) })} /></label>
+                <label className="scene-structure-quick-field"><span>Bắt đầu (giây)</span><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={subtitle.start} onCommit={(value) => updateQuickSubtitle(subtitle.id, { start: value })} /></label>
+                <label className="scene-structure-quick-field"><span>Kết thúc (giây)</span><NumericInput min={0.1} max={sceneStructureDuration} step={0.1} value={subtitle.end} onCommit={(value) => updateQuickSubtitle(subtitle.id, { end: value })} /></label>
               </div>
             </div>
           )) : <small className="scene-structure-quick-note">Chưa có câu phụ đề.</small>}
@@ -10960,11 +11244,11 @@ function Home() {
             {timingFields}
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={quickScene.zoomEnabled !== false} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomEnabled: event.target.checked }))} /><span>Bật hiệu ứng zoom bản đồ</span></label>
             <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
-              <label className="scene-structure-quick-field"><span>Mức zoom</span><input type="text" inputMode="decimal" value={quickScene.zoom} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoom: numberValue(event.target.value, currentScene.zoom) }))} /></label>
-              <label className="scene-structure-quick-field"><span>Zoom vào (giây)</span><input type="text" inputMode="decimal" value={quickScene.zoomInDuration} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomInDuration: numberValue(event.target.value, currentScene.zoomInDuration) }))} /></label>
-              <label className="scene-structure-quick-field"><span>Zoom ra (giây)</span><input type="text" inputMode="decimal" value={quickScene.zoomOutDuration} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomOutDuration: numberValue(event.target.value, currentScene.zoomOutDuration) }))} /></label>
-              <label className="scene-structure-quick-field"><span>Tâm X (%)</span><input type="text" inputMode="decimal" value={quickScene.centerX} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, centerX: numberValue(event.target.value, currentScene.centerX) }))} /></label>
-              <label className="scene-structure-quick-field"><span>Tâm Y (%)</span><input type="text" inputMode="decimal" value={quickScene.centerY} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, centerY: numberValue(event.target.value, currentScene.centerY) }))} /></label>
+              <label className="scene-structure-quick-field"><span>Mức zoom</span><NumericInput min={1} max={4} step={0.05} value={quickScene.zoom} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoom: value }))} /></label>
+              <label className="scene-structure-quick-field"><span>Zoom vào (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.zoomInDuration} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomInDuration: value }))} /></label>
+              <label className="scene-structure-quick-field"><span>Zoom ra (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.zoomOutDuration} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomOutDuration: value }))} /></label>
+              <label className="scene-structure-quick-field"><span>Tâm X (%)</span><NumericInput min={0} max={100} step={0.1} value={quickScene.centerX} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, centerX: value }))} /></label>
+              <label className="scene-structure-quick-field"><span>Tâm Y (%)</span><NumericInput min={0} max={100} step={0.1} value={quickScene.centerY} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, centerY: value }))} /></label>
             </div>
           </div>
         );
@@ -10976,8 +11260,8 @@ function Home() {
             {timingFields}
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={darkEffect.enabled} onChange={(event) => updateSceneStructureQuickDarkEffect(effectId, { enabled: event.target.checked })} /><span>Bật hiệu ứng tối</span></label>
             <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-              <label className="scene-structure-quick-field"><span>Thời gian giữ tối (giây)</span><input type="text" inputMode="decimal" value={darkEffect.holdDuration} onChange={(event) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: numberValue(event.target.value, darkEffect.holdDuration) })} /></label>
-              <label className="scene-structure-quick-field"><span>Cường độ (%)</span><input type="text" inputMode="decimal" value={darkEffect.intensity} onChange={(event) => updateSceneStructureQuickDarkEffect(effectId, { intensity: numberValue(event.target.value, darkEffect.intensity) })} /></label>
+              <label className="scene-structure-quick-field"><span>Thời gian giữ tối (giây)</span><NumericInput min={0} max={Math.max(0, darkEffect.end - darkEffect.start - 0.1)} step={0.1} value={darkEffect.holdDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={darkEffect.intensity} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { intensity: value })} /></label>
             </div>
           </div>
         ) : null;
@@ -11005,8 +11289,8 @@ function Home() {
                   <span>{label}</span>
                 </label>
                 <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-                  <label className="scene-structure-quick-field"><span>Cường độ (%)</span><input type="text" inputMode="decimal" value={Number(effects[intensity])} disabled={!Boolean(effects[enabled])} onChange={(event) => updateSceneStructureQuickEffects({ [intensity]: numberValue(event.target.value, Number(effects[intensity]) || 0) } as Partial<SceneEffects>)} /></label>
-                  <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><input type="text" inputMode="decimal" value={Number(effects[speed])} disabled={!Boolean(effects[enabled])} onChange={(event) => updateSceneStructureQuickEffects({ [speed]: numberValue(event.target.value, Number(effects[speed]) || 1) } as Partial<SceneEffects>)} /></label>
+                  <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={Number(effects[intensity])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [intensity]: value } as Partial<SceneEffects>)} /></label>
+                  <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><NumericInput min={0.2} max={3} step={0.1} value={Number(effects[speed])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [speed]: value } as Partial<SceneEffects>)} /></label>
                 </div>
               </div>
             ))}
@@ -11047,10 +11331,6 @@ function Home() {
 
   const renderSceneStructureSubtitleEditor = () => {
     const cues = sceneStructureScene.subtitles ?? [];
-    const numericDraftValue = (value: string, fallback: number) => {
-      const parsed = Number(String(value).replace(",", "."));
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
     if (!cues.length) {
       return (
         <div className="scene-structure-subtitle-empty">
@@ -11079,7 +11359,7 @@ function Home() {
               </span>
               <div>
                 <strong>{group.imageName}</strong>
-                <small>{group.cueIds.length} câu · Tổng {group.totalDuration.toFixed(2)} giây · {group.segments.length} đoạn Timeline</small>
+              <small>{group.cueIds.length} câu · Tổng {group.totalDuration.toFixed(2)} giây · 1 thẻ Timeline</small>
               </div>
             </article>
           )) : (
@@ -11133,14 +11413,14 @@ function Home() {
                     <label><span>Tên ảnh</span><input type="text" value={imageDraft.imageName} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageName: event.target.value })} placeholder={`Ảnh câu ${index + 1}`} /></label>
                     <label className="scene-structure-subtitle-url-field"><span>URL hình ảnh</span><input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." /></label>
                     <div className="scene-structure-subtitle-number-grid">
-                      <label><span>X (%)</span><input type="text" inputMode="decimal" value={imageDraft.x} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { x: numericDraftValue(event.target.value, imageDraft.x) })} /></label>
-                      <label><span>Y (%)</span><input type="text" inputMode="decimal" value={imageDraft.y} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { y: numericDraftValue(event.target.value, imageDraft.y) })} /></label>
-                      <label><span>Rộng (%)</span><input type="text" inputMode="decimal" value={imageDraft.width} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { width: numericDraftValue(event.target.value, imageDraft.width) })} /></label>
-                      <label><span>Cao (%)</span><input type="text" inputMode="decimal" value={imageDraft.height} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { height: numericDraftValue(event.target.value, imageDraft.height) })} /></label>
+                      <label><span>X (%)</span><NumericInput min={0} max={100} step={0.1} value={imageDraft.x} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { x: value })} /></label>
+                      <label><span>Y (%)</span><NumericInput min={0} max={100} step={0.1} value={imageDraft.y} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { y: value })} /></label>
+                      <label><span>Rộng (%)</span><NumericInput min={1} max={200} step={1} value={imageDraft.width} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { width: value })} /></label>
+                      <label><span>Cao (%)</span><NumericInput min={1} max={200} step={1} value={imageDraft.height} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { height: value })} /></label>
                     </div>
                     <div className="scene-structure-subtitle-number-grid">
-                      <label><span>Độ mờ (%)</span><input type="text" inputMode="decimal" value={imageDraft.opacity} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { opacity: numericDraftValue(event.target.value, imageDraft.opacity) })} /></label>
-                      <label><span>Viền (px)</span><input type="text" inputMode="decimal" value={imageDraft.borderWidth} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { borderWidth: numericDraftValue(event.target.value, imageDraft.borderWidth) })} /></label>
+                      <label><span>Độ mờ (%)</span><NumericInput min={0} max={100} step={1} value={imageDraft.opacity} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { opacity: value })} /></label>
+                      <label><span>Viền (px)</span><NumericInput min={0} max={12} step={1} value={imageDraft.borderWidth} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { borderWidth: value })} /></label>
                       <label><span>Hình dạng</span><select value={imageDraft.shape} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { shape: event.target.value as SceneImageShape })}>{sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                       <label><span>Chuyển hình</span><select value={imageDraft.transition} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                     </div>
@@ -11620,14 +11900,13 @@ function Home() {
           </button>
           <label className="duration-picker">
             <span>Độ dài</span>
-            <input
-              type="number"
+            <NumericInput
               aria-label="Độ dài clip"
-              min="1"
-              step="1"
+              min={1}
+              step={1}
               value={projectDuration}
-              onChange={(event) => {
-                const duration = Math.max(1, Number(event.target.value) || 1);
+              onCommit={(value) => {
+                const duration = Math.max(1, Math.round(value));
                 setProjectDuration(duration);
                 setPlayTime((time) => Math.min(time, duration));
               }}
@@ -12637,13 +12916,12 @@ function Home() {
               </span>
               <label className="quick-scene-duration">
                 <TimeFieldLabel hint="Độ dài toàn bộ cảnh; các mốc thời gian bên trong cảnh được tính từ 0 giây của cảnh này.">Thời lượng</TimeFieldLabel>
-                <input
-                  type="number"
-                  min="0.1"
-                  step="0.1"
+                <NumericInput
+                  min={0.1}
+                  step={0.1}
                   value={Number(sceneDuration.toFixed(1))}
                   aria-label="Thay đổi nhanh thời lượng cảnh (giây)"
-                  onChange={(event) => updateSelectedSceneDuration(Number(event.target.value))}
+                  onCommit={(value) => updateSelectedSceneDuration(value)}
                 />
                 <b>s</b>
               </label>
@@ -12868,14 +13146,14 @@ function Home() {
 
                       <EditorFieldGroup title="Thời gian hiển thị" description="Các mốc tuyệt đối tính từ đầu cảnh.">
                         <div className="field-row">
-                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={Math.max(0, sceneDuration - 0.1)} step="0.1" value={activeSceneImage.start} onChange={(event) => {
-                            const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, Number(event.target.value) || 0));
+                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={activeSceneImage.start} onCommit={(value) => {
+                            const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, value));
                             updateSceneImage("start", nextStart);
                             if (activeSceneImage.transitionEnd < nextStart + 0.1) {
                               updateSceneImage("transitionEnd", Math.min(sceneDuration, nextStart + 0.1));
                             }
                           }} /><b>s</b></div></label>
-                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><input type="number" min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step="0.1" value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onChange={(event) => updateSceneImageEndTime(Number(event.target.value))} /><b>s</b></div></label>
+                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step={0.1} value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onCommit={updateSceneImageEndTime} /><b>s</b></div></label>
                         </div>
                         <div className="editor-field-feedback" role="status">
                           Hiển thị từ {formatTime(activeSceneImage.start)} đến {formatTime(Math.min(sceneDuration, activeSceneImage.start + activeSceneImage.duration))} · tổng {formatTime(Math.min(sceneDuration - activeSceneImage.start, activeSceneImage.duration))}
@@ -12888,12 +13166,12 @@ function Home() {
                         action={<button type="button" className="editor-reset-button" onClick={resetActiveSceneImageGeometry}>↺ Mặc định</button>}
                       >
                         <div className="field-row">
-                          <label className="field"><FieldLabel hint="Vị trí ngang theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.x} onChange={(event) => updateSceneImage("x", clampPercent(event.target.value, activeSceneImage.x))} /><b>%</b></div></label>
-                          <label className="field"><FieldLabel hint="Vị trí dọc theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeSceneImage.y} onChange={(event) => updateSceneImage("y", clampPercent(event.target.value, activeSceneImage.y))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Vị trí ngang theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activeSceneImage.x} onCommit={(value) => updateSceneImage("x", clampPercent(value, activeSceneImage.x))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Vị trí dọc theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activeSceneImage.y} onCommit={(value) => updateSceneImage("y", clampPercent(value, activeSceneImage.y))} /><b>%</b></div></label>
                         </div>
                         <div className="field-row">
-                          <label className="field"><FieldLabel hint="Chiều rộng của layer tính theo phần trăm khung bản đồ.">Chiều rộng</FieldLabel><div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("width", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div></label>
-                          <label className="field"><FieldLabel hint="Chiều cao của layer tính theo phần trăm khung bản đồ.">Chiều cao</FieldLabel><div className="number-with-unit"><input type="number" min="1" max="200" step="1" value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateSceneImage("height", Math.min(200, Math.max(1, Number(event.target.value) || 1)))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Chiều rộng của layer tính theo phần trăm khung bản đồ.">Chiều rộng</FieldLabel><div className="number-with-unit"><NumericInput min={1} max={200} step={1} value={activeSceneImage.width} onFocus={(event) => event.currentTarget.select()} onCommit={(value) => updateSceneImage("width", value)} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="Chiều cao của layer tính theo phần trăm khung bản đồ.">Chiều cao</FieldLabel><div className="number-with-unit"><NumericInput min={1} max={200} step={1} value={activeSceneImage.height} onFocus={(event) => event.currentTarget.select()} onCommit={(value) => updateSceneImage("height", value)} /><b>%</b></div></label>
                         </div>
                         <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeSceneImage.x)}% · Y {Math.round(activeSceneImage.y)}%</b></div>
                       </EditorFieldGroup>
@@ -12906,10 +13184,10 @@ function Home() {
                               {sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                           </label>
-                          <label className="field"><FieldLabel hint="100% là hiển thị hoàn toàn; 0% là trong suốt.">Độ mờ</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="100" value={activeSceneImage.opacity} onChange={(event) => updateSceneImage("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div></label>
+                          <label className="field"><FieldLabel hint="100% là hiển thị hoàn toàn; 0% là trong suốt.">Độ mờ</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} value={activeSceneImage.opacity} onCommit={(value) => updateSceneImage("opacity", value)} /><b>%</b></div></label>
                         </div>
                         <div className="field-row">
-                          <label className="field"><FieldLabel hint="Đặt bằng 0 để tắt toàn bộ đường viền.">Độ dày border</FieldLabel><div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={activeSceneImage.borderWidth} onChange={(event) => updateSceneImage("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div></label>
+                          <label className="field"><FieldLabel hint="Đặt bằng 0 để tắt toàn bộ đường viền.">Độ dày border</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={activeSceneImage.borderWidth} onCommit={(value) => updateSceneImage("borderWidth", value)} /><b>px</b></div></label>
                           {activeSceneImage.borderWidth > 0 && (
                             <label className="field color-field"><FieldLabel hint="Màu của đường viền quanh layer.">Màu border</FieldLabel><input className="text-color-picker" type="color" value={activeSceneImage.borderColor} onChange={(event) => updateSceneImage("borderColor", event.target.value)} /></label>
                           )}
@@ -12937,7 +13215,7 @@ function Home() {
                           {activeSceneImage.transition !== "cut" && (
                             <label className="field scene-image-transition-end-field">
                               <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel>
-                              <div className="number-with-unit"><input type="number" inputMode="decimal" min={Math.max(0.1, activeSceneImage.start + 0.1)} step="0.1" value={activeSceneImageTransitionEndInput} onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)} onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)} /><b>s</b></div>
+                              <div className="number-with-unit"><input type="text" inputMode="decimal" min={Math.max(0.1, activeSceneImage.start + 0.1)} max={sceneDuration} step="0.1" value={activeSceneImageTransitionEndInput} onChange={(event) => updateSceneImageTransitionEndInput(event.target.value)} onBlur={() => commitSceneImageTransitionEnd(activeSceneImage.id, activeSceneImageTransitionEndInput)} /><b>s</b></div>
                             </label>
                           )}
                         </div>
@@ -12947,7 +13225,7 @@ function Home() {
                         {activeSceneImage.spriteSheet && (
                           <label className="field scene-image-sprite-speed-field">
                             <TimeFieldLabel hint="Khoảng trễ giữa hai khung hình của sprite; giá trị lớn hơn làm chuyển động chậm hơn.">Tốc độ chuyển động</TimeFieldLabel>
-                            <div className="number-with-unit"><input type="number" min="60" max="1000" step="10" value={activeSceneImageSpriteDelayInput} disabled={sceneImageSpriteNotice.status === "processing"} onChange={(event) => updateSceneImageSpriteDelay(event.target.value)} onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)} /><b>ms/frame</b></div>
+                            <div className="number-with-unit"><input type="text" inputMode="numeric" min="60" max="1000" step="10" value={activeSceneImageSpriteDelayInput} disabled={sceneImageSpriteNotice.status === "processing"} onChange={(event) => updateSceneImageSpriteDelay(event.target.value)} onBlur={() => commitSceneImageSpriteDelay(activeSceneImage.id, activeSceneImageSpriteDelayInput)} /><b>ms/frame</b></div>
                           </label>
                         )}
                         <div className="scene-image-sprite-action-row">
@@ -12990,12 +13268,11 @@ function Home() {
             <label className="field">
               <TimeFieldLabel hint="Độ dài toàn bộ cảnh; các layer, âm thanh và hiệu ứng dùng mốc thời gian nằm trong khoảng này.">Thời lượng cảnh</TimeFieldLabel>
               <div className="number-with-unit">
-                <input
-                  type="number"
-                  min="0.1"
-                  step="0.1"
+                <NumericInput
+                  min={0.1}
+                  step={0.1}
                   value={Number(sceneDuration.toFixed(1))}
-                  onChange={(event) => updateSelectedSceneDuration(Number(event.target.value))}
+                  onCommit={(value) => updateSelectedSceneDuration(value)}
                 />
                 <b>giây</b>
               </div>
@@ -13138,13 +13415,12 @@ function Home() {
                   <label className="field">
                     <FieldLabel hint="Kích thước chữ tính theo pixel trong khung xem trước.">Cỡ chữ</FieldLabel>
                     <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="8"
-                        max="120"
-                        step="1"
+                      <NumericInput
+                        min={8}
+                        max={120}
+                        step={1}
                         value={activeTextOverlay?.size ?? 24}
-                        onChange={(event) => updateTextOverlay("size", Math.min(120, Math.max(8, Number(event.target.value) || 24)))}
+                        onCommit={(value) => updateTextOverlay("size", value)}
                       />
                       <b>px</b>
                     </div>
@@ -13179,7 +13455,7 @@ function Home() {
                   {activeTextOverlay?.textEffect !== "none" && (
                     <label className="field">
                       <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
-                      <div className="number-with-unit"><input type="number" min="0.05" max="8" step="0.05" value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onChange={(event) => updateTextOverlay("textEffectDuration", Math.min(8, Math.max(0.05, Number(event.target.value) || 0.05)))} /><b>s</b></div>
+                      <div className="number-with-unit"><NumericInput min={0.05} max={8} step={0.05} value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onCommit={(value) => updateTextOverlay("textEffectDuration", value)} /><b>s</b></div>
                     </label>
                   )}
                 </div>
@@ -13231,21 +13507,21 @@ function Home() {
                 <div className="field-row">
                   <label className="field">
                     <FieldLabel hint="Vị trí ngang theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel>
-                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.x ?? 50} onChange={(event) => updateTextOverlay("x", clampPercent(event.target.value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activeTextOverlay?.x ?? 50} onCommit={(value) => updateTextOverlay("x", clampPercent(value, activeTextOverlay?.x ?? 50))} /><b>%</b></div>
                   </label>
                   <label className="field">
                     <FieldLabel hint="Vị trí dọc theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel>
-                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activeTextOverlay?.y ?? 18} onChange={(event) => updateTextOverlay("y", clampPercent(event.target.value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activeTextOverlay?.y ?? 18} onCommit={(value) => updateTextOverlay("y", clampPercent(value, activeTextOverlay?.y ?? 18))} /><b>%</b></div>
                   </label>
                 </div>
                 <div className="field-row">
                   <label className="field">
                     <FieldLabel hint="Để trống nếu muốn chiều rộng tự động theo nội dung.">Chiều rộng</FieldLabel>
-                    <div className="number-with-unit"><input type="number" min="4" max="100" step="0.1" value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("width", event.target.value === "" ? undefined : Math.min(100, Math.max(4, Number(event.target.value) || 4)))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={4} max={100} step={0.1} value={activeTextOverlay?.width ?? ""} placeholder="Tự động" onCommit={(value) => updateTextOverlay("width", value)} onCommitEmpty={() => updateTextOverlay("width", undefined)} /><b>%</b></div>
                   </label>
                   <label className="field">
                     <FieldLabel hint="Để trống nếu muốn chiều cao tự động theo nội dung.">Chiều cao</FieldLabel>
-                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onChange={(event) => updateTextOverlay("height", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={3} max={40} step={0.1} value={activeTextOverlay?.height ?? ""} placeholder="Tự động" onCommit={(value) => updateTextOverlay("height", value)} onCommitEmpty={() => updateTextOverlay("height", undefined)} /><b>%</b></div>
                   </label>
                 </div>
                 <small>Kéo nút ở góc chữ để thay đổi cả chiều rộng và chiều cao. Để trống để dùng kích thước tự động.</small>
@@ -13255,13 +13531,12 @@ function Home() {
                    <label className="field">
                      <span>Độ trong suốt</span>
                      <div className="number-with-unit">
-                       <input
-                         type="number"
-                         min="0"
-                         max="100"
-                         step="1"
+                       <NumericInput
+                         min={0}
+                         max={100}
+                         step={1}
                          value={activeTextOverlay?.opacity ?? 100}
-                         onChange={(event) => updateTextOverlay("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
+                         onCommit={(value) => updateTextOverlay("opacity", value)}
                        />
                        <b>%</b>
                      </div>
@@ -13308,14 +13583,13 @@ function Home() {
                   <label className="field">
                     <span>Stroke chữ</span>
                     <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="0"
-                        max="12"
-                        step="1"
-                        value={activeTextOverlay?.strokeWidth ?? 0}
-                        onChange={(event) => updateTextOverlay("strokeWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
-                      />
+                        <NumericInput
+                          min={0}
+                          max={12}
+                          step={1}
+                          value={activeTextOverlay?.strokeWidth ?? 0}
+                          onCommit={(value) => updateTextOverlay("strokeWidth", value)}
+                        />
                       <b>px</b>
                     </div>
                   </label>
@@ -13333,14 +13607,13 @@ function Home() {
                   <label className="field">
                     <span>Border khung</span>
                     <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="0"
-                        max="12"
-                        step="1"
-                        value={activeTextOverlay?.borderWidth ?? 0}
-                        onChange={(event) => updateTextOverlay("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
-                      />
+                        <NumericInput
+                          min={0}
+                          max={12}
+                          step={1}
+                          value={activeTextOverlay?.borderWidth ?? 0}
+                          onCommit={(value) => updateTextOverlay("borderWidth", value)}
+                        />
                       <b>px</b>
                     </div>
                   </label>
@@ -13381,14 +13654,13 @@ function Home() {
                   <label className="field">
                     <span>Độ mờ border (%)</span>
                     <div className="number-with-unit">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={activeTextOverlay?.borderOpacity ?? 100}
-                        onChange={(event) => updateTextOverlay("borderOpacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
-                      />
+                        <NumericInput
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={activeTextOverlay?.borderOpacity ?? 100}
+                          onCommit={(value) => updateTextOverlay("borderOpacity", value)}
+                        />
                       <b>%</b>
                     </div>
                   </label>
@@ -13595,28 +13867,28 @@ function Home() {
                       <div className="field-row">
                         <label className="field">
                           <span>Kích thước</span>
-                          <div className="number-with-unit"><input type="number" min="14" max="120" step="1" value={activeDecoration.size} onChange={(event) => updateMapDecoration("size", Math.min(120, Math.max(14, Number(event.target.value) || 14)))} /><b>px</b></div>
+                          <div className="number-with-unit"><NumericInput min={14} max={120} step={1} value={activeDecoration.size} onCommit={(value) => updateMapDecoration("size", value)} /><b>px</b></div>
                         </label>
                         <label className="field">
                           <span>Tỉ lệ</span>
-                          <div className="number-with-unit"><input type="number" min="0.1" max="3" step="0.1" value={activeDecoration.scale} onChange={(event) => updateMapDecoration("scale", Math.min(3, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>x</b></div>
+                          <div className="number-with-unit"><NumericInput min={0.1} max={3} step={0.1} value={activeDecoration.scale} onCommit={(value) => updateMapDecoration("scale", value)} /><b>x</b></div>
                         </label>
                       </div>
                       <div className="field-row">
                         <label className="field">
                           <span>Xoay</span>
-                          <div className="number-with-unit"><input type="number" min="-180" max="180" step="1" value={activeDecoration.rotate} onChange={(event) => updateMapDecoration("rotate", Math.min(180, Math.max(-180, Number(event.target.value) || 0)))} /><b>°</b></div>
+                          <div className="number-with-unit"><NumericInput min={-180} max={180} step={1} value={activeDecoration.rotate} onCommit={(value) => updateMapDecoration("rotate", value)} /><b>°</b></div>
                         </label>
                         <label className="field">
                           <span>Độ trong suốt</span>
-                          <div className="number-with-unit"><input type="number" min="0" max="100" step="1" value={activeDecoration.opacity} onChange={(event) => updateMapDecoration("opacity", Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /><b>%</b></div>
+                          <div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={activeDecoration.opacity} onCommit={(value) => updateMapDecoration("opacity", value)} /><b>%</b></div>
                         </label>
                       </div>
                       <div className="field-row">
                         {activeDecoration.type === "text-3d" && (
                           <label className="field">
                             <FieldLabel hint="Độ sâu bóng tạo cảm giác nổi cho chữ 3D.">Độ nổi 3D</FieldLabel>
-                            <div className="number-with-unit"><input type="number" min="0" max="16" step="1" value={activeDecoration.depth} onChange={(event) => updateMapDecoration("depth", Math.min(16, Math.max(0, Number(event.target.value) || 0)))} /><b>px</b></div>
+                            <div className="number-with-unit"><NumericInput min={0} max={16} step={1} value={activeDecoration.depth} onCommit={(value) => updateMapDecoration("depth", value)} /><b>px</b></div>
                           </label>
                         )}
                         <label className="field">
@@ -13638,8 +13910,8 @@ function Home() {
                         </div>
                       )}
                       <div className="field-row">
-                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0" max={sceneDuration} step="0.1" value={activeDecoration.start} onChange={(event) => updateMapDecoration("start", Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)))} /><b>s</b></div></label>
-                        <label className="field"><TimeFieldLabel hint="Độ dài tương đối của hiệu ứng, tính từ mốc bắt đầu.">Thời lượng</TimeFieldLabel><div className="number-with-unit"><input type="number" min="0.1" max={sceneDuration} step="0.1" value={Math.min(sceneDuration, activeDecoration.duration)} onChange={(event) => updateMapDecoration("duration", Math.min(sceneDuration, Math.max(0.1, Number(event.target.value) || 0.1)))} /><b>s</b></div></label>
+                        <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={activeDecoration.start} onCommit={(value) => updateMapDecoration("start", value)} /><b>s</b></div></label>
+                        <label className="field"><TimeFieldLabel hint="Độ dài tương đối của hiệu ứng, tính từ mốc bắt đầu.">Thời lượng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0.1} max={Math.max(0.1, sceneDuration - activeDecoration.start)} step={0.1} value={Math.min(sceneDuration - activeDecoration.start, activeDecoration.duration)} onCommit={(value) => updateMapDecoration("duration", value)} /><b>s</b></div></label>
                       </div>
                       <div className="field text-position-readout"><span>Vị trí hiện tại</span><b>X {Math.round(activeDecoration.x)}% · Y {Math.round(activeDecoration.y)}%</b></div>
                     </div>
@@ -13696,14 +13968,13 @@ function Home() {
               <div className="field audio-volume-field">
                 <FieldLabel hint="Mức âm lượng của nhạc nền so với âm lượng gốc.">Âm lượng nhạc nền</FieldLabel>
                 <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
+                  <NumericInput
+                    min={0}
+                    max={100}
+                    step={1}
                     aria-label="Âm lượng nhạc nền (%)"
                     value={backgroundMusicVolume}
-                    onChange={(event) => setBackgroundMusicVolume(clampVolume(event.target.value, 18))}
+                    onCommit={(value) => setBackgroundMusicVolume(clampVolume(value, 18))}
                   />
                   <b>%</b>
                 </div>
@@ -13838,15 +14109,15 @@ function Home() {
                         <div className="scene-audio-timing-grid">
                           <label className="field">
                             <span>Cường độ âm thanh</span>
-                            <div className="number-with-unit"><input type="number" step="1" value={track.volume} onChange={(event) => updateSceneAudioTrack(track.id, "volume", Number(event.target.value))} /><b>%</b></div>
+                            <div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={track.volume} onCommit={(value) => updateSceneAudioTrack(track.id, "volume", value)} /><b>%</b></div>
                           </label>
                           <label className="field">
                             <TimeFieldLabel hint="Mốc tính từ đầu cảnh; 0 giây nghĩa là phát ngay.">Bắt đầu</TimeFieldLabel>
-                            <div className="number-with-unit"><input type="number" step="0.1" value={track.start} onChange={(event) => updateSceneAudioTrack(track.id, "start", Number(event.target.value))} /><b>s</b></div>
+                            <div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={track.start} onCommit={(value) => updateSceneAudioTrack(track.id, "start", value)} /><b>s</b></div>
                           </label>
                           <label className="field">
                             <TimeFieldLabel hint="Âm thanh sẽ dừng tại mốc này, kể cả khi file gốc còn dài.">Kết thúc</TimeFieldLabel>
-                            <div className="number-with-unit"><input type="number" step="0.1" value={track.end} onChange={(event) => updateSceneAudioTrack(track.id, "end", Number(event.target.value))} /><b>s</b></div>
+                            <div className="number-with-unit"><NumericInput min={Math.min(sceneDuration, track.start + 0.1)} max={sceneDuration} step={0.1} value={track.end} onCommit={(value) => updateSceneAudioTrack(track.id, "end", value)} /><b>s</b></div>
                           </label>
                         </div>
                         {previewSource && <audio className="audio-preview" controls preload="metadata" src={previewSource} />}
@@ -13990,29 +14261,29 @@ function Home() {
                   </label>
                   <label className="field">
                     <span>Cỡ chữ</span>
-                    <div className="number-with-unit"><input type="number" min="8" max="120" value={subtitleStyle.size} onChange={(event) => updateSubtitleStyle("size", Number(event.target.value))} /><b>px</b></div>
+                    <div className="number-with-unit"><NumericInput min={8} max={120} value={subtitleStyle.size} onCommit={(value) => updateSubtitleStyle("size", value)} /><b>px</b></div>
                   </label>
                   <label className="field">
                     <span>Tốc độ xuất hiện</span>
-                    <div className="number-with-unit"><input type="number" min="0.05" max="1" step="0.05" value={subtitleStyle.animationDuration} onChange={(event) => updateSubtitleStyle("animationDuration", Number(event.target.value))} /><b>s</b></div>
+                    <div className="number-with-unit"><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSubtitleStyle("animationDuration", value)} /><b>s</b></div>
                   </label>
                   <label className="field">
                     <span>Chiều rộng khung chữ</span>
-                    <div className="number-with-unit"><input type="number" min="40" max="100" step="1" value={subtitleStyle.boxWidth} onChange={(event) => updateSubtitleStyle("boxWidth", Math.min(100, Math.max(40, Number(event.target.value) || 40)))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={40} max={100} step={1} value={subtitleStyle.boxWidth} onCommit={(value) => updateSubtitleStyle("boxWidth", value)} /><b>%</b></div>
                   </label>
                 </div>
                 <div className="field-row subtitle-style-fields subtitle-geometry-fields">
                   <label className="field">
                     <span>Vị trí X</span>
-                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.x} onChange={(event) => updateSubtitleStyle("x", clampPercent(event.target.value, subtitleStyle.x))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSubtitleStyle("x", clampPercent(value, subtitleStyle.x))} /><b>%</b></div>
                   </label>
                   <label className="field">
                     <span>Vị trí Y</span>
-                    <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={subtitleStyle.y} onChange={(event) => updateSubtitleStyle("y", clampPercent(event.target.value, subtitleStyle.y))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSubtitleStyle("y", clampPercent(value, subtitleStyle.y))} /><b>%</b></div>
                   </label>
                   <label className="field">
                     <span>Chiều cao khung chữ</span>
-                    <div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onChange={(event) => updateSubtitleStyle("boxHeight", event.target.value === "" ? undefined : Math.min(40, Math.max(3, Number(event.target.value) || 3)))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSubtitleStyle("boxHeight", value)} onCommitEmpty={() => updateSubtitleStyle("boxHeight", undefined)} /><b>%</b></div>
                   </label>
                 </div>
                 <small>Chỉ hiện vùng chỉnh sửa này sau khi bấm “Xem thử”. Có thể kéo khung hoặc nhập trực tiếp X/Y, rộng/cao.</small>
@@ -14020,7 +14291,7 @@ function Home() {
                 <div className="field-row subtitle-style-fields">
                   <label className="field">
                     <span>Độ dày border</span>
-                    <div className="number-with-unit"><input type="number" min="0" max="12" step="1" value={subtitleStyle.borderWidth} onChange={(event) => updateSubtitleStyle("borderWidth", Number(event.target.value))} /><b>px</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSubtitleStyle("borderWidth", value)} /><b>px</b></div>
                   </label>
                   <label className="field">
                     <span>Màu border</span>
@@ -14032,7 +14303,7 @@ function Home() {
                   </label>
                   <label className="field">
                     <span>Độ trong suốt nền</span>
-                    <div className="number-with-unit"><input type="number" min="0" max="100" step="5" value={subtitleStyle.borderOpacity} onChange={(event) => updateSubtitleStyle("borderOpacity", Number(event.target.value))} /><b>%</b></div>
+                    <div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSubtitleStyle("borderOpacity", value)} /><b>%</b></div>
                   </label>
                 </div>
               </div>
@@ -14041,17 +14312,13 @@ function Home() {
                 <label className="field">
                   <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; toàn bộ cue phụ đề được dịch bắt đầu từ thời điểm này.">Thời gian bắt đầu phát tất cả phụ đề</TimeFieldLabel>
                   <div className="number-with-unit">
-                    <input
-                      type="number"
-                      min="0"
+                    <NumericInput
+                      min={0}
                       max={sceneDuration}
-                      step="0.1"
+                      step={0.1}
                       value={scene.subtitleStart}
                       disabled={!hydrated}
-                      onChange={(event) => updateScene(
-                        "subtitleStart",
-                        Math.min(sceneDuration, Math.max(0, Number(event.target.value) || 0)),
-                      )}
+                      onCommit={(value) => updateScene("subtitleStart", value)}
                     />
                     <b>s</b>
                   </div>
@@ -14103,13 +14370,12 @@ function Home() {
                         <label className="field">
                           <TimeFieldLabel hint="Mốc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Bắt đầu</TimeFieldLabel>
                           <div className="number-with-unit">
-                            <input
-                              type="number"
-                              min="0"
+                            <NumericInput
+                              min={0}
                               max={Math.max(0, sceneDuration - 0.1)}
-                              step="0.1"
+                              step={0.1}
                               value={subtitle.start}
-                              onChange={(event) => updateSubtitleCue(subtitle.id, { start: Number(event.target.value) })}
+                              onCommit={(value) => updateSubtitleCue(subtitle.id, { start: value })}
                             />
                             <b>s</b>
                           </div>
@@ -14117,13 +14383,12 @@ function Home() {
                         <label className="field">
                           <TimeFieldLabel hint="Mốc kết thúc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Kết thúc</TimeFieldLabel>
                           <div className="number-with-unit">
-                            <input
-                              type="number"
-                              min="0.1"
+                            <NumericInput
+                              min={0.1}
                               max={sceneDuration}
-                              step="0.1"
+                              step={0.1}
                               value={subtitle.end}
-                              onChange={(event) => updateSubtitleCue(subtitle.id, { end: Number(event.target.value) })}
+                              onCommit={(value) => updateSubtitleCue(subtitle.id, { end: value })}
                             />
                             <b>s</b>
                           </div>
@@ -14755,13 +15020,12 @@ function Home() {
               <label className="field popup-border-field">
                 <FieldLabel hint="Đặt bằng 0 để tắt đường viền popup.">Độ dày viền popup</FieldLabel>
                 <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="12"
-                    step="1"
+                  <NumericInput
+                    min={0}
+                    max={12}
+                    step={1}
                     value={activePopup?.borderWidth ?? 1}
-                    onChange={(event) => updatePopup("borderWidth", Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
+                    onCommit={(value) => updatePopup("borderWidth", value)}
                   />
                   <b>px</b>
                 </div>
@@ -14772,21 +15036,21 @@ function Home() {
               <div className="field-row popup-geometry-fields">
                 <label className="field">
                   <span>Vị trí X</span>
-                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.x ?? 5} onChange={(event) => updatePopup("x", clampPercent(event.target.value, activePopup?.x ?? 5))} /><b>%</b></div>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activePopup?.x ?? 5} onCommit={(value) => updatePopup("x", clampPercent(value, activePopup?.x ?? 5))} /><b>%</b></div>
                 </label>
                 <label className="field">
                   <span>Vị trí Y</span>
-                  <div className="number-with-unit"><input type="number" min="0" max="100" step="0.1" value={activePopup?.y ?? 55} onChange={(event) => updatePopup("y", clampPercent(event.target.value, activePopup?.y ?? 55))} /><b>%</b></div>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={activePopup?.y ?? 55} onCommit={(value) => updatePopup("y", clampPercent(value, activePopup?.y ?? 55))} /><b>%</b></div>
                 </label>
               </div>
               <div className="field-row popup-geometry-fields">
                 <label className="field">
                   <span>Chiều rộng</span>
-                  <div className="number-with-unit"><input type="number" min="55" max="96" step="1" value={activePopup?.width ?? 90} onChange={(event) => updatePopup("width", Math.min(96, Math.max(55, Number(event.target.value) || 55)))} /><b>%</b></div>
+                  <div className="number-with-unit"><NumericInput min={55} max={96} step={1} value={activePopup?.width ?? 90} onCommit={(value) => updatePopup("width", value)} /><b>%</b></div>
                 </label>
                 <label className="field">
                   <span>Chiều cao</span>
-                  <div className="number-with-unit"><input type="number" min="170" max="440" step="1" value={activePopup?.height ?? 255} onChange={(event) => updatePopupHeight(Number(event.target.value), activePopup?.id)} /><b>px</b></div>
+                  <div className="number-with-unit"><NumericInput min={170} max={440} step={1} value={activePopup?.height ?? 255} onCommit={(value) => updatePopupHeight(value, activePopup?.id)} /><b>px</b></div>
                 </label>
               </div>
               <small className="popup-geometry-help">Kéo Popup hoặc nút ở góc để các thông số này tự cập nhật.</small>
@@ -14816,13 +15080,12 @@ function Home() {
               <label className="field">
                 <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; popup bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu xuất hiện popup</TimeFieldLabel>
                 <div className="number-with-unit">
-                  <input
-                    type="number"
-                    min="0"
+                  <NumericInput
+                    min={0}
                     max={Math.max(0, sceneDuration - 0.1)}
-                    step="0.1"
+                    step={0.1}
                     value={activePopup?.start ?? 0}
-                    onChange={(event) => updatePopupStart(Number(event.target.value))}
+                    onCommit={updatePopupStart}
                   />
                   <b>giây</b>
                 </div>
@@ -14839,13 +15102,12 @@ function Home() {
                   onChange={(event) => updatePopupDuration(Number(event.target.value))}
                 />
                 <div className="number-with-unit popup-duration-number">
-                  <input
-                    type="number"
-                    min="1"
+                  <NumericInput
+                    min={1}
                     max={Math.max(6, sceneDuration)}
-                    step="0.1"
+                    step={0.1}
                     value={activePopup?.duration ?? 0.1}
-                    onChange={(event) => updatePopupDuration(Number(event.target.value))}
+                    onCommit={updatePopupDuration}
                   />
                   <b>giây</b>
                 </div>
@@ -16165,12 +16427,13 @@ function Home() {
                             onPointerUp={endSceneStructureItemDrag}
                             onPointerCancel={endSceneStructureItemDrag}
                             onPointerLeave={hideSceneStructureHoverPreview}
-                            onClick={() => {
+                            onClick={(event) => {
                               if (sceneStructureItemDidDrag.current) {
                                 sceneStructureItemDidDrag.current = false;
                                 return;
                               }
                               selectSceneStructureItem(item);
+                              event.currentTarget.focus();
                             }}
                             onDoubleClick={() => openSceneStructureQuickEditor(item)}
                             onKeyDown={(event) => {
