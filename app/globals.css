@@ -11847,3 +11847,116 @@ body {
   color: #fff;
   outline: 0;
 }
+
+/* Multi-select and per-item locks in Cấu trúc cảnh. */
+.scene-structure-selection-status {
+  max-width: 290px;
+  padding: 7px 10px;
+  border: 1px solid rgba(98, 182, 255, .44);
+  border-radius: 8px;
+  background: rgba(31, 83, 126, .28);
+  color: #b8d9f4;
+  font: 750 9px var(--font-mono);
+  line-height: 1.35;
+}
+.scene-structure-card.is-selected {
+  border-color: #66bdff;
+  box-shadow: 0 0 0 3px rgba(71, 172, 255, .17), 0 10px 24px rgba(0, 0, 0, .24);
+}
+.scene-structure-card .scene-structure-card-copy { padding-right: 28px; }
+.scene-structure-card-locks {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+}
+.scene-structure-card-locks i {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(255, 222, 155, .5);
+  border-radius: 4px;
+  background: rgba(57, 34, 13, .72);
+  color: #ffe2a0;
+  font: 850 8px var(--font-mono);
+  font-style: normal;
+}
+.scene-structure-lock-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+.scene-structure-lock-controls > span {
+  margin-right: 2px;
+  color: #9eb0c1;
+  font: 800 9px var(--font-mono);
+  text-transform: uppercase;
+}
+.scene-structure-lock-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+  padding: 4px 8px;
+  border: 1px solid #3a526a;
+  border-radius: 6px;
+  background: #162536;
+  color: #b9c9d8;
+  cursor: pointer;
+  font: 750 9px var(--font-mono);
+}
+.scene-structure-lock-controls button:hover,
+.scene-structure-lock-controls button:focus-visible {
+  border-color: #67bfff;
+  background: #1d3b57;
+  color: #eff8ff;
+  outline: none;
+}
+.scene-structure-lock-controls button.is-locked {
+  border-color: #c18c43;
+  background: #51391d;
+  color: #ffe2a4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.scene-structure-lock-controls button i {
+  color: currentColor;
+  font: 850 10px var(--font-mono);
+  font-style: normal;
+}
+.scene-structure-light .scene-structure-selection-status {
+  border-color: #c99d5b;
+  background: #fff3dd;
+  color: #79501f;
+}
+.scene-structure-light .scene-structure-card.is-selected {
+  border-color: #bd7a28;
+  box-shadow: 0 0 0 3px rgba(189, 122, 40, .16), 0 10px 22px rgba(98, 68, 33, .12);
+}
+.scene-structure-light .scene-structure-card-locks i {
+  border-color: #c89754;
+  background: #fff0d3;
+  color: #79501f;
+}
+.scene-structure-light .scene-structure-lock-controls > span { color: #806a51; }
+.scene-structure-light .scene-structure-lock-controls button {
+  border-color: #d3b994;
+  background: #fffaf1;
+  color: #765d3c;
+}
+.scene-structure-light .scene-structure-lock-controls button:hover,
+.scene-structure-light .scene-structure-lock-controls button:focus-visible {
+  border-color: #b97825;
+  background: #f7e6c9;
+  color: #5d3411;
+}
+.scene-structure-light .scene-structure-lock-controls button.is-locked {
+  border-color: #bd7a28;
+  background: #f5dfbb;
+  color: #704315;
+}

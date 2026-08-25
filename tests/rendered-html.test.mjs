@@ -386,6 +386,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /staticFrame: true/);
   assert.match(page, /startSceneStructureItemDrag/);
   assert.match(page, /sceneStructureItemDragToken/);
+  assert.match(page, /selectedSceneStructureTokens/);
+  assert.match(page, /nudgeSceneStructureSelection/);
+  assert.match(page, /applySceneStructureTimingUpdate/);
+  assert.match(page, /sceneStructureLocks/);
+  assert.match(page, /toggleSceneStructureLock/);
+  assert.match(page, /event.key.toLowerCase\(\) === "s"/);
+  assert.match(page, /scene-structure-lock-controls/);
   assert.match(page, /const playSceneStructure = \(\) => \{[\s\S]{0,700}setPreviewPlaybackMode\(true\);/);
   assert.match(page, /if \(sceneStructurePreviewMode && playing\)/);
   assert.match(page, /String\(value \?\? \"\"\)\.trim\(\)/);
@@ -409,6 +416,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /weatherControls/);
   assert.match(css, /scene-structure-quick-editor-overlay/);
   assert.match(css, /scene-structure-card\.is-movable/);
+  assert.match(css, /scene-structure-card\.is-selected/);
+  assert.match(css, /scene-structure-lock-controls/);
   assert.match(css, /scene-structure-hover-preview/);
   assert.match(css, /scene-structure-minimap-viewport/);
   assert.match(css, /scene-structure-minimap-labels/);

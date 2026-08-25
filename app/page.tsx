@@ -242,6 +242,12 @@ type SceneStructureKind =
   | "effect";
 
 type SceneStructureTimingMode = "both" | "start" | "none";
+type SceneStructureLockKind = "layer" | "position" | "time";
+type SceneStructureLockState = {
+  layer?: boolean;
+  position?: boolean;
+  time?: boolean;
+};
 
 type SceneStructureItem = {
   token: string;
@@ -279,11 +285,11 @@ type SceneStructureTemplatePointerDrag = {
 };
 
 type SceneStructureItemPointerDrag = {
-  token: string;
+  tokens: string[];
   pointerId: number;
   originX: number;
   grabOffset: number;
-  duration: number;
+  items: Array<{ item: SceneStructureItem; start: number; end: number }>;
   active: boolean;
 };
 
@@ -498,6 +504,7 @@ type Scene = {
   mapDecorations: MapDecoration[];
   sceneImages: SceneImage[];
   layerOrder?: string[];
+  sceneStructureLocks?: Record<string, SceneStructureLockState>;
   subtitleEnabled: boolean;
   subtitleStart: number;
   subtitleStyle: SubtitleStyle;
@@ -2013,6 +2020,122 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextY: overlay.y,
 });
 
+const normalizeSceneStructureLockState = (value: unknown): SceneStructureLockState => {
+  const raw = isRecord(value) ? value : {};
+  return {
+    layer: raw.layer === true,
+    position: raw.position === true,
+    time: raw.time === true,
+  };
+};
+
+const applySceneStructureTimingUpdate = (
+  currentScene: Scene,
+  item: SceneStructureItem,
+  roundedStart: number,
+  roundedEnd: number,
+  sceneDuration: number,
+): Scene => {
+  if (item.kind === "image") {
+    return {
+      ...currentScene,
+      sceneImages: (currentScene.sceneImages ?? []).map((image) => image.id === item.id
+        ? {
+            ...image,
+            start: roundedStart,
+            duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+            transitionEnd: normalizeSceneImageTransition(image.transition) === "cut"
+              ? roundedStart
+              : Number(Math.min(roundedEnd, Math.max(roundedStart + 0.1, image.transitionEnd)).toFixed(2)),
+          }
+        : image),
+    };
+  }
+  if (item.kind === "popup") {
+    const popups = scenePopupList(currentScene);
+    const popupIndex = popups.findIndex((popup) => popup.id === item.id);
+    if (popupIndex < 0) return currentScene;
+    const nextPopups = popups.map((popup, index) => index === popupIndex
+      ? {
+          ...popup,
+          start: roundedStart,
+          duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+        }
+      : popup);
+    return {
+      ...currentScene,
+      popups: nextPopups,
+      ...(popupIndex === 0 ? popupSceneFields(nextPopups[0]) : {}),
+    };
+  }
+  if (item.kind === "text") {
+    const overlays = currentScene.textOverlays ?? [];
+    const overlayIndex = overlays.findIndex((overlay) => overlay.id === item.id);
+    if (overlayIndex < 0) return currentScene;
+    const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
+      ? { ...overlay, start: roundedStart, end: roundedEnd }
+      : overlay);
+    return {
+      ...currentScene,
+      textOverlays: nextOverlays,
+      ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlays[0]) : {}),
+    };
+  }
+  if (item.kind === "decoration") {
+    return {
+      ...currentScene,
+      mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => decoration.id === item.id
+        ? {
+            ...decoration,
+            start: roundedStart,
+            duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
+          }
+        : decoration),
+    };
+  }
+  if (item.kind === "audio") {
+    const nextTracks = (currentScene.audioTracks ?? []).map((track) => track.id === item.id
+      ? { ...track, start: roundedStart, end: roundedEnd }
+      : track);
+    return syncLegacyVoiceFields(currentScene, nextTracks);
+  }
+  if (item.kind === "subtitle") {
+    const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
+    const shiftedOffset = Math.min(
+      sceneDuration,
+      Math.max(0, currentOffset + roundedStart - item.start),
+    );
+    return { ...currentScene, subtitleStart: Number(shiftedOffset.toFixed(2)) };
+  }
+  if (item.kind === "effect" && item.id === "zoom") {
+    return { ...currentScene, zoomStart: roundedStart, zoomEnd: roundedEnd };
+  }
+  if (item.kind === "effect" && item.id.startsWith("dark:")) {
+    const effectId = item.id.slice("dark:".length);
+    const effects = normalizeSceneEffects(currentScene.effects);
+    const darkEffects = effects.sceneStartDarkEffects.map((effect) => effect.id === effectId
+      ? {
+          ...effect,
+          start: roundedStart,
+          end: roundedEnd,
+          holdDuration: Math.min(effect.holdDuration, Math.max(0, roundedEnd - roundedStart - 0.1)),
+        }
+      : effect);
+    const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
+    return {
+      ...currentScene,
+      effects: {
+        ...effects,
+        sceneStartDarkEffects: darkEffects,
+        sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
+        sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+        sceneStartDarkIntensity: firstEffect.intensity,
+      },
+    };
+  }
+  return currentScene;
+};
+
 const ensureUniqueSceneIds = (items?: Scene[]) => {
   const used = new Set<string>();
   const validItems = (Array.isArray(items) ? items : []).filter(isRecord) as Scene[];
@@ -3346,6 +3469,7 @@ function Home() {
   const [sceneStructureSceneDragId, setSceneStructureSceneDragId] = useState("");
   const [sceneStructureSceneDragOverId, setSceneStructureSceneDragOverId] = useState("");
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
+  const [selectedSceneStructureTokens, setSelectedSceneStructureTokens] = useState<string[]>([]);
   const [sceneStructureQuickEditToken, setSceneStructureQuickEditToken] = useState("");
   const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
@@ -3980,6 +4104,14 @@ function Home() {
   const sceneStructureEffects = normalizeSceneEffects(sceneStructureScene.effects);
   const sceneStructureBackgroundValue = safeTrim(sceneStructureScene.background) || legacyBackgroundPreview;
   const sceneStructureBackgroundSource = assetPreviewSource(sceneStructureBackgroundValue);
+  const sceneStructureLockForToken = (token: string): Required<SceneStructureLockState> => {
+    const locks = normalizeSceneStructureLockState(sceneStructureScene.sceneStructureLocks?.[token]);
+    return {
+      layer: locks.layer === true,
+      position: locks.position === true,
+      time: locks.time === true,
+    };
+  };
 
   useEffect(() => {
     if (!sceneStructureOpen) return;
@@ -4311,6 +4443,15 @@ function Home() {
   const selectedSceneStructureItemToken = selectedSceneStructureItem?.token ?? "";
   const selectedSceneStructureItemStart = selectedSceneStructureItem?.start ?? 0;
   const selectedSceneStructureItemEnd = selectedSceneStructureItem?.end ?? 0;
+  const selectedSceneStructureTokenSet = new Set(
+    (selectedSceneStructureTokens.length
+      ? selectedSceneStructureTokens
+      : selectedSceneStructureToken
+        ? [selectedSceneStructureToken]
+        : [])
+      .filter((token) => sceneStructureItems.some((item) => item.token === token)),
+  );
+  const selectedSceneStructureItems = sceneStructureItems.filter((item) => selectedSceneStructureTokenSet.has(item.token));
   const sceneStructureTicks = (() => {
     const step = sceneStructureDuration <= 10 ? 1 : sceneStructureDuration <= 30 ? 5 : 10;
     const ticks = Array.from(
@@ -4405,12 +4546,19 @@ function Home() {
     if (!sceneStructureOpen) return;
     if (!sceneStructureSelectedTokenExists) {
       setSelectedSceneStructureToken(sceneStructureFirstToken);
+      setSelectedSceneStructureTokens(sceneStructureFirstToken ? [sceneStructureFirstToken] : []);
+      return;
     }
+    setSelectedSceneStructureTokens((current) => {
+      const valid = current.filter((token) => sceneStructureItems.some((item) => item.token === token));
+      return valid.length ? valid : [selectedSceneStructureToken];
+    });
   }, [
     sceneStructureOpen,
     sceneStructureScene.id,
     sceneStructureFirstToken,
     sceneStructureSelectedTokenExists,
+    selectedSceneStructureToken,
   ]);
 
   useEffect(() => {
@@ -5314,6 +5462,11 @@ function Home() {
 
   const reorderPreviewLayers = (draggedToken: string, targetToken: string) => {
     if (!scene || !draggedToken || !targetToken || draggedToken === targetToken) return;
+    if (sceneStructureLockForToken(draggedToken).layer || sceneStructureLockForToken(targetToken).layer) {
+      setToast("Layer đang bị khóa");
+      window.setTimeout(() => setToast(""), 1800);
+      return;
+    }
     const currentTokens = previewLayerItems.map((item) => item.token);
     const nextVisibleTokens = reorderById(
       currentTokens.map((token) => ({ id: token })),
@@ -5333,6 +5486,7 @@ function Home() {
 
   const startPreviewLayerDrag = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
     event.stopPropagation();
+    if (sceneStructureLockForToken(token).layer) return;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", token);
     setPreviewLayerDrag({ draggedId: token, overId: "" });
@@ -5520,6 +5674,11 @@ function Home() {
       if (modifier && event.key.toLowerCase() === "y") {
         event.preventDefault();
         redo();
+        return;
+      }
+      if (modifier && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveProjectNow();
         return;
       }
       if (isTyping) return;
@@ -5851,6 +6010,10 @@ function Home() {
     popupId = selectedPopupId,
   ) => {
     if (!hydrated) return;
+    const popupLock = sceneStructureLockForToken(`popup:${popupId}`);
+    const changedKeys = Object.keys(values);
+    if (popupLock.position && changedKeys.some((key) => key === "x" || key === "y" || key === "width" || key === "height")) return;
+    if (popupLock.time && changedKeys.some((key) => key === "start" || key === "duration")) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
@@ -6139,6 +6302,9 @@ function Home() {
 
   const updateTextOverlay = <K extends keyof TextOverlay>(key: K, value: TextOverlay[K]) => {
     if (!hydrated || !activeTextOverlay) return;
+    const overlayLock = sceneStructureLockForToken(`text:${activeTextOverlay.id}`);
+    if (overlayLock.position && (key === "x" || key === "y" || key === "width" || key === "height")) return;
+    if (overlayLock.time && (key === "start" || key === "end")) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
@@ -6958,6 +7124,8 @@ function Home() {
     value: SubtitleStyle[K],
   ) => {
     if (!hydrated || !scene) return;
+    const subtitleLock = sceneStructureLockForToken("subtitle:subtitle");
+    if (subtitleLock.position && (key === "x" || key === "y" || key === "boxWidth" || key === "boxHeight")) return;
     setScenes((items) => items.map((item) => item.id === scene.id
       ? {
           ...item,
@@ -7147,6 +7315,9 @@ function Home() {
 
   const updateMapDecoration = <K extends keyof MapDecoration>(key: K, value: MapDecoration[K]) => {
     if (!hydrated || !activeDecoration) return;
+    const decorationLock = sceneStructureLockForToken(`decoration:${activeDecoration.id}`);
+    if (decorationLock.position && (key === "x" || key === "y" || key === "scale" || key === "rotate")) return;
+    if (decorationLock.time && (key === "start" || key === "duration")) return;
     const targetIds = new Set(
       selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
     );
@@ -7305,6 +7476,9 @@ function Home() {
 
   const updateSceneImage = <K extends keyof SceneImage>(key: K, value: SceneImage[K]) => {
     if (!hydrated || !activeSceneImage || !scene) return;
+    const imageLock = sceneStructureLockForToken(`image:${activeSceneImage.id}`);
+    if (imageLock.position && (key === "x" || key === "y" || key === "width" || key === "height")) return;
+    if (imageLock.time && (key === "start" || key === "duration" || key === "transitionEnd")) return;
     const imageIndex = sceneImages.findIndex((image) => image.id === activeSceneImage.id);
     if (imageIndex < 0) return;
     setScenes((items) => items.map((item) => item.id === scene.id
@@ -7580,6 +7754,7 @@ function Home() {
     const imageIndex = sceneImages.findIndex((image) => image.id === imageId);
     const draggedImage = sceneImages[imageIndex];
     if (!draggedImage || !scene) return;
+    if (sceneStructureLockForToken(`image:${draggedImage.id}`).position) return;
     selectPreviewLayer("image", draggedImage.id);
     event.preventDefault();
     event.stopPropagation();
@@ -7630,6 +7805,7 @@ function Home() {
 
   const startSceneImageResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (playing || !scene || !activeSceneImage) return;
+    if (sceneStructureLockForToken(`image:${activeSceneImage.id}`).position) return;
     selectPreviewLayer("image", activeSceneImage.id);
     event.preventDefault();
     event.stopPropagation();
@@ -7764,6 +7940,7 @@ function Home() {
     event: React.DragEvent<HTMLElement>,
   ) => {
     event.stopPropagation();
+    if (sceneStructureLockForToken(`${type}:${id}`).layer) return;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", id);
     setLayerListDrag({ type, id, overId: "" });
@@ -7790,6 +7967,13 @@ function Home() {
     event.preventDefault();
     const draggedLayerId = layerListDrag.type === type ? layerListDrag.id : "";
     if (!scene || !draggedLayerId || draggedLayerId === targetId) {
+      setLayerListDrag({ type: "", id: "", overId: "" });
+      return;
+    }
+    if (sceneStructureLockForToken(`${type}:${draggedLayerId}`).layer
+      || sceneStructureLockForToken(`${type}:${targetId}`).layer) {
+      setToast("Layer đang bị khóa");
+      window.setTimeout(() => setToast(""), 1800);
       setLayerListDrag({ type: "", id: "", overId: "" });
       return;
     }
@@ -8104,6 +8288,7 @@ function Home() {
     if ((event.target as HTMLElement).closest(".popup-resize-handle")) return;
     const draggedPopup = scenePopups.find((popup) => popup.id === popupId) ?? activePopup;
     if (!draggedPopup) return;
+    if (sceneStructureLockForToken(`popup:${draggedPopup.id}`).position) return;
     selectPreviewLayer("popup", draggedPopup.id);
     if (playing) return;
     event.preventDefault();
@@ -8151,6 +8336,7 @@ function Home() {
   };
 
   const startMapPointDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (sceneStructureLockForToken("effect:zoom").position) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -8191,6 +8377,7 @@ function Home() {
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const draggedOverlay = sceneTextOverlays[overlayIndex];
     if (!draggedOverlay) return;
+    if (sceneStructureLockForToken(`text:${draggedOverlay.id}`).position) return;
     selectPreviewLayer("text", draggedOverlay.id);
     if (playing) return;
     event.preventDefault();
@@ -8254,6 +8441,7 @@ function Home() {
     const overlayIndex = sceneTextOverlays.findIndex((item) => item.id === overlayId);
     const resizedOverlay = sceneTextOverlays[overlayIndex];
     if (!resizedOverlay) return;
+    if (sceneStructureLockForToken(`text:${resizedOverlay.id}`).position) return;
     selectPreviewLayer("text", resizedOverlay.id);
     const preview = event.currentTarget.closest(".phone-preview");
     const target = event.currentTarget.closest(".map-text-overlay");
@@ -8300,6 +8488,7 @@ function Home() {
 
   const startSubtitleDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (playing || !scene || !subtitleGuideVisible) return;
+    if (sceneStructureLockForToken("subtitle:subtitle").position) return;
     if ((event.target as HTMLElement).closest(".subtitle-resize-handle")) return;
     event.preventDefault();
     event.stopPropagation();
@@ -8357,6 +8546,7 @@ function Home() {
 
   const startSubtitleResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (playing || !scene || !subtitleGuideVisible) return;
+    if (sceneStructureLockForToken("subtitle:subtitle").position) return;
     event.preventDefault();
     event.stopPropagation();
     const preview = event.currentTarget.closest(".phone-preview");
@@ -8396,6 +8586,7 @@ function Home() {
     const decorationIndex = sceneDecorations.findIndex((item) => item.id === decorationId);
     const draggedDecoration = sceneDecorations[decorationIndex];
     if (!draggedDecoration) return;
+    if (sceneStructureLockForToken(`decoration:${draggedDecoration.id}`).position) return;
     selectPreviewLayer("decoration", draggedDecoration.id);
     if (playing) return;
     event.preventDefault();
@@ -8461,6 +8652,7 @@ function Home() {
     const popupIndex = Math.max(0, originalPopups.findIndex((item) => item.id === popupId));
     const originalPopup = originalPopups[popupIndex];
     if (!originalPopup) return;
+    if (sceneStructureLockForToken(`popup:${originalPopup.id}`).time) return;
     const sceneDuration = Math.max(0.1, originalScene.end - originalScene.start);
     const originalStart = Math.min(
       Math.max(0, Number(originalPopup.start) || 0),
@@ -9846,19 +10038,42 @@ function Home() {
     event: React.PointerEvent<HTMLButtonElement>,
     item: SceneStructureItem,
   ) => {
-    if (sceneStructurePreviewMode || item.timingMode === "none" || sceneStructureItemPointerDrag.current) return;
+    if (
+      sceneStructurePreviewMode
+      || item.timingMode === "none"
+      || sceneStructureLockForToken(item.token).time
+      || sceneStructureItemPointerDrag.current
+    ) return;
     const flowContent = sceneStructureFlowContentRef.current;
     if (!flowContent) return;
     event.preventDefault();
     event.stopPropagation();
     hideSceneStructureHoverPreview();
     const pointerTime = sceneStructureDropTimeFromClientX(event.clientX, flowContent);
+    const activeTokens = selectedSceneStructureTokenSet.has(item.token)
+      ? Array.from(selectedSceneStructureTokenSet)
+      : [item.token];
+    if (!selectedSceneStructureTokenSet.has(item.token)
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.shiftKey) {
+      selectSceneStructureItem(item);
+    }
+    const dragItems = sceneStructureItems
+      .filter((candidate) => activeTokens.includes(candidate.token))
+      .filter((candidate) => candidate.timingMode !== "none" && !sceneStructureLockForToken(candidate.token).time)
+      .map((candidate) => ({
+        item: candidate,
+        start: candidate.start,
+        end: candidate.end,
+      }));
+    if (!dragItems.some((candidate) => candidate.item.token === item.token)) return;
     sceneStructureItemPointerDrag.current = {
-      token: item.token,
+      tokens: dragItems.map((candidate) => candidate.item.token),
       pointerId: event.pointerId,
       originX: event.clientX,
       grabOffset: pointerTime - item.start,
-      duration: Math.max(0.1, item.end - item.start),
+      items: dragItems,
       active: false,
     };
     sceneStructureItemDidDrag.current = false;
@@ -9872,7 +10087,7 @@ function Home() {
     item: SceneStructureItem,
   ) => {
     const drag = sceneStructureItemPointerDrag.current;
-    if (!drag || drag.pointerId !== event.pointerId || drag.token !== item.token) return;
+    if (!drag || drag.pointerId !== event.pointerId || !drag.tokens.includes(item.token)) return;
     if (Math.abs(event.clientX - drag.originX) > 3) {
       drag.active = true;
       sceneStructureItemDidDrag.current = true;
@@ -9881,11 +10096,17 @@ function Home() {
     const flowContent = sceneStructureFlowContentRef.current;
     if (!flowContent) return;
     const pointerTime = sceneStructureDropTimeFromClientX(event.clientX, flowContent);
-    const nextStart = Math.min(
-      Math.max(0, sceneStructureDuration - drag.duration),
-      Math.max(0, pointerTime - drag.grabOffset),
-    );
-    updateSceneStructureTiming(item, nextStart, nextStart + drag.duration);
+    const draggedItem = drag.items.find((candidate) => candidate.item.token === item.token);
+    if (!draggedItem) return;
+    const requestedDelta = pointerTime - drag.grabOffset - draggedItem.start;
+    const minDelta = Math.max(...drag.items.map((candidate) => -candidate.start));
+    const maxDelta = Math.min(...drag.items.map((candidate) => sceneStructureDuration - candidate.end));
+    const delta = Math.min(maxDelta, Math.max(minDelta, requestedDelta));
+    updateSceneStructureTimings(drag.items.map((candidate) => ({
+      item: candidate.item,
+      nextStartValue: candidate.start + delta,
+      nextEndValue: candidate.end + delta,
+    })));
   };
 
   const endSceneStructureItemDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -10023,6 +10244,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setSelectedSceneStructureToken(createdToken);
+    setSelectedSceneStructureTokens([createdToken]);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     setSelectedPopupId(kind === "popup" ? createdId : "");
@@ -10173,7 +10395,7 @@ function Home() {
     insertSceneStructureTemplate(kind, sceneStructurePlayheadTime());
   };
 
-  const selectSceneStructureItem = (item: SceneStructureItem) => {
+  const focusSceneStructureItem = (item: SceneStructureItem) => {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setSelectedSceneStructureToken(item.token);
@@ -10184,6 +10406,37 @@ function Home() {
     setSelectedTextOverlayId(item.kind === "text" ? item.id : "");
     setSelectedSceneImageId(item.kind === "image" ? item.id : "");
     setSelectedDecorationId(item.kind === "decoration" ? item.id : "");
+  };
+
+  const selectSceneStructureItem = (item: SceneStructureItem) => {
+    setSelectedSceneStructureTokens([item.token]);
+    focusSceneStructureItem(item);
+  };
+
+  const toggleSceneStructureItemSelection = (item: SceneStructureItem) => {
+    const current = selectedSceneStructureTokenSet.size
+      ? Array.from(selectedSceneStructureTokenSet)
+      : [item.token];
+    const next = current.includes(item.token)
+      ? current.filter((token) => token !== item.token)
+      : [...current, item.token];
+    const focusedToken = next.includes(item.token) ? item.token : next[0];
+    const focusedItem = sceneStructureItems.find((candidate) => candidate.token === focusedToken);
+    setSelectedSceneStructureTokens(next.length ? next : [item.token]);
+    if (focusedItem) focusSceneStructureItem(focusedItem);
+  };
+
+  const selectSceneStructureItemRange = (item: SceneStructureItem) => {
+    const anchorIndex = sceneStructureItems.findIndex((candidate) => candidate.token === selectedSceneStructureToken);
+    const targetIndex = sceneStructureItems.findIndex((candidate) => candidate.token === item.token);
+    if (anchorIndex < 0 || targetIndex < 0) {
+      selectSceneStructureItem(item);
+      return;
+    }
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    setSelectedSceneStructureTokens(sceneStructureItems.slice(start, end + 1).map((candidate) => candidate.token));
+    focusSceneStructureItem(item);
   };
 
   const navigateSceneStructureCardVertically = (
@@ -10388,6 +10641,7 @@ function Home() {
     }));
     setSceneStructureViewMode("timeline");
     setSelectedSceneStructureToken(generatedImages[0] ? `image:${generatedImages[0].id}` : "");
+    setSelectedSceneStructureTokens(generatedImages[0] ? [`image:${generatedImages[0].id}`] : []);
     const previousGeneratedIds = new Set((sceneStructureScene.sceneImages ?? [])
       .filter((image) => image.subtitleGenerated === true)
       .map((image) => image.id));
@@ -10412,7 +10666,20 @@ function Home() {
         ...currentScene,
         sceneImages: (currentScene.sceneImages ?? []).map((image) => {
           if (image.id !== imageId) return image;
-          const next = { ...image, ...values } as SceneImage;
+          const lock = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`image:${imageId}`]);
+          const safeValues = { ...values };
+          if (lock.position) {
+            delete safeValues.x;
+            delete safeValues.y;
+            delete safeValues.width;
+            delete safeValues.height;
+          }
+          if (lock.time) {
+            delete safeValues.start;
+            delete safeValues.duration;
+            delete safeValues.transitionEnd;
+          }
+          const next = { ...image, ...safeValues } as SceneImage;
           const start = Math.min(duration - 0.1, Math.max(0, Number(next.start) || 0));
           const imageDuration = Math.min(
             Math.max(0.1, Number(next.duration) || 0.1),
@@ -10444,7 +10711,19 @@ function Home() {
       const popupIndex = popups.findIndex((popup) => popup.id === popupId);
       if (popupIndex < 0) return currentScene;
       const currentPopup = popups[popupIndex];
-      const nextPopup = { ...currentPopup, ...values } as PopupConfig;
+      const lock = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`popup:${popupId}`]);
+      const safeValues = { ...values };
+      if (lock.position) {
+        delete safeValues.x;
+        delete safeValues.y;
+        delete safeValues.width;
+        delete safeValues.height;
+      }
+      if (lock.time) {
+        delete safeValues.start;
+        delete safeValues.duration;
+      }
+      const nextPopup = { ...currentPopup, ...safeValues } as PopupConfig;
       if (values.layout !== undefined) {
         const layout = popupDimensionLayout(nextPopup.layout);
         const sections = popupSectionDefaults(layout, nextPopup.height);
@@ -10482,7 +10761,19 @@ function Home() {
       const overlays = currentScene.textOverlays ?? [];
       const overlayIndex = overlays.findIndex((overlay) => overlay.id === textId);
       if (overlayIndex < 0) return currentScene;
-      const nextOverlay = { ...overlays[overlayIndex], ...values } as TextOverlay;
+      const lock = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`text:${textId}`]);
+      const safeValues = { ...values };
+      if (lock.position) {
+        delete safeValues.x;
+        delete safeValues.y;
+        delete safeValues.width;
+        delete safeValues.height;
+      }
+      if (lock.time) {
+        delete safeValues.start;
+        delete safeValues.end;
+      }
+      const nextOverlay = { ...overlays[overlayIndex], ...safeValues } as TextOverlay;
       const duration = Math.max(0.1, currentScene.end - currentScene.start);
       const start = Math.min(duration - 0.1, Math.max(0, Number(nextOverlay.start) || 0));
       const end = Math.min(duration, Math.max(start + 0.1, Number(nextOverlay.end) || start + 0.1));
@@ -10621,129 +10912,98 @@ function Home() {
     setPlayTime(sceneStructureScene.start);
   };
 
+  const toggleSceneStructureLock = (
+    item: SceneStructureItem,
+    kind: SceneStructureLockKind,
+  ) => {
+    const current = sceneStructureLockForToken(item.token);
+    const nextValue = !current[kind];
+    setScenes((items) => items.map((currentScene) => currentScene.id === sceneStructureScene.id
+      ? {
+          ...currentScene,
+          sceneStructureLocks: {
+            ...(currentScene.sceneStructureLocks ?? {}),
+            [item.token]: { ...current, [kind]: nextValue },
+          },
+        }
+      : currentScene));
+    const label = kind === "layer" ? "layer" : kind === "position" ? "vị trí" : "thời gian";
+    setToast(`${nextValue ? "Đã khóa" : "Đã mở khóa"} ${label}: ${item.label}`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const updateSceneStructureTimings = (
+    updates: Array<{ item: SceneStructureItem; nextStartValue: number; nextEndValue: number }>,
+  ) => {
+    const duration = sceneStructureDuration;
+    const normalizedUpdates = updates
+      .filter(({ item }) => item.timingMode !== "none" && !sceneStructureLockForToken(item.token).time)
+      .map(({ item, nextStartValue, nextEndValue }) => {
+        const nextStart = Math.min(
+          Math.max(0, duration - 0.1),
+          Math.max(0, Number(nextStartValue) || 0),
+        );
+        const nextEnd = item.timingMode === "start"
+          ? item.end
+          : Math.min(
+              duration,
+              Math.max(nextStart + 0.1, Number(nextEndValue) || nextStart + 0.1),
+            );
+        return {
+          item,
+          roundedStart: Number(nextStart.toFixed(2)),
+          roundedEnd: Number(nextEnd.toFixed(2)),
+        };
+      });
+    if (!normalizedUpdates.length) return;
+
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      return normalizedUpdates.reduce(
+        (nextScene, update) => applySceneStructureTimingUpdate(
+          nextScene,
+          update.item,
+          update.roundedStart,
+          update.roundedEnd,
+          duration,
+        ),
+        currentScene,
+      );
+    }));
+    const primary = normalizedUpdates.find(({ item }) => item.token === selectedSceneStructureItemToken)
+      ?? normalizedUpdates[0];
+    setSceneStructureStartDraft(formatPreciseTime(primary.roundedStart));
+    setSceneStructureEndDraft(formatPreciseTime(primary.roundedEnd));
+    setSceneStructureQuickTimingDrafts((current) => {
+      const next = { ...current };
+      normalizedUpdates.forEach(({ item }) => delete next[item.token]);
+      return next;
+    });
+  };
+
   const updateSceneStructureTiming = (
     item: SceneStructureItem,
     nextStartValue: number,
     nextEndValue: number,
   ) => {
-    if (item.timingMode === "none") return;
-    const duration = sceneStructureDuration;
-    const nextStart = Math.min(
-      Math.max(0, duration - 0.1),
-      Math.max(0, Number(nextStartValue) || 0),
-    );
-    const nextEnd = item.timingMode === "start"
-      ? item.end
-      : Math.min(
-          duration,
-          Math.max(nextStart + 0.1, Number(nextEndValue) || nextStart + 0.1),
-        );
-    const roundedStart = Number(nextStart.toFixed(2));
-    const roundedEnd = Number(nextEnd.toFixed(2));
+    updateSceneStructureTimings([{ item, nextStartValue, nextEndValue }]);
+  };
 
-    setScenes((items) => items.map((currentScene) => {
-      if (currentScene.id !== sceneStructureScene.id) return currentScene;
-      if (item.kind === "image") {
-        return {
-          ...currentScene,
-          sceneImages: (currentScene.sceneImages ?? []).map((image) => image.id === item.id
-            ? {
-                ...image,
-                start: roundedStart,
-                duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
-                transitionEnd: normalizeSceneImageTransition(image.transition) === "cut"
-                  ? roundedStart
-                  : Number(Math.min(roundedEnd, Math.max(roundedStart + 0.1, image.transitionEnd)).toFixed(2)),
-              }
-            : image),
-        };
-      }
-      if (item.kind === "popup") {
-        const popups = scenePopupList(currentScene);
-        const popupIndex = popups.findIndex((popup) => popup.id === item.id);
-        if (popupIndex < 0) return currentScene;
-        const nextPopups = popups.map((popup, index) => index === popupIndex
-          ? {
-              ...popup,
-              start: roundedStart,
-              duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
-            }
-          : popup);
-        return {
-          ...currentScene,
-          popups: nextPopups,
-          ...(popupIndex === 0 ? popupSceneFields(nextPopups[0]) : {}),
-        };
-      }
-      if (item.kind === "text") {
-        const overlays = currentScene.textOverlays ?? [];
-        const overlayIndex = overlays.findIndex((overlay) => overlay.id === item.id);
-        if (overlayIndex < 0) return currentScene;
-        const nextOverlays = overlays.map((overlay, index) => index === overlayIndex
-          ? { ...overlay, start: roundedStart, end: roundedEnd }
-          : overlay);
-        return {
-          ...currentScene,
-          textOverlays: nextOverlays,
-          ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlays[0]) : {}),
-        };
-      }
-      if (item.kind === "decoration") {
-        return {
-          ...currentScene,
-          mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => decoration.id === item.id
-            ? {
-                ...decoration,
-                start: roundedStart,
-                duration: Number(Math.max(0.1, roundedEnd - roundedStart).toFixed(2)),
-              }
-            : decoration),
-        };
-      }
-      if (item.kind === "audio") {
-        const nextTracks = (currentScene.audioTracks ?? []).map((track) => track.id === item.id
-          ? { ...track, start: roundedStart, end: roundedEnd }
-          : track);
-        return syncLegacyVoiceFields(currentScene, nextTracks);
-      }
-      if (item.kind === "subtitle") {
-        const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
-        const shiftedOffset = Math.min(
-          duration,
-          Math.max(0, currentOffset + roundedStart - item.start),
-        );
-        return { ...currentScene, subtitleStart: Number(shiftedOffset.toFixed(2)) };
-      }
-      if (item.kind === "effect" && item.id === "zoom") {
-        return { ...currentScene, zoomStart: roundedStart, zoomEnd: roundedEnd };
-      }
-      if (item.kind === "effect" && item.id.startsWith("dark:")) {
-        const effectId = item.id.slice("dark:".length);
-        const effects = normalizeSceneEffects(currentScene.effects);
-        const darkEffects = effects.sceneStartDarkEffects.map((effect) => effect.id === effectId
-          ? {
-              ...effect,
-              start: roundedStart,
-              end: roundedEnd,
-              holdDuration: Math.min(effect.holdDuration, Math.max(0, roundedEnd - roundedStart - 0.1)),
-            }
-          : effect);
-        const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
-        return {
-          ...currentScene,
-          effects: {
-            ...effects,
-            sceneStartDarkEffects: darkEffects,
-            sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
-            sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
-            sceneStartDarkIntensity: firstEffect.intensity,
-          },
-        };
-      }
-      return currentScene;
-    }));
-    setSceneStructureStartDraft(formatPreciseTime(roundedStart));
-    setSceneStructureEndDraft(formatPreciseTime(roundedEnd));
+  const nudgeSceneStructureSelection = (delta: number) => {
+    const movableItems = selectedSceneStructureItems.filter((item) =>
+      item.timingMode !== "none" && !sceneStructureLockForToken(item.token).time,
+    );
+    if (!movableItems.length) return false;
+    const minDelta = Math.max(...movableItems.map((item) => -item.start));
+    const maxDelta = Math.min(...movableItems.map((item) => sceneStructureDuration - item.end));
+    const actualDelta = Math.min(maxDelta, Math.max(minDelta, delta));
+    if (Math.abs(actualDelta) < 0.001) return false;
+    updateSceneStructureTimings(movableItems.map((item) => ({
+      item,
+      nextStartValue: item.start + actualDelta,
+      nextEndValue: item.end + actualDelta,
+    })));
+    return true;
   };
 
   const commitSceneStructureTiming = () => {
@@ -10800,7 +11060,7 @@ function Home() {
   };
 
   const toggleSceneStructureItemVisibility = (item: SceneStructureItem) => {
-    if (!item.canHide) return;
+    if (!item.canHide || sceneStructureLockForToken(item.token).layer) return;
     setScenes((items) => items.map((currentScene) => {
       if (currentScene.id !== sceneStructureScene.id) return currentScene;
       if (item.kind === "background") return { ...currentScene, backgroundVisible: false };
@@ -10881,6 +11141,11 @@ function Home() {
   };
 
   const deleteSceneStructureItem = (item: SceneStructureItem) => {
+    if (sceneStructureLockForToken(item.token).layer) {
+      setToast(`Layer “${item.label}” đang bị khóa`);
+      window.setTimeout(() => setToast(""), 2200);
+      return;
+    }
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setScenes((items) => items.map((currentScene) => {
@@ -11089,6 +11354,7 @@ function Home() {
             type="text"
             inputMode="decimal"
             value={quickTiming.start}
+            disabled={sceneStructureLockForToken(item.token).time}
             onChange={(event) => updateQuickTimingDraft(item, "start", event.target.value)}
             onBlur={() => commitQuickTimingDraft(item)}
             onKeyDown={(event) => {
@@ -11110,7 +11376,7 @@ function Home() {
             type="text"
             inputMode="decimal"
             value={quickTiming.end}
-            disabled={item.timingMode !== "both"}
+            disabled={item.timingMode !== "both" || sceneStructureLockForToken(item.token).time}
             onChange={(event) => updateQuickTimingDraft(item, "end", event.target.value)}
             onBlur={() => commitQuickTimingDraft(item)}
             onKeyDown={(event) => {
@@ -16359,6 +16625,9 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                {selectedSceneStructureTokenSet.size > 1 && (
+                  <span className="scene-structure-selection-status">{selectedSceneStructureTokenSet.size} thẻ đã chọn · Kéo hoặc ←/→ để di chuyển cùng lúc</span>
+                )}
                 <button
                   type="button"
                   className="scene-structure-save-button"
@@ -16640,16 +16909,16 @@ function Home() {
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
                             type="button"
-                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${isLive ? "is-live" : ""} ${item.token === sceneStructureItemDragToken ? "is-dragging" : ""} ${item.timingMode !== "none" ? "is-movable" : ""}`}
+                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${selectedSceneStructureTokenSet.has(item.token) ? "is-selected" : ""} ${isLive ? "is-live" : ""} ${item.token === sceneStructureItemDragToken ? "is-dragging" : ""} ${item.timingMode !== "none" ? "is-movable" : ""} ${sceneStructureLockForToken(item.token).layer ? "is-layer-locked" : ""} ${sceneStructureLockForToken(item.token).position ? "is-position-locked" : ""} ${sceneStructureLockForToken(item.token).time ? "is-time-locked" : ""}`}
                             style={{
                               left: `${leftPercent}%`,
                               width: `${widthPercent}%`,
                               maxWidth: `calc(100% - ${leftPercent}% - 12px)`,
                             }}
                             data-scene-structure-card={item.token}
-                            aria-pressed={item.token === selectedSceneStructureItem?.token}
-                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}. Nhấn Delete để xóa`}
-                            title={item.timingMode !== "none" ? "Kéo thẻ để đổi vị trí · Click đúp để chỉnh sửa · Nhấn Delete để xóa" : "Click đúp để chỉnh sửa · Nhấn Delete để xóa tài nguyên"}
+                            aria-pressed={selectedSceneStructureTokenSet.has(item.token)}
+                            aria-label={`${item.label}, từ ${formatPreciseTime(item.start)} đến ${formatPreciseTime(item.end)}${sceneStructureLockForToken(item.token).time ? ". Đã khóa thời gian" : ""}. Ctrl/Cmd + click để chọn nhiều`}
+                            title={item.timingMode !== "none" ? "Kéo thẻ để đổi thời gian · Ctrl/Cmd + click để chọn nhiều · Click đúp để chỉnh sửa" : "Ctrl/Cmd + click để chọn nhiều · Click đúp để chỉnh sửa"}
                             onPointerDown={(event) => startSceneStructureItemDrag(event, item)}
                             onPointerMove={(event) => {
                               moveSceneStructureItemDrag(event, item);
@@ -16664,11 +16933,19 @@ function Home() {
                                 sceneStructureItemDidDrag.current = false;
                                 return;
                               }
-                              selectSceneStructureItem(item);
+                              if (event.ctrlKey || event.metaKey) toggleSceneStructureItemSelection(item);
+                              else if (event.shiftKey) selectSceneStructureItemRange(item);
+                              else selectSceneStructureItem(item);
                               event.currentTarget.focus();
                             }}
                             onDoubleClick={() => openSceneStructureQuickEditor(item)}
                             onKeyDown={(event) => {
+                              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                nudgeSceneStructureSelection(event.key === "ArrowLeft" ? -1 : 1);
+                                return;
+                              }
                               if (event.key === "ArrowUp" || event.key === "ArrowDown") {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -16690,6 +16967,11 @@ function Home() {
                               <small>{formatPreciseTime(item.start)} → {formatPreciseTime(item.end)}</small>
                             </span>
                             <span className="scene-structure-card-kind">{sceneStructureKindLabel(item.kind)}</span>
+                            <span className="scene-structure-card-locks" aria-label="Trạng thái khóa">
+                              {sceneStructureLockForToken(item.token).layer && <i title="Khóa layer">L</i>}
+                              {sceneStructureLockForToken(item.token).position && <i title="Khóa vị trí">V</i>}
+                              {sceneStructureLockForToken(item.token).time && <i title="Khóa thời gian">T</i>}
+                            </span>
                           </button>
                         </div>
                       );
@@ -17044,13 +17326,35 @@ function Home() {
                       <span>Loại</span>
                       <b className={`kind-${selectedSceneStructureItem.kind}`}><i>{selectedSceneStructureItem.icon}</i>{sceneStructureKindLabel(selectedSceneStructureItem.kind)}</b>
                     </div>
+                    <div className="scene-structure-lock-controls" role="group" aria-label="Khóa tài nguyên">
+                      <span>Khóa</span>
+                      {([
+                        ["layer", "Layer", "Không cho đổi thứ tự hoặc xóa layer"],
+                        ["position", "Vị trí", "Không cho kéo hoặc đổi kích thước trên bản đồ"],
+                        ["time", "Thời gian", "Không cho đổi mốc bắt đầu và kết thúc"],
+                      ] as const).map(([kind, label, title]) => {
+                        const locked = sceneStructureLockForToken(selectedSceneStructureItem.token)[kind];
+                        return (
+                          <button
+                            type="button"
+                            key={kind}
+                            className={locked ? "is-locked" : ""}
+                            aria-pressed={locked}
+                            title={title}
+                            onClick={() => toggleSceneStructureLock(selectedSceneStructureItem, kind)}
+                          >
+                            <i aria-hidden="true">{locked ? "🔒" : "◇"}</i>{label}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <label className="scene-structure-time-field">
                       <span>Bắt đầu</span>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={sceneStructureStartDraft}
-                        disabled={selectedSceneStructureItem.timingMode === "none"}
+                        disabled={selectedSceneStructureItem.timingMode === "none" || sceneStructureLockForToken(selectedSceneStructureItem.token).time}
                         aria-label="Thời gian bắt đầu tài nguyên"
                         onChange={(event) => setSceneStructureStartDraft(event.target.value)}
                         onBlur={commitSceneStructureTiming}
@@ -17073,7 +17377,7 @@ function Home() {
                         type="text"
                         inputMode="decimal"
                         value={sceneStructureEndDraft}
-                        disabled={selectedSceneStructureItem.timingMode !== "both"}
+                        disabled={selectedSceneStructureItem.timingMode !== "both" || sceneStructureLockForToken(selectedSceneStructureItem.token).time}
                         aria-label="Thời gian kết thúc tài nguyên"
                         onChange={(event) => setSceneStructureEndDraft(event.target.value)}
                         onBlur={commitSceneStructureTiming}
