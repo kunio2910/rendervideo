@@ -26,6 +26,89 @@ const assetCacheDir = path.join(renderCacheDir, "assets");
 const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
+
+const renderEncoderModes = ["auto", "cpu", "intel-qsv", "amd-amf", "nvidia-nvenc"];
+const encoderCandidates = {
+  "intel-qsv": ["h264_qsv"],
+  "amd-amf": ["h264_amf"],
+  "nvidia-nvenc": ["h264_nvenc"],
+};
+const encoderLabels = {
+  "libx264": "CPU · libx264",
+  h264_qsv: "Intel Quick Sync",
+  h264_amf: "AMD AMF",
+  h264_nvenc: "NVIDIA NVENC",
+};
+
+const normalizeRenderEncoder = (value) =>
+  renderEncoderModes.includes(String(value)) ? String(value) : "auto";
+
+const captureProcess = (command, args) => new Promise((resolve) => {
+  let output = "";
+  let settled = false;
+  const child = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  const append = (chunk) => {
+    output = `${output}${chunk.toString()}`.slice(-12000);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  const finish = (code) => {
+    if (settled) return;
+    settled = true;
+    resolve({ code: Number(code) || 0, output });
+  };
+  child.once("error", () => finish(-1));
+  child.once("exit", finish);
+});
+
+const readAvailableEncoders = async () => {
+  const result = await captureProcess(ffmpeg, ["-hide_banner", "-encoders"]);
+  if (result.code !== 0) return new Set();
+  return new Set(
+    [...result.output.matchAll(/\b(h264_(?:qsv|amf|nvenc))\b/g)].map((match) => match[1]),
+  );
+};
+
+const probeEncoder = async (encoder) => {
+  const result = await captureProcess(ffmpeg, [
+    "-hide_banner",
+    "-loglevel", "error",
+    "-f", "lavfi",
+    "-i", "color=c=black:s=16x16:r=1",
+    "-frames:v", "1",
+    "-an",
+    "-c:v", encoder,
+    "-f", "null",
+    "-",
+  ]);
+  return result.code === 0;
+};
+
+const resolveVideoEncoder = async (requested) => {
+  const normalized = normalizeRenderEncoder(requested);
+  if (normalized === "cpu") {
+    return { requested: normalized, codec: "libx264", fallback: false };
+  }
+  const available = await readAvailableEncoders();
+  const candidates = normalized === "auto"
+    ? ["h264_qsv", "h264_amf", "h264_nvenc"]
+    : encoderCandidates[normalized] ?? [];
+  for (const candidate of candidates) {
+    if (!available.has(candidate)) continue;
+    if (await probeEncoder(candidate)) {
+      return { requested: normalized, codec: candidate, fallback: false };
+    }
+  }
+  return {
+    requested: normalized,
+    codec: "libx264",
+    fallback: normalized !== "auto",
+  };
+};
+
 // A scene can contain many looped PNG/video inputs (for example, dozens of
 // subtitle cues). FFmpeg's automatic filter threading and input queues can
 // then retain a frame per input until the graph drains, which may exhaust
@@ -34,6 +117,14 @@ const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? 1) || 1);
 const ffmpegInputQueueSize = Math.max(1, Number(process.env.FFMPEG_INPUT_QUEUE_SIZE ?? 2) || 2);
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
+const requestedVideoEncoder = normalizeRenderEncoder(
+  process.env.RENDER_VIDEO_ENCODER ?? project.renderEncoder,
+);
+const resolvedVideoEncoder = await resolveVideoEncoder(requestedVideoEncoder);
+console.log(`Video encoder: ${encoderLabels[resolvedVideoEncoder.codec] ?? resolvedVideoEncoder.codec}`);
+if (resolvedVideoEncoder.fallback) {
+  console.warn(`Encoder ${requestedVideoEncoder} không khả dụng trên máy này; chuyển về CPU · libx264.`);
+}
 const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
 let renderCursor = 0;
 const scenes = sourceScenes
@@ -83,6 +174,27 @@ const requestedFps = Math.max(1, Number(project.fps ?? 30) || 30);
 const fps = renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
 const videoPreset = renderProfile === "fast" ? "veryfast" : "medium";
 const videoCrf = renderProfile === "fast" ? "24" : "20";
+const hardwareQuality = renderProfile === "fast" ? "26" : "23";
+const videoEncoderArgs = resolvedVideoEncoder.codec === "libx264"
+  ? ["-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf]
+  : resolvedVideoEncoder.codec === "h264_qsv"
+    ? ["-c:v", "h264_qsv", "-preset", videoPreset, "-global_quality", hardwareQuality]
+    : resolvedVideoEncoder.codec === "h264_amf"
+      ? [
+          "-c:v", "h264_amf",
+          "-usage", "transcoding",
+          "-quality", renderProfile === "fast" ? "speed" : "quality",
+          "-rc", "cqp",
+          "-qp_i", hardwareQuality,
+          "-qp_p", hardwareQuality,
+          "-qp_b", hardwareQuality,
+        ]
+      : [
+          "-c:v", "h264_nvenc",
+          "-preset", renderProfile === "fast" ? "p1" : "p4",
+          "-rc", "vbr",
+          "-cq", hardwareQuality,
+        ];
 const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
@@ -2126,7 +2238,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   args.push(
     "-t", String(duration),
     "-r", String(fps),
-    "-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf,
+    ...videoEncoderArgs,
     "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart",

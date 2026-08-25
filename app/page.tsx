@@ -652,9 +652,17 @@ type PopupConfig = {
 type AspectRatio = "9:16" | "16:9";
 type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
 type RenderProfile = "quality" | "fast";
+type RenderEncoder = "auto" | "cpu" | "intel-qsv" | "amd-amf" | "nvidia-nvenc";
 
 const normalizeRenderProfile = (value: unknown): RenderProfile =>
   value === "fast" ? "fast" : "quality";
+
+const normalizeRenderEncoder = (value: unknown): RenderEncoder => {
+  if (value === "cpu" || value === "intel-qsv" || value === "amd-amf" || value === "nvidia-nvenc") {
+    return value;
+  }
+  return "auto";
+};
 
 const normalizeAspectRatio = (value: unknown): AspectRatio =>
   value === "16:9" ? "16:9" : "9:16";
@@ -1031,6 +1039,7 @@ type LocalRenderState = {
   etaSeconds?: number | null;
   mediaTimeSeconds?: number;
   mediaDurationSeconds?: number;
+  videoEncoder?: string;
 };
 
 type RenderedClip = {
@@ -1201,6 +1210,7 @@ type StoredProject = {
   backgroundMusicVolume?: number;
   renderFps?: 24 | 30 | 60;
   renderProfile?: RenderProfile;
+  renderEncoder?: RenderEncoder;
   editorSections?: EditorSectionState;
   sceneStructureLibraryCollapsed?: boolean;
   sceneStructureInspectorCollapsed?: boolean;
@@ -3179,6 +3189,7 @@ function Home() {
   const [renderResolution, setRenderResolution] = useState<RenderResolution>("1080x1920");
   const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
   const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
+  const [renderEncoder, setRenderEncoder] = useState<RenderEncoder>("auto");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -4531,6 +4542,7 @@ function Home() {
       narrationEnabled,
       renderFps,
       renderProfile,
+      renderEncoder,
       background,
       previewBackground,
       backgroundVisible,
@@ -4555,6 +4567,7 @@ function Home() {
       narrationEnabled,
       renderFps,
       renderProfile,
+      renderEncoder,
       background,
       previewBackground,
       backgroundVisible,
@@ -4606,6 +4619,7 @@ function Home() {
     setNarrationEnabled(project.narrationEnabled);
     setRenderFps(project.renderFps ?? 30);
     setRenderProfile(normalizeRenderProfile(project.renderProfile));
+    setRenderEncoder(normalizeRenderEncoder(project.renderEncoder));
     setBackground(project.background ?? "");
     setPreviewBackground(project.previewBackground ?? "");
     setBackgroundVisible(project.backgroundVisible ?? true);
@@ -4668,6 +4682,7 @@ function Home() {
           normalizeAspectRatio(project.aspectRatio),
         ),
         renderProfile: normalizeRenderProfile(project.renderProfile),
+        renderEncoder: normalizeRenderEncoder(project.renderEncoder),
         editorSections: normalizeEditorSections(project.editorSections),
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
@@ -4695,6 +4710,7 @@ function Home() {
         narrationEnabled: data.narrationEnabled ?? true,
         renderFps: data.renderFps ?? 30,
         renderProfile: normalizeRenderProfile(data.renderProfile),
+        renderEncoder: normalizeRenderEncoder(data.renderEncoder),
         background: data.background ?? "",
         previewBackground: data.previewBackground ?? "",
         backgroundVisible: data.backgroundVisible ?? true,
@@ -6490,6 +6506,7 @@ function Home() {
       narrationEnabled: true,
       renderFps: 30,
       renderProfile: "quality",
+      renderEncoder: "auto",
       background: "",
       previewBackground: "",
       backgroundVisible: true,
@@ -8522,6 +8539,7 @@ function Home() {
         resolution: renderResolution,
         fps: renderFps,
         renderProfile,
+        renderEncoder,
         ...(renderBackground
           ? { background: assetReference(renderBackground) }
           : {}),
@@ -8671,6 +8689,7 @@ function Home() {
       renderResolution,
       renderFps,
       renderProfile,
+      renderEncoder,
       projectTitle,
       background,
       previewBackground,
@@ -9131,6 +9150,7 @@ function Home() {
           etaSeconds: Number.isFinite(Number(status.etaSeconds)) ? Number(status.etaSeconds) : null,
           mediaTimeSeconds: Number(status.mediaTimeSeconds) || 0,
           mediaDurationSeconds: Number(status.mediaDurationSeconds) || 0,
+          videoEncoder: typeof status.videoEncoder === "string" ? status.videoEncoder : undefined,
           logTail: typeof status.logTail === "string" ? status.logTail : "",
         };
         if (status.status === "completed") {
@@ -15710,6 +15730,32 @@ function Home() {
                             : "Giữ nguyên độ phân giải và FPS đang chọn cho bản xuất cuối."}
                         </small>
                       </label>
+                      <label className="export-field render-profile-field">
+                        <span>GPU Encoder</span>
+                        <select
+                          className="render-profile-select"
+                          value={renderEncoder}
+                          aria-label="GPU Encoder"
+                          onChange={(event) => setRenderEncoder(normalizeRenderEncoder(event.target.value))}
+                        >
+                          <option value="auto">Tự động (GPU nếu có)</option>
+                          <option value="intel-qsv">Intel Quick Sync</option>
+                          <option value="amd-amf">AMD onboard (AMF)</option>
+                          <option value="nvidia-nvenc">NVIDIA NVENC</option>
+                          <option value="cpu">CPU (libx264)</option>
+                        </select>
+                        <small className="export-field-hint">
+                          {renderEncoder === "intel-qsv"
+                            ? "Dùng bộ mã hóa phần cứng Intel Quick Sync; nếu driver không sẵn sàng sẽ chuyển về CPU."
+                            : renderEncoder === "amd-amf"
+                              ? "Dùng bộ mã hóa phần cứng AMD AMF trên Radeon onboard; nếu không khả dụng sẽ chuyển về CPU."
+                              : renderEncoder === "nvidia-nvenc"
+                                ? "Dùng NVIDIA NVENC; nếu không khả dụng sẽ chuyển về CPU."
+                                : renderEncoder === "cpu"
+                                  ? "Mã hóa bằng CPU với libx264, tương thích cao nhất."
+                                  : "Tự kiểm tra encoder phần cứng khả dụng và tự chuyển về libx264 nếu cần."}
+                        </small>
+                      </label>
                       <div className="export-field-row">
                         <label className="export-field">
                           <span>Khung hình</span>
@@ -15784,7 +15830,7 @@ function Home() {
                       </div>
                       <div className="render-status-info">
                         <strong>{exportFileName}</strong>
-                        <span>{renderResolution} · {renderFps} FPS · {localRenderState.message}</span>
+                        <span>{renderResolution} · {renderFps} FPS{localRenderState.videoEncoder ? ` · ${localRenderState.videoEncoder}` : ""} · {localRenderState.message}</span>
                         {localRenderState.status !== "idle" && localRenderState.status !== "failed" && (
                           <div className="render-progress"><i style={{ width: `${localRenderState.progress}%` }} /></div>
                         )}

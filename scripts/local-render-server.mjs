@@ -116,6 +116,7 @@ const renderJobPayload = (job) => {
     etaSeconds: renderEtaSeconds(job, elapsedSeconds),
     mediaTimeSeconds: Number(job.mediaTimeSeconds) || 0,
     mediaDurationSeconds: Number(job.mediaDurationSeconds) || 0,
+    videoEncoder: job.videoEncoder || null,
     downloadUrl: job.downloadUrl || null,
     clip: job.clip || null,
     log: job.status === "failed" ? job.log.slice(-3000) : undefined,
@@ -379,6 +380,13 @@ const runJob = async (job, project, files) => {
       job.elapsedSeconds = renderElapsedSeconds(job);
       const lines = text.split(/\r?\n|\r/).map((line) => line.trim()).filter(Boolean);
       for (const line of lines) {
+        const encoderMatch = line.match(/^Video encoder:\s*(.+)$/i);
+        if (encoderMatch) {
+          job.videoEncoder = encoderMatch[1].trim();
+          job.detail = `Encoder: ${job.videoEncoder}`;
+          job.message = job.detail;
+          continue;
+        }
         const sceneMatch = line.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/i);
         if (sceneMatch) {
           const scene = Number(sceneMatch[1]);
