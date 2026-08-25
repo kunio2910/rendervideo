@@ -175,6 +175,14 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /normalizeTimelineHeight/);
   assert.match(page, /timelineHeight/);
   assert.match(page, /setTimelineHeight\(normalizeTimelineHeight/);
+  assert.match(page, /timelineVisible/);
+  assert.match(page, /setTimelineVisible\(project\.timelineVisible !== false\)/);
+  assert.match(page, /className="timeline-collapse-toggle"/);
+  assert.match(page, /Ẩn Timeline/);
+  assert.match(css, /timeline-collapse-toggle/);
+  assert.match(css, /data-timeline-visible="false"/);
+  assert.doesNotMatch(page, /timeline-resize-handle|startTimelineResize/);
+  assert.doesNotMatch(css, /timeline-resize-handle/);
   assert.match(page, /data-popup-id=\{popup\.id\}/);
   assert.match(page, /draggedPopupBounds/);
   assert.match(page, /height: `min\(\$\{popupGeometry\.height \|\| popup\.height \|\| 255\}px, 88%\)`/);

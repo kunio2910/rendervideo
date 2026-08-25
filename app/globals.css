@@ -1714,38 +1714,6 @@ body { font-size: 14px; }
   height: calc(100% - 4px);
   min-height: 21px;
 }
-.timeline-resize-handle {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 110px;
-  height: 14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: ns-resize;
-  transform: translateX(-50%);
-  touch-action: none;
-}
-.timeline-resize-handle::before {
-  content: "";
-  position: absolute;
-  inset: -5px -30px;
-}
-.timeline-resize-handle span {
-  display: block;
-  width: 52px;
-  height: 4px;
-  margin: 4px auto 0;
-  border-radius: 999px;
-  background: #aab6c5;
-  transition: width .18s ease, background .18s ease;
-}
-.timeline-resize-handle:hover span,
-.timeline-resize-handle:active span {
-  width: 76px;
-  background: #087cff;
-}
 .preview-footer {
   align-items: end;
   gap: 8px;
@@ -1791,7 +1759,6 @@ body { font-size: 14px; }
     max-height: none;
     box-shadow: none;
   }
-  .timeline-resize-handle { display: none; }
 }
 
 /* Compact cinematic studio layout */
@@ -3485,9 +3452,6 @@ body {
     overflow-x: auto;
     overflow-y: hidden;
     border-radius: 12px;
-  }
-  .timeline-resize-handle {
-    display: none;
   }
   .timeline-heading {
     position: sticky;
@@ -7457,8 +7421,7 @@ body {
   background: rgba(150, 183, 215, .78);
 }
 
-/* Keep the light theme controls aligned with the dark theme and keep the
-   resize target above the timeline surface. */
+/* Keep the light theme controls aligned with the dark theme. */
 @media (min-width: 761px) {
   .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-transport {
     position: absolute;
@@ -7468,21 +7431,6 @@ body {
     transform: translateX(-50%);
   }
 
-  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle {
-    z-index: 60;
-    display: block;
-    pointer-events: auto;
-    user-select: none;
-  }
-
-  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle span {
-    background: #b58a54;
-  }
-
-  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle:hover span,
-  .studio-shell[data-theme="light"][data-studio-tab="compose"] .timeline-resize-handle:active span {
-    background: #c67a2e;
-  }
 }
 /* Keep scene details beside the clip information on wide settings screens. */
 .settings-clip-grid { grid-template-columns: minmax(260px, .68fr) minmax(380px, 1.35fr) minmax(300px, .95fr); }
@@ -11807,6 +11755,62 @@ body {
   background: linear-gradient(180deg, #2d6b9f, #21547d);
   color: #fff;
   outline: 0;
+}
+
+/* Timeline visibility toggle. The panel keeps a compact rail when hidden so
+   the same centered control can restore it without changing other panels. */
+.timeline-collapse-toggle {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--studio-muted);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .16);
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+.timeline-collapse-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+.timeline-collapse-toggle:hover,
+.timeline-collapse-toggle:focus-visible {
+  border-color: var(--orange);
+  background: color-mix(in srgb, var(--panel-bg) 78%, var(--orange));
+  color: var(--orange);
+  outline: none;
+}
+.studio-shell[data-timeline-visible="false"] {
+  --timeline-height: 0px !important;
+  padding-bottom: 34px !important;
+}
+.studio-shell[data-timeline-visible="false"] .timeline-panel {
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.studio-shell[data-timeline-visible="false"] .timeline-panel > :not(.timeline-collapse-toggle) {
+  display: none !important;
+}
+.studio-shell[data-timeline-visible="false"] .timeline-collapse-toggle {
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* The Layers panel now lives inside Biên soạn mục 08, so let it use the

@@ -1197,6 +1197,7 @@ type StoredProject = {
   activeSceneId?: string;
   projectDuration: number;
   timelineHeight?: number;
+  timelineVisible?: boolean;
   rulerEnabled?: boolean;
   rulerStyle?: RulerStyle;
   aspectRatio?: AspectRatio;
@@ -3370,6 +3371,7 @@ function Home() {
     return savedTheme === "dark" ? "dark" : "light";
   });
   const [timelineHeight, setTimelineHeight] = useState(245);
+  const [timelineVisible, setTimelineVisible] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(100);
   const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
   const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
@@ -4534,6 +4536,7 @@ function Home() {
       activeSceneId: selectedId,
       projectDuration,
       timelineHeight,
+      timelineVisible,
       rulerEnabled,
       rulerStyle,
       aspectRatio,
@@ -4559,6 +4562,7 @@ function Home() {
       selectedId,
       projectDuration,
       timelineHeight,
+      timelineVisible,
       rulerEnabled,
       rulerStyle,
       aspectRatio,
@@ -4609,6 +4613,7 @@ function Home() {
     setProjectTitle(project.title);
     setProjectDuration(project.projectDuration);
     setTimelineHeight(normalizeTimelineHeight(project.timelineHeight));
+    setTimelineVisible(project.timelineVisible !== false);
     setRulerEnabled(project.rulerEnabled === true);
     setRulerStyle(normalizeRulerStyle(project.rulerStyle));
     setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
@@ -4674,6 +4679,7 @@ function Home() {
       const restoredProjects = (data.projects as ProjectSnapshot[]).map((project) => ({
         ...project,
         timelineHeight: normalizeTimelineHeight(project.timelineHeight),
+        timelineVisible: project.timelineVisible !== false,
         rulerEnabled: project.rulerEnabled === true,
         rulerStyle: normalizeRulerStyle(project.rulerStyle),
         aspectRatio: normalizeAspectRatio(project.aspectRatio),
@@ -4699,6 +4705,7 @@ function Home() {
         title: "Dự án mới",
         projectDuration: Math.max(1, Number(data.projectDuration) || 30),
         timelineHeight: normalizeTimelineHeight(data.timelineHeight),
+        timelineVisible: data.timelineVisible !== false,
         rulerEnabled: data.rulerEnabled === true,
         rulerStyle: normalizeRulerStyle(data.rulerStyle),
         aspectRatio: normalizeAspectRatio(data.aspectRatio),
@@ -8436,21 +8443,6 @@ function Home() {
     window.addEventListener("pointerup", stop);
   };
 
-  const startTimelineResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = normalizeTimelineHeight(timelineHeight);
-    const move = (moveEvent: PointerEvent) => {
-      setTimelineHeight(normalizeTimelineHeight(startHeight + startY - moveEvent.clientY));
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-
   const startTimelinePopupDrag = (
     event: React.PointerEvent<HTMLElement>,
     sceneId: string,
@@ -12010,6 +12002,7 @@ function Home() {
       className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
       data-studio-tab={activeStudioTab}
       data-theme={theme}
+      data-timeline-visible={timelineVisible ? "true" : "false"}
       style={{ ["--timeline-height" as string]: `${timelineHeight}px` }}
     >
       <div className="studio-layout">
@@ -15365,12 +15358,15 @@ function Home() {
       <section className="timeline-panel">
         <button
           type="button"
-          className="timeline-resize-handle"
-          aria-label="Kéo để thay đổi chiều cao timeline"
-          title={`Kéo để thay đổi chiều cao timeline · ${timelineHeight}px`}
-          onPointerDown={startTimelineResize}
+          className="timeline-collapse-toggle"
+          aria-label={timelineVisible ? "Ẩn Timeline" : "Hiện Timeline"}
+          aria-expanded={timelineVisible}
+          title={timelineVisible ? "Ẩn Timeline" : "Hiện Timeline"}
+          onClick={() => setTimelineVisible((visible) => !visible)}
         >
-          <span />
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d={timelineVisible ? "m7 9 5 5 5-5" : "m7 15 5-5 5 5"} />
+          </svg>
         </button>
         <div className="timeline-heading">
           <div>
