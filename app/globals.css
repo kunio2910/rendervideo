@@ -11105,6 +11105,12 @@ body {
 .scene-structure-quick-subtitle-heading .scene-structure-quick-toggle { font-size: 10px; }
 .scene-structure-quick-editor > footer { justify-content: flex-end; border-top: 1px solid #2c4359; background: rgba(4, 12, 20, .28); }
 .scene-structure-quick-editor > footer .button { min-height: 35px; padding-inline: 14px; font-size: 10px; }
+.scene-structure-quick-navigation,
+.scene-structure-quick-actions { display: flex; align-items: center; gap: 8px; }
+.scene-structure-quick-navigation { min-width: 0; margin-right: auto; }
+.scene-structure-quick-navigation > span { min-width: 52px; color: #9eb2c4; font: 800 9px var(--font-mono); text-align: center; }
+.scene-structure-quick-nav-button { min-width: 112px; padding-inline: 9px !important; white-space: nowrap; }
+.scene-structure-quick-nav-button:disabled { cursor: not-allowed; opacity: .38; }
 
 @media (max-width: 620px) {
   .scene-structure-quick-editor-overlay { align-items: end; padding: 10px; }
@@ -11112,6 +11118,10 @@ body {
   .scene-structure-quick-editor > header,
   .scene-structure-quick-editor > footer { padding: 14px; }
   .scene-structure-quick-editor-body { padding: 14px; }
+  .scene-structure-quick-editor > footer { align-items: stretch; flex-wrap: wrap; }
+  .scene-structure-quick-navigation { width: 100%; justify-content: space-between; margin-right: 0; }
+  .scene-structure-quick-nav-button { min-width: 0; flex: 1 1 0; }
+  .scene-structure-quick-actions { width: 100%; justify-content: flex-end; }
   .scene-structure-quick-grid-2,
   .scene-structure-quick-grid-3 { grid-template-columns: 1fr 1fr; }
 }
@@ -11730,6 +11740,10 @@ body {
   background: rgba(255, 251, 244, .82);
 }
 .scene-structure-light .scene-structure-quick-editor > footer { background: rgba(255, 250, 241, .82); }
+.scene-structure-light .scene-structure-quick-navigation > span { color: #8a7258; }
+.scene-structure-light .scene-structure-quick-nav-button { border-color: #d2b88f; background: #fff8ec; color: #7b5428; }
+.scene-structure-light .scene-structure-quick-nav-button:hover:not(:disabled),
+.scene-structure-light .scene-structure-quick-nav-button:focus-visible { border-color: #b97825; background: #f7e6c9; color: #5d3411; }
 .scene-structure-light .scene-structure-alt-scroll {
   background:
     linear-gradient(rgba(156, 127, 87, .1) 1px, transparent 1px),

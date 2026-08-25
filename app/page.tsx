@@ -4286,6 +4286,15 @@ function Home() {
     ?? null;
   const sceneStructureQuickEditItem = sceneStructureItems.find((item) => item.token === sceneStructureQuickEditToken)
     ?? null;
+  const sceneStructureQuickEditItemIndex = sceneStructureQuickEditItem
+    ? sceneStructureItems.findIndex((item) => item.token === sceneStructureQuickEditItem.token)
+    : -1;
+  const sceneStructureQuickEditPreviousItem = sceneStructureQuickEditItemIndex > 0
+    ? sceneStructureItems[sceneStructureQuickEditItemIndex - 1]
+    : null;
+  const sceneStructureQuickEditNextItem = sceneStructureQuickEditItemIndex >= 0
+    ? sceneStructureItems[sceneStructureQuickEditItemIndex + 1] ?? null
+    : null;
   const selectedSceneStructureItemToken = selectedSceneStructureItem?.token ?? "";
   const selectedSceneStructureItemStart = selectedSceneStructureItem?.start ?? 0;
   const selectedSceneStructureItemEnd = selectedSceneStructureItem?.end ?? 0;
@@ -10191,6 +10200,15 @@ function Home() {
     setSceneStructureQuickEditToken(item.token);
   };
 
+  const navigateSceneStructureQuickEditor = (direction: "previous" | "next") => {
+    const target = direction === "previous"
+      ? sceneStructureQuickEditPreviousItem
+      : sceneStructureQuickEditNextItem;
+    if (!target) return;
+    selectSceneStructureItem(target);
+    setSceneStructureQuickEditToken(target.token);
+  };
+
   const updateSceneStructureSubtitleImageDraft = (
     cueId: string,
     values: Partial<SceneStructureSubtitleImageDraft>,
@@ -11435,8 +11453,25 @@ function Home() {
           </header>
           <div className="scene-structure-quick-editor-body">{content ?? <p className="scene-structure-quick-note">Thẻ này không còn tồn tại hoặc đã được ẩn.</p>}</div>
           <footer>
-            <button type="button" className="button secondary" onClick={() => openSceneStructureItemInEditor(item)}>Mở Biên soạn đầy đủ</button>
-            <button type="button" className="button primary" onClick={() => setSceneStructureQuickEditToken("")}>Xong</button>
+            <div className="scene-structure-quick-navigation" aria-label="Điều hướng thẻ trong Timeline">
+              <button
+                type="button"
+                className="button secondary scene-structure-quick-nav-button"
+                disabled={!sceneStructureQuickEditPreviousItem}
+                onClick={() => navigateSceneStructureQuickEditor("previous")}
+              >← Thẻ trước đó</button>
+              <span aria-live="polite">{sceneStructureQuickEditItemIndex + 1} / {sceneStructureItems.length}</span>
+              <button
+                type="button"
+                className="button secondary scene-structure-quick-nav-button"
+                disabled={!sceneStructureQuickEditNextItem}
+                onClick={() => navigateSceneStructureQuickEditor("next")}
+              >Thẻ tiếp theo →</button>
+            </div>
+            <div className="scene-structure-quick-actions">
+              <button type="button" className="button secondary" onClick={() => openSceneStructureItemInEditor(item)}>Mở Biên soạn đầy đủ</button>
+              <button type="button" className="button primary" onClick={() => setSceneStructureQuickEditToken("")}>Xong</button>
+            </div>
           </footer>
         </section>
       </div>
