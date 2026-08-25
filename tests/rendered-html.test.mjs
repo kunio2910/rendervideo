@@ -7,6 +7,7 @@ import test from "node:test";
 import sharp from "sharp";
 import { cacheRemoteResource, collectProjectRemoteResources } from "../scripts/render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "../scripts/sprite-sheet.mjs";
+import { measureSvgTextWidth, wrapTextByPixelWidth } from "../scripts/render-text-layout.mjs";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -28,6 +29,20 @@ async function render() {
     },
   );
 }
+
+test("measures proportional glyphs and wraps renderer text by pixel width", async () => {
+  const options = { fontFamily: "Arial", fontSize: 48, fontWeight: 400 };
+  const wide = await measureSvgTextWidth("WWWW", options);
+  const narrow = await measureSvgTextWidth("iiii", options);
+  assert.ok(wide > narrow * 2, `expected proportional widths, received ${wide} and ${narrow}`);
+
+  const maxWidth = await measureSvgTextWidth("Thiên Chúa", options);
+  const lines = await wrapTextByPixelWidth("Thiên Chúa thấy loài người gian ác", maxWidth + 2, options);
+  assert.ok(lines.length > 1);
+  for (const line of lines) {
+    assert.ok(await measureSvgTextWidth(line, options) <= maxWidth + 3, `line is too wide: ${line}`);
+  }
+});
 
 test("server-renders the Kito Video Studio editor shell", async () => {
   const response = await render();
@@ -449,15 +464,23 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(css, /local-render-stage-track/);
   assert.match(css, /local-render-detail-grid/);
   assert.match(renderer, /PREVIEW_REFERENCE_WIDTH = 472/);
+  assert.match(renderer, /PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" \? 520 : 352/);
+  assert.match(renderer, /PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" \? 289 : 632/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
   assert.match(renderer, /popupPixelHeight/);
   assert.match(renderer, /const geometry = popupSectionGeometry\(/);
   assert.match(renderer, /const height = Math\.min\(/);
-  assert.match(renderer, /const popupWidthValue = Number\(popupScene\.popupWidth \?\? popupScene\.width \?\? 90\)/);
-  assert.match(renderer, /Number\.isFinite\(popupWidthValue\)/);
+  assert.match(renderer, /wrapTextByPixelWidth\(titleValue\.toUpperCase\(\), contentWidth/);
+  assert.match(renderer, /wrapTextByPixelWidth\(bodyValue, contentWidth/);
+  assert.match(renderer, /const popupXValue = Number\(popupScene\.popupX \?\? 5\)/);
+  assert.match(renderer, /const popupYValue = Number\(popupScene\.popupY \?\? 55\)/);
+  assert.match(renderer, /const popupBaseX = `main_w\*\$\{popupXRatio\}/);
+  assert.match(renderer, /const popupBaseY = `main_h\*\$\{popupYRatio\}/);
+  assert.doesNotMatch(renderer, /1 - popupWidthRatio|1 - popupHeightRatio/);
   assert.doesNotMatch(renderer, /Number\(popup\.width\) \|\| outputWidth \* clamp/);
-  assert.match(renderer, /Number\(popup\.height\)/);
+  assert.match(renderer, /measureSvgTextWidth/);
+  assert.match(renderer, /availableContentWidth/);
   assert.match(renderer, /popupImageHeight/);
   assert.match(renderer, /popupContentHeight/);
   assert.match(renderer, /textBlurSharpSource/);

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { cacheRemoteResource, isRemoteResourceUrl, resourceKey } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
+import { measureSvgTextWidth, wrapTextByPixelWidth } from "./render-text-layout.mjs";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
 if (!jsonPath || !outputPath) {
@@ -198,8 +199,12 @@ const videoEncoderArgs = resolvedVideoEncoder.codec === "libx264"
 const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
-const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 528 : 360;
-const PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" ? 297 : 640;
+// The browser preview frame has a 4 px border on every side. Percent-based
+// layers use its inner containing block, and CSS pixel sizes are relative to
+// that same area. Scale renderer typography from those inner dimensions so
+// text, padding and popup sections keep the same visual proportions.
+const PREVIEW_CANVAS_WIDTH = aspectRatio === "16:9" ? 520 : 352;
+const PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" ? 289 : 632;
 const previewScale = Math.min(
   outputWidth / PREVIEW_CANVAS_WIDTH,
   outputHeight / PREVIEW_CANVAS_HEIGHT,
@@ -504,20 +509,44 @@ const escapeDrawtext = (value = "") => String(value)
   .replaceAll("%", "\\%")
   .replace(/\r?\n/g, "\\n");
 
-const wrap = (value = "", max = 42) => {
-  const words = value.trim().split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = "";
-  for (const word of words) {
-    if (`${line} ${word}`.trim().length > max && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = `${line} ${word}`.trim();
+const popupRenderFontFamily = "Render Be Vietnam Pro";
+const popupFontRanges = {
+  vietnamese: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+  latinExt: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF",
+  latin: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+};
+const popupFontFaces = [
+  { weight: 400, file: "be-vietnam-pro-9473b8f2.woff2", range: popupFontRanges.vietnamese },
+  { weight: 400, file: "be-vietnam-pro-883ecb8b.woff2", range: popupFontRanges.latinExt },
+  { weight: 400, file: "be-vietnam-pro-885461ae.woff2", range: popupFontRanges.latin },
+  { weight: 700, file: "be-vietnam-pro-0d107474.woff2", range: popupFontRanges.vietnamese },
+  { weight: 700, file: "be-vietnam-pro-bcb4e33f.woff2", range: popupFontRanges.latinExt },
+  { weight: 700, file: "be-vietnam-pro-e5c68d27.woff2", range: popupFontRanges.latin },
+];
+let popupFontCssPromise;
+const readPopupFontFile = async (file) => {
+  const candidates = [
+    path.join(root, "assets", "_vinext_fonts", "be-vietnam-pro-11ccb883d025", file),
+    path.join(root, ".vinext", "fonts", "be-vietnam-pro-11ccb883d025", file),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate);
+    } catch {
+      // Try the next bundled build location.
     }
   }
-  if (line) lines.push(line);
-  return lines;
+  throw new Error(`Không tìm thấy font Popup ${file}`);
+};
+const loadPopupFontCss = () => {
+  popupFontCssPromise ??= Promise.all(popupFontFaces.map(async (face) => {
+    const data = (await readPopupFontFile(face.file)).toString("base64");
+    return `@font-face{font-family:'${popupRenderFontFamily}';font-style:normal;font-weight:${face.weight};src:url(data:font/woff2;base64,${data}) format('woff2');unicode-range:${face.range};}`;
+  })).then((rules) => rules.join("\n")).catch((error) => {
+    console.warn(`Không thể nạp font Popup giống Preview: ${error.message}`);
+    return "";
+  });
+  return popupFontCssPromise;
 };
 
 const run = (command, args) =>
@@ -843,11 +872,11 @@ const createPopup = async (scene, index) => {
       ? "content-only"
       : !hasText && hasVisualInput ? "image-top" : requestedLayout;
   const colors = {
-    travel: { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
-    sunset: { background: "#3d1d2b", title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
-    ocean: { background: "#122b3b", title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
-    minimal: { background: "#fbfaf7", title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
-  }[scene.popupTheme ?? "travel"] ?? { background: "#262118", title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
+    travel: { background: "#262118", backgroundOpacity: 0.94, title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" },
+    sunset: { background: "#3d1d2b", backgroundOpacity: 0.95, title: "#fff2e5", body: "#ffd1bd", border: "#ef8354", accent: "#ffb26b" },
+    ocean: { background: "#122b3b", backgroundOpacity: 0.95, title: "#e8fbff", body: "#b9e9f4", border: "#39c5d8", accent: "#65d7e8" },
+    minimal: { background: "#fbfaf7", backgroundOpacity: 0.97, title: "#2d2a26", body: "#5b554d", border: "#9b7d5d", accent: "#9b7d5d" },
+  }[scene.popupTheme ?? "travel"] ?? { background: "#262118", backgroundOpacity: 0.94, title: "#fff3d6", body: "#e9ddc7", border: "#aa772c", accent: "#dda13e" };
   const resolvedImage = showVisual && imageVisible
     ? await resolveImage(imageValue, `scene-${index + 1}-image`)
     : null;
@@ -902,13 +931,43 @@ const createPopup = async (scene, index) => {
   const contentX = split ? imageWidth + paddingX : paddingX;
   const contentWidth = split ? width - imageWidth - paddingX * 2 : width - paddingX * 2;
   const contentTop = split ? 0 : imageHeight;
-  const titleY = layout === "quote"
-    ? Math.round(previewPx(56))
-    : contentTop + Math.round(previewPx(layout === "stats" ? 33 : 33));
-  const bodyY = titleY + Math.round(previewPx(layout === "quote" ? 33 : 24));
-  const maxCharacters = Math.max(24, Math.floor(contentWidth / Math.max(1, bodyFontSize * 0.54)));
-  const maxBodyLines = Math.max(1, Math.floor((contentTop + contentHeight - bodyY - previewPx(15)) / bodyLineHeight) + 1);
-  const bodyLines = wrap(showText ? scene.body ?? scene.popup ?? "" : "", maxCharacters).slice(0, maxBodyLines);
+  const popupFontCss = showText ? await loadPopupFontCss() : "";
+  const popupFontFamily = popupFontCss ? popupRenderFontFamily : "Arial";
+  const titleLineHeight = Math.round(previewPx(22.5));
+  const titleBaseY = contentTop + Math.round(previewPx(
+    layout === "quote" ? 51 : layout === "stats" ? 67 : 36,
+  ));
+  const bodyWithoutTitleY = contentTop + Math.round(previewPx(
+    layout === "quote" ? 47 : layout === "stats" ? 64 : 32,
+  ));
+  const titleLines = titleValue
+    ? await wrapTextByPixelWidth(titleValue.toUpperCase(), contentWidth, {
+        fontCss: popupFontCss,
+        fontKey: `popup-title-${popupFontFamily}`,
+        fontFamily: popupFontFamily,
+        fontSize: titleFontSize,
+        fontWeight: 400,
+      })
+    : [];
+  const bodyY = titleLines.length
+    ? titleBaseY + (titleLines.length - 1) * titleLineHeight + Math.round(previewPx(24))
+    : bodyWithoutTitleY;
+  const maxBodyLines = Math.max(
+    0,
+    Math.floor((contentTop + contentHeight - bodyY - previewPx(15)) / bodyLineHeight) + 1,
+  );
+  const bodyLines = bodyValue
+    ? (await wrapTextByPixelWidth(bodyValue, contentWidth, {
+        fontCss: popupFontCss,
+        fontKey: `popup-body-${popupFontFamily}`,
+        fontFamily: popupFontFamily,
+        fontSize: bodyFontSize,
+        fontWeight: 400,
+      })).slice(0, maxBodyLines)
+    : [];
+  const titleText = titleLines.map((line, lineIndex) =>
+    `<text x="${contentX}" y="${titleBaseY + lineIndex * titleLineHeight}" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(line)}</text>`,
+  ).join("");
   const bodyText = bodyLines.map((line, lineIndex) =>
     `<text x="${contentX}" y="${bodyY + lineIndex * bodyLineHeight}" font-size="${bodyFontSize}" fill="${colors.body}">${escapeXml(line)}</text>`,
   ).join("");
@@ -920,7 +979,7 @@ const createPopup = async (scene, index) => {
     : `<rect width="${width}" height="${imageHeight}" fill="url(#placeholderSky)"/>`;
   const cardBackground = transparentMediaOnly
     ? ""
-    : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity=".96"/>`;
+    : `<rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${width - borderWidth}" height="${height - borderWidth}" rx="${radius}" fill="${colors.background}" fill-opacity="${colors.backgroundOpacity}"/>`;
   // Keep the render in sync with the editor preview. The preview's media
   // area always has this light sky/sand background when transparent media is
   // disabled. Without it, transparent pixels in a PNG/WebP reveal the dark
@@ -929,13 +988,14 @@ const createPopup = async (scene, index) => {
     ? `<g clip-path="url(#imageClip)"><rect width="${imageWidth}" height="${imageHeight}" fill="url(#popupMediaBackground)"/></g>`
     : "";
   const quoteMark = showText && layout === "quote"
-    ? `<text x="${contentX}" y="${Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(40))}" fill="${colors.accent}">“</text>`
+    ? `<text x="${contentX}" y="${contentTop + Math.round(previewPx(38))}" font-family="Georgia" font-weight="700" font-size="${Math.round(previewPx(46))}" fill="${colors.accent}" fill-opacity=".85">“</text>`
     : "";
   const statRow = showText && layout === "stats"
-    ? `<text x="${contentX}" y="${Math.round(previewPx(19))}" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(8))}" letter-spacing="2" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${Math.round(previewPx(25))}" text-anchor="end" font-family="Arial" font-weight="700" font-size="${Math.round(previewPx(17))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
+    ? `<text x="${contentX}" y="${contentTop + Math.round(previewPx(27))}" font-family="${popupFontFamily}" font-weight="700" font-size="${Math.round(previewPx(9))}" letter-spacing="${previewPx(1.08)}" fill="${colors.accent}">${escapeXml(String(scene.location || "HÀNH TRÌNH").toUpperCase())}</text><text x="${width - paddingX}" y="${contentTop + Math.round(previewPx(31))}" text-anchor="end" font-family="${popupFontFamily}" font-weight="700" font-size="${Math.round(previewPx(18))}" fill="${colors.accent}">${escapeXml(String(scene.milestone ?? index + 1).padStart(2, "0"))}</text>`
     : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <style>${popupFontCss}</style>
       <defs>
         <linearGradient id="placeholderSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
         <linearGradient id="popupMediaBackground" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9e4f5"/><stop offset="100%" stop-color="#f6d8af"/></linearGradient>
@@ -945,8 +1005,7 @@ const createPopup = async (scene, index) => {
       ${mediaBackground}
       ${hasVisual && !image && !video && layout !== "quote" ? `<g clip-path="url(#imageClip)">${placeholder}<circle cx="${width * 0.78}" cy="${previewPx(30)}" r="${previewPx(14)}" fill="#ffe1a3"/><ellipse cx="${width * 0.25}" cy="${imageHeight + previewPx(22)}" rx="${width * 0.48}" ry="${previewPx(48)}" fill="#769b79"/><ellipse cx="${width * 0.82}" cy="${imageHeight + previewPx(28)}" rx="${width * 0.44}" ry="${previewPx(52)}" fill="#557c64"/></g>` : ""}
       ${quoteMark}${statRow}
-      <text x="${contentX}" y="${titleY}" font-family="Arial, sans-serif" font-weight="700" font-size="${titleFontSize}" fill="${colors.title}">${escapeXml(showText ? titleValue.toUpperCase() : "")}</text>
-      <g font-family="Arial">${bodyText}</g>
+      <g font-family="${popupFontFamily}" font-weight="400">${titleText}${bodyText}</g>
     </svg>
   `);
   const base = sharp(svg);
@@ -1283,27 +1342,57 @@ const createTextOverlay = async (overlay, index) => {
   const paddingX = Math.round(previewPx(9));
   const paddingY = Math.round(previewPx(5));
   const lineHeight = Math.max(Math.round(size * 1.15), Math.round(previewPx(14)));
+  const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
+  const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
+  // Browser Preview finishes the letter-spacing animation at zero. Keeping a
+  // permanent 5 px gap in the raster made the exported text wider than its
+  // final Preview state and changed its line breaks.
+  const letterSpacing = 0;
+  const textMeasureOptions = {
+    fontKey: `overlay-${font}-${fontWeight}-${fontStyle}-${size}`,
+    fontFamily: font,
+    fontSize: size,
+    fontWeight,
+    fontStyle,
+    letterSpacing,
+  };
   const requestedBoxWidth = Number(overlay?.boxWidth ?? overlay?.width);
   const minimumBoxWidth = overlay?.boxWidth !== undefined ? 0.4 : 0.04;
   const boxWidth = Number.isFinite(requestedBoxWidth)
     ? Math.round(outputWidth * clamp(requestedBoxWidth / 100, minimumBoxWidth, 1))
     : null;
   const requestedBoxHeight = Number(overlay?.boxHeight ?? overlay?.height);
-  const maxChars = boxWidth
-    ? Math.max(1, Math.floor((boxWidth - paddingX * 2 - strokeWidth * 2 - borderWidth) / Math.max(1, size * 0.58)))
-    : null;
-  const lines = text
-    .split(/\r?\n/)
-    .flatMap((line) => maxChars ? (line ? wrap(line, maxChars) : [""]) : [line]);
-  const longestLine = Math.max(1, ...lines.map((line) => line.length));
+  const availableContentWidth = Math.max(
+    1,
+    (boxWidth ?? outputWidth) - paddingX * 2 - borderWidth * 2,
+  );
+  const sourceLines = text.split(/\r?\n/);
+  let lines;
+  if (boxWidth) {
+    lines = (await Promise.all(sourceLines.map((line) => line
+      ? wrapTextByPixelWidth(line, availableContentWidth, textMeasureOptions)
+      : [""]))).flat();
+  } else {
+    const sourceWidths = await Promise.all(sourceLines.map((line) =>
+      measureSvgTextWidth(line, textMeasureOptions),
+    ));
+    lines = Math.max(0, ...sourceWidths) > availableContentWidth
+      ? (await Promise.all(sourceLines.map((line) => line
+          ? wrapTextByPixelWidth(line, availableContentWidth, textMeasureOptions)
+          : [""]))).flat()
+      : sourceLines;
+  }
+  const lineWidths = await Promise.all(lines.map((line) =>
+    measureSvgTextWidth(line, textMeasureOptions),
+  ));
   const intrinsicWidth = Math.max(
     Math.round(previewPx(32)),
-    Math.ceil(longestLine * size * 0.58 + paddingX * 2 + strokeWidth * 2 + borderWidth),
+    Math.ceil(Math.max(1, ...lineWidths) + paddingX * 2 + borderWidth * 2),
   );
-  const width = boxWidth ?? intrinsicWidth;
+  const width = boxWidth ?? Math.min(outputWidth, intrinsicWidth);
   const intrinsicHeight = Math.max(
     Math.round(previewPx(24)),
-    Math.ceil(lines.length * lineHeight + paddingY * 2 + strokeWidth * 2 + borderWidth),
+    Math.ceil(lines.length * lineHeight + paddingY * 2 + borderWidth * 2),
   );
   const height = Number.isFinite(requestedBoxHeight)
     ? Math.max(Math.round(previewPx(24)), Math.round(outputHeight * clamp(requestedBoxHeight / 100, 0.03, 0.4)))
@@ -1312,23 +1401,20 @@ const createTextOverlay = async (overlay, index) => {
     Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
     Math.floor(Math.min(width, height) / 2),
   );
-  const fontWeight = String(overlay?.style ?? "normal").includes("bold") ? 700 : 400;
-  const fontStyle = String(overlay?.style ?? "normal").includes("italic") ? "italic" : "normal";
-  const letterSpacing = textEffect === "letter-spacing" ? Math.round(previewPx(5)) : 0;
   const textNodes = lines.map((line, lineIndex) => {
     const y = paddingY + size * 0.86 + lineIndex * lineHeight;
     return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
   }).join("");
-  const shadowNodes = textEffect === "shadow-lift"
-    ? lines.map((line, lineIndex) => {
-        const y = paddingY + size * 0.86 + lineIndex * lineHeight + Math.max(2, Math.round(previewPx(7)));
-        return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="#000000" fill-opacity="0.38">${escapeXml(line)}</text>`;
-      }).join("")
+  const baseShadowY = Math.max(1, previewPx(2));
+  const baseShadowBlur = Math.max(1, previewPx(2.5));
+  const liftedShadow = textEffect === "shadow-lift"
+    ? `<feDropShadow dx="0" dy="${previewPx(13)}" stdDeviation="${previewPx(8)}" flood-color="#000000" flood-opacity=".35"/>`
     : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <defs><filter id="textBaseShadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="${baseShadowY}" stdDeviation="${baseShadowBlur}" flood-color="#000000" flood-opacity=".72"/>${liftedShadow}</filter></defs>
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
-      ${shadowNodes}${textNodes}
+      <g filter="url(#textBaseShadow)">${textNodes}</g>
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
@@ -1759,21 +1845,21 @@ for (let index = 0; index < scenes.length; index += 1) {
         inputFilter += ",noise=alls=4:allf=t+u";
       }
       if (effect === "zoom") {
-        inputFilter += `,scale=w='iw*(0.78+0.22*${progress})':h='ih*(0.78+0.22*${progress})':eval=frame`;
+        inputFilter += `,scale=w='iw*(0.72+0.28*${progress})':h='ih*(0.72+0.28*${progress})':eval=frame`;
       } else if (effect === "pop") {
-        inputFilter += `,scale=w='iw*(0.82+0.18*${progress})':h='ih*(0.82+0.18*${progress})':eval=frame`;
+        const popScale = `if(lt(${progress},0.7),0.72+0.36*${progress}/0.7,1.08-0.08*(${progress}-0.7)/0.3)`;
+        inputFilter += `,scale=w='iw*(${popScale})':h='ih*(${popScale})':eval=frame`;
       }
       filter += `${inputFilter}[${inputLabel}];`;
     }
     const baseX = `main_w*${x}-overlay_w/2`;
     const baseY = `main_h*${y}-overlay_h/2`;
-    const slideDistance = "main_w*0.12";
     let overlayX = baseX;
     let overlayY = baseY;
-    if (effect === "slide-left") overlayX = `${baseX}-${slideDistance}*(1-${progress})`;
-    if (effect === "slide-right") overlayX = `${baseX}+${slideDistance}*(1-${progress})`;
-    if (effect === "slide-up") overlayY = `${baseY}+main_h*0.08*(1-${progress})`;
-    if (effect === "slide-down") overlayY = `${baseY}-main_h*0.08*(1-${progress})`;
+    if (effect === "slide-left") overlayX = `${baseX}+overlay_w*0.34*(1-${progress})`;
+    if (effect === "slide-right") overlayX = `${baseX}-overlay_w*0.34*(1-${progress})`;
+    if (effect === "slide-up") overlayY = `${baseY}+overlay_h*0.34*(1-${progress})`;
+    if (effect === "slide-down") overlayY = `${baseY}-overlay_h*0.34*(1-${progress})`;
     if (effect === "shake") {
       overlayX = `${baseX}+sin((t-${textStart})*48)*${Math.max(1, Math.round(previewPx(2)))}`;
       overlayY = `${baseY}+cos((t-${textStart})*55)*${Math.max(1, Math.round(previewPx(1.5)))}`;
@@ -1900,7 +1986,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
     const popupIn = popupScene.popupIn ?? "fade-slide-up";
     const popupOut = popupScene.popupOut ?? "fade-slide-down";
-    const popupTextEffect = popupScene.popupTextEffect ?? "none";
     const popupInProgress = `(t-${popupStart})/${transition}`;
     const popupOutProgress = `(t-${popupEnd - transition})/${transition}`;
     const popupScaleStart = (effect) => ({
@@ -1919,52 +2004,45 @@ for (let index = 0; index < scenes.length; index += 1) {
       flip: `1-0.14*(${popupOutProgress})`,
     }[effect] ?? "1");
     const popupScaleBase = `if(lt(t,${popupStart}),${popupScaleStart(popupIn)},if(lt(t,${popupStart + transition}),${popupScaleIn(popupIn)},if(gt(t,${popupEnd - transition}),${popupScaleOut(popupOut)},1)))`;
-    const popupTextScale = popupTextEffect === "pop"
-      ? `if(lt(t,${popupStart}),0.88,if(lt(t,${popupStart + transition}),0.88+0.12*(${popupInProgress}),if(gt(t,${popupEnd - transition}),1-0.12*(${popupOutProgress}),1)))`
-      : "1";
-    const popupScale = `(${popupScaleBase})*(${popupTextScale})`;
+    // Popup text effects belong to .card-content in Preview. Scaling the
+    // complete card here made its frame and media drift, so the composition
+    // layer only follows the Popup opening/closing transform.
+    const popupScale = popupScaleBase;
     const popupAngle = `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
-    // Popup width is stored as a percentage in the editor and Preview
-    // renders it as `${popup.width}%`. Keep the FFmpeg overlay on the same
-    // coordinate system; treating `90` as pixels here shrinks the popup to
-    // the 45% minimum and leaves a large blank margin on the right.
-    const popupWidthValue = Number(popupScene.popupWidth ?? popupScene.width ?? 90);
-    const popupWidthRatio = clamp(
-      (Number.isFinite(popupWidthValue) ? popupWidthValue : 90) / 100,
-      0.45,
-      1,
-    );
-    const popupHeightRatio = clamp(
-      (Number(popup.height) || popupPixelHeight(popupScene)) / outputHeight,
-      0.2,
-      0.88,
-    );
-    const popupXRatio = clamp(Number(popupScene.popupX ?? 5) / 100, 0, 1 - popupWidthRatio);
-    const popupYRatio = clamp(Number(popupScene.popupY ?? 55) / 100, 0, 1 - popupHeightRatio);
-    const popupCenterX = `main_w*${popupXRatio}`;
+    const popupXValue = Number(popupScene.popupX ?? 5);
+    const popupYValue = Number(popupScene.popupY ?? 55);
+    // Preview treats x/y as the card's top-left point and simply clips any
+    // overflow at the phone edge. Do not move the card back inside the frame
+    // during export, otherwise a resized Popup changes position in the video.
+    const popupXRatio = clamp((Number.isFinite(popupXValue) ? popupXValue : 5) / 100, 0, 1);
+    const popupYRatio = clamp((Number.isFinite(popupYValue) ? popupYValue : 55) / 100, 0, 1);
+    // CSS scales Popup from center-bottom. FFmpeg scales the bitmap itself,
+    // so compensate its x/y to preserve that same transform origin.
+    const popupBaseX = `main_w*${popupXRatio}+overlay_w*(1/(${popupScale})-1)/2`;
+    const popupBaseY = `main_h*${popupYRatio}+overlay_h*(1/(${popupScale})-1)`;
+    const popupHorizontalTravel = `overlay_w/(${popupScale})*0.85`;
     const openingX = popupIn === "slide-left"
-      ? `if(lt(t,${popupStart + transition}),-overlay_w+(${popupCenterX}+overlay_w)*(t-${popupStart})/${transition},${popupCenterX})`
+      ? `if(lt(t,${popupStart + transition}),${popupBaseX}-${popupHorizontalTravel}*(1-(${popupInProgress})),${popupBaseX})`
       : popupIn === "slide-right"
-        ? `if(lt(t,${popupStart + transition}),main_w-(main_w-${popupCenterX})*(t-${popupStart})/${transition},${popupCenterX})`
-        : popupCenterX;
+        ? `if(lt(t,${popupStart + transition}),${popupBaseX}+${popupHorizontalTravel}*(1-(${popupInProgress})),${popupBaseX})`
+        : popupBaseX;
     const closingX = popupOut === "slide-left"
-      ? `if(gt(t,${popupEnd - transition}),${popupCenterX}-(${popupCenterX}+overlay_w)*(t-${popupEnd - transition})/${transition},${openingX})`
+      ? `if(gt(t,${popupEnd - transition}),${popupBaseX}-${popupHorizontalTravel}*(${popupOutProgress}),${openingX})`
       : popupOut === "slide-right"
-        ? `if(gt(t,${popupEnd - transition}),${popupCenterX}+(main_w-${popupCenterX})*(t-${popupEnd - transition})/${transition},${openingX})`
+        ? `if(gt(t,${popupEnd - transition}),${popupBaseX}+${popupHorizontalTravel}*(${popupOutProgress}),${openingX})`
         : openingX;
     const popupSlideDistance = Math.round(previewPx(52));
     const bounceInDistance = Math.round(previewPx(70));
     const bouncePeak = Math.round(previewPx(12));
     const bounceOutPeak = Math.round(previewPx(13));
     const bounceOutDistance = Math.round(previewPx(75));
-    const centerYExpression = `main_h*${popupYRatio}`;
     const popupY = popupIn === "bounce"
-      ? `if(lt(t,${popupStart + transition}),${centerYExpression}+if(lt(${popupInProgress},0.65),${bounceInDistance}-${bounceInDistance + bouncePeak}*(${popupInProgress})/0.65,-${bouncePeak}*(1-(${popupInProgress}-0.65)/0.35)),${centerYExpression})`
+      ? `if(lt(t,${popupStart + transition}),${popupBaseY}+if(lt(${popupInProgress},0.65),${bounceInDistance}-${bounceInDistance + bouncePeak}*(${popupInProgress})/0.65,-${bouncePeak}*(1-(${popupInProgress}-0.65)/0.35)),${popupBaseY})`
       : popupOut === "bounce"
-        ? `if(gt(t,${popupEnd - transition}),${centerYExpression}+if(lt(${popupOutProgress},0.35),-${bounceOutPeak}*(${popupOutProgress})/0.35,-${bounceOutPeak}+${bounceOutPeak + bounceOutDistance}*((${popupOutProgress})-0.35)/0.65),${centerYExpression})`
+        ? `if(gt(t,${popupEnd - transition}),${popupBaseY}+if(lt(${popupOutProgress},0.35),-${bounceOutPeak}*(${popupOutProgress})/0.35,-${bounceOutPeak}+${bounceOutPeak + bounceOutDistance}*((${popupOutProgress})-0.35)/0.65),${popupBaseY})`
         : popupIn === "fade-slide-up" || popupOut === "fade-slide-down"
-          ? `if(lt(t,${popupStart + transition}),${centerYExpression}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${centerYExpression}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${centerYExpression}))`
-          : centerYExpression;
+          ? `if(lt(t,${popupStart + transition}),${popupBaseY}+${popupSlideDistance}*(1-(t-${popupStart})/${transition}),if(gt(t,${popupEnd - transition}),${popupBaseY}+${popupSlideDistance}*(t-${popupEnd - transition})/${transition},${popupBaseY}))`
+          : popupBaseY;
     const videoInputIndex = popup.video ? popupInputIndex + 1 : null;
     const borderInputIndex = popup.video && popup.borderPath ? popupInputIndex + 2 : null;
     const videoLabel = `popupVideo${popupIndex}`;
