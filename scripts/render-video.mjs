@@ -1924,8 +1924,13 @@ for (let index = 0; index < scenes.length; index += 1) {
       : "1";
     const popupScale = `(${popupScaleBase})*(${popupTextScale})`;
     const popupAngle = `if(lt(t,${popupStart}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(lt(t,${popupStart + transition}),${popupIn === "flip" ? `-PI/2*(1-(${popupInProgress}))` : "0"},if(gt(t,${popupEnd - transition}),${popupOut === "flip" ? `PI/2*(${popupOutProgress})` : "0"},0)))`;
+    // Popup width is stored as a percentage in the editor and Preview
+    // renders it as `${popup.width}%`. Keep the FFmpeg overlay on the same
+    // coordinate system; treating `90` as pixels here shrinks the popup to
+    // the 45% minimum and leaves a large blank margin on the right.
+    const popupWidthValue = Number(popupScene.popupWidth ?? popupScene.width ?? 90);
     const popupWidthRatio = clamp(
-      (Number(popup.width) || outputWidth * clamp(Number(popupScene.popupWidth ?? 90) / 100, 0.45, 1)) / outputWidth,
+      (Number.isFinite(popupWidthValue) ? popupWidthValue : 90) / 100,
       0.45,
       1,
     );

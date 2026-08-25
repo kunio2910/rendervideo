@@ -437,7 +437,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /popupPixelHeight/);
   assert.match(renderer, /const geometry = popupSectionGeometry\(/);
   assert.match(renderer, /const height = Math\.min\(/);
-  assert.match(renderer, /Number\(popup\.width\)/);
+  assert.match(renderer, /const popupWidthValue = Number\(popupScene\.popupWidth \?\? popupScene\.width \?\? 90\)/);
+  assert.match(renderer, /Number\.isFinite\(popupWidthValue\)/);
+  assert.doesNotMatch(renderer, /Number\(popup\.width\) \|\| outputWidth \* clamp/);
   assert.match(renderer, /Number\(popup\.height\)/);
   assert.match(renderer, /popupImageHeight/);
   assert.match(renderer, /popupContentHeight/);
