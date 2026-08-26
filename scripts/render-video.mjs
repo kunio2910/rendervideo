@@ -241,6 +241,60 @@ const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(S
   : "none";
 const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
 const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
+const nonNegativeDarkEffectNumber = (value, fallback) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
+};
+const normalizeSceneDarkEffectTiming = (value, fallback, limit = 3600) => {
+  const raw = value && typeof value === "object" ? value : {};
+  const safeLimit = Math.max(0.1, Number(limit) || 3600);
+  const start = Math.min(
+    Math.max(0, safeLimit - 0.1),
+    nonNegativeDarkEffectNumber(raw.start, fallback.start),
+  );
+  const hasSplitDurations = raw.fadeInDuration !== undefined
+    || raw.fadeOutDuration !== undefined;
+  const legacyEnd = Math.min(
+    safeLimit,
+    Math.max(
+      start + 0.1,
+      nonNegativeDarkEffectNumber(
+        raw.end,
+        start + fallback.fadeInDuration + fallback.holdDuration + fallback.fadeOutDuration,
+      ),
+    ),
+  );
+  const legacyHoldDuration = Math.min(
+    Math.max(0, legacyEnd - start - 0.1),
+    nonNegativeDarkEffectNumber(raw.holdDuration, fallback.holdDuration),
+  );
+  let fadeInDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(raw.fadeInDuration, fallback.fadeInDuration)
+    : Math.max(0, (legacyEnd - start - legacyHoldDuration) / 2);
+  let holdDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(raw.holdDuration, fallback.holdDuration)
+    : legacyHoldDuration;
+  let fadeOutDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(raw.fadeOutDuration, fallback.fadeOutDuration)
+    : Math.max(0, legacyEnd - start - legacyHoldDuration - fadeInDuration);
+  const availableDuration = Math.max(0.1, safeLimit - start);
+  fadeInDuration = Math.min(fadeInDuration, availableDuration);
+  holdDuration = Math.min(holdDuration, Math.max(0, availableDuration - fadeInDuration));
+  fadeOutDuration = Math.min(
+    fadeOutDuration,
+    Math.max(0, availableDuration - fadeInDuration - holdDuration),
+  );
+  if (fadeInDuration + holdDuration + fadeOutDuration < 0.1) {
+    fadeOutDuration = Math.min(availableDuration, 0.1);
+  }
+  return {
+    start,
+    fadeInDuration,
+    holdDuration,
+    fadeOutDuration,
+    end: start + fadeInDuration + holdDuration + fadeOutDuration,
+  };
+};
 const sceneImageTransitionEnd = (image) => {
   const start = Math.max(0, Number(image?.start ?? 0) || 0);
   const legacyDuration = Math.max(0.1, Number(image?.transitionDuration ?? 0.5) || 0.5);
@@ -294,29 +348,31 @@ const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
 };
 const normalizeSceneEffects = (value) => {
   const raw = value && typeof value === "object" ? value : {};
+  const legacyDuration = Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2);
+  const legacyTiming = normalizeSceneDarkEffectTiming(
+    { start: 0, end: legacyDuration },
+    { start: 0, fadeInDuration: legacyDuration / 2, holdDuration: 0, fadeOutDuration: legacyDuration / 2 },
+  );
   const legacyDarkEffect = {
     id: "scene-dark-1",
     enabled: raw.sceneStartDarkEnabled === true,
-    start: 0,
-    end: Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2),
-    holdDuration: 0,
+    ...legacyTiming,
     intensity: clamp(Number(raw.sceneStartDarkIntensity ?? 0) || 0, 0, 100),
   };
   const darkEffects = Array.isArray(raw.sceneStartDarkEffects)
     ? raw.sceneStartDarkEffects.map((item, index) => {
         const dark = item && typeof item === "object" ? item : {};
-        const start = Math.min(3599.9, Math.max(0, Number(dark.start ?? 0) || 0));
-        const end = Math.min(3600, Math.max(start + 0.1, Number(dark.end ?? start + 1.2) || start + 1.2));
-        const holdDuration = Math.min(
-          Math.max(0, end - start - 0.1),
-          Math.max(0, Number(dark.holdDuration ?? 0) || 0),
-        );
+        const fallback = {
+          start: 0,
+          fadeInDuration: 0.6,
+          holdDuration: 0,
+          fadeOutDuration: 0.6,
+        };
+        const timing = normalizeSceneDarkEffectTiming(dark, fallback);
         return {
           id: String(dark.id ?? `scene-dark-${index + 1}`),
           enabled: dark.enabled !== false,
-          start,
-          end,
-          holdDuration,
+          ...timing,
           intensity: clamp(Number(dark.intensity ?? 0) || 0, 0, 100),
         };
       })
@@ -2146,18 +2202,32 @@ for (let index = 0; index < scenes.length; index += 1) {
         if (darkStart >= duration) return;
         const darkEnd = Math.min(
           duration,
-          Math.max(darkStart + 0.1, Number(darkEffect.end) || darkStart + 1.2),
+          Math.max(
+            darkStart + 0.1,
+            darkStart
+              + Math.max(0, Number(darkEffect.fadeInDuration) || 0)
+              + Math.max(0, Number(darkEffect.holdDuration) || 0)
+              + Math.max(0, Number(darkEffect.fadeOutDuration) || 0),
+          ),
         );
         const darkDuration = Math.max(0.1, darkEnd - darkStart);
+        const darkFadeInDuration = Math.min(
+          darkDuration,
+          Math.max(0, Number(darkEffect.fadeInDuration) || 0),
+        );
         const darkHoldDuration = Math.min(
-          Math.max(0, darkDuration - 0.1),
+          Math.max(0, darkDuration - darkFadeInDuration),
           Math.max(0, Number(darkEffect.holdDuration ?? 0) || 0),
         );
-        const darkTransitionDuration = Math.max(0.1, darkDuration - darkHoldDuration);
-        const darkHalfDuration = Math.max(0.05, darkTransitionDuration / 2);
-        const darkHoldStart = darkStart + darkHalfDuration;
+        const darkFadeOutDuration = Math.max(
+          0,
+          darkDuration - darkFadeInDuration - darkHoldDuration,
+        );
+        const darkFadeInDenominator = Math.max(0.05, darkFadeInDuration);
+        const darkFadeOutDenominator = Math.max(0.05, darkFadeOutDuration);
+        const darkHoldStart = darkStart + darkFadeInDuration;
         const darkHoldEnd = darkHoldStart + darkHoldDuration;
-        const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkHalfDuration},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkHalfDuration},0))))`;
+        const darkProgressRaw = `if(lt(T,${darkStart}),0,if(lt(T,${darkHoldStart}),(T-${darkStart})/${darkFadeInDenominator},if(lt(T,${darkHoldEnd}),1,if(lt(T,${darkEnd}),(${darkEnd}-T)/${darkFadeOutDenominator},0))))`;
         const darkProgress = `(${darkProgressRaw})*(${darkProgressRaw})*(3-2*(${darkProgressRaw}))`;
         const darkSharpLabel = `sceneStartDarkSharp${darkIndex}`;
         const darkBlurSourceLabel = `sceneStartDarkBlurSource${darkIndex}`;

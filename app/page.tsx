@@ -546,8 +546,10 @@ type SceneDarkEffect = {
   id: string;
   enabled: boolean;
   start: number;
+  fadeInDuration: number;
   end: number;
   holdDuration: number;
+  fadeOutDuration: number;
   intensity: number;
 };
 
@@ -573,18 +575,93 @@ type SceneEffects = {
   cloudSpeed: number;
 };
 
+type SceneDarkEffectTimingInput = {
+  start?: unknown;
+  end?: unknown;
+  fadeInDuration?: unknown;
+  holdDuration?: unknown;
+  fadeOutDuration?: unknown;
+};
+
+const nonNegativeDarkEffectNumber = (value: unknown, fallback: number) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
+};
+
+const sceneDarkEffectEnd = (effect: Pick<SceneDarkEffect, "start" | "fadeInDuration" | "holdDuration" | "fadeOutDuration">) =>
+  Math.max(0, Number(effect.start) || 0)
+  + Math.max(0, Number(effect.fadeInDuration) || 0)
+  + Math.max(0, Number(effect.holdDuration) || 0)
+  + Math.max(0, Number(effect.fadeOutDuration) || 0);
+
+const normalizeSceneDarkEffectTiming = (
+  value: SceneDarkEffectTimingInput,
+  fallback: Pick<SceneDarkEffect, "start" | "fadeInDuration" | "holdDuration" | "fadeOutDuration">,
+  limit = 3600,
+) => {
+  const safeLimit = Math.max(0.1, Number(limit) || 3600);
+  const start = Math.min(
+    Math.max(0, safeLimit - 0.1),
+    nonNegativeDarkEffectNumber(value.start, fallback.start),
+  );
+  const hasSplitDurations = value.fadeInDuration !== undefined
+    || value.fadeOutDuration !== undefined;
+  const legacyEnd = Math.min(
+    safeLimit,
+    Math.max(
+      start + 0.1,
+      nonNegativeDarkEffectNumber(value.end, start + sceneDarkEffectEnd(fallback) - fallback.start),
+    ),
+  );
+  const legacyHoldDuration = Math.min(
+    Math.max(0, legacyEnd - start - 0.1),
+    nonNegativeDarkEffectNumber(value.holdDuration, fallback.holdDuration),
+  );
+  let fadeInDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(value.fadeInDuration, fallback.fadeInDuration)
+    : Math.max(0, (legacyEnd - start - legacyHoldDuration) / 2);
+  let holdDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(value.holdDuration, fallback.holdDuration)
+    : legacyHoldDuration;
+  let fadeOutDuration = hasSplitDurations
+    ? nonNegativeDarkEffectNumber(value.fadeOutDuration, fallback.fadeOutDuration)
+    : Math.max(0, legacyEnd - start - legacyHoldDuration - fadeInDuration);
+  const availableDuration = Math.max(0.1, safeLimit - start);
+  fadeInDuration = Math.min(fadeInDuration, availableDuration);
+  holdDuration = Math.min(holdDuration, Math.max(0, availableDuration - fadeInDuration));
+  fadeOutDuration = Math.min(
+    fadeOutDuration,
+    Math.max(0, availableDuration - fadeInDuration - holdDuration),
+  );
+  if (fadeInDuration + holdDuration + fadeOutDuration < 0.1) {
+    fadeOutDuration = Math.min(availableDuration, 0.1);
+  }
+  return {
+    start: Number(start.toFixed(2)),
+    fadeInDuration: Number(fadeInDuration.toFixed(2)),
+    holdDuration: Number(holdDuration.toFixed(2)),
+    fadeOutDuration: Number(fadeOutDuration.toFixed(2)),
+    end: Number((start + fadeInDuration + holdDuration + fadeOutDuration).toFixed(2)),
+  };
+};
+
 const defaultSceneDarkEffect = (
   id = "scene-dark-1",
   overrides: Partial<SceneDarkEffect> = {},
-): SceneDarkEffect => ({
-  id,
-  enabled: false,
-  start: 0,
-  end: 1.2,
-  holdDuration: 0,
-  intensity: 0,
-  ...overrides,
-});
+): SceneDarkEffect => {
+  const base = {
+    id,
+    enabled: false,
+    start: 0,
+    fadeInDuration: 0.6,
+    holdDuration: 0,
+    fadeOutDuration: 0.6,
+    intensity: 0,
+    ...overrides,
+  };
+  const timing = normalizeSceneDarkEffectTiming(base, base);
+  return { ...base, ...timing };
+};
 
 const defaultSceneEffects = (): SceneEffects => ({
   sceneStartDarkEnabled: false,
@@ -1802,28 +1879,25 @@ const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Sc
 
 const normalizeSceneEffects = (value: unknown): SceneEffects => {
   const raw = isRecord(value) ? value : {};
+  const legacyDuration = positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1);
   const legacyDarkEffect = defaultSceneDarkEffect("scene-dark-1", {
     enabled: raw.sceneStartDarkEnabled === true,
     start: 0,
-    end: positiveNumber(raw.sceneStartDarkDuration, 1.2, 0.1),
+    fadeInDuration: legacyDuration / 2,
+    holdDuration: 0,
+    fadeOutDuration: legacyDuration / 2,
     intensity: positiveNumber(raw.sceneStartDarkIntensity, 0),
   });
   const rawDarkEffects = Array.isArray(raw.sceneStartDarkEffects)
     ? raw.sceneStartDarkEffects.map((item, index) => {
         const dark = isRecord(item) ? item : {};
-        const start = Math.min(3599.9, Math.max(0, positiveNumber(dark.start, 0)));
-        const end = Math.min(3600, Math.max(start + 0.1, positiveNumber(dark.end, start + 1.2, 0.1)));
-        const holdDuration = Math.min(
-          Math.max(0, end - start - 0.1),
-          Math.max(0, positiveNumber(dark.holdDuration, 0)),
-        );
+        const fallback = defaultSceneDarkEffect(`scene-dark-${index + 1}`);
+        const timing = normalizeSceneDarkEffectTiming(dark, fallback);
         return {
-          ...defaultSceneDarkEffect(`scene-dark-${index + 1}`),
+          ...fallback,
           id: String(dark.id ?? `scene-dark-${index + 1}`),
           enabled: dark.enabled !== false,
-          start,
-          end,
-          holdDuration,
+          ...timing,
           intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
         };
       })
@@ -2125,12 +2199,20 @@ const applySceneStructureTimingUpdate = (
     const effectId = item.id.slice("dark:".length);
     const effects = normalizeSceneEffects(currentScene.effects);
     const darkEffects = effects.sceneStartDarkEffects.map((effect) => effect.id === effectId
-      ? {
-          ...effect,
-          start: roundedStart,
-          end: roundedEnd,
-          holdDuration: Math.min(effect.holdDuration, Math.max(0, roundedEnd - roundedStart - 0.1)),
-        }
+      ? (() => {
+          const duration = Math.max(0.1, roundedEnd - roundedStart);
+          const fadeInDuration = Math.min(effect.fadeInDuration, duration);
+          const holdDuration = Math.min(effect.holdDuration, Math.max(0, duration - fadeInDuration));
+          return {
+            ...effect,
+            ...normalizeSceneDarkEffectTiming({
+              start: roundedStart,
+              fadeInDuration,
+              holdDuration,
+              fadeOutDuration: Math.max(0, duration - fadeInDuration - holdDuration),
+            }, effect, sceneDuration),
+          };
+        })()
       : effect);
     const firstEffect = darkEffects[0] ?? defaultSceneDarkEffect();
     return {
@@ -3767,24 +3849,25 @@ function Home() {
   const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
   const sceneStartDarkEffectProgress = (effect: SceneDarkEffect, localTime = sceneLocalTime) => {
     const start = Math.max(0, Number(effect.start) || 0);
-    const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
-    const duration = end - start;
-    const holdDuration = Math.min(
-      Math.max(0, duration - 0.1),
-      Math.max(0, Number(effect.holdDuration) || 0),
-    );
-    const transitionDuration = Math.max(0.1, duration - holdDuration);
-    const halfDuration = transitionDuration / 2;
+    const fadeInDuration = Math.max(0, Number(effect.fadeInDuration) || 0);
+    const holdDuration = Math.max(0, Number(effect.holdDuration) || 0);
+    const fadeOutDuration = Math.max(0, Number(effect.fadeOutDuration) || 0);
+    const duration = Math.max(0.1, fadeInDuration + holdDuration + fadeOutDuration);
     const elapsed = localTime - start;
     if (elapsed <= 0 || elapsed >= duration) return 0;
-    if (elapsed < halfDuration) return elapsed / halfDuration;
-    if (elapsed < halfDuration + holdDuration) return 1;
-    return Math.max(0, (duration - elapsed) / halfDuration);
+    if (fadeInDuration > 0 && elapsed < fadeInDuration) return elapsed / fadeInDuration;
+    if (elapsed < fadeInDuration + holdDuration) return 1;
+    if (fadeOutDuration > 0) {
+      return Math.max(0, 1 - (elapsed - fadeInDuration - holdDuration) / fadeOutDuration);
+    }
+    return 0;
   };
   const sceneStartDarkOverlayItemsAtTime = (localTime: number) => sceneStartDarkEffects
     .filter((effect) => {
       const start = Math.max(0, Number(effect.start) || 0);
-      const end = Math.max(start + 0.1, Number(effect.end) || start + 1.2);
+      const end = start + Math.max(0, Number(effect.fadeInDuration) || 0)
+        + Math.max(0, Number(effect.holdDuration) || 0)
+        + Math.max(0, Number(effect.fadeOutDuration) || 0);
       return effect.enabled && localTime >= start && localTime < end;
     })
     .map((effect) => {
@@ -4282,7 +4365,7 @@ function Home() {
         kind: "effect",
         id: `dark:${effect.id}`,
         label: `Hiệu ứng tối ${index + 1}`,
-        detail: `Cường độ ${Math.round(effect.intensity)}%`,
+        detail: `${effect.fadeInDuration}s tối · ${effect.holdDuration}s giữ · ${effect.fadeOutDuration}s sáng`,
         icon: "◐",
         start: effect.start,
         end: effect.end,
@@ -5799,13 +5882,15 @@ function Home() {
     }));
   };
 
-  type SceneDarkEffectNumberField = "start" | "end" | "holdDuration" | "intensity";
+  type SceneDarkEffectNumberField = "start" | "fadeInDuration" | "holdDuration" | "fadeOutDuration" | "end" | "intensity";
   const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
     `${scene.id}:dark:${effectId}:${field}`;
   const darkEffectInputValue = (
     effect: SceneDarkEffect,
     field: SceneDarkEffectNumberField,
-  ) => effectInputDrafts[darkEffectInputKey(effect.id, field)] ?? String(effect[field]);
+  ) => field === "end"
+    ? String(Number(effect.end.toFixed(2)))
+    : effectInputDrafts[darkEffectInputKey(effect.id, field)] ?? String(effect[field]);
   const updateSceneDarkEffect = <K extends keyof SceneDarkEffect>(
     effectId: string,
     key: K,
@@ -5821,13 +5906,12 @@ function Home() {
       const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
         if (effect.id !== effectId) return effect;
         const next = { ...effect, [key]: value } as SceneDarkEffect;
-        if (next.start > next.end - 0.1) next.end = next.start + 0.1;
-        if (next.end < next.start + 0.1) next.start = Math.max(0, next.end - 0.1);
-        next.holdDuration = Math.min(
-          Math.max(0, next.end - next.start - 0.1),
-          Math.max(0, Number(next.holdDuration) || 0),
-        );
-        return next;
+        const timing = normalizeSceneDarkEffectTiming(next, effect, sceneDuration);
+        return {
+          ...next,
+          ...timing,
+          intensity: Math.min(100, Math.max(0, Number(next.intensity) || 0)),
+        };
       });
       const first = nextDarkEffects[0];
       return {
@@ -5847,6 +5931,7 @@ function Home() {
     field: SceneDarkEffectNumberField,
     value: string,
   ) => {
+    if (field === "end") return;
     const key = darkEffectInputKey(effect.id, field);
     setEffectInputDrafts((items) => ({ ...items, [key]: value }));
     if (!value.trim()) return;
@@ -5855,19 +5940,22 @@ function Home() {
     const sceneLimit = Math.max(0.1, sceneDuration);
     if (field === "start") {
       updateSceneDarkEffect(effect.id, "start", Math.min(sceneLimit - 0.1, Math.max(0, numericValue)));
-    } else if (field === "end") {
-      updateSceneDarkEffect(effect.id, "end", Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue)));
+    } else if (field === "fadeInDuration") {
+      updateSceneDarkEffect(effect.id, "fadeInDuration", Math.min(sceneLimit, Math.max(0, numericValue)));
     } else if (field === "holdDuration") {
       updateSceneDarkEffect(
         effect.id,
         "holdDuration",
-        Math.min(Math.max(0, effect.end - effect.start - 0.1), Math.max(0, numericValue)),
+        Math.min(sceneLimit, Math.max(0, numericValue)),
       );
+    } else if (field === "fadeOutDuration") {
+      updateSceneDarkEffect(effect.id, "fadeOutDuration", Math.min(sceneLimit, Math.max(0, numericValue)));
     } else {
       updateSceneDarkEffect(effect.id, "intensity", Math.min(100, Math.max(0, numericValue)));
     }
   };
   const commitSceneDarkEffectInput = (effect: SceneDarkEffect, field: SceneDarkEffectNumberField) => {
+    if (field === "end") return;
     const key = darkEffectInputKey(effect.id, field);
     const draft = effectInputDrafts[key];
     const numericValue = parseLocaleNumber(draft);
@@ -5875,11 +5963,13 @@ function Home() {
       const sceneLimit = Math.max(0.1, sceneDuration);
       const normalized = field === "start"
         ? Math.min(sceneLimit - 0.1, Math.max(0, numericValue))
-        : field === "end"
-          ? Math.min(sceneLimit, Math.max(effect.start + 0.1, numericValue))
+        : field === "fadeInDuration"
+          ? Math.min(sceneLimit, Math.max(0, numericValue))
           : field === "holdDuration"
-            ? Math.min(Math.max(0, effect.end - effect.start - 0.1), Math.max(0, numericValue))
-            : Math.min(100, Math.max(0, numericValue));
+            ? Math.min(sceneLimit, Math.max(0, numericValue))
+            : field === "fadeOutDuration"
+              ? Math.min(sceneLimit, Math.max(0, numericValue))
+              : Math.min(100, Math.max(0, numericValue));
       updateSceneDarkEffectInput(effect, field, String(normalized));
       setEffectInputDrafts((items) => ({ ...items, [key]: String(normalized) }));
       return;
@@ -5899,11 +5989,16 @@ function Home() {
     const nextEffect = defaultSceneDarkEffect(nextId, {
       enabled: true,
       start,
-      end: Math.min(sceneDuration, start + Math.min(1.2, Math.max(0.1, sceneDuration - start))),
+      fadeInDuration: 0.6,
       holdDuration: 0,
+      fadeOutDuration: 0.6,
       intensity: 0,
     });
-    updateSceneEffects("sceneStartDarkEffects", [...currentEffects, nextEffect]);
+    const normalizedNextEffect = {
+      ...nextEffect,
+      ...normalizeSceneDarkEffectTiming(nextEffect, nextEffect, sceneDuration),
+    };
+    updateSceneEffects("sceneStartDarkEffects", [...currentEffects, normalizedNextEffect]);
     setToast(`Đã thêm hiệu ứng tối ${currentEffects.length + 1}`);
     window.setTimeout(() => setToast(""), 2200);
   };
@@ -9899,7 +9994,7 @@ function Home() {
         `dark-${effect.id}`,
         effect.start,
         effect.end,
-        `Tối ${index + 1} · giữ ${Number(effect.holdDuration ?? 0).toFixed(1)}s`,
+        `Tối ${index + 1} · ${Number(effect.fadeInDuration ?? 0).toFixed(1)}s → giữ ${Number(effect.holdDuration ?? 0).toFixed(1)}s → ${Number(effect.fadeOutDuration ?? 0).toFixed(1)}s`,
         "dark",
       );
     });
@@ -10965,13 +11060,9 @@ function Home() {
       const nextDarkEffects = effects.sceneStartDarkEffects.map((effect) => {
         if (effect.id !== effectId) return effect;
         const next = { ...effect, ...values } as SceneDarkEffect;
-        const start = Math.min(duration - 0.1, Math.max(0, Number(next.start) || 0));
-        const end = Math.min(duration, Math.max(start + 0.1, Number(next.end) || start + 0.1));
         return {
           ...next,
-          start,
-          end,
-          holdDuration: Math.min(Math.max(0, end - start - 0.1), Math.max(0, Number(next.holdDuration) || 0)),
+          ...normalizeSceneDarkEffectTiming(next, effect, duration),
           intensity: Math.min(100, Math.max(0, Number(next.intensity) || 0)),
         };
       });
@@ -11779,12 +11870,16 @@ function Home() {
         const darkEffect = normalizeSceneEffects(quickScene.effects).sceneStartDarkEffects.find((effect) => effect.id === effectId);
         content = darkEffect ? (
           <div className="scene-structure-quick-stack">
-            {timingFields}
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={darkEffect.enabled} onChange={(event) => updateSceneStructureQuickDarkEffect(effectId, { enabled: event.target.checked })} /><span>Bật hiệu ứng tối</span></label>
-            <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-              <label className="scene-structure-quick-field"><span>Thời gian giữ tối (giây)</span><NumericInput min={0} max={Math.max(0, darkEffect.end - darkEffect.start - 0.1)} step={0.1} value={darkEffect.holdDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={darkEffect.intensity} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { intensity: value })} /></label>
+            <div className="scene-structure-quick-grid scene-structure-quick-grid-3 scene-structure-quick-dark-grid">
+              <label className="scene-structure-quick-field"><span>Thời điểm bắt đầu (giây)</span><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={darkEffect.start} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { start: value })} /></label>
+              <label className="scene-structure-quick-field"><span>Thời gian tối dần (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeInDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeInDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><span>Thời gian giữ tối (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.holdDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><span>Thời gian sáng dần (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeOutDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeOutDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><span>Thời gian kết thúc (tự tính)</span><input value={Number(darkEffect.end.toFixed(2))} readOnly aria-readonly="true" /></label>
+              <label className="scene-structure-quick-field"><span>Mức độ tối tối đa (%)</span><NumericInput min={0} max={100} step={1} value={darkEffect.intensity} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { intensity: value })} /></label>
             </div>
+            <small className="scene-structure-quick-note">Thời gian kết thúc = thời điểm bắt đầu + tối dần + giữ tối + sáng dần.</small>
           </div>
         ) : null;
       } else {
@@ -15128,7 +15223,7 @@ function Home() {
                           <>
                         <div className="field-row scene-start-dark-time-row">
                           <label className="field">
-                            <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối bắt đầu từ thời điểm này.">Thời gian bắt đầu</TimeFieldLabel>
+                            <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối bắt đầu từ thời điểm này.">Thời điểm bắt đầu</TimeFieldLabel>
                             <div className="number-with-unit">
                               <input
                                 type="text"
@@ -15142,15 +15237,15 @@ function Home() {
                             </div>
                           </label>
                           <label className="field">
-                            <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hiệu ứng tối kết thúc tại thời điểm này.">Thời gian kết thúc</TimeFieldLabel>
+                            <TimeFieldLabel hint="Thời lượng giai đoạn viền tối lan dần từ ngoài vào trong.">Thời gian tối dần</TimeFieldLabel>
                             <div className="number-with-unit">
                               <input
                                 type="text"
                                 inputMode="decimal"
-                                value={darkEffectInputValue(effect, "end")}
+                                value={darkEffectInputValue(effect, "fadeInDuration")}
                                 disabled={!hydrated || !effect.enabled}
-                                onChange={(event) => updateSceneDarkEffectInput(effect, "end", event.target.value)}
-                                onBlur={() => commitSceneDarkEffectInput(effect, "end")}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "fadeInDuration", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "fadeInDuration")}
                               />
                               <b>giây</b>
                             </div>
@@ -15169,9 +15264,36 @@ function Home() {
                               <b>giây</b>
                             </div>
                           </label>
+                          <label className="field">
+                            <TimeFieldLabel hint="Thời lượng hiệu ứng sáng dần trở lại sau khi đã giữ tối.">Thời gian sáng dần</TimeFieldLabel>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={darkEffectInputValue(effect, "fadeOutDuration")}
+                                disabled={!hydrated || !effect.enabled}
+                                onChange={(event) => updateSceneDarkEffectInput(effect, "fadeOutDuration", event.target.value)}
+                                onBlur={() => commitSceneDarkEffectInput(effect, "fadeOutDuration")}
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
+                          <label className="field scene-start-dark-end-field">
+                            <TimeFieldLabel hint="Chỉ hiển thị: thời điểm bắt đầu + tối dần + giữ tối + sáng dần.">Thời gian kết thúc (tự tính)</TimeFieldLabel>
+                            <div className="number-with-unit">
+                              <input
+                                type="text"
+                                value={darkEffectInputValue(effect, "end")}
+                                readOnly
+                                aria-readonly="true"
+                                className="computed-input"
+                              />
+                              <b>giây</b>
+                            </div>
+                          </label>
                         </div>
                         <label className="field scene-start-dark-intensity-field">
-                          <span>Cường độ tối (số lớn sẽ sáng hơn)</span>
+                          <span>Mức độ tối tối đa (0–100%)</span>
                           <div className="number-with-unit">
                             <input
                               type="text"
@@ -15183,7 +15305,7 @@ function Home() {
                             />
                             <b>%</b>
                           </div>
-                          <small>0% là tối mạnh nhất, 100% là giảm tối tối đa; sau khi tối hẳn, hiệu ứng sẽ giữ theo thời gian đã nhập rồi mới reverse.</small>
+                          <small>Giá trị hiện tại giữ tương thích dự án cũ: 0% là tối mạnh nhất, 100% là không phủ tối. Sau khi tối hẳn, hiệu ứng sẽ giữ theo thời gian đã nhập rồi mới reverse.</small>
                         </label>
                           </>
                         )}
@@ -17913,7 +18035,7 @@ function Home() {
                               <b>Hiệu ứng tối:</b>{" "}
                               {darkEffects.length ? darkEffects.map((effect, index) => (
                                 <span key={effect.id} className="review-effect-status is-on">
-                                  #{index + 1} {formatTime(effect.start)}–{formatTime(effect.end)} · giữ {Number(effect.holdDuration ?? 0).toFixed(1)}s · cường độ {effect.intensity}%
+                                  #{index + 1} {formatTime(effect.start)}–{formatTime(effect.end)} · tối {Number(effect.fadeInDuration ?? 0).toFixed(1)}s · giữ {Number(effect.holdDuration ?? 0).toFixed(1)}s · sáng {Number(effect.fadeOutDuration ?? 0).toFixed(1)}s · mức tối {effect.intensity}%
                                 </span>
                               )) : <span className="review-effect-status is-off">tắt</span>}
                             </div>

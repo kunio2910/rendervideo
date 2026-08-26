@@ -8509,7 +8509,18 @@ body {
   background: #a9433a;
 }
 .scene-start-dark-time-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
+}
+.scene-start-dark-end-field .number-with-unit,
+.scene-structure-quick-dark-grid input[readonly] {
+  border-color: rgba(255, 224, 180, .36);
+  background: rgba(255, 224, 180, .08);
+}
+.scene-start-dark-end-field input[readonly],
+.scene-structure-quick-dark-grid input[readonly] {
+  color: #ffe0b4;
+  cursor: default;
 }
 .scene-start-dark-effect-item .field > span {
   color: #d9c4a8;
@@ -8525,6 +8536,15 @@ body {
 .studio-shell[data-theme="dark"] .scene-start-dark-effect-item {
   border-color: #4c3d31;
   background: rgba(0, 0, 0, .2);
+}
+.scene-structure-quick-dark-grid input[readonly] {
+  border-color: #52657a;
+  background: #1b2a39;
+  color: #ffd99c;
+}
+
+@media (max-width: 760px) {
+  .scene-start-dark-time-row { grid-template-columns: 1fr; }
 }
 
 /* Keep the compose editor scrollable even when a long accordion is open. */
