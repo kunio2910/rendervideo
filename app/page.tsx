@@ -3968,12 +3968,22 @@ function Home() {
       })
     : null;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
+    const storedLayerTokens = new Set(
+      Array.isArray(scene.layerOrder)
+        ? scene.layerOrder.filter((token): token is string => typeof token === "string")
+        : [],
+    );
+    const wasAddedToSceneStructure = (kind: PreviewLayerKind, id: string) =>
+      storedLayerTokens.has(previewLayerToken(kind, id));
     const candidates: PreviewLayerItem[] = [
       // The layer panel describes the selected scene, not only the items that
       // happen to be visible at the current playhead. Keep hidden/out-of-time
-      // items in this list so they can still be inspected and reordered.
+      // items in this list so they can still be inspected and reordered. A
+      // template may intentionally start empty (for example, a new image has
+      // no URL until the user fills it in), so a stored scene-structure token
+      // must keep that item visible in Layer.
       ...sceneTextOverlays
-        .filter((overlay) => Boolean(safeTrim(overlay.text)))
+        .filter((overlay) => Boolean(safeTrim(overlay.text)) || wasAddedToSceneStructure("text", overlay.id))
         .map((overlay, index) => ({
           token: previewLayerToken("text", overlay.id),
           kind: "text" as const,
@@ -3984,7 +3994,7 @@ function Home() {
           editorVisible: overlay.editorVisible !== false,
         })),
       ...scenePopups
-        .filter((popup) => popupHasContent(popup))
+        .filter((popup) => popupHasContent(popup) || wasAddedToSceneStructure("popup", popup.id))
         .map((popup, index) => ({
           token: previewLayerToken("popup", popup.id),
           kind: "popup" as const,
@@ -3995,7 +4005,7 @@ function Home() {
           editorVisible: popup.editorVisible !== false,
         })),
       ...sceneDecorations
-        .filter((decoration) => decorationHasContent(decoration))
+        .filter((decoration) => decorationHasContent(decoration) || wasAddedToSceneStructure("decoration", decoration.id))
         .map((decoration, index) => ({
           token: previewLayerToken("decoration", decoration.id),
           kind: "decoration" as const,
@@ -4006,7 +4016,6 @@ function Home() {
           editorVisible: true,
         })),
       ...sceneImages
-        .filter((image) => Boolean(safeTrim(image.url)))
         .map((image, index) => ({
           token: previewLayerToken("image", image.id),
           kind: "image" as const,

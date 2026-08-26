@@ -385,6 +385,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /<span>08<\/span><strong>Layer<\/strong>/);
   assert.match(page, /renderPreviewLayerPanel/);
   assert.doesNotMatch(page, /<aside className="preview-layer-panel"/);
+  assert.match(page, /const storedLayerTokens = new Set/);
+  assert.match(page, /wasAddedToSceneStructure\("text", overlay\.id\)/);
+  assert.match(page, /wasAddedToSceneStructure\("popup", popup\.id\)/);
+  assert.match(page, /wasAddedToSceneStructure\("decoration", decoration\.id\)/);
+  assert.match(page, /\.\.\.sceneImages\s*\.map\(\(image, index\)/);
+  assert.match(page, /const layerKind = kind === "effect" \? "decoration" : kind/);
   assert.match(css, /editor-scroll \.editor-layer-panel/);
   assert.match(css, /scene-structure-subtitle-toolbar-actions \.button\.secondary/);
   assert.match(page, /scene-structure-save-button/);
