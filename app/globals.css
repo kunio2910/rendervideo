@@ -542,6 +542,37 @@ button { color: inherit; }
   animation-iteration-count: infinite;
   animation-timing-function: ease-in-out;
 }
+.map-text-overlay.is-playing.text-effect-reverse {
+  animation-duration: var(--text-effect-duration, .6s), var(--text-effect-duration, .6s);
+  animation-delay: 0s, var(--text-effect-reverse-delay, 0s);
+  animation-iteration-count: 1, 1;
+  animation-direction: normal, reverse;
+  animation-fill-mode: both, both;
+}
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-fade { animation-name: text-effect-fade, text-effect-fade; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-slide-up { animation-name: text-effect-slide-up, text-effect-slide-up; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-slide-down { animation-name: text-effect-slide-down, text-effect-slide-down; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-slide-left { animation-name: text-effect-slide-left, text-effect-slide-left; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-slide-right { animation-name: text-effect-slide-right, text-effect-slide-right; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-typewriter,
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-stroke-draw,
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-word-by-word { animation-name: text-effect-reveal, text-effect-reveal; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-zoom { animation-name: text-effect-zoom, text-effect-zoom; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-pop { animation-name: text-effect-pop, text-effect-pop; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-glow { animation-name: text-effect-glow, text-effect-glow; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-letter-spacing { animation-name: text-effect-letter-spacing, text-effect-letter-spacing; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur { animation-name: text-effect-blur, text-effect-blur; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-highlight-sweep { animation-name: text-effect-highlight, text-effect-highlight; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-shake { animation-name: text-effect-shake, text-effect-shake; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-glitch { animation-name: text-effect-glitch, text-effect-glitch; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-shadow-lift { animation-name: text-effect-shadow-lift, text-effect-shadow-lift; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-kinetic { animation-name: text-effect-kinetic, text-effect-kinetic; }
+.map-text-overlay.is-playing.text-effect-reverse .text-effect-reverse-enter {
+  animation: text-effect-reverse-enter var(--text-effect-duration, .6s) cubic-bezier(.22, .72, .26, 1) 0s 1 normal both;
+}
+.map-text-overlay.is-playing.text-effect-reverse .text-effect-reverse-exit {
+  animation: text-effect-reverse-exit var(--text-effect-duration, .6s) cubic-bezier(.22, .72, .26, 1) var(--text-effect-reverse-delay, 0s) 1 normal both;
+}
 .map-text-overlay.text-effect-highlight-sweep::after {
   content: "";
   position: absolute;
@@ -557,6 +588,14 @@ button { color: inherit; }
   opacity: .9;
   animation: text-effect-highlight-sweep var(--text-effect-duration, .6s) ease-out both;
 }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-highlight-sweep::after {
+  animation-name: text-effect-highlight-sweep, text-effect-highlight-sweep;
+  animation-duration: var(--text-effect-duration, .6s), var(--text-effect-duration, .6s);
+  animation-delay: 0s, var(--text-effect-reverse-delay, 0s);
+  animation-iteration-count: 1, 1;
+  animation-direction: normal, reverse;
+  animation-fill-mode: both, both;
+}
 @keyframes text-effect-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes text-effect-slide-up { from { opacity: 0; transform: translate(-50%, -50%) translateY(34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
 @keyframes text-effect-slide-down { from { opacity: 0; transform: translate(-50%, -50%) translateY(-34%); } to { opacity: 1; transform: translate(-50%, -50%); } }
@@ -568,6 +607,8 @@ button { color: inherit; }
 @keyframes text-effect-glow { 0%, 100% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 4px currentColor; } 50% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 18px currentColor, 0 0 30px currentColor; } }
 @keyframes text-effect-letter-spacing { from { letter-spacing: .45em; opacity: .35; } to { letter-spacing: 0; opacity: 1; } }
 @keyframes text-effect-blur { from { opacity: .25; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
+@keyframes text-effect-reverse-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes text-effect-reverse-exit { from { opacity: 1; } to { opacity: 0; } }
 @keyframes text-effect-highlight { from { filter: brightness(.8); } 50% { filter: brightness(1.4); } to { filter: brightness(1); } }
 @keyframes text-effect-highlight-sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
 @keyframes text-effect-shake { 0%, 100% { transform: translate(-50%, -50%); } 25% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)); } 50% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)); } 75% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)); } }
@@ -957,6 +998,10 @@ button { color: inherit; }
   font-size: 7px;
 }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.field-checkbox-control { display: flex; align-items: center; gap: 7px; min-height: 34px; }
+.field-checkbox-control input[type="checkbox"] { width: 15px; height: 15px; margin: 0; padding: 0; accent-color: var(--blue); }
+.field-checkbox-control b { color: var(--studio-ink); font-size: 10px; font-weight: 650; }
+.text-effect-reverse-toggle { align-content: end; }
 .range-field { padding: 3px 0 5px; }
 .range-field input { width: 100%; accent-color: var(--blue); }
 .range-field b { font-weight: 700; color: var(--ink); }

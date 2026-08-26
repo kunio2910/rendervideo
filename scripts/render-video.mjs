@@ -1604,6 +1604,7 @@ for (let index = 0; index < scenes.length; index += 1) {
           borderFill: "#14202e",
           textEffect: scene.overlayTextEffect,
           textEffectDuration: scene.overlayTextEffectDuration,
+          textEffectReverse: scene.overlayTextEffectReverse,
           start: scene.overlayTextStart,
           end: scene.overlayTextEnd,
           x: scene.overlayTextX,
@@ -1799,13 +1800,24 @@ for (let index = 0; index < scenes.length; index += 1) {
     );
     const textSpan = Math.max(0.1, textEnd - textStart);
     const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
+    const reverse = overlay.textEffectReverse === true || overlay.overlayTextEffectReverse === true;
     const effectDuration = clamp(
       Number(overlay.textEffectDuration ?? overlay.overlayTextEffectDuration ?? 0.6) || 0.6,
       0.05,
-      textSpan,
+      reverse ? textSpan / 2 : textSpan,
     );
-    const progress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
-    const geqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+    const reverseStart = textEnd - effectDuration;
+    const forwardProgress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
+    const forwardGeqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+    const reverseProgress = `min(1,max(0,(${textEnd}-t)/${effectDuration}))`;
+    const reverseGeqProgress = `min(1,max(0,(${textEnd}-T)/${effectDuration}))`;
+    const progress = reverse
+      ? `if(lt(t,${reverseStart}),${forwardProgress},${reverseProgress})`
+      : forwardProgress;
+    const geqProgress = reverse
+      ? `if(lt(T,${reverseStart}),${forwardGeqProgress},${reverseGeqProgress})`
+      : forwardGeqProgress;
+    const reverseVisibility = `if(lt(T,${reverseStart}),1,min(1,max(0,(${textEnd}-T)/${effectDuration})))`;
     const inputIndex = textInputIndices[textIndex];
     const inputLabel = `textInput${textIndex}`;
     const outputLabel = `texted${textIndex}`;
@@ -1824,7 +1836,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       const sharpLabel = `textBlurSharp${textIndex}`;
       const blurSourceLabel = `textBlurSource${textIndex}`;
       const blurLabel = `textBlurred${textIndex}`;
-      const blurProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
+      const blurProgress = geqProgress;
       filter += `[${inputIndex}:v]format=rgba,split=2[${sharpSourceLabel}][${blurSourceLabel}];`;
       filter += `[${blurSourceLabel}]gblur=sigma=10,${geqRgba({ alpha: `alpha(X,Y)*(1-(${blurProgress}))` })}[${blurLabel}];`;
       filter += `[${sharpSourceLabel}]${geqRgba({ alpha: `alpha(X,Y)*(${blurProgress})` })}[${sharpLabel}];`;
@@ -1851,6 +1863,11 @@ for (let index = 0; index < scenes.length; index += 1) {
         inputFilter += `,scale=w='iw*(${popScale})':h='ih*(${popScale})':eval=frame`;
       }
       filter += `${inputFilter}[${inputLabel}];`;
+    }
+    if (reverse && effect !== "none" && effect !== "fade") {
+      const reverseVisibleLabel = `textReverseVisible${textIndex}`;
+      filter += `[${overlayInputLabel}]${geqRgba({ alpha: `alpha(X,Y)*(${reverseVisibility})` })}[${reverseVisibleLabel}];`;
+      overlayInputLabel = reverseVisibleLabel;
     }
     const baseX = `main_w*${x}-overlay_w/2`;
     const baseY = `main_h*${y}-overlay_h/2`;

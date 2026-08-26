@@ -94,6 +94,7 @@ type TextOverlay = {
   borderFill: string;
   textEffect: TextOverlayEffect;
   textEffectDuration: number;
+  textEffectReverse: boolean;
   start: number;
   end: number;
   x: number;
@@ -104,7 +105,7 @@ type TextOverlay = {
 
 type SubtitleAnimation = "none" | "fade" | "pop" | "slide-up" | "typewriter";
 
-type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration" | "start" | "end"> & {
+type SubtitleStyle = Omit<TextOverlay, "id" | "name" | "text" | "visible" | "textEffect" | "textEffectDuration" | "textEffectReverse" | "start" | "end"> & {
   boxWidth: number;
   boxHeight?: number;
   animation: SubtitleAnimation;
@@ -1529,6 +1530,7 @@ const defaultTextOverlay = (
   borderFill: "#14202e",
   textEffect: "none",
   textEffectDuration: 0.6,
+  textEffectReverse: false,
   start: 0,
   end: 3600,
   x: 50,
@@ -1728,6 +1730,9 @@ const normalizeTextOverlay = (
     borderFill: normalizeHexColor(raw.borderFill ?? raw.overlayTextBorderFill, base.borderFill),
     textEffect: normalizeTextOverlayEffect(raw.textEffect ?? raw.overlayTextEffect ?? base.textEffect),
     textEffectDuration: Math.min(8, Math.max(0.05, positiveNumber(raw.textEffectDuration ?? raw.overlayTextEffectDuration, base.textEffectDuration, 0.05))),
+    textEffectReverse: typeof (raw.textEffectReverse ?? raw.overlayTextEffectReverse) === "boolean"
+      ? (raw.textEffectReverse ?? raw.overlayTextEffectReverse)
+      : base.textEffectReverse,
     start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
     end: Math.min(3600, Math.max(
       Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
@@ -2014,6 +2019,7 @@ const textOverlaySceneFields = (overlay: TextOverlay) => ({
   overlayTextBorderColor: overlay.borderColor,
   overlayTextEffect: overlay.textEffect,
   overlayTextEffectDuration: overlay.textEffectDuration,
+  overlayTextEffectReverse: overlay.textEffectReverse,
   overlayTextStart: overlay.start,
   overlayTextEnd: overlay.end,
   overlayTextX: overlay.x,
@@ -3847,6 +3853,12 @@ function Home() {
       Math.max(start + 0.1, Number(overlay.end) || sceneDuration),
     );
     return { start, end };
+  };
+  const textOverlayEffectDuration = (overlay: TextOverlay, start: number, end: number) => {
+    const visibleSpan = Math.max(0.1, end - start);
+    const configuredDuration = Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6);
+    const availablePhase = overlay.textEffectReverse ? visibleSpan / 2 : visibleSpan;
+    return Math.max(0.05, Math.min(configuredDuration, availablePhase));
   };
   const previewTextOverlayItems = sceneIsVisibleInPlayback
     ? previewPlaybackMode
@@ -11548,6 +11560,7 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Độ mờ viền (%)</span><NumericInput min={0} max={100} step={1} value={overlay.borderOpacity} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { borderOpacity: value })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
+            <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.textEffectReverse === true} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffectReverse: event.target.checked })} /><span>Reverse hiệu ứng ở cuối</span></label>
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.visible !== false} onChange={(event) => updateSceneStructureQuickText(overlay.id, { visible: event.target.checked })} /><span>Hiển thị khi render</span></label>
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={overlay.editorVisible !== false} onChange={(event) => updateSceneStructureQuickText(overlay.id, { editorVisible: event.target.checked })} /><span>Hiển thị khi biên soạn</span></label>
           </div>
@@ -11954,11 +11967,15 @@ function Home() {
           .map((overlay, index) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
             const end = Math.min(sceneStructureDuration, Math.max(start + 0.1, Number(overlay.end) || sceneStructureDuration));
+            const effectDuration = textOverlayEffectDuration(overlay, start, end);
+            const effectReverseDelay = overlay.textEffectReverse
+              ? Math.max(0, end - start - effectDuration * 2)
+              : 0;
             if (localTime < start || localTime >= end) return null;
             return (
               <div
                 key={`live-text-${overlay.id}`}
-                className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${previewIsPlaying ? "is-playing" : ""}`}
+                className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${overlay.textEffectReverse === true ? "text-effect-reverse" : ""} ${previewIsPlaying ? "is-playing" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
@@ -11976,10 +11993,13 @@ function Home() {
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
                   ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
                   ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
-                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
+                  ["--text-effect-duration" as string]: `${effectDuration}s`,
+                  ["--text-effect-reverse-delay" as string]: `${effectReverseDelay}s`,
                 }}
               >
-                {overlay.text}
+                <span className="text-effect-reverse-enter">
+                  <span className="text-effect-reverse-exit">{overlay.text}</span>
+                </span>
               </div>
             );
           })}
@@ -12913,9 +12933,16 @@ function Home() {
               />
             )}
             {sceneIsVisibleInPlayback && previewTextOverlayItems.map((overlay) => safeTrim(overlay.text) ? (
+              (() => {
+                const { start, end } = textOverlayTiming(overlay);
+                const effectDuration = textOverlayEffectDuration(overlay, start, end);
+                const effectReverseDelay = overlay.textEffectReverse
+                  ? Math.max(0, end - start - effectDuration * 2)
+                  : 0;
+                return (
               <div
                 key={overlay.id}
-                className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
+                className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${overlay.textEffectReverse === true ? "text-effect-reverse" : ""} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
                   top: `${overlay.y}%`,
@@ -12933,14 +12960,17 @@ function Home() {
                   ["--text-border-width" as string]: `${overlay.borderWidth}px`,
                   ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
                   ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
-                  ["--text-effect-duration" as string]: `${Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6)}s`,
+                  ["--text-effect-duration" as string]: `${effectDuration}s`,
+                  ["--text-effect-reverse-delay" as string]: `${effectReverseDelay}s`,
                 }}
                 role="button"
                 tabIndex={0}
                 aria-label="Chữ viết trên bản đồ. Kéo để di chuyển."
                 onPointerDown={(event) => startTextOverlayDrag(event, overlay.id)}
               >
-                {overlay.text}
+                <span className="text-effect-reverse-enter">
+                  <span className="text-effect-reverse-exit">{overlay.text}</span>
+                </span>
                 {overlay.id === activeTextOverlay?.id && !playing && (
                   <button
                     type="button"
@@ -12951,6 +12981,8 @@ function Home() {
                   />
                 )}
               </div>
+                );
+              })()
             ) : null)}
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
               const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
@@ -13896,13 +13928,27 @@ function Home() {
                     </select>
                   </label>
                   {activeTextOverlay?.textEffect !== "none" && (
-                    <label className="field">
-                      <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
-                      <div className="number-with-unit"><NumericInput min={0.05} max={8} step={0.05} value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onCommit={(value) => updateTextOverlay("textEffectDuration", value)} /><b>s</b></div>
-                    </label>
+                    <>
+                      <label className="field">
+                        <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
+                        <div className="number-with-unit"><NumericInput min={0.05} max={8} step={0.05} value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onCommit={(value) => updateTextOverlay("textEffectDuration", value)} /><b>s</b></div>
+                      </label>
+                      <label className="field text-effect-reverse-toggle">
+                        <span>Reverse</span>
+                        <span className="field-checkbox-control">
+                          <input
+                            type="checkbox"
+                            checked={activeTextOverlay?.textEffectReverse === true}
+                            disabled={!activeTextOverlay}
+                            onChange={(event) => updateTextOverlay("textEffectReverse", event.target.checked)}
+                          />
+                          <b>Đảo chiều ở cuối</b>
+                        </span>
+                      </label>
+                    </>
                   )}
                 </div>
-                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp trong lúc cảnh đang phát.</small>
+                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Bật Reverse để chạy ngược hiệu ứng ở cuối thời gian hiển thị, sau đó chữ sẽ biến mất. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp nếu không bật Reverse.</small>
                 </EditorFieldGroup>
                 <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và kết thúc tuyệt đối tính từ đầu cảnh.">
                 <div className="field-row text-overlay-timing-fields">
