@@ -22,6 +22,11 @@ import {
   signOutFromGoogle,
 } from "./lib/firebase";
 import { parseSubtitleFileText } from "./lib/subtitles";
+import {
+  createWorkspaceBackup,
+  readWorkspaceBackup,
+  workspaceBackupFilename,
+} from "./lib/workspace-backup";
 
 type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
 
@@ -3426,6 +3431,7 @@ function Home() {
     message: string;
   }>({ imageId: "", status: "idle", message: "" });
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
+  const [workspaceBackupBusy, setWorkspaceBackupBusy] = useState(false);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
@@ -3507,6 +3513,7 @@ function Home() {
   const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
   const animationFrame = useRef<number | null>(null);
   const subtitleFileInput = useRef<HTMLInputElement | null>(null);
+  const workspaceBackupFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const sceneAudioPlayers = useRef<Array<{ audio: HTMLAudioElement; startTimer?: number; stopTimer?: number }>>([]);
   const playTimeRef = useRef(playTime);
@@ -4914,7 +4921,19 @@ function Home() {
 
     const restoreProject = async () => {
       if (!googleUser) {
-        setSaveStatus("error");
+        try {
+          const localSnapshot = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+          const localData = localSnapshot ? JSON.parse(localSnapshot) as StoredWorkspace : null;
+          if (localData && applyStoredProject(localData)) {
+            restorePreferredActiveProject(localData);
+            lastSavedProjectSnapshot.current = localSnapshot ?? "";
+            const savedAt = Number(window.localStorage.getItem(LOCAL_SAVED_AT_KEY));
+            setLastSavedAt(Number.isFinite(savedAt) && savedAt > 0 ? new Date(savedAt) : new Date());
+          }
+        } catch {
+          // Keep the default project when local storage is unavailable or corrupt.
+        }
+        setSaveStatus("offline");
         setHydrated(true);
         return;
       }
@@ -5126,13 +5145,6 @@ function Home() {
         : item),
     };
     setProjectDuration(durationFromScenes);
-    if (!googleUser) {
-      setSaveStatus("error");
-      setToast("Hãy đăng nhập Google để lưu dữ liệu lên Firestore");
-      window.setTimeout(() => setToast(""), 3200);
-      return;
-    }
-
     const currentSnapshot = JSON.stringify(workspaceToSave);
     const savedAt = Date.now();
     window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
@@ -5141,6 +5153,16 @@ function Home() {
       currentSnapshot,
     );
     window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+
+    if (!googleUser) {
+      lastSavedProjectSnapshot.current = currentSnapshot;
+      setSaveStatus("offline");
+      setLastSavedAt(new Date(savedAt));
+      setToast("Đã lưu workspace trên thiết bị");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+
     setSaveStatus("saving");
     try {
       await saveWorkspaceToFirestore(workspaceToSave);
@@ -8988,6 +9010,74 @@ function Home() {
     }
   };
 
+  const exportWorkspaceBackup = async () => {
+    if (!hydrated || workspaceBackupBusy) return;
+    setWorkspaceBackupBusy(true);
+    try {
+      const durationFromScenes = sceneTimelineDuration;
+      const workspaceToBackup: StoredWorkspace = {
+        ...storedProject,
+        projects: storedProject.projects.map((item) => item.id === projectId
+          ? { ...item, projectDuration: durationFromScenes }
+          : item),
+      };
+      const persistedAssets = await readAssetLibrary().catch(() => []);
+      const backupAssets = [...new Map(
+        [...persistedAssets, ...assetLibrary].map((item) => [item.id, item]),
+      ).values()];
+      const backup = await createWorkspaceBackup(
+        workspaceToBackup,
+        backupAssets.map((item) => ({
+          name: item.name,
+          type: item.type,
+          size: item.size,
+          lastModified: item.lastModified,
+          file: item.file,
+        })),
+      );
+      const url = URL.createObjectURL(backup);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = workspaceBackupFilename(projectTitle);
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setToast(`Đã tạo backup workspace · ${backupAssets.length} media`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Không xác định được nguyên nhân";
+      setToast(`Không tạo được backup: ${reason}`);
+    }
+    setWorkspaceBackupBusy(false);
+    window.setTimeout(() => setToast(""), 3000);
+  };
+
+  const importWorkspaceBackup = async (file: File) => {
+    if (workspaceBackupBusy) return;
+    setWorkspaceBackupBusy(true);
+    try {
+      const parsed = await readWorkspaceBackup(file);
+      if (!applyStoredProject(parsed.workspace as StoredWorkspace)) {
+        throw new Error("Workspace trong file backup không thể khôi phục.");
+      }
+      await addAssetsToLibrary(parsed.assets);
+      const workspace = parsed.workspace as StoredWorkspace;
+      const serialized = JSON.stringify(workspace);
+      const savedAt = Date.now();
+      window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, workspace.activeProjectId);
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
+      window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+      lastSavedProjectSnapshot.current = serialized;
+      setSaveStatus("offline");
+      setLastSavedAt(new Date(savedAt));
+      setPlaying(false);
+      setToast(`Đã import backup · ${workspace.projects.length} project · ${parsed.assetCount} media`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "File backup không hợp lệ";
+      setToast(`Không import được backup: ${reason}`);
+    }
+    setWorkspaceBackupBusy(false);
+    window.setTimeout(() => setToast(""), 3600);
+  };
+
   const addAnimatedMapDecoration = (
     asset: Pick<AssetLibraryItem, "id" | "name" | "type" | "file">,
     position: { x: number; y: number } = { x: 50, y: 50 },
@@ -12418,9 +12508,9 @@ function Home() {
           <button
             className="button save-button"
             onClick={saveProjectNow}
-            disabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
+            disabled={saveStatus === "loading" || saveStatus === "saving"}
           >
-            ☁ Lưu
+            {googleUser ? "☁ Lưu" : "▣ Lưu máy"}
           </button>
           <label className="duration-picker">
             <span>Độ dài</span>
@@ -16127,6 +16217,44 @@ function Home() {
                       </div>
                     </section>
 
+                    <section className="export-card export-backup-card">
+                      <div className="export-card-title">
+                        <span className="export-card-icon" aria-hidden="true">↕</span>
+                        <h3>Backup workspace</h3>
+                      </div>
+                      <p>Đóng gói project, timeline và thư viện media thành một file để chuyển sang máy khác mà không cần đăng nhập Google.</p>
+                      <div className="export-card-actions export-json-actions">
+                        <button
+                          type="button"
+                          className="button primary"
+                          onClick={() => void exportWorkspaceBackup()}
+                          disabled={!hydrated || workspaceBackupBusy}
+                        >
+                          {workspaceBackupBusy ? "Đang xử lý…" : "↓ Tạo file backup"}
+                        </button>
+                        <button
+                          type="button"
+                          className="button ghost"
+                          onClick={() => workspaceBackupFileInput.current?.click()}
+                          disabled={workspaceBackupBusy}
+                        >
+                          ↑ Import backup
+                        </button>
+                        <input
+                          ref={workspaceBackupFileInput}
+                          type="file"
+                          accept=".kito.zip,application/zip,.zip"
+                          hidden
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) void importWorkspaceBackup(file);
+                          }}
+                        />
+                      </div>
+                      <small>Backup gồm dữ liệu workspace và các file đang có trong thư viện tài nguyên của trình duyệt.</small>
+                    </section>
+
                     <section className="export-card export-prompt-card">
                       <div className="export-card-title">
                         <span className="export-card-icon prompt-icon" aria-hidden="true">✦</span>
@@ -16285,8 +16413,8 @@ function Home() {
               onDeleteClip={deleteProjectClip}
               onOpenScene={openSettingsScene}
               onSave={() => void saveProjectNow()}
-              saveDisabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
-              saveLabel={saveStatus === "saving" ? "Đang lưu" : "Lưu"}
+              saveDisabled={saveStatus === "loading" || saveStatus === "saving"}
+              saveLabel={saveStatus === "saving" ? "Đang lưu" : googleUser ? "Lưu" : "Lưu máy"}
             />
           )}
         </div>
@@ -16687,10 +16815,10 @@ function Home() {
                   type="button"
                   className="scene-structure-save-button"
                   onClick={() => void saveProjectNow()}
-                  disabled={!googleUser || saveStatus === "loading" || saveStatus === "saving"}
-                  title={googleUser ? "Lưu toàn bộ thay đổi của Cấu trúc cảnh" : "Đăng nhập Google để lưu"}
+                  disabled={saveStatus === "loading" || saveStatus === "saving"}
+                  title={googleUser ? "Lưu toàn bộ thay đổi của Cấu trúc cảnh" : "Lưu thay đổi trên thiết bị"}
                 >
-                  <span aria-hidden="true">☁</span>
+                  <span aria-hidden="true">{googleUser ? "☁" : "▣"}</span>
                   {saveStatus === "saving" ? "Đang lưu" : "Lưu"}
                 </button>
                 <button

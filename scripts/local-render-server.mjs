@@ -8,10 +8,14 @@ import { alignSubtitles } from "./align-subtitles.mjs";
 import { getResourceCacheSummary, syncProjectResourceCache } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
-const root = process.cwd();
+// `root` is the read-only bundle root in the packaged desktop app.  The
+// writable job/cache area can be redirected independently through
+// KITO_DATA_DIR, which keeps the installer directory read-only.
+const root = process.env.KITO_RENDER_BUNDLE_ROOT || process.cwd();
+const dataRoot = process.env.KITO_DATA_DIR || root;
 const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
-const jobsRoot = path.join(root, "work", "local-render-jobs");
+const jobsRoot = path.join(dataRoot, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
 const renderCacheRoot = path.join(jobsRoot, "render-cache");
 const renderedClipsRoot = path.join(jobsRoot, "rendered-clips");
@@ -21,6 +25,9 @@ const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffprobePath = process.env.FFPROBE_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffprobe.exe");
+const rendererScriptPath = process.env.KITO_RENDERER_SCRIPT ||
+  path.join(root, "scripts", "render-video.mjs");
+const nodeBinary = process.env.KITO_NODE_BINARY || process.execPath;
 const jobs = new Map();
 const concatJobs = new Map();
 let activeJobId = null;
@@ -353,12 +360,12 @@ const runJob = async (job, project, files) => {
 
     const rendererArgs = [
       ...(process.allowedNodeEnvironmentFlags.has("--use-system-ca") ? ["--use-system-ca"] : []),
-      path.join(root, "scripts", "render-video.mjs"),
+      rendererScriptPath,
       job.projectPath,
       job.outputPath,
     ];
     const child = spawn(
-      process.execPath,
+      nodeBinary,
       rendererArgs,
       {
         cwd: root,
