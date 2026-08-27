@@ -863,8 +863,23 @@ const sceneAudioTracksForRender = (scene, duration) => {
         volume: audioVolume(track.volume, trackIndex === 0 ? 95 : 100),
         start,
         end,
+        subtitleCueIds: Array.isArray(track.subtitleCueIds)
+          ? track.subtitleCueIds.map((cueId) => String(cueId))
+          : undefined,
       };
     });
+};
+
+const subtitleAudioStartForRender = (subtitle, audioTracks, fallbackStart) => {
+  const subtitleId = String(subtitle?.id ?? "");
+  const linkedTrack = audioTracks.find((track, trackIndex) => (
+    Array.isArray(track.subtitleCueIds)
+      ? track.subtitleCueIds.includes(subtitleId)
+      : trackIndex === 0
+  ));
+  return linkedTrack
+    ? Math.max(0, Number(linkedTrack.start) || 0)
+    : Math.max(0, Number(fallbackStart) || 0);
 };
 
 const resolveSceneAudioTrack = async (track, sceneIndex, trackIndex) => {
@@ -2139,10 +2154,11 @@ for (let index = 0; index < scenes.length; index += 1) {
   const appendSubtitleLayer = (subtitleIndex) => {
     const { scene: subtitle, style, rendered: renderedOverlay } = subtitleRenders[subtitleIndex];
     const cueStart = Math.max(0, Number(subtitle.start) || 0);
-    const subtitleStart = Math.min(duration, subtitleOffset + cueStart);
+    const subtitleAudioStart = subtitleAudioStartForRender(subtitle, resolvedSceneAudioTracks, subtitleOffset);
+    const subtitleStart = Math.min(duration, subtitleAudioStart + cueStart);
     const subtitleEnd = Math.min(
       duration,
-      Math.max(subtitleStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
+      Math.max(subtitleStart + 0.1, subtitleAudioStart + (Number(subtitle.end) || cueStart + 0.1)),
     );
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
     const inputIndex = subtitleInputStartIndex + subtitleIndex;

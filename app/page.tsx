@@ -1900,6 +1900,38 @@ const sceneAudioSubtitles = (
   return subtitles.filter((subtitle) => subtitleIds.has(subtitle.id));
 };
 
+type SubtitleTimingScene = {
+  subtitleStart?: number;
+  audioTracks?: SceneAudioTrack[];
+};
+
+const subtitleAudioTrackForCue = (
+  scene: SubtitleTimingScene,
+  subtitleId: string,
+) => (scene.audioTracks ?? []).find((track, trackIndex) => (
+  Array.isArray(track.subtitleCueIds)
+    ? track.subtitleCueIds.includes(subtitleId)
+    : trackIndex === 0
+));
+
+const subtitleTimingForScene = (
+  scene: SubtitleTimingScene,
+  subtitle: SubtitleCue,
+) => {
+  const linkedAudioTrack = subtitleAudioTrackForCue(scene, subtitle.id);
+  const baseOffset = linkedAudioTrack
+    ? Math.max(0, Number(linkedAudioTrack.start) || 0)
+    : Math.max(0, Number(scene.subtitleStart) || 0);
+  const cueStart = Math.max(0, Number(subtitle.start) || 0);
+  const cueEnd = Math.max(cueStart + 0.1, Number(subtitle.end) || cueStart + 0.1);
+  return {
+    start: baseOffset + cueStart,
+    end: baseOffset + cueEnd,
+    baseOffset,
+    audioTrackId: linkedAudioTrack?.id ?? null,
+  };
+};
+
 const sceneStructureSubtitleCueIds = (item: SceneStructureItem) => {
   if (Array.isArray(item.subtitleCueIds) && item.subtitleCueIds.length) return item.subtitleCueIds;
   return item.id !== "subtitle" ? [item.id] : [];
@@ -4215,15 +4247,11 @@ function Home() {
     : 0;
   const activeSubtitle = sceneIsVisibleInPlayback && scene.subtitleEnabled !== false
     ? (scene.subtitles ?? []).find((subtitle) => {
-        const subtitleOffset = Math.min(
-          sceneDuration,
-          Math.max(0, Number(scene.subtitleStart) || 0),
-        );
-        const cueStart = Math.max(0, Number(subtitle.start) || 0);
-        const start = Math.min(sceneDuration, subtitleOffset + cueStart);
+        const timing = subtitleTimingForScene(scene, subtitle);
+        const start = Math.min(sceneDuration, timing.start);
         const end = Math.min(
           sceneDuration,
-          Math.max(start + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
+          Math.max(start + 0.1, timing.end),
         );
         return subtitle.visible !== false
           && safeTrim(subtitle.text)
@@ -4477,20 +4505,15 @@ function Home() {
         appendGroup(currentRun);
         currentRun = [];
       }
-      const start = Math.min(
-        sceneStructureDuration,
-        Math.max(0, Number(cue.start) || 0),
-      );
-      const end = Math.min(
-        sceneStructureDuration,
-        Math.max(start + 0.1, Number(cue.end) || start + 0.1),
-      );
+      const timing = subtitleTimingForScene(sceneStructureScene, cue);
+      const start = Math.min(sceneStructureDuration, Math.max(0, timing.start));
+      const end = Math.min(sceneStructureDuration, Math.max(start + 0.1, timing.end));
       currentKey = key;
       currentRun.push({ draft, cue, start, end });
     });
     appendGroup(currentRun);
     return groups;
-  }, [sceneStructureDuration, sceneStructureScene.id, sceneStructureScene.subtitles, sceneStructureSubtitleImageDrafts]);
+  }, [sceneStructureDuration, sceneStructureScene.id, sceneStructureScene.subtitles, sceneStructureScene.audioTracks, sceneStructureSubtitleImageDrafts]);
 
   const clampSceneStructureTiming = (startValue: number, endValue: number) => {
     const start = Math.min(
@@ -4679,7 +4702,6 @@ function Home() {
 
   const allStructureSubtitles = sceneStructureScene.subtitles ?? [];
   const structureSubtitleIds = new Set<string>();
-  const subtitleOffset = Math.max(0, Number(sceneStructureScene.subtitleStart) || 0);
   sceneStructureAudioTracks
     .filter((track) => track.visible !== false)
     .forEach((track, index) => {
@@ -4705,11 +4727,9 @@ function Home() {
         visibleTrackSubtitles.forEach((subtitle) => structureSubtitleIds.add(subtitle.id));
         if (visibleTrackSubtitles.length) {
           const firstCue = visibleTrackSubtitles[0];
-          const firstStart = Math.min(...visibleTrackSubtitles.map((subtitle) => Math.max(0, Number(subtitle.start) || 0)));
-          const lastEnd = Math.max(...visibleTrackSubtitles.map((subtitle) => Math.max(
-            Math.max(0, Number(subtitle.start) || 0) + 0.1,
-            Number(subtitle.end) || 0.1,
-          )));
+          const subtitleTimings = visibleTrackSubtitles.map((subtitle) => subtitleTimingForScene(sceneStructureScene, subtitle));
+          const firstStart = Math.min(...subtitleTimings.map((timing) => timing.start));
+          const lastEnd = Math.max(...subtitleTimings.map((timing) => timing.end));
           const previewText = safeTrim(firstCue.text).slice(0, 56) || "Chưa nhập nội dung";
           addSceneStructureItem({
             token: `subtitle:${track.id}`,
@@ -4717,10 +4737,10 @@ function Home() {
             id: track.id,
             subtitleCueIds: trackSubtitles.map((subtitle) => subtitle.id),
             label: `${safeTrim(track.name) || `Âm thanh ${index + 1}`} · Phụ đề`,
-            detail: `${trackSubtitles.length} câu · ${formatPreciseTime(firstStart)}–${formatPreciseTime(lastEnd)} · ${previewText}${trackSubtitles.length > 1 ? " …" : ""}`,
+            detail: `${trackSubtitles.length} câu · bắt đầu theo ${formatPreciseTime(track.start)} · ${formatPreciseTime(firstStart)}–${formatPreciseTime(lastEnd)} · ${previewText}${trackSubtitles.length > 1 ? " …" : ""}`,
             icon: "CC",
-            start: subtitleOffset + firstStart,
-            end: subtitleOffset + lastEnd,
+            start: firstStart,
+            end: lastEnd,
             timingMode: "both",
             canHide: true,
             thumbnail: "",
@@ -4734,11 +4754,9 @@ function Home() {
     && subtitle.visible !== false
   );
   if (unassignedSubtitles.length) {
-      const firstStart = Math.min(...unassignedSubtitles.map((subtitle) => Math.max(0, Number(subtitle.start) || 0)));
-      const lastEnd = Math.max(...unassignedSubtitles.map((subtitle) => Math.max(
-        Math.max(0, Number(subtitle.start) || 0) + 0.1,
-        Number(subtitle.end) || 0.1,
-      )));
+      const subtitleTimings = unassignedSubtitles.map((subtitle) => subtitleTimingForScene(sceneStructureScene, subtitle));
+      const firstStart = Math.min(...subtitleTimings.map((timing) => timing.start));
+      const lastEnd = Math.max(...subtitleTimings.map((timing) => timing.end));
       const previewText = safeTrim(unassignedSubtitles[0].text).slice(0, 56) || "Chưa nhập nội dung";
       addSceneStructureItem({
         token: "subtitle:unassigned",
@@ -4748,8 +4766,8 @@ function Home() {
         label: "Phụ đề chung",
         detail: `${unassignedSubtitles.length} câu · ${formatPreciseTime(firstStart)}–${formatPreciseTime(lastEnd)} · ${previewText}${unassignedSubtitles.length > 1 ? " …" : ""} · Chưa gắn âm thanh`,
         icon: "CC",
-        start: subtitleOffset + firstStart,
-        end: subtitleOffset + lastEnd,
+        start: firstStart,
+        end: lastEnd,
         timingMode: "both",
         canHide: true,
         thumbnail: "",
@@ -9306,6 +9324,7 @@ function Home() {
                 start: Math.max(0, Number(track.start) || 0),
                 end: Math.min(Math.max(0.1, item.end - item.start), Math.max(Number(track.start) + 0.1, Number(track.end) || 0.1)),
                 visible: track.visible !== false,
+                subtitleCueIds: Array.isArray(track.subtitleCueIds) ? [...track.subtitleCueIds] : undefined,
               }))
             : [];
           const primaryAudioTrack = audioTrackPayloads[0];
@@ -12322,7 +12341,7 @@ function Home() {
         <div className="scene-structure-quick-stack">
           {timingFields}
           <label className="scene-structure-quick-toggle"><input type="checkbox" checked={quickScene.subtitleEnabled !== false} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleEnabled: event.target.checked }))} /><span>Hiển thị phụ đề</span></label>
-          <label className="scene-structure-quick-field"><span>Thời gian bắt đầu toàn bộ phụ đề (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.subtitleStart} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: value }))} /></label>
+          <label className="scene-structure-quick-field"><span>Mốc phụ đề chưa gắn âm thanh (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.subtitleStart} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: value }))} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Cỡ chữ</span><NumericInput min={8} max={120} step={1} value={subtitleStyle.size} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), size: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Font chữ</span><select value={subtitleStyle.font} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), font: event.target.value as OverlayTextFont } }))}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
@@ -12340,7 +12359,7 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Hiệu ứng phụ đề</span><select value={subtitleStyle.animation} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animation: event.target.value as SubtitleAnimation } }))}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide-up">Trượt lên</option><option value="typewriter">Gõ chữ</option></select></label>
             <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animationDuration: value } }))} /></label>
           </div>
-          <div className="scene-structure-quick-divider"><strong>Nội dung từng câu</strong><small>Thời gian tính từ mốc bắt đầu toàn bộ phụ đề.</small></div>
+          <div className="scene-structure-quick-divider"><strong>Nội dung từng câu</strong><small>Cue thuộc audio tính từ mốc bắt đầu audio; cue chưa gắn audio tính từ mốc dự phòng.</small></div>
           {quickSubtitles.length > 0 ? quickSubtitles.map((subtitle, index) => (
             <div className={`scene-structure-quick-subtitle ${subtitle.visible === false ? "is-hidden" : ""}`} key={subtitle.id}>
               <div className="scene-structure-quick-subtitle-heading">
@@ -12590,19 +12609,16 @@ function Home() {
 
   const sceneStructureSubtitleAtTime = (localTime: number) => {
     if (sceneStructureScene.subtitleEnabled === false) return null;
-    const subtitleOffset = Math.min(
-      sceneStructureDuration,
-      Math.max(0, Number(sceneStructureScene.subtitleStart) || 0),
-    );
     return (sceneStructureScene.subtitles ?? []).find((subtitle) => {
-      const cueStart = Math.max(0, Number(subtitle.start) || 0);
+      const timing = subtitleTimingForScene(sceneStructureScene, subtitle);
+      const cueStart = Math.min(sceneStructureDuration, timing.start);
       const cueEnd = Math.min(
         sceneStructureDuration,
-        Math.max(subtitleOffset + cueStart + 0.1, subtitleOffset + (Number(subtitle.end) || cueStart + 0.1)),
+        Math.max(cueStart + 0.1, timing.end),
       );
       return subtitle.visible !== false
         && safeTrim(subtitle.text)
-        && localTime >= Math.min(sceneStructureDuration, subtitleOffset + cueStart)
+        && localTime >= cueStart
         && localTime < cueEnd;
     }) ?? null;
   };
@@ -12615,12 +12631,8 @@ function Home() {
     const previewIsPlaying = !staticFrame && playing;
     const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
     const liveSubtitle = sceneStructureSubtitleAtTime(localTime);
-    const liveSubtitleOffset = Math.min(
-      sceneStructureDuration,
-      Math.max(0, Number(sceneStructureScene.subtitleStart) || 0),
-    );
     const liveSubtitleStart = liveSubtitle
-      ? Math.min(sceneStructureDuration, liveSubtitleOffset + Math.max(0, Number(liveSubtitle.start) || 0))
+      ? Math.min(sceneStructureDuration, subtitleTimingForScene(sceneStructureScene, liveSubtitle).start)
       : 0;
     const liveSubtitleProgress = liveSubtitle
       ? Math.min(1, Math.max(0, (localTime - liveSubtitleStart) / Math.max(0.05, liveSubtitleStyle.animationDuration)))
@@ -15647,7 +15659,7 @@ function Home() {
               </EditorFieldGroup>
               <div className="field-row subtitle-global-timing-row">
                 <label className="field">
-                  <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; toàn bộ cue phụ đề được dịch bắt đầu từ thời điểm này.">Thời gian bắt đầu phát tất cả phụ đề</TimeFieldLabel>
+                  <TimeFieldLabel hint="Mốc dự phòng tính từ đầu cảnh cho cue chưa gắn với âm thanh. Cue đã gắn audio sẽ bắt đầu theo mốc của audio đó.">Thời gian bắt đầu phát tất cả phụ đề (cue chưa gắn âm thanh)</TimeFieldLabel>
                   <div className="number-with-unit">
                     <NumericInput
                       min={0}
@@ -15659,7 +15671,7 @@ function Home() {
                     />
                     <b>s</b>
                   </div>
-                  <small>Dịch toàn bộ cue phụ đề theo thời gian này; thời gian bắt đầu/kết thúc từng câu vẫn giữ nguyên.</small>
+                  <small>Cue thuộc một âm thanh sẽ tự bám mốc bắt đầu của âm thanh; cue chưa gắn âm thanh dùng mốc này.</small>
                 </label>
               </div>
               <label className="zoom-effect-toggle">
@@ -15705,7 +15717,7 @@ function Home() {
                       />
                       <div className="field-row subtitle-timing-fields">
                         <label className="field">
-                          <TimeFieldLabel hint="Mốc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Bắt đầu</TimeFieldLabel>
+                          <TimeFieldLabel hint="Mốc tương đối tính từ âm thanh được gắn; nếu chưa gắn âm thanh thì tính từ mốc dự phòng của cảnh.">Bắt đầu tương đối</TimeFieldLabel>
                           <div className="number-with-unit">
                             <NumericInput
                               min={0}
@@ -15718,7 +15730,7 @@ function Home() {
                           </div>
                         </label>
                         <label className="field">
-                          <TimeFieldLabel hint="Mốc kết thúc của câu phụ đề tính từ mốc bắt đầu phụ đề của cảnh.">Kết thúc</TimeFieldLabel>
+                          <TimeFieldLabel hint="Mốc kết thúc tương đối tính từ âm thanh được gắn; nếu chưa gắn âm thanh thì tính từ mốc dự phòng của cảnh.">Kết thúc tương đối</TimeFieldLabel>
                           <div className="number-with-unit">
                             <NumericInput
                               min={0.1}

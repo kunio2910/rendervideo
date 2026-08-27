@@ -239,6 +239,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /replayPlayback/);
   assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
+  assert.match(page, /const subtitleAudioTrackForCue/);
+  assert.match(page, /const subtitleTimingForScene/);
+  assert.match(page, /subtitleCueIds: Array\.isArray\(track\.subtitleCueIds\)/);
   assert.match(page, /id="editor-narration"/);
   assert.match(page, /value=\{scene\.narration\}/);
   assert.match(page, /value=\{activePopup\?\.narration \?\? ""\}/);
@@ -611,6 +614,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /darkProgressRaw = `if\(lt\(T/);
   assert.match(renderer, /\$\{darkEnd\}-T/);
   assert.match(renderer, /subtitleOffset/);
+  assert.match(renderer, /const subtitleAudioStartForRender/);
+  assert.match(renderer, /subtitleCueIds: Array\.isArray\(track\.subtitleCueIds\)/);
   assert.match(renderer, /enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
   assert.match(css, /preview-layer-search/);
