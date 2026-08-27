@@ -236,6 +236,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
+  assert.match(page, /style=\{\{ zoom: sceneStructurePreviewMode \? 1 : previewZoom \/ 100 \}\}/);
   assert.match(page, /replayPlayback/);
   assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
@@ -315,6 +316,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /preview-ruler-grid/);
   assert.match(css, /preview-alignment-guides/);
   assert.match(css, /preview-stage-layout/);
+  assert.match(css, /compose-topbar[\s\S]{0,180}position: sticky/);
+  assert.match(css, /preview-stage > \.preview-navigation-zoom-only[\s\S]{0,220}z-index: 3/);
   assert.match(css, /preview-layer-panel/);
   assert.match(css, /preview-layer-item/);
   assert.match(css, /pointer-events: none !important/);

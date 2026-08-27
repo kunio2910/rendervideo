@@ -13532,7 +13532,7 @@ function Home() {
           <div
             data-preview-source="editor"
             className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${previewPlaybackMode && !playing ? "is-playback-paused" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
-            style={{ transform: sceneStructurePreviewMode ? "none" : `scale(${previewZoom / 100})` }}
+            style={{ zoom: sceneStructurePreviewMode ? 1 : previewZoom / 100 }}
             onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
             onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}
             onDrop={sceneStructurePreviewMode ? undefined : handleMapEffectDrop}

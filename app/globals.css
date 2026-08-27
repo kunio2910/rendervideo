@@ -6126,6 +6126,12 @@ body {
 .studio-shell[data-studio-tab="compose"] .preview-panel .phone-preview {
   transform-origin: center center;
 }
+.studio-shell[data-studio-tab="compose"] .compose-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  isolation: isolate;
+}
 .preview-navigation {
   width: min(100%, 528px);
   display: grid;
@@ -6344,6 +6350,9 @@ body {
 .preview-stage > .preview-navigation-zoom-only {
   width: min(100%, 360px);
   margin: 12px auto 0;
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
 }
 .preview-layer-panel {
   display: flex;
