@@ -8496,6 +8496,28 @@ body {
   background: #342a1b;
 }
 
+.studio-shell[data-theme="dark"] .scene-weather-add-row select {
+  border-color: #5b7390;
+  background: #1b2d40;
+  color: #eef6ff;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-add-row .button.secondary {
+  border-color: #c18b38;
+  background: linear-gradient(180deg, #79561d, #4f3816);
+  color: #fff0c9;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 235, 180, .2);
+  font-weight: 800;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-add-row .button.secondary:hover,
+.studio-shell[data-theme="dark"] .scene-weather-add-row .button.secondary:focus-visible {
+  border-color: #ffe0a0;
+  background: linear-gradient(180deg, #d79b3a, #a96b1a);
+  color: #1b1408;
+  outline: 0;
+}
+
 @media (max-width: 780px) {
   .scene-weather-effects-heading {
     align-items: stretch;
@@ -8784,12 +8806,12 @@ body {
 .sandstorm-effect {
   z-index: 3;
   overflow: hidden;
-  opacity: var(--sandstorm-intensity, .45);
+  opacity: var(--sandstorm-intensity, .62);
   background:
-    linear-gradient(105deg, rgba(196, 135, 48, .1), rgba(238, 190, 92, .2) 48%, rgba(157, 91, 29, .12)),
-    radial-gradient(ellipse at 10% 82%, rgba(220, 159, 69, .42), transparent 62%),
-    linear-gradient(180deg, transparent 52%, rgba(194, 119, 35, .13));
-  mix-blend-mode: multiply;
+    linear-gradient(105deg, rgba(196, 135, 48, .22), rgba(238, 190, 92, .34) 48%, rgba(157, 91, 29, .22)),
+    radial-gradient(ellipse at 10% 82%, rgba(220, 159, 69, .58), transparent 62%),
+    linear-gradient(180deg, transparent 42%, rgba(194, 119, 35, .24));
+  mix-blend-mode: screen;
 }
 
 .sandstorm-effect::before,
@@ -8815,11 +8837,28 @@ body {
   position: absolute;
   display: block;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255, 225, 157, .2), rgba(248, 204, 116, .98));
-  box-shadow: 0 0 6px rgba(255, 211, 126, .95), 0 0 12px rgba(220, 153, 53, .55);
+  background: linear-gradient(90deg, rgba(255, 225, 157, .18), rgba(255, 220, 134, 1));
+  box-shadow: 0 0 7px rgba(255, 211, 126, 1), 0 0 15px rgba(220, 153, 53, .72);
   mix-blend-mode: screen;
   transform: rotate(var(--sand-tilt, 4deg));
   animation: scene-sand-blow 3.5s linear infinite;
+}
+
+.star-twinkle-effect {
+  z-index: 4;
+  opacity: var(--star-twinkle-intensity, .6);
+  mix-blend-mode: screen;
+}
+
+.star-twinkle-effect i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: #fff6c9;
+  box-shadow:
+    0 0 var(--star-glow, 6px) rgba(255, 235, 166, .98),
+    0 0 calc(var(--star-glow, 6px) * 2) rgba(255, 194, 83, .68);
+  animation: scene-star-twinkle 2.4s ease-in-out infinite;
 }
 
 .thunder-effect {
@@ -12260,6 +12299,13 @@ body {
   border-color: #bd7a28;
   background: #f5dfbb;
   color: #704315;
+}
+
+@keyframes scene-star-twinkle {
+  0%, 100% { opacity: .12; transform: scale(.65); }
+  18% { opacity: .46; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1.2); }
+  82% { opacity: .34; transform: scale(.8); }
 }
 
 /* Photoshop-like preview layer stack: topmost item is displayed first. */

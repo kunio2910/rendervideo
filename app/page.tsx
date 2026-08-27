@@ -597,7 +597,7 @@ type SceneDarkEffect = {
   intensity: number;
 };
 
-type SceneWeatherEffectType = "snow" | "light-flicker" | "rain" | "thunder" | "cloud" | "sandstorm";
+type SceneWeatherEffectType = "snow" | "light-flicker" | "rain" | "thunder" | "cloud" | "sandstorm" | "star-twinkle";
 
 type SceneWeatherEffect = {
   id: string;
@@ -616,9 +616,9 @@ const SCENE_WEATHER_EFFECT_DEFINITIONS: Array<{
   icon: string;
   intensity: number;
   speed: number;
-  enabledKey: "snowEnabled" | "lightFlickerEnabled" | "rainEnabled" | "thunderEnabled" | "cloudEnabled" | "sandstormEnabled";
-  intensityKey: "snowIntensity" | "lightFlickerIntensity" | "rainIntensity" | "thunderIntensity" | "cloudIntensity" | "sandstormIntensity";
-  speedKey: "snowSpeed" | "lightFlickerSpeed" | "rainSpeed" | "thunderSpeed" | "cloudSpeed" | "sandstormSpeed";
+  enabledKey: "snowEnabled" | "lightFlickerEnabled" | "rainEnabled" | "thunderEnabled" | "cloudEnabled" | "sandstormEnabled" | "starTwinkleEnabled";
+  intensityKey: "snowIntensity" | "lightFlickerIntensity" | "rainIntensity" | "thunderIntensity" | "cloudIntensity" | "sandstormIntensity" | "starTwinkleIntensity";
+  speedKey: "snowSpeed" | "lightFlickerSpeed" | "rainSpeed" | "thunderSpeed" | "cloudSpeed" | "sandstormSpeed" | "starTwinkleSpeed";
 }> = [
   { type: "snow", label: "Tuyết rơi", description: "Hạt tuyết phủ trên bản đồ", icon: "❄", intensity: 55, speed: 1, enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed" },
   { type: "light-flicker", label: "Ánh sáng nhấp nháy", description: "Quầng sáng thay đổi theo nhịp", icon: "☼", intensity: 45, speed: 1, enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed" },
@@ -626,6 +626,7 @@ const SCENE_WEATHER_EFFECT_DEFINITIONS: Array<{
   { type: "thunder", label: "Sấm chớp", description: "Ánh chớp lóe theo nhịp bất chợt", icon: "ϟ", intensity: 55, speed: 1, enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed" },
   { type: "cloud", label: "Đám mây", description: "Mây trôi nhẹ phủ lên nền bản đồ", icon: "☁", intensity: 50, speed: 1, enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed" },
   { type: "sandstorm", label: "Bão cát", description: "Cát bụi bay ngang phủ sắc vàng lên bản đồ", icon: "≋", intensity: 45, speed: 1, enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed" },
+  { type: "star-twinkle", label: "Ánh sao nhấp nháy", description: "Các vì sao nhỏ lóe sáng nhẹ trên bản đồ", icon: "✦", intensity: 60, speed: 1, enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed" },
 ];
 
 const sceneWeatherEffectDefinition = (type: SceneWeatherEffectType) =>
@@ -673,6 +674,9 @@ type SceneEffects = {
   sandstormEnabled: boolean;
   sandstormIntensity: number;
   sandstormSpeed: number;
+  starTwinkleEnabled: boolean;
+  starTwinkleIntensity: number;
+  starTwinkleSpeed: number;
   weatherEffects: SceneWeatherEffect[];
 };
 
@@ -787,6 +791,9 @@ const defaultSceneEffects = (): SceneEffects => ({
   sandstormEnabled: false,
   sandstormIntensity: 45,
   sandstormSpeed: 1,
+  starTwinkleEnabled: false,
+  starTwinkleIntensity: 60,
+  starTwinkleSpeed: 1,
   weatherEffects: [],
 });
 
@@ -815,6 +822,15 @@ const CLOUD_SEEDS = Array.from({ length: 7 }, (_, index) => ({
   duration: 18 + ((index * 11) % 14),
   delay: -((index * 13) % 28),
   drift: 118 + ((index * 17) % 45),
+}));
+
+const STAR_TWINKLE_SEEDS = Array.from({ length: 34 }, (_, index) => ({
+  x: 6 + ((index * 31) % 88),
+  y: 6 + ((index * 53) % 82),
+  size: 1 + ((index * 7) % 3),
+  duration: 1.8 + ((index * 17) % 24) / 10,
+  delay: -((index * 29) % 30) / 10,
+  glow: 3 + ((index * 11) % 6),
 }));
 
 const SAND_PARTICLE_SEEDS = Array.from({ length: 44 }, (_, index) => ({
@@ -2154,6 +2170,9 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
     sandstormEnabled: raw.sandstormEnabled === true,
     sandstormIntensity: Math.min(100, Math.max(0, positiveNumber(raw.sandstormIntensity, 45))),
     sandstormSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.sandstormSpeed, 1, 0.2))),
+    starTwinkleEnabled: raw.starTwinkleEnabled === true,
+    starTwinkleIntensity: Math.min(100, Math.max(0, positiveNumber(raw.starTwinkleIntensity, 60))),
+    starTwinkleSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.starTwinkleSpeed, 1, 0.2))),
     weatherEffects: normalizeSceneWeatherEffects(raw),
   };
   return syncSceneWeatherFields(normalized, normalized.weatherEffects);
@@ -4136,8 +4155,10 @@ function Home() {
   const totalDuration = Math.max(0, ...visibleScenes.map((item) => item.end));
   const sceneTimelineDuration = Math.max(1, Number(totalDuration.toFixed(2)));
   const renderDuration = Math.max(projectDuration, totalDuration);
-  const timelineLength = Math.max(0.1, projectDuration);
-  const timelineCanvasWidth = Math.max(320, Math.ceil(projectDuration * 16 * (timelineZoom / 100)));
+  // The visible timeline is the source of truth for Preview. The persisted
+  // projectDuration can be stale until the next save after a scene resize.
+  const timelineLength = Math.max(0.1, sceneTimelineDuration);
+  const timelineCanvasWidth = Math.max(320, Math.ceil(sceneTimelineDuration * 16 * (timelineZoom / 100)));
   const timelinePercent = (time: number) => `${Math.min(100, Math.max(0, (time / timelineLength) * 100))}%`;
   const handleTimelineWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) < 0.5) return;
@@ -4212,10 +4233,16 @@ function Home() {
     backgroundMusicPreview || assetPreviewSource(backgroundMusic);
   const sceneLocalTime = Math.min(
     sceneDuration,
-    Math.max(0, playTime - scene.start),
+    Math.max(0, Math.min(sceneTimelineDuration, playTime) - scene.start),
   );
   const weatherEffectsAtTime = (type: SceneWeatherEffectType) =>
     activeSceneWeatherEffects(sceneEffects, type, sceneLocalTime);
+  const previewWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
+    if (!previewPlaybackMode && !sceneStructurePreviewMode && (type === "sandstorm" || type === "star-twinkle")) {
+      return sceneEffects.weatherEffects.filter((effect) => effect.type === type && effect.enabled);
+    }
+    return weatherEffectsAtTime(type);
+  };
   const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
   const sceneStartDarkEffectProgress = (effect: SceneDarkEffect, localTime = sceneLocalTime) => {
     const start = Math.max(0, Number(effect.start) || 0);
@@ -4300,8 +4327,8 @@ function Home() {
   const sceneProgress = sceneDuration > 0
     ? Math.min(1, Math.max(0, sceneLocalTime / sceneDuration))
     : 0;
-  const timelineProgress = projectDuration > 0
-    ? Math.min(1, Math.max(0, playTime / projectDuration))
+  const timelineProgress = sceneTimelineDuration > 0
+    ? Math.min(1, Math.max(0, playTime / sceneTimelineDuration))
     : 0;
   const sceneIsVisibleInPlayback = sceneStructurePreviewMode || !previewPlaybackMode || visibleScenes.some((item) =>
     item.id === scene.id && playTime >= item.start && playTime < item.end,
@@ -6252,6 +6279,20 @@ function Home() {
     setPlaying(true);
   };
 
+  const togglePlaybackFromKeyboard = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    if (previewPlaybackMode) {
+      setRulerEnabled(false);
+      setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      setPlaying(true);
+      return;
+    }
+    togglePlayback();
+  };
+
   const replayPlayback = () => {
     const firstScene = visibleScenes[0];
     if (!firstScene) {
@@ -6281,15 +6322,15 @@ function Home() {
     setPlaying(false);
     setPlayTime((currentTime) => {
       const nextTime = Math.min(
-        projectDuration,
+        sceneTimelineDuration,
         Math.max(0, Number((currentTime + seconds).toFixed(2))),
       );
       const activeScene =
         visibleScenes.find(
           (item) =>
             nextTime >= item.start &&
-            (nextTime < item.end || nextTime === projectDuration),
-        ) ?? visibleScenes.at(nextTime === projectDuration ? -1 : 0);
+            (nextTime < item.end || nextTime === sceneTimelineDuration),
+        ) ?? visibleScenes.at(nextTime === sceneTimelineDuration ? -1 : 0);
       if (activeScene) setSelectedId(activeScene.id);
       return nextTime;
     });
@@ -6370,14 +6411,14 @@ function Home() {
         1,
         Math.max(0, (clientX - bounds.left) / bounds.width),
       );
-      const nextTime = Number((progress * projectDuration).toFixed(2));
+      const nextTime = Number((progress * sceneTimelineDuration).toFixed(2));
       setPlayTime(nextTime);
       const activeScene =
         visibleScenes.find(
           (item) =>
             nextTime >= item.start &&
-            (nextTime < item.end || nextTime === projectDuration),
-        ) ?? visibleScenes.at(nextTime === projectDuration ? -1 : 0);
+            (nextTime < item.end || nextTime === sceneTimelineDuration),
+        ) ?? visibleScenes.at(nextTime === sceneTimelineDuration ? -1 : 0);
       if (activeScene) {
         setSelectedId(activeScene.id);
         setSelectedSceneIds([activeScene.id]);
@@ -6431,12 +6472,13 @@ function Home() {
         return;
       }
       if (event.key === " ") {
+        if (event.repeat) return;
         event.preventDefault();
-        if (playing) setPlaying(false);
-        else togglePlayback();
+        togglePlaybackFromKeyboard();
       } else if (event.key === "Enter" && previewPlaybackMode && !playing) {
+        if (event.repeat) return;
         event.preventDefault();
-        togglePlayback();
+        togglePlaybackFromKeyboard();
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         seekTimeline(-3);
@@ -9719,7 +9761,7 @@ function Home() {
     timelinePopupMoved.current = false;
 
     const move = (moveEvent: PointerEvent) => {
-      const delta = ((moveEvent.clientX - startX) / bounds.width) * projectDuration;
+      const delta = ((moveEvent.clientX - startX) / bounds.width) * sceneTimelineDuration;
       if (Math.abs(moveEvent.clientX - startX) > 4) timelinePopupMoved.current = true;
       setScenes((items) =>
         items.map((item) => {
@@ -13232,6 +13274,7 @@ function Home() {
         {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, animationDuration: `${cloud.duration / effect.speed}s`, animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
         {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${effect.intensity / 100}` }}>{RAIN_DROP_SEEDS.map((drop, index) => <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${drop.x}%`, width: `${drop.width}px`, height: `${drop.length}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--rain-drift" as string]: `${drop.drift}px` }} />)}</div>)}
         {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${effect.intensity / 100}` }}>{SAND_PARTICLE_SEEDS.map((particle, index) => <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${particle.x}%`, top: `${particle.y}%`, width: `${Math.max(2, particle.size * 1.8)}px`, height: `${Math.max(1.5, particle.size)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--sand-drift" as string]: `${particle.drift}%`, ["--sand-tilt" as string]: `${particle.tilt}deg` }} />)}</div>)}
+        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ["--star-twinkle-intensity" as string]: `${effect.intensity / 100}` }}>{STAR_TWINKLE_SEEDS.map((star, index) => <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${star.x}%`, top: `${star.y}%`, width: `${Math.max(2, star.size * 2.4)}px`, height: `${Math.max(2, star.size * 2.4)}px`, animationDuration: `${star.duration / effect.speed}s`, animationDelay: `${star.delay}s`, ["--star-glow" as string]: `${star.glow}px` }} />)}</div>)}
         {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * 0.78}`, ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / effect.speed)}s` }} />)}
 
         {sceneStructureTexts
@@ -14266,9 +14309,32 @@ function Home() {
                 {RAIN_DROP_SEEDS.map((drop, index) => <i key={`raindrop-${effect.id}-${index}`} style={{ left: `${drop.x}%`, width: `${drop.width}px`, height: `${drop.length}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--rain-drift" as string]: `${drop.drift}px` }} />)}
               </div>
             ))}
-            {sceneIsVisibleInPlayback && weatherEffectsAtTime("sandstorm").map((effect) => (
+            {sceneIsVisibleInPlayback && previewWeatherEffectsAtTime("sandstorm").map((effect) => (
               <div key={`sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${effect.intensity / 100}` }}>
                 {SAND_PARTICLE_SEEDS.map((particle, index) => <i key={`sand-particle-${effect.id}-${index}`} style={{ left: `${particle.x}%`, top: `${particle.y}%`, width: `${Math.max(2, particle.size * 1.8)}px`, height: `${Math.max(1.5, particle.size)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--sand-drift" as string]: `${particle.drift}%`, ["--sand-tilt" as string]: `${particle.tilt}deg` }} />)}
+              </div>
+            ))}
+            {sceneIsVisibleInPlayback && previewWeatherEffectsAtTime("star-twinkle").map((effect) => (
+              <div
+                key={`star-twinkle-${effect.id}`}
+                className="scene-effect-layer star-twinkle-effect"
+                aria-hidden="true"
+                style={{ ["--star-twinkle-intensity" as string]: `${effect.intensity / 100}` }}
+              >
+                {STAR_TWINKLE_SEEDS.map((star, index) => (
+                  <i
+                    key={`star-twinkle-${effect.id}-${index}`}
+                    style={{
+                      left: `${star.x}%`,
+                      top: `${star.y}%`,
+                      width: `${Math.max(2, star.size * 2.4)}px`,
+                      height: `${Math.max(2, star.size * 2.4)}px`,
+                      animationDuration: `${star.duration / effect.speed}s`,
+                      animationDelay: `${star.delay}s`,
+                      ["--star-glow" as string]: `${star.glow}px`,
+                    }}
+                  />
+                ))}
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("thunder").map((effect) => (

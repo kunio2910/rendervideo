@@ -353,6 +353,7 @@ const weatherEffectDefinitions = [
   { type: "thunder", enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed", intensity: 55, speed: 1 },
   { type: "cloud", enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed", intensity: 50, speed: 1 },
   { type: "sandstorm", enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed", intensity: 45, speed: 1 },
+  { type: "star-twinkle", enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed", intensity: 60, speed: 1 },
 ];
 
 const normalizeSceneWeatherEffects = (value, duration = 3600) => {
@@ -444,6 +445,12 @@ const normalizeSceneEffects = (value, duration = 3600) => {
     cloudEnabled: raw.cloudEnabled === true,
     cloudIntensity: clamp(Number(raw.cloudIntensity ?? 50) || 50, 0, 100),
     cloudSpeed: clamp(Number(raw.cloudSpeed ?? 1) || 1, 0.2, 3),
+    sandstormEnabled: raw.sandstormEnabled === true,
+    sandstormIntensity: clamp(Number(raw.sandstormIntensity ?? 45) || 45, 0, 100),
+    sandstormSpeed: clamp(Number(raw.sandstormSpeed ?? 1) || 1, 0.2, 3),
+    starTwinkleEnabled: raw.starTwinkleEnabled === true,
+    starTwinkleIntensity: clamp(Number(raw.starTwinkleIntensity ?? 60) || 60, 0, 100),
+    starTwinkleSpeed: clamp(Number(raw.starTwinkleSpeed ?? 1) || 1, 0.2, 3),
     weatherEffects: normalizeSceneWeatherEffects(raw, duration),
   };
   weatherEffectDefinitions.forEach((definition) => {
@@ -491,6 +498,14 @@ const sandstormSeeds = Array.from({ length: 44 }, (_, index) => ({
   delay: -((index * 19) % 38) / 10,
   drift: 34 + ((index * 23) % 52),
   tilt: -10 + ((index * 17) % 24),
+}));
+const starTwinkleSeeds = Array.from({ length: 34 }, (_, index) => ({
+  x: 6 + ((index * 31) % 88),
+  y: 6 + ((index * 53) % 82),
+  size: 1 + ((index * 7) % 3),
+  duration: 1.8 + ((index * 17) % 24) / 10,
+  delay: -((index * 29) % 30) / 10,
+  glow: 3 + ((index * 11) % 6),
 }));
 
 const writeWeatherGradientLayer = async (filename, kind) => {
@@ -1945,6 +1960,23 @@ for (let index = 0; index < scenes.length; index += 1) {
         x: `main_w*(${(grain.x / 100).toFixed(4)}-0.18+(${overlayPhase})*(0.18+${(grain.drift / 100).toFixed(4)}))`,
         y: `main_h*(${(grain.y / 100).toFixed(4)}-0.03*(${overlayPhase}))`,
         label: sandLabel,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+      });
+    }
+  }
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "star-twinkle").entries()) {
+    for (let starIndex = 0; starIndex < starTwinkleSeeds.length; starIndex += 1) {
+      const star = starTwinkleSeeds[starIndex];
+      const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4)));
+      const cycle = star.duration / effect.speed;
+      const phase = weatherPhaseExpression(cycle, star.delay, "T", effect.start);
+      const opacity = `if(lt(${phase},0.18),${phase}/0.18,if(gt(${phase},0.82),(1-${phase})/0.18,0.35+0.65*sin(PI*(${phase}-0.18)/0.64)))`;
+      const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
+      addWeatherOverlay({
+        source: `color=c=0xFFF6C9@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}`,
+        x: `main_w*${(star.x / 100).toFixed(4)}-overlay_w/2`,
+        y: `main_h*${(star.y / 100).toFixed(4)}-overlay_h/2`,
+        label: starLabel,
         inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }

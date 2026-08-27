@@ -514,6 +514,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /const SNOWFLAKE_SEEDS = Array\.from\(\{ length: 36 \}/);
   assert.match(page, /const RAIN_DROP_SEEDS = Array\.from\(\{ length: 32 \}/);
   assert.match(page, /const CLOUD_SEEDS = Array\.from\(\{ length: 7 \}/);
+  assert.match(page, /const STAR_TWINKLE_SEEDS = Array\.from\(\{ length: 34 \}/);
   assert.match(page, /type SceneWeatherEffect =/);
   assert.match(page, /const addSceneWeatherEffect =/);
   assert.match(page, /weatherEffectsAtTime/);
@@ -522,12 +523,20 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /seekTimeline\(3\)/);
   assert.match(page, /event\.key === "Home"/);
   assert.match(page, /isPlaybackShortcut/);
+  assert.match(page, /togglePlaybackFromKeyboard/);
+  assert.match(page, /previewWeatherEffectsAtTime/);
+  assert.match(page, /sceneTimelineDuration > 0/);
   assert.match(css, /\.sandstorm-effect i[\s\S]{0,300}mix-blend-mode: screen/);
+  assert.match(css, /\.star-twinkle-effect/);
+  assert.match(css, /scene-star-twinkle/);
+  assert.match(css, /scene-weather-add-row \.button\.secondary/);
   assert.match(renderer, /const snowflakeSeeds = Array\.from\(\{ length: 36 \}/);
   assert.match(renderer, /const rainDropSeeds = Array\.from\(\{ length: 32 \}/);
   assert.match(renderer, /const cloudSeeds = Array\.from\(\{ length: 7 \}/);
   assert.match(renderer, /const sandstormSeeds = Array\.from\(\{ length: 44 \}/);
+  assert.match(renderer, /const starTwinkleSeeds = Array\.from\(\{ length: 34 \}/);
   assert.match(renderer, /sceneWeatherEffectsOfType\(sceneEffects, "sandstorm"\)/);
+  assert.match(renderer, /sceneWeatherEffectsOfType\(sceneEffects, "star-twinkle"\)/);
   assert.match(renderer, /const weatherWindowExpression/);
   assert.match(renderer, /label: sandLabel/);
   assert.match(renderer, /writeWeatherGradientLayer/);
