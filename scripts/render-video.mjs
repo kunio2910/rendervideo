@@ -398,11 +398,11 @@ const normalizeSceneWeatherEffects = (value, duration = 3600) => {
       start,
       end,
       intensity: clamp(Number(candidate.intensity ?? definition.intensity) || definition.intensity, 0, 100),
-      speed: clamp(Number(candidate.speed ?? definition.speed) || definition.speed, 0.2, 3),
+      speed: clamp(numberOr(candidate.speed, definition.speed), 0, 3),
       color: normalizeHexColor(candidate.color, definition.color),
       opacity: clamp(numberOr(candidate.opacity, 100), 0, 100),
       size: clamp(numberOr(candidate.size, definition.size), 25, 300),
-      density: clamp(numberOr(candidate.density, definition.density), 10, 200),
+      density: clamp(numberOr(candidate.density, definition.density), 10, 500),
       movementMode: candidate.movementMode === "random" ? "random" : definition.movementMode,
       movementAngle: normalizeWeatherAngle(candidate.movementAngle, definition.movementAngle),
       randomness: clamp(numberOr(candidate.randomness, 45), 0, 100),
@@ -410,6 +410,8 @@ const normalizeSceneWeatherEffects = (value, duration = 3600) => {
       glow: clamp(numberOr(candidate.glow, 55), 0, 100),
       trail: clamp(numberOr(candidate.trail, 0), 0, 200),
       spread: clamp(numberOr(candidate.spread, 100), 20, 180),
+      offsetX: clamp(numberOr(candidate.offsetX, 0), -100, 100),
+      offsetY: clamp(numberOr(candidate.offsetY, 0), -100, 100),
     };
   }) : [];
 };
@@ -539,8 +541,8 @@ const weatherParticleCount = (seeds, effect) =>
 const weatherParticlePosition = (seed, effect) => {
   const spread = effect.spread / 100;
   return {
-    x: 50 + (seed.x - 50) * spread,
-    y: 50 + ((seed.y ?? 50) - 50) * spread,
+    x: 50 + effect.offsetX + (seed.x - 50) * spread,
+    y: 50 + effect.offsetY + ((seed.y ?? 50) - 50) * spread,
   };
 };
 const weatherParticleMotion = (effect, index, fallbackAngle, distance = 115) => {
@@ -609,6 +611,12 @@ const weatherFadeExpression = (phase, plateau = 0.9) =>
 
 const weatherWindowExpression = (effect, timeVariable = "T") =>
   `if(lt(${timeVariable},${Number(effect.start).toFixed(4)}),0,if(gte(${timeVariable},${Number(effect.end).toFixed(4)}),0,1))`;
+const weatherEffectCycle = (effect, baseCycle, minimum = 0.05) =>
+  effect.speed > 0 ? Math.max(minimum, baseCycle / effect.speed) : 1;
+const weatherEffectPhase = (effect, cycle, delay, timeVariable, start) =>
+  effect.speed > 0
+    ? weatherPhaseExpression(cycle, delay, timeVariable, start)
+    : effect.type === "thunder" ? "0.35" : "0.5";
 
 const popupPixelHeight = (scene) => Math.min(
   Math.round(previewPx(popupSectionGeometry(scene).height)),
@@ -1916,8 +1924,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     composedLabel = `[${label}]`;
   };
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "light-flicker").entries()) {
-    const cycle = Math.max(0.2, 2.8 / effect.speed);
-    const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
+    const cycle = weatherEffectCycle(effect, 2.8, 0.2);
+    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.24),1-0.38*${phase}/0.24,if(lt(${phase},0.45),0.62+0.38*(${phase}-0.24)/0.21,if(lt(${phase},0.68),1-0.3*(${phase}-0.45)/0.23,0.7+0.3*(${phase}-0.68)/0.32)))`;
     const alpha = (
       (effect.intensity / 100)
@@ -1933,15 +1941,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     );
     addWeatherOverlay({
       input: { type: "file", path: lightPath },
-      x: "main_w-overlay_w/2",
-      y: "main_h-overlay_h/2",
+      x: `main_w-overlay_w/2+main_w*${(effect.offsetX / 100).toFixed(4)}`,
+      y: `main_h-overlay_h/2+main_h*${(effect.offsetY / 100).toFixed(4)}`,
       label: `lightFlicker${effectIndex}`,
       inputFilter: `format=rgba,scale=trunc(iw*${lightScale}/2)*2:trunc(ih*${lightScale}/2)*2${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "thunder").entries()) {
-    const cycle = Math.max(0.4, 3.6 / effect.speed);
-    const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
+    const cycle = weatherEffectCycle(effect, 3.6, 0.4);
+    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.31),0,if(lt(${phase},0.33),0.72*(${phase}-0.31)/0.02,if(lt(${phase},0.35),0.72-0.57*(${phase}-0.33)/0.02,if(lt(${phase},0.37),0.15+0.75*(${phase}-0.35)/0.02,if(lt(${phase},0.4),0.9*(0.4-${phase})/0.03,if(lt(${phase},0.68),0,if(lt(${phase},0.7),0.48*(${phase}-0.68)/0.02,if(lt(${phase},0.72),0.48*(0.72-${phase})/0.02,0))))))))`;
     const alpha = (
       (effect.intensity / 100)
@@ -1957,8 +1965,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     );
     addWeatherOverlay({
       input: { type: "file", path: thunderPath },
-      x: "main_w-overlay_w/2",
-      y: "main_h-overlay_h/2",
+      x: `main_w-overlay_w/2+main_w*${(effect.offsetX / 100).toFixed(4)}`,
+      y: `main_h-overlay_h/2+main_h*${(effect.offsetY / 100).toFixed(4)}`,
       label: `thunder${effectIndex}`,
       inputFilter: `format=rgba,scale=trunc(iw*${thunderScale}/2)*2:trunc(ih*${thunderScale}/2)*2${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
@@ -1968,9 +1976,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const cloud = cloudSeeds[cloudIndex];
       const cloudWidth = Math.max(12, Math.round(outputWidth * cloud.width / 100));
       const cloudHeight = Math.max(10, Math.round(outputHeight * cloud.height / 100));
-      const cycle = cloud.duration / effect.speed;
-      const phase = weatherPhaseExpression(cycle, cloud.delay, "T", effect.start);
-      const overlayPhase = weatherPhaseExpression(cycle, cloud.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, cloud.duration);
+      const phase = weatherEffectPhase(effect, cycle, cloud.delay, "T", effect.start);
+      const overlayPhase = weatherEffectPhase(effect, cycle, cloud.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.9);
       const travel = `(-0.45+(${overlayPhase})*(${cloud.drift / 100 + 0.45}))`;
       const cloudMask = "if(gt(lte((X-W*0.5)^2/(W*0.5)^2+(Y-H*0.52)^2/(H*0.45)^2,1)+lte((X-W*0.7)^2/(W*0.28)^2+(Y-H*0.42)^2/(H*0.37)^2,1)+lte((X-W*0.3)^2/(W*0.25)^2+(Y-H*0.56)^2/(H*0.32)^2,1),0),alpha(X,Y),0)";
@@ -1996,9 +2004,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const dropSize = Math.max(0.25, effect.size / 100);
       const dropWidth = Math.max(1, Math.round(previewPx(drop.width * dropSize)));
       const dropHeight = Math.max(6, Math.round(previewPx(drop.length * dropSize * (1 + effect.trail / 100))));
-      const cycle = drop.duration / effect.speed;
-      const phase = weatherPhaseExpression(cycle, drop.delay, "T", effect.start);
-      const overlayPhase = weatherPhaseExpression(cycle, drop.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, drop.duration);
+      const phase = weatherEffectPhase(effect, cycle, drop.delay, "T", effect.start);
+      const overlayPhase = weatherEffectPhase(effect, cycle, drop.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.9);
       addWeatherOverlay({
         source: `color=c=0x${rainColor}@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)*Y/H" })},rotate=${((motion.angle - 76) * Math.PI / 180).toFixed(6)}:c=none:ow=rotw(iw):oh=roth(ih)${weatherBlurFilter(effect)}`,
@@ -2020,9 +2028,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const vectorX = Math.round(outputWidth * motion.x / 100);
       const vectorY = Math.round(outputHeight * motion.y / 100);
       const snowSize = Math.max(1, Math.round(previewPx(flake.size * Math.max(0.25, effect.size / 100))));
-      const cycle = flake.duration / effect.speed;
-      const phase = weatherPhaseExpression(cycle, flake.delay, "T", effect.start);
-      const overlayPhase = weatherPhaseExpression(cycle, flake.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, flake.duration);
+      const phase = weatherEffectPhase(effect, cycle, flake.delay, "T", effect.start);
+      const overlayPhase = weatherEffectPhase(effect, cycle, flake.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.92);
       const snowLabel = `snow${effectIndex}_${snowIndex}`;
       addWeatherOverlay({
@@ -2054,9 +2062,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const grainSize = Math.max(0.25, effect.size / 100);
       const grainWidth = Math.max(2, Math.round(previewPx(grain.size * 1.8 * grainSize * (1 + effect.trail / 100))));
       const grainHeight = Math.max(2, Math.round(previewPx(grain.size * grainSize)));
-      const cycle = grain.duration / effect.speed;
-      const phase = weatherPhaseExpression(cycle, grain.delay, "T", effect.start);
-      const overlayPhase = weatherPhaseExpression(cycle, grain.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, grain.duration);
+      const phase = weatherEffectPhase(effect, cycle, grain.delay, "T", effect.start);
+      const overlayPhase = weatherEffectPhase(effect, cycle, grain.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.98);
       const sandLabel = `sandstorm${effectIndex}_${sandIndex}`;
       addWeatherOverlay({
@@ -2083,9 +2091,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const vectorX = Math.round(outputWidth * motion.x / 100);
       const vectorY = Math.round(outputHeight * motion.y / 100);
       const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4 * Math.max(0.25, effect.size / 100))));
-      const cycle = star.duration / effect.speed;
-      const phase = weatherPhaseExpression(cycle, star.delay, "T", effect.start);
-      const overlayPhase = weatherPhaseExpression(cycle, star.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, star.duration);
+      const phase = weatherEffectPhase(effect, cycle, star.delay, "T", effect.start);
+      const overlayPhase = weatherEffectPhase(effect, cycle, star.delay, "t", effect.start);
       const opacity = `if(lt(${phase},0.18),${phase}/0.18,if(gt(${phase},0.82),(1-${phase})/0.18,0.35+0.65*sin(PI*(${phase}-0.18)/0.64)))`;
       const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
       addWeatherOverlay({

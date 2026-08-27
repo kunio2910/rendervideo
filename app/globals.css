@@ -6662,6 +6662,37 @@ body {
   color: #fff8ec;
   box-shadow: 0 3px 8px rgba(198, 122, 46, .24);
 }
+.preview-effects-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 1px solid #d8cfc1;
+  border-radius: 6px;
+  background: #f4eee1;
+  color: #8a5620;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.preview-effects-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.preview-effects-toggle:hover,
+.preview-effects-toggle.active,
+.preview-effects-toggle.muted {
+  border-color: #c67a2e;
+  background: #c67a2e;
+  color: #fff8ec;
+  box-shadow: 0 3px 8px rgba(198, 122, 46, .24);
+}
 .preview-subtitle-guide-toggle {
   display: inline-grid;
   place-items: center;
@@ -6781,6 +6812,18 @@ body {
 }
 .studio-shell[data-theme="dark"] .preview-audio-toggle:hover,
 .studio-shell[data-theme="dark"] .preview-audio-toggle.muted {
+  border-color: #dda13e;
+  background: #6e4b12;
+  color: #ffe4a6;
+}
+.studio-shell[data-theme="dark"] .preview-effects-toggle {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #d8e4f0;
+}
+.studio-shell[data-theme="dark"] .preview-effects-toggle:hover,
+.studio-shell[data-theme="dark"] .preview-effects-toggle.active,
+.studio-shell[data-theme="dark"] .preview-effects-toggle.muted {
   border-color: #dda13e;
   background: #6e4b12;
   color: #ffe4a6;
@@ -8654,6 +8697,83 @@ body {
   animation-play-state: paused !important;
 }
 
+.scene-weather-effect-gizmo {
+  position: absolute;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: .78;
+  transition: opacity .15s ease;
+}
+
+.scene-weather-effect-gizmo:hover,
+.scene-weather-effect-gizmo.is-dragging {
+  opacity: 1;
+}
+
+.scene-weather-effect-gizmo button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #b98c4b;
+  border-radius: 7px;
+  color: #6b4514;
+  background: #fff2d9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+  cursor: grab;
+  font: 700 16px/1 var(--font-sans);
+  pointer-events: auto;
+}
+
+.scene-weather-effect-gizmo button:hover,
+.scene-weather-effect-gizmo button:focus-visible {
+  border-color: #d97922;
+  color: #fff;
+  background: #c67a2e;
+}
+
+.scene-weather-effect-gizmo button:active {
+  cursor: grabbing;
+}
+
+.scene-weather-effect-gizmo span {
+  max-width: 116px;
+  overflow: hidden;
+  padding: 4px 6px;
+  border: 1px solid #d5c09f;
+  border-radius: 5px;
+  color: #60400f;
+  background: rgba(255, 247, 231, .92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .14);
+  font: 700 9px/1.15 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-gizmo button {
+  border-color: #d19b45;
+  color: #fff0c9;
+  background: #392b18;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-gizmo button:hover,
+.studio-shell[data-theme="dark"] .scene-weather-effect-gizmo button:focus-visible {
+  border-color: #f1b85b;
+  color: #20170e;
+  background: #e4a33d;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-gizmo span {
+  border-color: #536b86;
+  color: #fff0c9;
+  background: rgba(17, 30, 45, .94);
+}
+
 .scene-start-dark-effect {
   position: absolute;
   z-index: 30;
@@ -8931,6 +9051,11 @@ body {
 .sandstorm-effect::after {
   background: radial-gradient(ellipse at 35% 78%, rgba(150, 86, 24, .2), transparent 58%);
   animation: scene-sand-pulse 3.6s ease-in-out infinite;
+}
+
+.sandstorm-effect.is-static::before,
+.sandstorm-effect.is-static::after {
+  animation: none;
 }
 
 .sandstorm-effect i {

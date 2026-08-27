@@ -544,7 +544,15 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /renderSceneWeatherAppearanceControls/);
   assert.match(page, /movementMode/);
   assert.match(page, /Mật độ hạt/);
+  assert.match(page, /max=\{500\}/);
+  assert.match(page, /weatherAnimationStyle/);
+  assert.match(page, /startWeatherEffectMove/);
+  assert.match(page, /startWeatherEffectRotate/);
+  assert.match(page, /previewEffectsVisible/);
+  assert.match(page, /preview-effects-toggle/);
+  assert.match(page, /previewZoom/);
   assert.match(css, /scene-weather-appearance-controls/);
+  assert.match(css, /scene-weather-effect-gizmo/);
   assert.match(css, /scene-weather-vector-move/);
   assert.match(css, /container-type: size/);
   assert.match(renderer, /const weatherColorValue/);
@@ -552,8 +560,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /effect\.opacity/);
   assert.match(renderer, /effect\.movementAngle/);
   assert.match(renderer, /effect\.density/);
+  assert.match(renderer, /clamp\(numberOr\(candidate\.density, definition\.density\), 10, 500\)/);
+  assert.match(renderer, /weatherEffectCycle/);
+  assert.match(renderer, /effect\.offsetX/);
+  assert.match(renderer, /effect\.offsetY/);
   assert.match(renderer, /effect\.trail/);
-  assert.match(renderer, /weatherPhaseExpression\(cycle, cloud\.delay, "t", effect\.start\)/);
+  assert.match(renderer, /weatherEffectPhase\(effect, cycle, cloud\.delay, "t", effect\.start\)/);
   assert.match(renderer, /shortest=1:eval=frame/);
   assert.match(renderer, /"-filter_complex_script"/);
   assert.match(renderer, /weatherInputSpecs/);
@@ -564,7 +576,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /label: `thunder\$\{effectIndex\}`/);
   assert.match(renderer, /boxblur/);
   assert.match(renderer, /overlay=/);
-  assert.match(renderer, /overlayPhase = weatherPhaseExpression/);
+  assert.match(renderer, /overlayPhase = weatherEffectPhase/);
   assert.match(renderer, /label: `lightFlicker\$\{effectIndex\}`/);
   assert.match(renderer, /filter \+= `\$\{composedLabel\}copy\[composed\]`/);
   assert.match(renderer, /backgroundMusicVolume/);
