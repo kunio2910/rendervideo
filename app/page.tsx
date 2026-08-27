@@ -226,7 +226,7 @@ type AlignmentGuides = {
 
 type SnapMode = "center" | "box";
 type RulerStyle = "center" | "grid" | "all";
-type PreviewLayerKind = "popup" | "text" | "image" | "decoration" | "subtitle";
+type PreviewLayerKind = "popup" | "text" | "image" | "decoration" | "audio" | "subtitle";
 type PreviewLayerItem = {
   token: string;
   kind: PreviewLayerKind;
@@ -453,6 +453,7 @@ type SceneAudioTrack = {
   start: number;
   end: number;
   visible: boolean;
+  subtitleCueIds?: string[];
 };
 
 const defaultSceneAudioTrack = (
@@ -1861,10 +1862,26 @@ const normalizeSceneAudioTrack = (
     start: Number(start.toFixed(2)),
     end: Number(end.toFixed(2)),
     visible: raw.visible !== false,
+    ...(Array.isArray(raw.subtitleCueIds)
+      ? { subtitleCueIds: raw.subtitleCueIds.filter((cueId): cueId is string => typeof cueId === "string") }
+      : {}),
   };
 };
 
 const sceneAudioTrackKey = (sceneId: string, trackId: string) => `${sceneId}::${trackId}`;
+
+const sceneAudioSubtitles = (
+  track: SceneAudioTrack,
+  subtitles: SubtitleCue[],
+  trackIndex = 0,
+) => {
+  const subtitleIds = Array.isArray(track.subtitleCueIds)
+    ? new Set(track.subtitleCueIds)
+    : trackIndex === 0
+      ? new Set(subtitles.map((subtitle) => subtitle.id))
+      : new Set<string>();
+  return subtitles.filter((subtitle) => subtitleIds.has(subtitle.id));
+};
 
 const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Scene => {
   const primary = audioTracks[0];
@@ -2185,6 +2202,23 @@ const applySceneStructureTimingUpdate = (
     return syncLegacyVoiceFields(currentScene, nextTracks);
   }
   if (item.kind === "subtitle") {
+    if (item.id !== "subtitle") {
+      const cue = (currentScene.subtitles ?? []).find((subtitle) => subtitle.id === item.id);
+      if (!cue) return currentScene;
+      const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
+      const nextStart = Math.max(0, roundedStart - currentOffset);
+      const nextEnd = Math.max(nextStart + 0.1, roundedEnd - currentOffset);
+      return {
+        ...currentScene,
+        subtitles: (currentScene.subtitles ?? []).map((subtitle) => subtitle.id === item.id
+          ? {
+              ...subtitle,
+              start: Number(nextStart.toFixed(2)),
+              end: Number(nextEnd.toFixed(2)),
+            }
+          : subtitle),
+      };
+    }
     const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
     const shiftedOffset = Math.min(
       sceneDuration,
@@ -2369,7 +2403,6 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
           },
         ))
       : [normalizeSceneAudioTrack(legacyAudioTrack, legacyAudioTrack.id, sceneDuration, legacyAudioTrack)];
-    const primaryAudioTrack = audioTracks[0];
     const rawSubtitles = (item as Scene & { subtitles?: unknown }).subtitles;
     const rawSubtitleStyle = (item as Scene & { subtitleStyle?: unknown }).subtitleStyle;
     const subtitles = Array.isArray(rawSubtitles)
@@ -2379,6 +2412,15 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
         sceneDuration,
       ))
       : [];
+    const subtitleIds = new Set(subtitles.map((subtitle) => subtitle.id));
+    const normalizedAudioTracks = audioTracks.map((track, audioIndex) => ({
+      ...track,
+      subtitleCueIds: Array.isArray(track.subtitleCueIds)
+        ? track.subtitleCueIds.filter((cueId) => subtitleIds.has(cueId))
+        : audioIndex === 0
+          ? subtitles.map((subtitle) => subtitle.id)
+          : [],
+    }));
     const firstTextOverlay = textOverlays[0] ?? defaultTextOverlay(`${id}-text-1`);
     return {
       ...item,
@@ -2417,10 +2459,10 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ),
       subtitleStyle: normalizeSubtitleStyle(rawSubtitleStyle),
       subtitles,
-      audioTracks,
-      voiceFile: primaryAudioTrack?.source ?? "",
-      voiceStart: primaryAudioTrack?.start ?? 0,
-      voiceVolume: primaryAudioTrack?.volume ?? 95,
+      audioTracks: normalizedAudioTracks,
+      voiceFile: normalizedAudioTracks[0]?.source ?? "",
+      voiceStart: normalizedAudioTracks[0]?.start ?? 0,
+      voiceVolume: normalizedAudioTracks[0]?.volume ?? 95,
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
     };
@@ -2488,6 +2530,67 @@ type StoredWorkspace = {
   projects: ProjectSnapshot[];
 };
 
+type KitoDesktopBridge = {
+  loadWorkspace?: () => Promise<unknown>;
+  saveWorkspace?: (payload: {
+    workspace: StoredWorkspace;
+    savedAt: number;
+    activeProjectId: string;
+  }) => Promise<unknown>;
+};
+
+const getKitoDesktopBridge = (): KitoDesktopBridge | null => {
+  if (typeof window === "undefined") return null;
+  return (window as Window & { kitoDesktop?: KitoDesktopBridge }).kitoDesktop ?? null;
+};
+
+const readDeviceWorkspace = async () => {
+  const desktopBridge = getKitoDesktopBridge();
+  if (desktopBridge?.loadWorkspace) {
+    try {
+      const payload = await desktopBridge.loadWorkspace();
+      if (isRecord(payload) && isRecord(payload.workspace)) {
+        const workspace = payload.workspace as StoredWorkspace;
+        const savedAt = Number(payload.savedAt);
+        return {
+          workspace,
+          snapshot: JSON.stringify(workspace),
+          savedAt: Number.isFinite(savedAt) && savedAt > 0 ? savedAt : 0,
+        };
+      }
+    } catch {
+      // Fall back to localStorage if the desktop data file cannot be read.
+    }
+  }
+
+  try {
+    const snapshot = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    return {
+      workspace: snapshot ? JSON.parse(snapshot) as StoredWorkspace : null,
+      snapshot: snapshot ?? "",
+      savedAt: Number(window.localStorage.getItem(LOCAL_SAVED_AT_KEY)) || 0,
+    };
+  } catch {
+    return { workspace: null, snapshot: "", savedAt: 0 };
+  }
+};
+
+const saveDeviceWorkspace = async (workspace: StoredWorkspace, savedAt: number) => {
+  const desktopBridge = getKitoDesktopBridge();
+  if (desktopBridge?.saveWorkspace) {
+    await desktopBridge.saveWorkspace({
+      workspace,
+      savedAt,
+      activeProjectId: workspace.activeProjectId,
+    });
+    return;
+  }
+
+  window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, workspace.activeProjectId);
+  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(workspace));
+  window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+};
+
 const isBundledSampleWorkspace = (data: unknown) => {
   const serialized = JSON.stringify(data) ?? "";
   return serialized.includes('"id":"david-journey"')
@@ -2516,6 +2619,38 @@ type ResourceSpriteNotice = {
   status: "idle" | "processing" | "success" | "error";
   message: string;
 };
+
+type LocalFileButtonProps = {
+  accept: string;
+  onPick: (file: File) => void;
+  label?: string;
+};
+
+function LocalFileButton({ accept, onPick, label = "Chọn file máy" }: LocalFileButtonProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className="file-picker local-file-picker"
+        onClick={() => inputRef.current?.click()}
+      >
+        {label}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        hidden
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file) onPick(file);
+        }}
+      />
+    </>
+  );
+}
 
 function SettingsResourcePanel() {
   const [sourceUrl, setSourceUrl] = useState("");
@@ -3737,9 +3872,13 @@ function Home() {
     () => reflowVisibleSceneTimeline(scenes.filter((item) => item.sceneVisible !== false)),
     [scenes],
   );
+  const activePlaybackScene = playing
+    ? visibleScenes.find((item) => playTime >= item.start && playTime < item.end)
+    : null;
+  const displayedSceneId = activePlaybackScene?.id ?? selectedId;
   const scene =
-    visibleScenes.find((item) => item.id === selectedId) ??
-    scenes.find((item) => item.id === selectedId) ??
+    visibleScenes.find((item) => item.id === displayedSceneId) ??
+    scenes.find((item) => item.id === displayedSceneId) ??
     visibleScenes[0] ??
     scenes[0] ??
     initialScenes[0];
@@ -4115,6 +4254,17 @@ function Home() {
           visible: image.visible !== false,
           editorVisible: image.editorVisible !== false,
         })),
+      ...sceneAudioTracks
+        .filter((track) => Boolean(safeTrim(track.source)) || wasAddedToSceneStructure("audio", track.id))
+        .map((track, index) => ({
+          token: previewLayerToken("audio", track.id),
+          kind: "audio" as const,
+          id: track.id,
+          label: safeTrim(track.name) || `Âm thanh ${index + 1}`,
+          icon: "≋",
+          visible: track.visible !== false,
+          editorVisible: true,
+        })),
       ...(((scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) ? [{
         token: previewLayerToken("subtitle", "subtitle"),
         kind: "subtitle" as const,
@@ -4143,6 +4293,7 @@ function Home() {
     sceneDecorations,
     sceneImages,
     scene.layerOrder,
+    sceneAudioTracks,
     scenePopups,
     scene.subtitleEnabled,
     scene.subtitles,
@@ -4490,31 +4641,13 @@ function Home() {
     .sort((first, second) => first.start - second.start || first.end - second.end)
     .forEach((item) => sceneStructureItems.push(item));
 
-  const visibleStructureSubtitles = (sceneStructureScene.subtitles ?? [])
-    .filter((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text));
-  if (sceneStructureScene.subtitleEnabled !== false && visibleStructureSubtitles.length) {
-    const subtitleOffset = Math.max(0, Number(sceneStructureScene.subtitleStart) || 0);
-    const subtitleStart = Math.min(...visibleStructureSubtitles.map((subtitle) => subtitleOffset + Math.max(0, Number(subtitle.start) || 0)));
-    const subtitleEnd = Math.max(...visibleStructureSubtitles.map((subtitle) => subtitleOffset + Math.max(0.1, Number(subtitle.end) || 0.1)));
-    addSceneStructureItem({
-      token: "subtitle:subtitle",
-      kind: "subtitle",
-      id: "subtitle",
-      label: "Phụ đề",
-      detail: `${visibleStructureSubtitles.length} câu đang hiển thị`,
-      icon: "CC",
-      start: subtitleStart,
-      end: subtitleEnd,
-      timingMode: "start",
-      canHide: true,
-      thumbnail: "",
-      thumbnailIsVideo: false,
-    });
-  }
-  if (narrationEnabled) {
-    sceneStructureAudioTracks
-      .filter((track) => track.visible !== false)
-      .forEach((track, index) => {
+  const allStructureSubtitles = sceneStructureScene.subtitles ?? [];
+  const structureSubtitleIds = new Set<string>();
+  const subtitleOffset = Math.max(0, Number(sceneStructureScene.subtitleStart) || 0);
+  sceneStructureAudioTracks
+    .filter((track) => track.visible !== false)
+    .forEach((track, index) => {
+      if (narrationEnabled) {
         addSceneStructureItem({
           token: `audio:${track.id}`,
           kind: "audio",
@@ -4529,8 +4662,60 @@ function Home() {
           thumbnail: "",
           thumbnailIsVideo: false,
         });
+      }
+        if (sceneStructureScene.subtitleEnabled !== false) {
+          sceneAudioSubtitles(track, allStructureSubtitles, index)
+            .filter((subtitle) => subtitle.visible !== false)
+            .forEach((subtitle, subtitleIndex) => {
+              structureSubtitleIds.add(subtitle.id);
+              const cueStart = subtitleOffset + Math.max(0, Number(subtitle.start) || 0);
+              const cueEnd = subtitleOffset + Math.max(
+                Math.max(0, Number(subtitle.start) || 0) + 0.1,
+                Number(subtitle.end) || 0.1,
+              );
+              addSceneStructureItem({
+                token: `subtitle:${track.id}:${subtitle.id}`,
+                kind: "subtitle",
+                id: subtitle.id,
+                label: `${safeTrim(track.name) || `Âm thanh ${index + 1}`} · ${safeTrim(subtitle.text).slice(0, 32) || `Phụ đề ${subtitleIndex + 1}`}`,
+                detail: `${formatPreciseTime(subtitle.start)}–${formatPreciseTime(subtitle.end)} · ${safeTrim(subtitle.text).slice(0, 64) || "Chưa nhập nội dung"}`,
+                icon: "CC",
+                start: cueStart,
+                end: cueEnd,
+                timingMode: "both",
+                canHide: true,
+                thumbnail: "",
+                thumbnailIsVideo: false,
+              });
+            });
+        }
+    });
+  allStructureSubtitles
+    .filter((subtitle) => sceneStructureScene.subtitleEnabled !== false
+      && !structureSubtitleIds.has(subtitle.id)
+      && subtitle.visible !== false
+    )
+    .forEach((subtitle, subtitleIndex) => {
+      const cueStart = subtitleOffset + Math.max(0, Number(subtitle.start) || 0);
+      const cueEnd = subtitleOffset + Math.max(
+        Math.max(0, Number(subtitle.start) || 0) + 0.1,
+        Number(subtitle.end) || 0.1,
+      );
+      addSceneStructureItem({
+        token: `subtitle:unassigned:${subtitle.id}`,
+        kind: "subtitle",
+        id: subtitle.id,
+        label: `Phụ đề chung · ${safeTrim(subtitle.text).slice(0, 32) || `Câu ${subtitleIndex + 1}`}`,
+        detail: `${formatPreciseTime(subtitle.start)}–${formatPreciseTime(subtitle.end)} · ${safeTrim(subtitle.text).slice(0, 64) || "Chưa nhập nội dung"} · Chưa gắn âm thanh`,
+        icon: "CC",
+        start: cueStart,
+        end: cueEnd,
+        timingMode: "both",
+        canHide: true,
+        thumbnail: "",
+        thumbnailIsVideo: false,
       });
-  }
+    });
 
   const sceneStructureFirstToken = sceneStructureItems[0]?.token ?? "";
   const sceneStructureSelectedTokenExists = Boolean(
@@ -4992,7 +5177,9 @@ function Home() {
 
   const restorePreferredActiveProject = (data: unknown) => {
     if (!isRecord(data) || data.version !== 2 || !Array.isArray(data.projects)) return;
-    const preferredId = window.localStorage.getItem(LOCAL_ACTIVE_PROJECT_KEY);
+    const preferredId = safeTrim(data.activeProjectId)
+      || window.localStorage.getItem(LOCAL_ACTIVE_PROJECT_KEY)
+      || "";
     if (!preferredId) return;
     const preferred = (data.projects as ProjectSnapshot[]).find((item) => item.id === preferredId);
     if (preferred) openProject(preferred);
@@ -5005,16 +5192,15 @@ function Home() {
     const restoreProject = async () => {
       if (!googleUser) {
         try {
-          const localSnapshot = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-          const localData = localSnapshot ? JSON.parse(localSnapshot) as StoredWorkspace : null;
-          if (localData && applyStoredProject(localData)) {
-            restorePreferredActiveProject(localData);
-            lastSavedProjectSnapshot.current = localSnapshot ?? "";
-            const savedAt = Number(window.localStorage.getItem(LOCAL_SAVED_AT_KEY));
-            setLastSavedAt(Number.isFinite(savedAt) && savedAt > 0 ? new Date(savedAt) : new Date());
+          const persisted = await readDeviceWorkspace();
+          if (cancelled) return;
+          if (persisted.workspace && applyStoredProject(persisted.workspace)) {
+            restorePreferredActiveProject(persisted.workspace);
+            lastSavedProjectSnapshot.current = persisted.snapshot;
+            setLastSavedAt(persisted.savedAt > 0 ? new Date(persisted.savedAt) : new Date());
           }
         } catch {
-          // Keep the default project when local storage is unavailable or corrupt.
+          // Keep the default project when the device workspace is unavailable or corrupt.
         }
         setSaveStatus("offline");
         setHydrated(true);
@@ -5230,14 +5416,22 @@ function Home() {
     setProjectDuration(durationFromScenes);
     const currentSnapshot = JSON.stringify(workspaceToSave);
     const savedAt = Date.now();
-    window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, projectId);
-    window.localStorage.setItem(
-      LOCAL_STORAGE_KEY,
-      currentSnapshot,
-    );
-    window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+    setSaveStatus("saving");
+
+    let deviceSaveError: unknown = null;
+    try {
+      await saveDeviceWorkspace(workspaceToSave, savedAt);
+    } catch (error) {
+      deviceSaveError = error;
+    }
 
     if (!googleUser) {
+      if (deviceSaveError) {
+        setSaveStatus("error");
+        setToast("Không thể lưu workspace trên thiết bị");
+        window.setTimeout(() => setToast(""), 2800);
+        return;
+      }
       lastSavedProjectSnapshot.current = currentSnapshot;
       setSaveStatus("offline");
       setLastSavedAt(new Date(savedAt));
@@ -5246,7 +5440,6 @@ function Home() {
       return;
     }
 
-    setSaveStatus("saving");
     try {
       await saveWorkspaceToFirestore(workspaceToSave);
       const now = new Date();
@@ -5581,6 +5774,14 @@ function Home() {
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
       openTimelineEditor(scene, "editor-subtitle");
+      return;
+    }
+    if (item.kind === "audio") {
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      openTimelineEditor(scene, "editor-audio");
       return;
     }
     selectPreviewLayer(item.kind, item.id);
@@ -6844,18 +7045,33 @@ function Home() {
       ...source,
       id: copyId,
       title: `${source.title || "Clip chưa đặt tên"} (bản sao)`,
-      scenes: source.scenes.map((item, index) => ({
-        ...item,
-        id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}`,
-        sceneImages: (item.sceneImages ?? []).map((image, imageIndex) => ({
-          ...image,
-          id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-image-${imageIndex + 1}`,
-        })),
-        audioTracks: (item.audioTracks ?? []).map((track, audioIndex) => ({
-          ...track,
-          id: `${copyId}-scene-${String(index + 1).padStart(2, "0")}-audio-${audioIndex + 1}`,
-        })),
-      })),
+      scenes: source.scenes.map((item, index) => {
+        const copiedSceneId = `${copyId}-scene-${String(index + 1).padStart(2, "0")}`;
+        const copiedSubtitles = (item.subtitles ?? []).map((subtitle, subtitleIndex) => ({
+          ...subtitle,
+          id: `${copiedSceneId}-subtitle-${subtitleIndex + 1}`,
+        }));
+        const subtitleIdMap = new Map((item.subtitles ?? []).map((subtitle, subtitleIndex) => [
+          subtitle.id,
+          copiedSubtitles[subtitleIndex]?.id ?? "",
+        ]));
+        return {
+          ...item,
+          id: copiedSceneId,
+          subtitles: copiedSubtitles,
+          sceneImages: (item.sceneImages ?? []).map((image, imageIndex) => ({
+            ...image,
+            id: `${copiedSceneId}-image-${imageIndex + 1}`,
+          })),
+          audioTracks: (item.audioTracks ?? []).map((track, audioIndex) => ({
+            ...track,
+            id: `${copiedSceneId}-audio-${audioIndex + 1}`,
+            subtitleCueIds: (track.subtitleCueIds ?? (audioIndex === 0 ? (item.subtitles ?? []).map((subtitle) => subtitle.id) : []))
+              .map((subtitleId) => subtitleIdMap.get(subtitleId))
+              .filter((subtitleId): subtitleId is string => Boolean(subtitleId)),
+          })),
+        };
+      }),
     };
     setProjects((items) => [
       ...items.filter((item) => item.id !== projectId && item.id !== copied.id),
@@ -6991,6 +7207,14 @@ function Home() {
       ? sourceIndex + 1
       : Math.max(0, scenes.findIndex((item) => item.id === selectedId) + 1);
     const copiedId = `scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const copiedSubtitles = (source.subtitles ?? []).map((subtitle, index) => ({
+      ...subtitle,
+      id: `${copiedId}-subtitle-${index + 1}`,
+    }));
+    const subtitleIdMap = new Map((source.subtitles ?? []).map((subtitle, index) => [
+      subtitle.id,
+      copiedSubtitles[index]?.id ?? "",
+    ]));
     const copied: Scene = {
       ...source,
       id: copiedId,
@@ -7006,13 +7230,13 @@ function Home() {
         ...image,
         id: `${copiedId}-image-${index + 1}`,
       })),
-      subtitles: (source.subtitles ?? []).map((subtitle, index) => ({
-        ...subtitle,
-        id: `${copiedId}-subtitle-${index + 1}`,
-      })),
+      subtitles: copiedSubtitles,
       audioTracks: (source.audioTracks ?? []).map((track, index) => ({
         ...track,
         id: `${copiedId}-audio-${index + 1}`,
+        subtitleCueIds: (track.subtitleCueIds ?? (index === 0 ? (source.subtitles ?? []).map((subtitle) => subtitle.id) : []))
+          .map((subtitleId) => subtitleIdMap.get(subtitleId))
+          .filter((subtitleId): subtitleId is string => Boolean(subtitleId)),
       })),
     };
     const nextScenes = [...scenes];
@@ -7046,6 +7270,7 @@ function Home() {
       volume: currentTracks.length === 0 ? 95 : 100,
       start: Number(start.toFixed(2)),
       end: Number(end.toFixed(2)),
+      subtitleCueIds: [],
     });
     setScenes((items) => items.map((item) => item.id === scene.id
       ? syncLegacyVoiceFields(item, [...(item.audioTracks ?? []), nextTrack])
@@ -7190,7 +7415,22 @@ function Home() {
       { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)) },
     );
     setScenes((items) => items.map((item) => item.id === scene.id
-      ? { ...item, subtitleEnabled: true, subtitles: [...(item.subtitles ?? []), nextSubtitle] }
+      ? {
+          ...item,
+          subtitleEnabled: true,
+          subtitles: [...(item.subtitles ?? []), nextSubtitle],
+          audioTracks: (item.audioTracks ?? []).map((track, index) => index === 0
+            ? {
+                ...track,
+                subtitleCueIds: [
+                  ...(Array.isArray(track.subtitleCueIds)
+                    ? track.subtitleCueIds
+                    : (item.subtitles ?? []).map((subtitle) => subtitle.id)),
+                  nextSubtitle.id,
+                ],
+              }
+            : track),
+        }
       : item));
     setEditorSectionOpen("audio", true);
     setPlayTime(Number((scene.start + start).toFixed(2)));
@@ -7235,7 +7475,15 @@ function Home() {
         return;
       }
       setScenes((items) => items.map((item) => item.id === targetSceneId
-        ? { ...item, subtitleEnabled: true, subtitles: importedCues }
+        ? {
+            ...item,
+            subtitleEnabled: true,
+            subtitles: importedCues,
+            audioTracks: (item.audioTracks ?? []).map((track, index) => ({
+              ...track,
+              subtitleCueIds: index === 0 ? importedCues.map((cue) => cue.id) : [],
+            })),
+          }
         : item));
       setSubtitleAlignState({
         status: "success",
@@ -7246,6 +7494,82 @@ function Home() {
       setPlayTime(Number((scene.start + importedCues[0].start).toFixed(2)));
       setPlaying(false);
       setToast(`Đã import ${importedCues.length} cue phụ đề`);
+      window.setTimeout(() => setToast(""), 3200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể import file SRT/VTT";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+    } finally {
+      setSubtitleImportBusy(false);
+    }
+  };
+
+  const importSubtitlesForAudioTrack = async (file: File, trackId: string) => {
+    if (!scene || !hydrated || subtitleImportBusy) return;
+    const targetSceneId = scene.id;
+    const targetDuration = Math.max(0.1, scene.end - scene.start);
+    const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
+    const targetTrack = sceneAudioTracks[targetTrackIndex];
+    if (!targetTrack || targetTrackIndex < 0) return;
+    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex);
+    if (existingCues.length > 0
+      && !window.confirm(`Import SRT/VTT sẽ thay thế ${existingCues.length} phụ đề của “${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}”. Tiếp tục?`)) {
+      return;
+    }
+    setSubtitleImportBusy(true);
+    try {
+      const parsedCues = parseSubtitleFileText(await file.text());
+      if (!parsedCues.length) {
+        throw new Error("Không tìm thấy cue hợp lệ trong file SRT/VTT");
+      }
+      const importPrefix = `${targetSceneId}-${trackId}-subtitle-import-${Date.now().toString(36)}`;
+      const importedCues = parsedCues
+        .map((cue, index) => ({
+          ...cue,
+          start: Math.max(0, cue.start),
+          end: Math.min(targetDuration, cue.end),
+          index,
+        }))
+        .filter((cue) => cue.end - cue.start >= 0.05)
+        .map((cue, index) => normalizeSubtitleCue(
+          {
+            id: `${importPrefix}-${index + 1}`,
+            text: cue.text,
+            start: cue.start,
+            end: cue.end,
+          },
+          `${importPrefix}-${index + 1}`,
+          targetDuration,
+        ));
+      if (!importedCues.length) {
+        throw new Error(`Timestamp trong file không nằm trong độ dài cảnh (${targetDuration.toFixed(1)} giây)`);
+      }
+      const oldCueIds = new Set(existingCues.map((cue) => cue.id));
+      setScenes((items) => items.map((item) => {
+        if (item.id !== targetSceneId) return item;
+        const nextSubtitles = [
+          ...(item.subtitles ?? []).filter((cue) => !oldCueIds.has(cue.id)),
+          ...importedCues,
+        ];
+        const nextTracks = (item.audioTracks ?? []).map((track) => track.id === trackId
+          ? { ...track, subtitleCueIds: importedCues.map((cue) => cue.id) }
+          : track);
+        return syncLegacyVoiceFields({
+          ...item,
+          subtitleEnabled: true,
+          subtitles: nextSubtitles,
+        }, nextTracks);
+      }));
+      setSubtitleAlignState({
+        status: "success",
+        sceneId: targetSceneId,
+        message: `Đã import ${importedCues.length} cue cho ${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}.`,
+        progress: 100,
+      });
+      setPlayTime(Number((scene.start + importedCues[0].start).toFixed(2)));
+      setPlaying(false);
+      setToast(`Đã import ${importedCues.length} cue cho âm thanh`);
       window.setTimeout(() => setToast(""), 3200);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Không thể import file SRT/VTT";
@@ -7337,7 +7661,15 @@ function Home() {
         targetDuration,
       ));
       setScenes((items) => items.map((item) => item.id === targetSceneId
-        ? { ...item, subtitleEnabled: true, subtitles }
+        ? {
+            ...item,
+            subtitleEnabled: true,
+            subtitles,
+            audioTracks: (item.audioTracks ?? []).map((track, index) => ({
+              ...track,
+              subtitleCueIds: index === 0 ? subtitles.map((cue) => cue.id) : [],
+            })),
+          }
         : item));
       const engineMessage = result.engine === "whisper"
         ? "Whisper đã tạo timestamp"
@@ -7389,7 +7721,13 @@ function Home() {
     const subtitleIndex = currentSubtitles.findIndex((subtitle) => subtitle.id === subtitleId);
     if (subtitleIndex < 0) return;
     setScenes((items) => items.map((item) => item.id === scene.id
-      ? { ...item, subtitles: (item.subtitles ?? []).filter((subtitle) => subtitle.id !== subtitleId) }
+      ? {
+          ...item,
+          subtitles: (item.subtitles ?? []).filter((subtitle) => subtitle.id !== subtitleId),
+          audioTracks: (item.audioTracks ?? []).map((track) => Array.isArray(track.subtitleCueIds)
+            ? { ...track, subtitleCueIds: track.subtitleCueIds.filter((cueId) => cueId !== subtitleId) }
+            : track),
+        }
       : item));
     setToast(`Đã xóa phụ đề ${subtitleIndex + 1}`);
     window.setTimeout(() => setToast(""), 2200);
@@ -7399,7 +7737,11 @@ function Home() {
     if (!scene || !(scene.subtitles ?? []).length) return;
     const count = scene.subtitles?.length ?? 0;
     setScenes((items) => items.map((item) => item.id === scene.id
-      ? { ...item, subtitles: [] }
+      ? {
+          ...item,
+          subtitles: [],
+          audioTracks: (item.audioTracks ?? []).map((track) => ({ ...track, subtitleCueIds: [] })),
+        }
       : item));
     setSubtitleAlignState((current) => current.sceneId === scene.id
       ? { status: "idle", sceneId: "", message: "", progress: 0 }
@@ -9105,6 +9447,11 @@ function Home() {
     }
   };
 
+  const applyLocalMediaFile = (file: File, applyValue: (value: string) => void) => {
+    applyValue(file.name);
+    void addAssetsToLibrary([file]);
+  };
+
   const exportWorkspaceBackup = async () => {
     if (!hydrated || workspaceBackupBusy) return;
     setWorkspaceBackupBusy(true);
@@ -9157,9 +9504,7 @@ function Home() {
       const workspace = parsed.workspace as StoredWorkspace;
       const serialized = JSON.stringify(workspace);
       const savedAt = Date.now();
-      window.localStorage.setItem(LOCAL_ACTIVE_PROJECT_KEY, workspace.activeProjectId);
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
-      window.localStorage.setItem(LOCAL_SAVED_AT_KEY, String(savedAt));
+      await saveDeviceWorkspace(workspace, savedAt);
       lastSavedProjectSnapshot.current = serialized;
       setSaveStatus("offline");
       setLastSavedAt(new Date(savedAt));
@@ -10426,6 +10771,7 @@ function Home() {
           volume: audioIndex === 1 ? 95 : 100,
           start,
           end,
+          subtitleCueIds: [],
         });
         return syncLegacyVoiceFields({ ...currentScene, layerOrder: nextLayerOrder }, [
           ...(currentScene.audioTracks ?? []),
@@ -11300,6 +11646,14 @@ function Home() {
             : decoration),
         };
       }
+      if (item.kind === "subtitle" && item.id !== "subtitle") {
+        return {
+          ...currentScene,
+          subtitles: (currentScene.subtitles ?? []).map((subtitle) => subtitle.id === item.id
+            ? { ...subtitle, visible: false }
+            : subtitle),
+        };
+      }
       if (item.kind === "subtitle") return { ...currentScene, subtitleEnabled: false };
       if (item.kind === "audio") {
         return syncLegacyVoiceFields(currentScene, (currentScene.audioTracks ?? []).map((track) => track.id === item.id
@@ -11394,13 +11748,24 @@ function Home() {
           layerOrder: nextLayerOrder,
         };
       }
+      if (item.kind === "subtitle" && item.id !== "subtitle") {
+        const nextSubtitles = (currentScene.subtitles ?? []).filter((subtitle) => subtitle.id !== item.id);
+        const nextTracks = (currentScene.audioTracks ?? []).map((track) => Array.isArray(track.subtitleCueIds)
+          ? { ...track, subtitleCueIds: track.subtitleCueIds.filter((cueId) => cueId !== item.id) }
+          : track);
+        return syncLegacyVoiceFields({
+          ...currentScene,
+          subtitles: nextSubtitles,
+          layerOrder: nextLayerOrder,
+        }, nextTracks);
+      }
       if (item.kind === "subtitle") {
-        return {
+        return syncLegacyVoiceFields({
           ...currentScene,
           subtitleEnabled: false,
           subtitles: [],
           layerOrder: nextLayerOrder,
-        };
+        }, (currentScene.audioTracks ?? []).map((track) => ({ ...track, subtitleCueIds: [] })));
       }
       if (item.kind === "audio") {
         return syncLegacyVoiceFields(
@@ -11601,18 +11966,27 @@ function Home() {
     if (item.kind === "background") {
       content = (
         <div className="scene-structure-quick-stack">
-          <label className="scene-structure-quick-field">
+          <div className="scene-structure-quick-field">
             <span>URL hình / video nền</span>
-            <input
-              type="url"
-              value={quickScene.background ?? ""}
-              placeholder="https://..."
-              onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({
-                ...currentScene,
-                background: event.target.value,
-              }))}
-            />
-          </label>
+            <div className="scene-structure-quick-media-row">
+              <input
+                type="url"
+                value={quickScene.background ?? ""}
+                placeholder="https://..."
+                onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({
+                  ...currentScene,
+                  background: event.target.value,
+                }))}
+              />
+              <LocalFileButton
+                accept="image/*,video/*"
+                onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickScene((currentScene) => ({
+                  ...currentScene,
+                  background: value,
+                })))}
+              />
+            </div>
+          </div>
           <label className="scene-structure-quick-toggle">
             <input
               type="checkbox"
@@ -11637,22 +12011,32 @@ function Home() {
             <span>Tên hình</span>
             <input value={image.name} onChange={(event) => updateSceneStructureQuickImage(image.id, { name: event.target.value })} />
           </label>
-          <label className="scene-structure-quick-field">
+          <div className="scene-structure-quick-field">
             <span>URL hình / video</span>
-            <input
-              type="url"
-              value={image.url}
-              placeholder="https://..."
-              onChange={(event) => {
-                const url = event.target.value;
-                updateSceneStructureQuickImage(image.id, {
-                  url,
-                  mediaType: isVideoMedia(url) ? "video" : "image",
-                  transparent: isTransparentMedia(url),
-                });
-              }}
-            />
-          </label>
+            <div className="scene-structure-quick-media-row">
+              <input
+                type="url"
+                value={image.url}
+                placeholder="https://..."
+                onChange={(event) => {
+                  const url = event.target.value;
+                  updateSceneStructureQuickImage(image.id, {
+                    url,
+                    mediaType: isVideoMedia(url) ? "video" : "image",
+                    transparent: isTransparentMedia(url),
+                  });
+                }}
+              />
+              <LocalFileButton
+                accept="image/*,video/*"
+                onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickImage(image.id, {
+                  url: value,
+                  mediaType: file.type.startsWith("video/") || isVideoMedia(value) ? "video" : "image",
+                  transparent: isTransparentMedia(value),
+                }))}
+              />
+            </div>
+          </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
             <label className="scene-structure-quick-field"><span>Hình dạng</span><select value={image.shape} onChange={(event) => updateSceneStructureQuickImage(image.id, { shape: event.target.value as SceneImageShape })}>{sceneImageShapeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label className="scene-structure-quick-field"><span>Chuyển hình</span><select value={image.transition} onChange={(event) => updateSceneStructureQuickImage(image.id, { transition: normalizeSceneImageTransition(event.target.value) })}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
@@ -11687,14 +12071,27 @@ function Home() {
           <label className="scene-structure-quick-field"><span>Tiêu đề</span><input value={popup.title} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { title: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Nội dung</span><textarea rows={5} value={popup.body} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { body: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Lời thuyết minh popup</span><textarea rows={3} value={popup.narration} onChange={(event) => updateSceneStructureQuickPopup(popup.id, { narration: event.target.value })} /></label>
-          <label className="scene-structure-quick-field"><span>Ảnh / video riêng</span><input type="url" value={safeTrim(popup.video) || popup.image} placeholder="https://..." onChange={(event) => {
-            const value = event.target.value;
-            updateSceneStructureQuickPopup(popup.id, {
-              image: isVideoMedia(value) ? "" : value,
-              video: isVideoMedia(value) ? value : "",
-              transparentMedia: isTransparentMedia(value),
-            });
-          }} /></label>
+          <div className="scene-structure-quick-field">
+            <span>Ảnh / video riêng</span>
+            <div className="scene-structure-quick-media-row">
+              <input type="url" value={safeTrim(popup.video) || popup.image} placeholder="https://..." onChange={(event) => {
+                const value = event.target.value;
+                updateSceneStructureQuickPopup(popup.id, {
+                  image: isVideoMedia(value) ? "" : value,
+                  video: isVideoMedia(value) ? value : "",
+                  transparentMedia: isTransparentMedia(value),
+                });
+              }} />
+              <LocalFileButton
+                accept="image/*,video/*"
+                onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickPopup(popup.id, {
+                  image: file.type.startsWith("video/") || isVideoMedia(value) ? "" : value,
+                  video: file.type.startsWith("video/") || isVideoMedia(value) ? value : "",
+                  transparentMedia: isTransparentMedia(value),
+                }))}
+              />
+            </div>
+          </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={popup.x} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { x: value })} /></label>
             <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={popup.y} onCommit={(value) => updateSceneStructureQuickPopup(popup.id, { y: value })} /></label>
@@ -11766,7 +12163,23 @@ function Home() {
           <label className="scene-structure-quick-field"><span>Tên trang trí</span><input value={decoration.name} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { name: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Loại trang trí</span><select value={decoration.type} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { type: event.target.value as MapDecorationType })}><option value="text-3d">Chữ 3D</option><option value="sticker">Sticker</option><option value="animated-sticker">Sticker động</option><option value="icon">Icon</option><option value="effect">Hiệu ứng</option></select></label>
           {(decoration.type === "text-3d" || decoration.type === "icon" || decoration.type === "effect") && <label className="scene-structure-quick-field"><span>{decoration.type === "text-3d" ? "Nội dung" : "Biểu tượng"}</span><input value={decoration.type === "text-3d" ? decoration.text : decoration.symbol} onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, decoration.type === "text-3d" ? { text: event.target.value } : { symbol: event.target.value })} /></label>}
-          {(decoration.type === "sticker" || decoration.type === "animated-sticker") && <label className="scene-structure-quick-field"><span>URL tài nguyên</span><input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} /></label>}
+          {(decoration.type === "sticker" || decoration.type === "animated-sticker") && (
+            <div className="scene-structure-quick-field">
+              <span>URL tài nguyên</span>
+              <div className="scene-structure-quick-media-row">
+                <input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} />
+                <LocalFileButton
+                  accept={decoration.type === "animated-sticker" ? "image/*,video/webm" : "image/*"}
+                  onPick={(file) => applyLocalMediaFile(file, (value) => {
+                    updateSceneStructureQuickDecoration(decoration.id, { asset: value });
+                    if (decoration.type === "animated-sticker") {
+                      updateSceneStructureQuickDecoration(decoration.id, { assetType: animatedAssetTypeFromValue(value, file.type === "video/webm" ? "webm" : "gif") });
+                    }
+                  })}
+                />
+              </div>
+            </div>
+          )}
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={decoration.x} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { x: value })} /></label>
             <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={decoration.y} onCommit={(value) => updateSceneStructureQuickDecoration(decoration.id, { y: value })} /></label>
@@ -11793,7 +12206,16 @@ function Home() {
         <div className="scene-structure-quick-stack">
           {timingFields}
           <label className="scene-structure-quick-field"><span>Tên âm thanh</span><input value={track.name} onChange={(event) => updateSceneStructureQuickAudio(track.id, { name: event.target.value })} /></label>
-          <label className="scene-structure-quick-field"><span>File / URL âm thanh</span><input value={track.source} placeholder="audio/file.mp3 hoặc https://..." onChange={(event) => updateSceneStructureQuickAudio(track.id, { source: event.target.value })} /></label>
+          <div className="scene-structure-quick-field">
+            <span>File / URL âm thanh</span>
+            <div className="scene-structure-quick-media-row">
+              <input value={track.source} placeholder="audio/file.mp3 hoặc https://..." onChange={(event) => updateSceneStructureQuickAudio(track.id, { source: event.target.value })} />
+              <LocalFileButton
+                accept="audio/*"
+                onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickAudio(track.id, { source: value }))}
+              />
+            </div>
+          </div>
           <label className="scene-structure-quick-field"><span>Âm lượng (%)</span><NumericInput min={0} max={100} step={1} value={track.volume} onCommit={(value) => updateSceneStructureQuickAudio(track.id, { volume: value })} /></label>
           <label className="scene-structure-quick-toggle"><input type="checkbox" checked={track.visible !== false} onChange={(event) => updateSceneStructureQuickAudio(track.id, { visible: event.target.checked })} /><span>Phát track này khi xem thử và render</span></label>
         </div>
@@ -12045,7 +12467,16 @@ function Home() {
                   <div className="scene-structure-subtitle-fields">
                     <p className="scene-structure-subtitle-text">{cue.text || "(Câu phụ đề trống)"}</p>
                     <label><span>Tên ảnh</span><input type="text" value={imageDraft.imageName} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageName: event.target.value })} placeholder={`Ảnh câu ${index + 1}`} /></label>
-                    <label className="scene-structure-subtitle-url-field"><span>URL hình ảnh</span><input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." /></label>
+                    <div className="scene-structure-subtitle-url-field">
+                      <span>URL hình ảnh</span>
+                      <div className="scene-structure-subtitle-media-row">
+                        <input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." />
+                        <LocalFileButton
+                          accept="image/*"
+                          onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: value, imageName: file.name }))}
+                        />
+                      </div>
+                    </div>
                     <div className="scene-structure-subtitle-number-grid">
                       <label><span>X (%)</span><NumericInput min={0} max={100} step={0.1} value={imageDraft.x} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { x: value })} /></label>
                       <label><span>Y (%)</span><NumericInput min={0} max={100} step={0.1} value={imageDraft.y} onCommit={(value) => updateSceneStructureSubtitleImageDraft(cue.id, { y: value })} /></label>
@@ -12415,7 +12846,7 @@ function Home() {
       <div className="preview-layer-panel-heading">
         <span className="preview-layer-panel-heading-copy">
           <strong>Layer · {previewLayerItems.length}</strong>
-          <small>Tất cả item của cảnh · trên cùng ở phía dưới</small>
+          <small>{playing ? `Cảnh ${scene.number} đang phát · layer hiện tại` : "Tất cả item của cảnh · trên cùng ở phía dưới"}</small>
         </span>
       </div>
       <label className="preview-layer-search">
@@ -12440,8 +12871,10 @@ function Home() {
               ? "Popup"
               : item.kind === "image"
                 ? "Hình ảnh / video"
-                : item.kind === "decoration"
+              : item.kind === "decoration"
                   ? "Sticker / hiệu ứng"
+                  : item.kind === "audio"
+                    ? "Âm thanh"
                   : "Phụ đề";
           return (
             <button
@@ -12545,8 +12978,8 @@ function Home() {
                 <option key={item.id} value={item.id}>{item.title}</option>
               ))}
             </select>
-          </label>
-          <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
+           </label>
+           <button className="button new-project-button" onClick={() => setShowNewProject(true)}>
             ＋ Clip mới
           </button>
           <button
@@ -13629,15 +14062,21 @@ function Home() {
               title="Nền của cảnh"
               description="Ảnh hoặc video phủ toàn bộ cảnh đang chọn."
             >
-            <label className="field background-field">
+            <div className="field background-field">
               <FieldLabel hint="Tài nguyên này chỉ làm nền cho cảnh hiện tại và không thay đổi avatar của cảnh.">Background chủ đề cảnh {scene.number}</FieldLabel>
-              <input
-                type="text"
-                inputMode="url"
-                placeholder="https://example.com/background.jpg hoặc .mp4"
-                value={scene.background ?? ""}
-                onChange={(event) => updateScene("background", event.target.value)}
-              />
+              <div className="media-input-row">
+                <input
+                  type="text"
+                  inputMode="url"
+                  placeholder="https://example.com/background.jpg hoặc .mp4"
+                  value={scene.background ?? ""}
+                  onChange={(event) => updateScene("background", event.target.value)}
+                />
+                <LocalFileButton
+                  accept="image/*,video/*"
+                  onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("background", value))}
+                />
+              </div>
               {backgroundPreviewSource && (
                 <div className="image-url-preview background-media-preview">
                   {backgroundIsVideo ? (
@@ -13657,7 +14096,7 @@ function Home() {
                 </div>
               )}
               <small>Nhập URL hoặc tên file ảnh/clip riêng cho cảnh (.jpg, .png, .webp, .mp4, .webm, .mov). URL sẽ được renderer tự tải về.</small>
-            </label>
+            </div>
             <div className="editor-visibility-actions" aria-label="Điều khiển hiển thị trong xem trước">
               <button
                 type="button"
@@ -13682,22 +14121,28 @@ function Home() {
               description="Thumbnail dùng trong danh sách cảnh, không xuất hiện trong video."
               advanced
             >
-              <label className="field scene-avatar-field">
+              <div className="field scene-avatar-field">
                 <FieldLabel hint="Ảnh này chỉ dùng làm avatar/thumbnail trong danh sách cảnh.">Ảnh avatar cho Cảnh {scene.number}</FieldLabel>
-                <input
-                  type="text"
-                  inputMode="url"
-                  placeholder="https://example.com/avatar.jpg"
-                  value={scene.avatar ?? ""}
-                  onChange={(event) => updateScene("avatar", event.target.value)}
-                />
+                <div className="media-input-row">
+                  <input
+                    type="text"
+                    inputMode="url"
+                    placeholder="https://example.com/avatar.jpg"
+                    value={scene.avatar ?? ""}
+                    onChange={(event) => updateScene("avatar", event.target.value)}
+                  />
+                  <LocalFileButton
+                    accept="image/*"
+                    onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("avatar", value))}
+                  />
+                </div>
                 {sceneAvatarPreviewSource && (
                   <div className="image-url-preview scene-avatar-preview">
                     <img src={sceneAvatarPreviewSource} alt={`Ảnh avatar Cảnh ${scene.number}`} />
                   </div>
                 )}
                 <small>Ảnh này chỉ dùng làm avatar/thumbnail của Cảnh trong danh sách, không thay thế background khi render.</small>
-              </label>
+              </div>
             </EditorFieldGroup>
               </div>
             </details>
@@ -13800,10 +14245,16 @@ function Home() {
                   {activeSceneImage && (
                     <div className="scene-image-controls">
                       <EditorFieldGroup title="Nội dung" description="Nguồn hình ảnh hoặc video của layer đang chọn.">
-                        <label className="field">
+                        <div className="field">
                           <FieldLabel hint="Có thể nhập URL hoặc tên file đã có trong thư viện tài nguyên.">URL hình ảnh hoặc video</FieldLabel>
-                          <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
-                        </label>
+                          <div className="media-input-row">
+                            <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                            <LocalFileButton
+                              accept="image/*,video/*"
+                              onPick={(file) => applyLocalMediaFile(file, updateSceneImageUrl)}
+                            />
+                          </div>
+                        </div>
                         {Boolean(safeTrim(activeSceneImage.url)) && (
                           <label className="popup-transparent-toggle">
                             <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
@@ -14490,29 +14941,44 @@ function Home() {
                         </label>
                       )}
                       {activeDecoration.type === "sticker" && (
-                        <label className="field">
+                        <div className="field">
                           <span>URL hoặc tên file sticker</span>
-                          <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
+                          <div className="media-input-row">
+                            <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
+                            <LocalFileButton
+                              accept="image/*"
+                              onPick={(file) => applyLocalMediaFile(file, (value) => updateMapDecoration("asset", value))}
+                            />
+                          </div>
                           <small>Sticker dùng ảnh PNG/WebP/JPG có nền trong suốt nếu muốn.</small>
-                        </label>
+                        </div>
                       )}
                       {activeDecoration.type === "animated-sticker" && (
                         <>
-                          <label className="field">
+                          <div className="field">
                             <span>URL hoặc tên file hiệu ứng</span>
-                            <input
-                              type="text"
-                              inputMode="url"
-                              value={activeDecoration.asset}
-                              placeholder="fight.gif / fight.apng / fight.webm"
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                updateMapDecoration("asset", value);
-                                updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
-                              }}
-                            />
+                            <div className="media-input-row">
+                              <input
+                                type="text"
+                                inputMode="url"
+                                value={activeDecoration.asset}
+                                placeholder="fight.gif / fight.apng / fight.webm"
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  updateMapDecoration("asset", value);
+                                  updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
+                                }}
+                              />
+                              <LocalFileButton
+                                accept="image/*,video/webm"
+                                onPick={(file) => applyLocalMediaFile(file, (value) => {
+                                  updateMapDecoration("asset", value);
+                                  updateMapDecoration("assetType", animatedAssetTypeFromValue(value, file.type === "video/webm" ? "webm" : "gif"));
+                                })}
+                              />
+                            </div>
                             <small>Hỗ trợ GIF, APNG và WebM VP9 có alpha. File cục bộ cần được chọn trong thư viện render.</small>
-                          </label>
+                          </div>
                           <label className="field">
                             <span>Định dạng</span>
                             <select value={activeDecoration.assetType} onChange={(event) => updateMapDecoration("assetType", event.target.value as MapDecoration["assetType"])}>
@@ -14617,7 +15083,7 @@ function Home() {
               </summary>
               <div className="editor-accordion-content">
             <EditorFieldGroup title="Nhạc nền" description="Nhạc dùng chung cho video và mức âm lượng phát nền.">
-            <label className="field audio-field" id="editor-music">
+            <div className="field audio-field" id="editor-music">
               <FieldLabel hint="Có thể nhập URL, tên file hoặc chọn file âm thanh từ máy.">Nhạc nền chủ đề</FieldLabel>
               <div className="audio-input-row">
                 <input
@@ -14630,23 +15096,16 @@ function Home() {
                     setBackgroundMusicPreview("");
                   }}
                 />
-                <label className="file-picker">
-                  Chọn file
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) {
-                        setBackgroundMusic(`audio/${file.name}`);
-                        setBackgroundMusicPreview((current) => {
-                          if (current) URL.revokeObjectURL(current);
-                          return URL.createObjectURL(file);
-                        });
-                      }
-                    }}
-                  />
-                </label>
+                <LocalFileButton
+                  accept="audio/*"
+                  onPick={(file) => {
+                    applyLocalMediaFile(file, setBackgroundMusic);
+                    setBackgroundMusicPreview((current) => {
+                      if (current) URL.revokeObjectURL(current);
+                      return URL.createObjectURL(file);
+                    });
+                  }}
+                />
               </div>
               <div className="field audio-volume-field">
                 <FieldLabel hint="Mức âm lượng của nhạc nền so với âm lượng gốc.">Âm lượng nhạc nền</FieldLabel>
@@ -14663,7 +15122,7 @@ function Home() {
                 </div>
               </div>
               <small>Để trống nếu clip không có nhạc nền.</small>
-            </label>
+            </div>
             </EditorFieldGroup>
             <EditorFieldGroup
               title="Thuyết minh & âm thanh cảnh"
@@ -14696,6 +15155,8 @@ function Home() {
                   {sceneAudioTracks.map((track, index) => {
                     const inputKey = sceneAudioTrackKey(scene.id, track.id);
                     const previewSource = audioTrackPreviewSource(track, index);
+                    const trackSubtitles = sceneAudioSubtitles(track, scene.subtitles ?? [], index);
+                    const subtitleInputId = `audio-subtitle-file-${scene.id}-${track.id}`;
                     return (
                       <article key={track.id} className={`scene-audio-item ${track.visible === false ? "is-hidden" : ""}`}>
                         <header className="scene-audio-item-heading">
@@ -14739,7 +15200,7 @@ function Home() {
                           </div>
                         </header>
 
-                        <label className="field audio-field">
+                        <div className="field audio-field">
                           <FieldLabel hint="Có thể nhập URL, tên file hoặc chọn file âm thanh từ máy.">URL hoặc file âm thanh</FieldLabel>
                           <div className="audio-input-row">
                             <input
@@ -14767,27 +15228,20 @@ function Home() {
                                 });
                               }}
                             />
-                            <label className="file-picker">
-                              Chọn file
-                              <input
-                                type="file"
-                                accept="audio/*"
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  event.currentTarget.value = "";
-                                  if (!file) return;
-                                  updateSceneAudioTrack(track.id, "source", `audio/${file.name}`);
-                                  setAudioFiles((items) => ({ ...items, [inputKey]: file }));
-                                  void addAssetsToLibrary([file]);
-                                  setAudioPreview((items) => {
-                                    if (items[inputKey]) URL.revokeObjectURL(items[inputKey]);
-                                    return { ...items, [inputKey]: URL.createObjectURL(file) };
-                                  });
-                                }}
-                              />
-                            </label>
+                            <LocalFileButton
+                              accept="audio/*"
+                              onPick={(file) => {
+                                updateSceneAudioTrack(track.id, "source", file.name);
+                                setAudioFiles((items) => ({ ...items, [inputKey]: file }));
+                                void addAssetsToLibrary([file]);
+                                setAudioPreview((items) => {
+                                  if (items[inputKey]) URL.revokeObjectURL(items[inputKey]);
+                                  return { ...items, [inputKey]: URL.createObjectURL(file) };
+                                });
+                              }}
+                            />
                           </div>
-                        </label>
+                        </div>
 
                         <div className="scene-audio-timing-grid">
                           <label className="field">
@@ -14804,6 +15258,80 @@ function Home() {
                           </label>
                         </div>
                         {previewSource && <audio className="audio-preview" controls preload="metadata" src={previewSource} />}
+                        <section className="scene-audio-subtitle-panel" aria-label={`Phụ đề của ${safeTrim(track.name) || `Âm thanh ${index + 1}`}`}>
+                          <div className="scene-audio-subtitle-heading">
+                            <div>
+                              <strong>Phụ đề của âm thanh này</strong>
+                              <small>{trackSubtitles.length ? `${trackSubtitles.length} câu · mỗi câu là một thẻ trong Cấu trúc cảnh` : "Chưa có phụ đề gắn với âm thanh này"}</small>
+                            </div>
+                            <div className="scene-audio-subtitle-actions">
+                              <button
+                                type="button"
+                                className="button subtitle-add-button"
+                                onClick={() => document.getElementById(subtitleInputId)?.click()}
+                                disabled={subtitleImportBusy || subtitleAlignState.status === "running"}
+                              >
+                                {subtitleImportBusy ? "Đang đọc…" : "⇧ Import SRT/VTT"}
+                              </button>
+                              <input
+                                id={subtitleInputId}
+                                className="visually-hidden"
+                                type="file"
+                                accept=".srt,.vtt,application/x-subrip,text/vtt,text/plain"
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  event.currentTarget.value = "";
+                                  if (file) void importSubtitlesForAudioTrack(file, track.id);
+                                }}
+                                aria-label={`Chọn file phụ đề cho ${safeTrim(track.name) || `Âm thanh ${index + 1}`}`}
+                              />
+                            </div>
+                          </div>
+                          {trackSubtitles.length ? (
+                            <div className="scene-audio-subtitle-list">
+                              {trackSubtitles.map((subtitle, subtitleIndex) => (
+                                <article key={subtitle.id} className={`scene-audio-subtitle-card ${subtitle.visible === false ? "is-hidden" : ""}`}>
+                                  <div className="scene-audio-subtitle-card-heading">
+                                    <div>
+                                      <strong>Câu {subtitleIndex + 1}</strong>
+                                      <small>{formatPreciseTime(subtitle.start)}–{formatPreciseTime(subtitle.end)}</small>
+                                    </div>
+                                    <div className="scene-audio-subtitle-card-actions">
+                                      <button
+                                        type="button"
+                                        className="subtitle-visibility-button"
+                                        onClick={() => toggleSubtitleCueVisibility(subtitle.id)}
+                                        title={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
+                                        aria-label={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
+                                      >
+                                        {subtitle.visible === false ? "◌" : "◉"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="subtitle-delete-button"
+                                        onClick={() => deleteSubtitleCue(subtitle.id)}
+                                        title="Xóa phụ đề"
+                                        aria-label="Xóa phụ đề"
+                                      >×</button>
+                                    </div>
+                                  </div>
+                                  <textarea
+                                    rows={2}
+                                    value={subtitle.text}
+                                    placeholder="Nhập nội dung phụ đề…"
+                                    onChange={(event) => updateSubtitleCue(subtitle.id, { text: event.target.value })}
+                                  />
+                                  <div className="subtitle-timing-fields">
+                                    <label><span>Bắt đầu (s)</span><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={subtitle.start} onCommit={(value) => updateSubtitleCue(subtitle.id, { start: value })} /></label>
+                                    <label><span>Kết thúc (s)</span><NumericInput min={Math.min(sceneDuration, subtitle.start + 0.1)} max={sceneDuration} step={0.1} value={subtitle.end} onCommit={(value) => updateSubtitleCue(subtitle.id, { end: value })} /></label>
+                                  </div>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <small className="scene-audio-subtitle-empty">Import SRT/VTT để các cue được gắn riêng vào âm thanh này.</small>
+                          )}
+                        </section>
                       </article>
                     );
                   })}
@@ -15767,15 +16295,21 @@ function Home() {
               </EditorFieldGroup>
               {(activePopup?.layout ?? "image-top") !== "content-only" && (
               <EditorFieldGroup title="Ảnh / video" description="Media minh họa riêng của popup.">
-              <label className="field popup-image-field">
+              <div className="field popup-image-field">
                 <FieldLabel hint="Có thể nhập URL hoặc tên file ảnh/video trong thư viện tài nguyên.">Ảnh / video popup riêng</FieldLabel>
-                <input
-                  type="text"
-                  inputMode="url"
-                  placeholder="https://example.com/image.jpg hoặc https://example.com/video.mp4"
-                  value={activePopupMediaValue}
-                  onChange={(event) => updatePopupMedia(event.target.value)}
-                />
+                <div className="media-input-row">
+                  <input
+                    type="text"
+                    inputMode="url"
+                    placeholder="https://example.com/image.jpg hoặc https://example.com/video.mp4"
+                    value={activePopupMediaValue}
+                    onChange={(event) => updatePopupMedia(event.target.value)}
+                  />
+                  <LocalFileButton
+                    accept="image/*,video/*"
+                    onPick={(file) => applyLocalMediaFile(file, updatePopupMedia)}
+                  />
+                </div>
                 {Boolean(activePopupMediaValue) && (
                   <label className="popup-transparent-toggle">
                     <input type="checkbox" checked={activePopup?.transparentMedia === true} onChange={(event) => updatePopup("transparentMedia", event.target.checked)} />
@@ -15783,7 +16317,7 @@ function Home() {
                     Giữ nền trong suốt cho ảnh / video popup
                   </label>
                 )}
-              </label>
+              </div>
               </EditorFieldGroup>
               )}
               <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và độ dài popup trong cảnh.">

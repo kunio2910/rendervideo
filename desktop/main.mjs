@@ -45,6 +45,16 @@ const getRuntimePaths = () => {
   };
 };
 
+const getWorkspaceFilePath = () => path.join(app.getPath("userData"), "data", "workspace.json");
+
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isWorkspaceSavePayload = (value) => (
+  isRecord(value)
+  && isRecord(value.workspace)
+  && Array.isArray(value.workspace.projects)
+);
+
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const appendRendererLog = (chunk) => {
@@ -160,6 +170,32 @@ ipcMain.handle("open-external", async (_event, url) => {
   if (!/^https?:\/\//i.test(String(url || ""))) return false;
   await shell.openExternal(String(url));
   return true;
+});
+
+ipcMain.handle("workspace-load", async () => {
+  const workspaceFilePath = getWorkspaceFilePath();
+  try {
+    const serialized = await fs.readFile(workspaceFilePath, "utf8");
+    const payload = JSON.parse(serialized);
+    return isRecord(payload) && isRecord(payload.workspace) ? payload : null;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+});
+
+ipcMain.handle("workspace-save", async (_event, payload) => {
+  if (!isWorkspaceSavePayload(payload)) {
+    throw new Error("Dữ liệu workspace không hợp lệ.");
+  }
+  const workspaceFilePath = getWorkspaceFilePath();
+  await fs.mkdir(path.dirname(workspaceFilePath), { recursive: true });
+  await fs.writeFile(workspaceFilePath, JSON.stringify(payload), "utf8");
+  return {
+    savedAt: Number.isFinite(Number(payload.savedAt)) ? Number(payload.savedAt) : Date.now(),
+  };
 });
 
 const hasSingleInstance = app.requestSingleInstanceLock();

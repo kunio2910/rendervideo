@@ -28,7 +28,9 @@ Lệnh này build giao diện, đóng gói các script render, Node runtime, Sha
 FFmpeg/FFprobe và tạo installer trong `desktop/release/`.
 
 Không ghi dữ liệu render vào thư mục cài đặt. Bản desktop lưu job, cache, log và
-video đã render trong thư mục dữ liệu ứng dụng của Windows. Đăng nhập Google và
+video đã render trong thư mục dữ liệu ứng dụng của Windows. Workspace được lưu
+bền vững tại `%APPDATA%\\kito-video-studio-desktop\\data\\workspace.json`, nên
+nút **Lưu máy** vẫn giữ dữ liệu sau khi đóng và mở lại app. Đăng nhập Google và
 đồng bộ Firebase vẫn cần Internet; chỉnh sửa và render cục bộ không cần Internet
 nếu media đã có sẵn.
 
