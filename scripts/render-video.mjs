@@ -215,6 +215,19 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const normalizeHexColor = (value, fallback) => {
+  const color = String(value ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+};
+const normalizeWeatherAngle = (value, fallback = 0) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return ((numeric % 360) + 360) % 360;
+};
+const numberOr = (value, fallback) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
 // FFmpeg's geq parser treats a stray quote as the beginning of a new option.
 // All expressions assembled here are generated from numeric values, but old
 // saved projects may still carry a copied quote from a failed filter graph.
@@ -347,13 +360,13 @@ const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
   };
 };
 const weatherEffectDefinitions = [
-  { type: "snow", enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed", intensity: 55, speed: 1 },
-  { type: "light-flicker", enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed", intensity: 45, speed: 1 },
-  { type: "rain", enabledKey: "rainEnabled", intensityKey: "rainIntensity", speedKey: "rainSpeed", intensity: 55, speed: 1 },
-  { type: "thunder", enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed", intensity: 55, speed: 1 },
-  { type: "cloud", enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed", intensity: 50, speed: 1 },
-  { type: "sandstorm", enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed", intensity: 45, speed: 1 },
-  { type: "star-twinkle", enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed", intensity: 60, speed: 1 },
+  { type: "snow", enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed", intensity: 55, speed: 1, color: "#ffffff", size: 100, density: 100, movementMode: "angle", movementAngle: 90 },
+  { type: "light-flicker", enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed", intensity: 45, speed: 1, color: "#fff2ae", size: 100, density: 100, movementMode: "angle", movementAngle: 0 },
+  { type: "rain", enabledKey: "rainEnabled", intensityKey: "rainIntensity", speedKey: "rainSpeed", intensity: 55, speed: 1, color: "#cae5ff", size: 100, density: 100, movementMode: "angle", movementAngle: 90 },
+  { type: "thunder", enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed", intensity: 55, speed: 1, color: "#e1f2ff", size: 100, density: 100, movementMode: "angle", movementAngle: 0 },
+  { type: "cloud", enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed", intensity: 50, speed: 1, color: "#e0ecf8", size: 100, density: 100, movementMode: "angle", movementAngle: 0 },
+  { type: "sandstorm", enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed", intensity: 45, speed: 1, color: "#f2c26b", size: 100, density: 100, movementMode: "angle", movementAngle: 0 },
+  { type: "star-twinkle", enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed", intensity: 60, speed: 1, color: "#fff6c9", size: 100, density: 100, movementMode: "angle", movementAngle: 0 },
 ];
 
 const normalizeSceneWeatherEffects = (value, duration = 3600) => {
@@ -386,6 +399,17 @@ const normalizeSceneWeatherEffects = (value, duration = 3600) => {
       end,
       intensity: clamp(Number(candidate.intensity ?? definition.intensity) || definition.intensity, 0, 100),
       speed: clamp(Number(candidate.speed ?? definition.speed) || definition.speed, 0.2, 3),
+      color: normalizeHexColor(candidate.color, definition.color),
+      opacity: clamp(numberOr(candidate.opacity, 100), 0, 100),
+      size: clamp(numberOr(candidate.size, definition.size), 25, 300),
+      density: clamp(numberOr(candidate.density, definition.density), 10, 200),
+      movementMode: candidate.movementMode === "random" ? "random" : definition.movementMode,
+      movementAngle: normalizeWeatherAngle(candidate.movementAngle, definition.movementAngle),
+      randomness: clamp(numberOr(candidate.randomness, 45), 0, 100),
+      blur: clamp(numberOr(candidate.blur, 0), 0, 12),
+      glow: clamp(numberOr(candidate.glow, 55), 0, 100),
+      trail: clamp(numberOr(candidate.trail, 0), 0, 200),
+      spread: clamp(numberOr(candidate.spread, 100), 20, 180),
     };
   }) : [];
 };
@@ -468,6 +492,7 @@ const normalizeSceneEffects = (value, duration = 3600) => {
 // density, stagger and travel time instead of inventing a second weather look.
 const snowflakeSeeds = Array.from({ length: 36 }, (_, index) => ({
   x: (index * 37) % 100,
+  y: 8 + ((index * 53) % 84),
   size: 2 + ((index * 5) % 5),
   duration: 5.5 + ((index * 17) % 45) / 10,
   delay: -((index * 23) % 80) / 10,
@@ -475,6 +500,7 @@ const snowflakeSeeds = Array.from({ length: 36 }, (_, index) => ({
 }));
 const rainDropSeeds = Array.from({ length: 32 }, (_, index) => ({
   x: (index * 29) % 100,
+  y: 8 + ((index * 41) % 84),
   length: 14 + ((index * 11) % 18),
   width: 1 + (index % 2),
   duration: 1.2 + ((index * 13) % 14) / 10,
@@ -508,28 +534,59 @@ const starTwinkleSeeds = Array.from({ length: 34 }, (_, index) => ({
   glow: 3 + ((index * 11) % 6),
 }));
 
-const writeWeatherGradientLayer = async (filename, kind) => {
+const weatherParticleCount = (seeds, effect) =>
+  Math.max(1, Math.round(seeds.length * effect.density / 100));
+const weatherParticlePosition = (seed, effect) => {
+  const spread = effect.spread / 100;
+  return {
+    x: 50 + (seed.x - 50) * spread,
+    y: 50 + ((seed.y ?? 50) - 50) * spread,
+  };
+};
+const weatherParticleMotion = (effect, index, fallbackAngle, distance = 115) => {
+  const angle = effect.movementMode === "random"
+    ? normalizeWeatherAngle(effect.movementAngle + ((index * 137) % 360), fallbackAngle)
+    : normalizeWeatherAngle(effect.movementAngle, fallbackAngle);
+  const variation = 1 + ((((index * 29) % 101) - 50) / 50) * (effect.randomness / 100) * 0.35;
+  const radians = angle * Math.PI / 180;
+  return {
+    angle,
+    x: Math.cos(radians) * distance * variation,
+    y: Math.sin(radians) * distance * variation,
+  };
+};
+
+const weatherColorValue = (value, fallback) =>
+  normalizeHexColor(value, fallback).slice(1).toUpperCase();
+
+const weatherBlurFilter = (effect) => effect.blur > 0
+  ? `,gblur=sigma=${Number(effect.blur).toFixed(2)}`
+  : "";
+
+const writeWeatherGradientLayer = async (filename, kind, color) => {
   const isThunder = kind === "thunder";
+  const fallbackColor = isThunder ? "#e1f2ff" : "#fff2ae";
+  const safeColor = normalizeHexColor(color, fallbackColor);
   const svg = isThunder
     ? `<svg width="${outputWidth}" height="${outputHeight}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="flash" cx="58%" cy="18%" r="48%">
-            <stop offset="0" stop-color="#e1f2ff" stop-opacity=".92" />
-            <stop offset="1" stop-color="#e1f2ff" stop-opacity="0" />
+            <stop offset="0" stop-color="${safeColor}" stop-opacity=".92" />
+            <stop offset="1" stop-color="${safeColor}" stop-opacity="0" />
           </radialGradient>
         </defs>
-        <rect width="100%" height="100%" fill="#d6e9ff" fill-opacity=".35" />
+        <rect width="100%" height="100%" fill="${safeColor}" fill-opacity=".35" />
         <rect width="100%" height="100%" fill="url(#flash)" />
       </svg>`
     : `<svg width="${outputWidth}" height="${outputHeight}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="warm" cx="24%" cy="21%" r="32%">
-            <stop offset="0" stop-color="#fff2ae" stop-opacity=".9" />
-            <stop offset="1" stop-color="#fff2ae" stop-opacity="0" />
+            <stop offset="0" stop-color="${safeColor}" stop-opacity=".9" />
+            <stop offset="1" stop-color="${safeColor}" stop-opacity="0" />
           </radialGradient>
           <radialGradient id="amber" cx="78%" cy="68%" r="42%">
-            <stop offset="0" stop-color="#ffbe5b" stop-opacity=".5" />
-            <stop offset="1" stop-color="#ffbe5b" stop-opacity="0" />
+            <stop offset="0" stop-color="${safeColor}" stop-opacity=".5" />
+            <stop offset="1" stop-color="${safeColor}" stop-opacity="0" />
           </radialGradient>
         </defs>
         <rect width="100%" height="100%" fill="url(#warm)" />
@@ -1862,28 +1919,48 @@ for (let index = 0; index < scenes.length; index += 1) {
     const cycle = Math.max(0.2, 2.8 / effect.speed);
     const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.24),1-0.38*${phase}/0.24,if(lt(${phase},0.45),0.62+0.38*(${phase}-0.24)/0.21,if(lt(${phase},0.68),1-0.3*(${phase}-0.45)/0.23,0.7+0.3*(${phase}-0.68)/0.32)))`;
-    const alpha = ((effect.intensity / 100) * 0.68).toFixed(4);
-    const lightPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-light-${index + 1}-${effectIndex}.png`), "light");
+    const alpha = (
+      (effect.intensity / 100)
+      * (effect.opacity / 100)
+      * (0.35 + (effect.glow / 100) * 0.65)
+      * 0.68
+    ).toFixed(4);
+    const lightScale = Math.max(0.25, effect.size / 100).toFixed(4);
+    const lightPath = await writeWeatherGradientLayer(
+      path.join(renderDir, `weather-light-${index + 1}-${effectIndex}.png`),
+      "light",
+      effect.color,
+    );
     addWeatherOverlay({
       input: { type: "file", path: lightPath },
-      x: "0",
-      y: "0",
+      x: "main_w-overlay_w/2",
+      y: "main_h-overlay_h/2",
       label: `lightFlicker${effectIndex}`,
-      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
+      inputFilter: `format=rgba,scale=trunc(iw*${lightScale}/2)*2:trunc(ih*${lightScale}/2)*2${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "thunder").entries()) {
     const cycle = Math.max(0.4, 3.6 / effect.speed);
     const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.31),0,if(lt(${phase},0.33),0.72*(${phase}-0.31)/0.02,if(lt(${phase},0.35),0.72-0.57*(${phase}-0.33)/0.02,if(lt(${phase},0.37),0.15+0.75*(${phase}-0.35)/0.02,if(lt(${phase},0.4),0.9*(0.4-${phase})/0.03,if(lt(${phase},0.68),0,if(lt(${phase},0.7),0.48*(${phase}-0.68)/0.02,if(lt(${phase},0.72),0.48*(0.72-${phase})/0.02,0))))))))`;
-    const alpha = ((effect.intensity / 100) * 0.78).toFixed(4);
-    const thunderPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-thunder-${index + 1}-${effectIndex}.png`), "thunder");
+    const alpha = (
+      (effect.intensity / 100)
+      * (effect.opacity / 100)
+      * (0.35 + (effect.glow / 100) * 0.65)
+      * 0.78
+    ).toFixed(4);
+    const thunderScale = Math.max(0.25, effect.size / 100).toFixed(4);
+    const thunderPath = await writeWeatherGradientLayer(
+      path.join(renderDir, `weather-thunder-${index + 1}-${effectIndex}.png`),
+      "thunder",
+      effect.color,
+    );
     addWeatherOverlay({
       input: { type: "file", path: thunderPath },
-      x: "0",
-      y: "0",
+      x: "main_w-overlay_w/2",
+      y: "main_h-overlay_h/2",
       label: `thunder${effectIndex}`,
-      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
+      inputFilter: `format=rgba,scale=trunc(iw*${thunderScale}/2)*2:trunc(ih*${thunderScale}/2)*2${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "cloud").entries()) {
@@ -1907,38 +1984,53 @@ for (let index = 0; index < scenes.length; index += 1) {
     }
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "rain").entries()) {
-    for (let rainIndex = 0; rainIndex < rainDropSeeds.length; rainIndex += 1) {
-      const drop = rainDropSeeds[rainIndex];
-      const dropWidth = Math.max(1, Math.round(previewPx(drop.width)));
-      const dropHeight = Math.max(6, Math.round(previewPx(drop.length)));
+    const rainColor = weatherColorValue(effect.color, "#cae5ff");
+    const rainCount = weatherParticleCount(rainDropSeeds, effect);
+    const rainOpacity = ((effect.intensity / 100) * (effect.opacity / 100)).toFixed(4);
+    for (let rainIndex = 0; rainIndex < rainCount; rainIndex += 1) {
+      const drop = rainDropSeeds[rainIndex % rainDropSeeds.length];
+      const position = weatherParticlePosition(drop, effect);
+      const motion = weatherParticleMotion(effect, rainIndex, 90);
+      const vectorX = Math.round(outputWidth * motion.x / 100);
+      const vectorY = Math.round(outputHeight * motion.y / 100);
+      const dropSize = Math.max(0.25, effect.size / 100);
+      const dropWidth = Math.max(1, Math.round(previewPx(drop.width * dropSize)));
+      const dropHeight = Math.max(6, Math.round(previewPx(drop.length * dropSize * (1 + effect.trail / 100))));
       const cycle = drop.duration / effect.speed;
       const phase = weatherPhaseExpression(cycle, drop.delay, "T", effect.start);
       const overlayPhase = weatherPhaseExpression(cycle, drop.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.9);
       addWeatherOverlay({
-        source: `color=c=0xCAE5FF@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)*Y/H" })},rotate=0.244346:c=none:ow=rotw(iw):oh=roth(ih)`,
-        x: `main_w*${(drop.x / 100).toFixed(4)}+${Math.round(previewPx(drop.drift))}*(${overlayPhase})`,
-        y: `main_h*(-0.12+1.22*(${overlayPhase}))`,
+        source: `color=c=0x${rainColor}@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)*Y/H" })},rotate=${((motion.angle - 76) * Math.PI / 180).toFixed(6)}:c=none:ow=rotw(iw):oh=roth(ih)${weatherBlurFilter(effect)}`,
+        x: `main_w*${(position.x / 100).toFixed(4)}+${vectorX}*(2*(${overlayPhase})-1)-overlay_w/2`,
+        y: `main_h*${(position.y / 100).toFixed(4)}+${vectorY}*(2*(${overlayPhase})-1)-overlay_h/2`,
         label: `rain${effectIndex}_${rainIndex}`,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${rainOpacity}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "snow").entries()) {
-    for (let snowIndex = 0; snowIndex < snowflakeSeeds.length; snowIndex += 1) {
-      const flake = snowflakeSeeds[snowIndex];
-      const snowSize = Math.max(1, Math.round(previewPx(flake.size)));
+    const snowColor = weatherColorValue(effect.color, "#ffffff");
+    const snowCount = weatherParticleCount(snowflakeSeeds, effect);
+    const snowOpacity = ((effect.intensity / 100) * (effect.opacity / 100)).toFixed(4);
+    for (let snowIndex = 0; snowIndex < snowCount; snowIndex += 1) {
+      const flake = snowflakeSeeds[snowIndex % snowflakeSeeds.length];
+      const position = weatherParticlePosition(flake, effect);
+      const motion = weatherParticleMotion(effect, snowIndex, 90);
+      const vectorX = Math.round(outputWidth * motion.x / 100);
+      const vectorY = Math.round(outputHeight * motion.y / 100);
+      const snowSize = Math.max(1, Math.round(previewPx(flake.size * Math.max(0.25, effect.size / 100))));
       const cycle = flake.duration / effect.speed;
       const phase = weatherPhaseExpression(cycle, flake.delay, "T", effect.start);
       const overlayPhase = weatherPhaseExpression(cycle, flake.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.92);
       const snowLabel = `snow${effectIndex}_${snowIndex}`;
       addWeatherOverlay({
-        source: `color=c=white@0.92:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}`,
-        x: `main_w*${(flake.x / 100).toFixed(4)}+${Math.round(previewPx(flake.drift))}*(${overlayPhase})`,
-        y: `main_h*(-0.08+1.16*(${overlayPhase}))`,
+        source: `color=c=0x${snowColor}@0.92:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}${weatherBlurFilter(effect)}`,
+        x: `main_w*${(position.x / 100).toFixed(4)}+${vectorX}*(2*(${overlayPhase})-1)-overlay_w/2`,
+        y: `main_h*${(position.y / 100).toFixed(4)}+${vectorY}*(2*(${overlayPhase})-1)-overlay_h/2`,
         label: snowLabel,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${snowOpacity}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }
@@ -1946,38 +2038,62 @@ for (let index = 0; index < scenes.length; index += 1) {
   // browser preview had particles, but the FFmpeg graph had no sandstorm
   // branch, so rendered videos silently lost the moving dust.
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "sandstorm").entries()) {
-    for (let sandIndex = 0; sandIndex < sandstormSeeds.length; sandIndex += 1) {
-      const grain = sandstormSeeds[sandIndex];
-      const grainWidth = Math.max(2, Math.round(previewPx(grain.size * 1.8)));
-      const grainHeight = Math.max(2, Math.round(previewPx(grain.size)));
+    const sandColor = weatherColorValue(effect.color, "#f2c26b");
+    const sandCount = weatherParticleCount(sandstormSeeds, effect);
+    const sandOpacity = (
+      (effect.intensity / 100)
+      * (effect.opacity / 100)
+      * (0.45 + (effect.glow / 100) * 0.55)
+    ).toFixed(4);
+    for (let sandIndex = 0; sandIndex < sandCount; sandIndex += 1) {
+      const grain = sandstormSeeds[sandIndex % sandstormSeeds.length];
+      const position = weatherParticlePosition(grain, effect);
+      const motion = weatherParticleMotion(effect, sandIndex, 0);
+      const vectorX = Math.round(outputWidth * motion.x / 100);
+      const vectorY = Math.round(outputHeight * motion.y / 100);
+      const grainSize = Math.max(0.25, effect.size / 100);
+      const grainWidth = Math.max(2, Math.round(previewPx(grain.size * 1.8 * grainSize * (1 + effect.trail / 100))));
+      const grainHeight = Math.max(2, Math.round(previewPx(grain.size * grainSize)));
       const cycle = grain.duration / effect.speed;
       const phase = weatherPhaseExpression(cycle, grain.delay, "T", effect.start);
       const overlayPhase = weatherPhaseExpression(cycle, grain.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.98);
       const sandLabel = `sandstorm${effectIndex}_${sandIndex}`;
       addWeatherOverlay({
-        source: `color=c=0xF2C26B@0.98:s=${grainWidth}x${grainHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)" })}`,
-        x: `main_w*(${(grain.x / 100).toFixed(4)}-0.18+(${overlayPhase})*(0.18+${(grain.drift / 100).toFixed(4)}))`,
-        y: `main_h*(${(grain.y / 100).toFixed(4)}-0.03*(${overlayPhase}))`,
+        source: `color=c=0x${sandColor}@0.98:s=${grainWidth}x${grainHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)" })}${weatherBlurFilter(effect)}`,
+        x: `main_w*${(position.x / 100).toFixed(4)}+${vectorX}*(2*(${overlayPhase})-1)-overlay_w/2`,
+        y: `main_h*${(position.y / 100).toFixed(4)}+${vectorY}*(2*(${overlayPhase})-1)-overlay_h/2`,
         label: sandLabel,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${sandOpacity}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "star-twinkle").entries()) {
-    for (let starIndex = 0; starIndex < starTwinkleSeeds.length; starIndex += 1) {
-      const star = starTwinkleSeeds[starIndex];
-      const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4)));
+    const starColor = weatherColorValue(effect.color, "#fff6c9");
+    const starCount = weatherParticleCount(starTwinkleSeeds, effect);
+    const starOpacity = (
+      (effect.intensity / 100)
+      * (effect.opacity / 100)
+      * (0.3 + (effect.glow / 100) * 0.7)
+    ).toFixed(4);
+    for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
+      const star = starTwinkleSeeds[starIndex % starTwinkleSeeds.length];
+      const position = weatherParticlePosition(star, effect);
+      const motion = weatherParticleMotion(effect, starIndex, 0, 24);
+      const vectorX = Math.round(outputWidth * motion.x / 100);
+      const vectorY = Math.round(outputHeight * motion.y / 100);
+      const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4 * Math.max(0.25, effect.size / 100))));
       const cycle = star.duration / effect.speed;
       const phase = weatherPhaseExpression(cycle, star.delay, "T", effect.start);
+      const overlayPhase = weatherPhaseExpression(cycle, star.delay, "t", effect.start);
       const opacity = `if(lt(${phase},0.18),${phase}/0.18,if(gt(${phase},0.82),(1-${phase})/0.18,0.35+0.65*sin(PI*(${phase}-0.18)/0.64)))`;
       const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
       addWeatherOverlay({
-        source: `color=c=0xFFF6C9@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}`,
-        x: `main_w*${(star.x / 100).toFixed(4)}-overlay_w/2`,
-        y: `main_h*${(star.y / 100).toFixed(4)}-overlay_h/2`,
+        source: `color=c=0x${starColor}@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}${weatherBlurFilter(effect)}`,
+        x: `main_w*${(position.x / 100).toFixed(4)}+${vectorX}*(2*(${overlayPhase})-1)-overlay_w/2`,
+        y: `main_h*${(position.y / 100).toFixed(4)}+${vectorY}*(2*(${overlayPhase})-1)-overlay_h/2`,
         label: starLabel,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${starOpacity}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }

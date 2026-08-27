@@ -598,6 +598,7 @@ type SceneDarkEffect = {
 };
 
 type SceneWeatherEffectType = "snow" | "light-flicker" | "rain" | "thunder" | "cloud" | "sandstorm" | "star-twinkle";
+type SceneWeatherMovementMode = "angle" | "random";
 
 type SceneWeatherEffect = {
   id: string;
@@ -607,6 +608,17 @@ type SceneWeatherEffect = {
   end: number;
   intensity: number;
   speed: number;
+  color: string;
+  opacity: number;
+  size: number;
+  density: number;
+  movementMode: SceneWeatherMovementMode;
+  movementAngle: number;
+  randomness: number;
+  blur: number;
+  glow: number;
+  trail: number;
+  spread: number;
 };
 
 const SCENE_WEATHER_EFFECT_DEFINITIONS: Array<{
@@ -616,17 +628,25 @@ const SCENE_WEATHER_EFFECT_DEFINITIONS: Array<{
   icon: string;
   intensity: number;
   speed: number;
+  color: string;
+  size: number;
+  density: number;
+  movementMode: SceneWeatherMovementMode;
+  movementAngle: number;
+  supportsParticles?: boolean;
+  supportsLight?: boolean;
+  supportsDirection?: boolean;
   enabledKey: "snowEnabled" | "lightFlickerEnabled" | "rainEnabled" | "thunderEnabled" | "cloudEnabled" | "sandstormEnabled" | "starTwinkleEnabled";
   intensityKey: "snowIntensity" | "lightFlickerIntensity" | "rainIntensity" | "thunderIntensity" | "cloudIntensity" | "sandstormIntensity" | "starTwinkleIntensity";
   speedKey: "snowSpeed" | "lightFlickerSpeed" | "rainSpeed" | "thunderSpeed" | "cloudSpeed" | "sandstormSpeed" | "starTwinkleSpeed";
 }> = [
-  { type: "snow", label: "Tuyết rơi", description: "Hạt tuyết phủ trên bản đồ", icon: "❄", intensity: 55, speed: 1, enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed" },
-  { type: "light-flicker", label: "Ánh sáng nhấp nháy", description: "Quầng sáng thay đổi theo nhịp", icon: "☼", intensity: 45, speed: 1, enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed" },
-  { type: "rain", label: "Mưa", description: "Hạt mưa rơi chéo trên bản đồ", icon: "⌁", intensity: 55, speed: 1, enabledKey: "rainEnabled", intensityKey: "rainIntensity", speedKey: "rainSpeed" },
-  { type: "thunder", label: "Sấm chớp", description: "Ánh chớp lóe theo nhịp bất chợt", icon: "ϟ", intensity: 55, speed: 1, enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed" },
-  { type: "cloud", label: "Đám mây", description: "Mây trôi nhẹ phủ lên nền bản đồ", icon: "☁", intensity: 50, speed: 1, enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed" },
-  { type: "sandstorm", label: "Bão cát", description: "Cát bụi bay ngang phủ sắc vàng lên bản đồ", icon: "≋", intensity: 45, speed: 1, enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed" },
-  { type: "star-twinkle", label: "Ánh sao nhấp nháy", description: "Các vì sao nhỏ lóe sáng nhẹ trên bản đồ", icon: "✦", intensity: 60, speed: 1, enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed" },
+  { type: "snow", label: "Tuyết rơi", description: "Hạt tuyết phủ trên bản đồ", icon: "❄", intensity: 55, speed: 1, color: "#ffffff", size: 100, density: 100, movementMode: "angle", movementAngle: 90, supportsParticles: true, supportsDirection: true, enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed" },
+  { type: "light-flicker", label: "Ánh sáng nhấp nháy", description: "Quầng sáng thay đổi theo nhịp", icon: "☼", intensity: 45, speed: 1, color: "#fff2ae", size: 100, density: 100, movementMode: "angle", movementAngle: 0, supportsLight: true, enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed" },
+  { type: "rain", label: "Mưa", description: "Hạt mưa rơi chéo trên bản đồ", icon: "⌁", intensity: 55, speed: 1, color: "#cae5ff", size: 100, density: 100, movementMode: "angle", movementAngle: 90, supportsParticles: true, supportsDirection: true, enabledKey: "rainEnabled", intensityKey: "rainIntensity", speedKey: "rainSpeed" },
+  { type: "thunder", label: "Sấm chớp", description: "Ánh chớp lóe theo nhịp bất chợt", icon: "ϟ", intensity: 55, speed: 1, color: "#e1f2ff", size: 100, density: 100, movementMode: "angle", movementAngle: 0, supportsLight: true, enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed" },
+  { type: "cloud", label: "Đám mây", description: "Mây trôi nhẹ phủ lên nền bản đồ", icon: "☁", intensity: 50, speed: 1, color: "#e0ecf8", size: 100, density: 100, movementMode: "angle", movementAngle: 0, enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed" },
+  { type: "sandstorm", label: "Bão cát", description: "Cát bụi bay ngang phủ sắc vàng lên bản đồ", icon: "≋", intensity: 45, speed: 1, color: "#f2c26b", size: 100, density: 100, movementMode: "angle", movementAngle: 0, supportsParticles: true, supportsDirection: true, enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed" },
+  { type: "star-twinkle", label: "Ánh sao nhấp nháy", description: "Các vì sao nhỏ lóe sáng nhẹ trên bản đồ", icon: "✦", intensity: 60, speed: 1, color: "#fff6c9", size: 100, density: 100, movementMode: "angle", movementAngle: 0, supportsParticles: true, supportsLight: true, supportsDirection: true, enabledKey: "starTwinkleEnabled", intensityKey: "starTwinkleIntensity", speedKey: "starTwinkleSpeed" },
 ];
 
 const sceneWeatherEffectDefinition = (type: SceneWeatherEffectType) =>
@@ -647,6 +667,17 @@ const defaultSceneWeatherEffect = (
     end: 3600,
     intensity: definition.intensity,
     speed: definition.speed,
+    color: definition.color,
+    opacity: 100,
+    size: definition.size,
+    density: definition.density,
+    movementMode: definition.movementMode,
+    movementAngle: definition.movementAngle,
+    randomness: 45,
+    blur: 0,
+    glow: 55,
+    trail: 0,
+    spread: 100,
     ...overrides,
   };
 };
@@ -799,6 +830,7 @@ const defaultSceneEffects = (): SceneEffects => ({
 
 const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
   x: (index * 37) % 100,
+  y: 8 + ((index * 53) % 84),
   size: 2 + ((index * 5) % 5),
   duration: 5.5 + ((index * 17) % 45) / 10,
   delay: -((index * 23) % 80) / 10,
@@ -807,6 +839,7 @@ const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
 
 const RAIN_DROP_SEEDS = Array.from({ length: 32 }, (_, index) => ({
   x: (index * 29) % 100,
+  y: 8 + ((index * 41) % 84),
   length: 14 + ((index * 11) % 18),
   width: 1 + (index % 2),
   duration: 1.2 + ((index * 13) % 14) / 10,
@@ -842,6 +875,40 @@ const SAND_PARTICLE_SEEDS = Array.from({ length: 44 }, (_, index) => ({
   drift: 34 + ((index * 23) % 52),
   tilt: -10 + ((index * 17) % 24),
 }));
+
+const weatherParticleInstances = <T,>(seeds: T[], effect: SceneWeatherEffect) => {
+  const count = Math.max(1, Math.round(seeds.length * effect.density / 100));
+  return Array.from({ length: count }, (_, index) => ({ seed: seeds[index % seeds.length], index }));
+};
+
+const weatherParticlePosition = (
+  seed: { x: number; y?: number },
+  effect: SceneWeatherEffect,
+) => {
+  const spread = effect.spread / 100;
+  return {
+    x: 50 + (seed.x - 50) * spread,
+    y: 50 + ((seed.y ?? 50) - 50) * spread,
+  };
+};
+
+const weatherParticleMotion = (
+  effect: SceneWeatherEffect,
+  index: number,
+  fallbackAngle: number,
+  distance = 115,
+) => {
+  const angle = effect.movementMode === "random"
+    ? normalizeWeatherAngle(effect.movementAngle + ((index * 137) % 360), fallbackAngle)
+    : normalizeWeatherAngle(effect.movementAngle, fallbackAngle);
+  const variation = 1 + ((((index * 29) % 101) - 50) / 50) * (effect.randomness / 100) * 0.35;
+  const radians = angle * Math.PI / 180;
+  return {
+    angle,
+    x: Math.cos(radians) * distance * variation,
+    y: Math.sin(radians) * distance * variation,
+  };
+};
 
 type PopupConfig = {
   id: string;
@@ -1558,6 +1625,29 @@ const normalizeHexColor = (value: unknown, fallback: string) => {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 };
 
+const normalizeWeatherAngle = (value: unknown, fallback = 0) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return ((numeric % 360) + 360) % 360;
+};
+
+const normalizeSceneWeatherAppearance = (
+  candidate: Partial<SceneWeatherEffect>,
+  definition: (typeof SCENE_WEATHER_EFFECT_DEFINITIONS)[number],
+) => ({
+  color: normalizeHexColor(candidate.color, definition.color),
+  opacity: Math.min(100, Math.max(0, positiveNumber(candidate.opacity, 100))),
+  size: Math.min(300, Math.max(25, positiveNumber(candidate.size, definition.size, 25))),
+  density: Math.min(200, Math.max(10, positiveNumber(candidate.density, definition.density, 10))),
+  movementMode: candidate.movementMode === "random" ? "random" as const : definition.movementMode,
+  movementAngle: normalizeWeatherAngle(candidate.movementAngle, definition.movementAngle),
+  randomness: Math.min(100, Math.max(0, positiveNumber(candidate.randomness, 45))),
+  blur: Math.min(12, Math.max(0, positiveNumber(candidate.blur, 0))),
+  glow: Math.min(100, Math.max(0, positiveNumber(candidate.glow, 55))),
+  trail: Math.min(200, Math.max(0, positiveNumber(candidate.trail, 0))),
+  spread: Math.min(180, Math.max(20, positiveNumber(candidate.spread, 100, 20))),
+});
+
 const normalizeSceneImageBorderFill = (value: unknown, fallback = "transparent") => {
   const color = String(value ?? "").trim();
   return color.toLowerCase() === "transparent" ? "transparent" : normalizeHexColor(color, fallback);
@@ -2091,6 +2181,7 @@ const normalizeSceneWeatherEffects = (value: unknown): SceneWeatherEffect[] => {
       end: Number(end.toFixed(2)),
       intensity: Math.min(100, Math.max(0, positiveNumber(candidate.intensity, definition.intensity))),
       speed: Math.min(3, Math.max(0.2, positiveNumber(candidate.speed, definition.speed, 0.2))),
+      ...normalizeSceneWeatherAppearance(candidate, definition),
     };
   });
 };
@@ -6699,6 +6790,7 @@ function Home() {
           end: Number(end.toFixed(2)),
           intensity: Math.min(100, Math.max(0, Number(next.intensity) || 0)),
           speed: Math.min(3, Math.max(0.2, Number(next.speed) || 0.2)),
+          ...normalizeSceneWeatherAppearance(next, sceneWeatherEffectDefinition(next.type)),
         };
       });
       return { ...item, effects: syncSceneWeatherFields(effects, weatherEffects) };
@@ -6722,6 +6814,55 @@ function Home() {
     updateSceneEffects(
       "weatherEffects",
       sceneEffects.weatherEffects.filter((effect) => effect.id !== effectId),
+    );
+  };
+
+  const renderSceneWeatherAppearanceControls = (
+    effect: SceneWeatherEffect,
+    definition: (typeof SCENE_WEATHER_EFFECT_DEFINITIONS)[number],
+    onChange: (values: Partial<SceneWeatherEffect>) => void,
+    disabled = false,
+  ) => {
+    const hasParticles = definition.supportsParticles === true;
+    const hasLight = definition.supportsLight === true;
+    if (!hasParticles && !hasLight) return null;
+    const controlDisabled = disabled || !effect.enabled;
+    return (
+      <div className="scene-weather-appearance-controls">
+        <div className="scene-weather-appearance-heading">
+          <strong>Chi tiết hạt / ánh sáng</strong>
+          <span>Màu sắc, độ rõ, kích thước và chuyển động được lưu riêng cho thẻ này.</span>
+        </div>
+        <div className="scene-weather-appearance-grid">
+          <label className="field scene-weather-color-field">
+            <span>{hasParticles ? "Màu hạt" : "Màu ánh sáng"}</span>
+            <div className="scene-weather-color-input">
+              <input type="color" value={normalizeHexColor(effect.color, definition.color)} disabled={controlDisabled} onChange={(event) => onChange({ color: event.target.value })} />
+              <code>{effect.color}</code>
+            </div>
+          </label>
+          <label className="field"><span>Độ mờ</span><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.opacity} disabled={controlDisabled} onCommit={(value) => onChange({ opacity: value })} /><b>%</b></div></label>
+          <label className="field"><span>Kích thước</span><div className="number-with-unit"><NumericInput min={25} max={300} step={5} value={effect.size} disabled={controlDisabled} onCommit={(value) => onChange({ size: value })} /><b>%</b></div></label>
+          <label className="field"><span>Độ nhòe</span><div className="number-with-unit"><NumericInput min={0} max={12} step={0.5} value={effect.blur} disabled={controlDisabled} onCommit={(value) => onChange({ blur: value })} /><b>px</b></div></label>
+          <label className="field"><span>{hasLight ? "Độ phát sáng" : "Độ sáng viền"}</span><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.glow} disabled={controlDisabled} onCommit={(value) => onChange({ glow: value })} /><b>%</b></div></label>
+          {hasParticles && <label className="field"><span>Mật độ hạt</span><div className="number-with-unit"><NumericInput min={10} max={200} step={5} value={effect.density} disabled={controlDisabled} onCommit={(value) => onChange({ density: value })} /><b>%</b></div></label>}
+          {hasParticles && <label className="field"><span>Độ dài vệt</span><div className="number-with-unit"><NumericInput min={0} max={200} step={5} value={effect.trail} disabled={controlDisabled} onCommit={(value) => onChange({ trail: value })} /><b>%</b></div></label>}
+          {hasParticles && <label className="field"><span>Độ phân tán</span><div className="number-with-unit"><NumericInput min={20} max={180} step={5} value={effect.spread} disabled={controlDisabled} onCommit={(value) => onChange({ spread: value })} /><b>%</b></div></label>}
+        </div>
+        {definition.supportsDirection && (
+          <div className="scene-weather-direction-panel">
+            <div className="scene-weather-direction-heading">
+              <strong>Hướng di chuyển</strong>
+              <span>0° sang phải · 90° đi xuống · 180° sang trái · 270° đi lên</span>
+            </div>
+            <div className="scene-weather-appearance-grid scene-weather-direction-grid">
+              <label className="field"><span>Chế độ bay</span><select value={effect.movementMode} disabled={controlDisabled} onChange={(event) => onChange({ movementMode: event.target.value as SceneWeatherMovementMode })}><option value="angle">Theo góc cố định</option><option value="random">Bay ngẫu nhiên</option></select></label>
+              <label className="field"><span>Góc di chuyển</span><div className="number-with-unit"><NumericInput min={0} max={359} step={1} value={Math.round(effect.movementAngle)} disabled={controlDisabled || effect.movementMode === "random"} onCommit={(value) => onChange({ movementAngle: value })} /><b>°</b></div></label>
+              <label className="field"><span>Độ biến thiên</span><div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={effect.randomness} disabled={controlDisabled} onCommit={(value) => onChange({ randomness: value })} /><b>%</b></div></label>
+            </div>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -12053,6 +12194,7 @@ function Home() {
           end: Number(end.toFixed(2)),
           intensity: Math.min(100, Math.max(0, Number(next.intensity) || 0)),
           speed: Math.min(3, Math.max(0.2, Number(next.speed) || 0.2)),
+          ...normalizeSceneWeatherAppearance(next, sceneWeatherEffectDefinition(next.type)),
         };
       });
       return {
@@ -12986,6 +13128,7 @@ function Home() {
               <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={weatherEffect.intensity} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { intensity: value })} /></label>
               <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><NumericInput min={0.2} max={3} step={0.1} value={weatherEffect.speed} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { speed: value })} /></label>
             </div>
+            {renderSceneWeatherAppearanceControls(weatherEffect, definition, (values) => updateSceneStructureQuickWeatherEffect(effectId, values))}
             <small className="scene-structure-quick-note">{definition.description}. Thẻ này có thể kéo và chỉnh thời gian độc lập với các hiệu ứng khác.</small>
           </div>
         ) : null;
@@ -13269,13 +13412,13 @@ function Home() {
           <div className="scene-structure-live-empty-background">Chưa có nền bản đồ</div>
         )}
 
-        {liveWeatherEffectsAtTime("light-flicker").map((effect) => <div key={`live-light-${effect.id}`} className="scene-effect-layer light-flicker-effect" aria-hidden="true" style={{ ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${Math.max(0.2, 2.8 / effect.speed)}s` }} />)}
-        {liveWeatherEffectsAtTime("snow").map((effect) => <div key={`live-snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${effect.intensity / 100}` }}>{SNOWFLAKE_SEEDS.map((flake, index) => <i key={`live-snow-${effect.id}-${index}`} style={{ left: `${flake.x}%`, width: `${flake.size}px`, height: `${flake.size}px`, animationDuration: `${flake.duration / effect.speed}s`, animationDelay: `${flake.delay}s`, ["--snow-drift" as string]: `${flake.drift}px` }} />)}</div>)}
+        {liveWeatherEffectsAtTime("light-flicker").map((effect) => <div key={`live-light-${effect.id}`} className="scene-effect-layer light-flicker-effect" aria-hidden="true" style={{ ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${Math.max(0.2, 2.8 / effect.speed)}s`, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--light-flicker-glow" as string]: `${effect.glow / 100}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px` }} />)}
+        {liveWeatherEffectsAtTime("snow").map((effect) => <div key={`live-snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => { const position = weatherParticlePosition(flake, effect); const motion = weatherParticleMotion(effect, index, 90); const particleSize = flake.size * effect.size / 100; return <i key={`live-snow-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${particleSize}px`, height: `${particleSize}px`, animationDuration: `${flake.duration / effect.speed}s`, animationDelay: `${flake.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
         {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, animationDuration: `${cloud.duration / effect.speed}s`, animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
-        {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${effect.intensity / 100}` }}>{RAIN_DROP_SEEDS.map((drop, index) => <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${drop.x}%`, width: `${drop.width}px`, height: `${drop.length}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--rain-drift" as string]: `${drop.drift}px` }} />)}</div>)}
-        {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${effect.intensity / 100}` }}>{SAND_PARTICLE_SEEDS.map((particle, index) => <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${particle.x}%`, top: `${particle.y}%`, width: `${Math.max(2, particle.size * 1.8)}px`, height: `${Math.max(1.5, particle.size)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--sand-drift" as string]: `${particle.drift}%`, ["--sand-tilt" as string]: `${particle.tilt}deg` }} />)}</div>)}
-        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ["--star-twinkle-intensity" as string]: `${effect.intensity / 100}` }}>{STAR_TWINKLE_SEEDS.map((star, index) => <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${star.x}%`, top: `${star.y}%`, width: `${Math.max(2, star.size * 2.4)}px`, height: `${Math.max(2, star.size * 2.4)}px`, animationDuration: `${star.duration / effect.speed}s`, animationDelay: `${star.delay}s`, ["--star-glow" as string]: `${star.glow}px` }} />)}</div>)}
-        {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * 0.78}`, ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / effect.speed)}s` }} />)}
+        {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => { const position = weatherParticlePosition(drop, effect); const motion = weatherParticleMotion(effect, index, 90); const dropSize = effect.size / 100; return <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => { const position = weatherParticlePosition(particle, effect); const motion = weatherParticleMotion(effect, index, 0); const particleSize = effect.size / 100; return <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, particle.size * 1.8 * particleSize * (1 + effect.trail / 100))}px`, height: `${Math.max(1.5, particle.size * particleSize)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle + particle.tilt}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => { const position = weatherParticlePosition(star, effect); const motion = weatherParticleMotion(effect, index, 0, 24); const starSize = star.size * 2.4 * effect.size / 100; return <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, animationDuration: `${star.duration / effect.speed}s`, animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / effect.speed)}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px` }} />)}
 
         {sceneStructureTexts
           .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
@@ -14289,14 +14432,23 @@ function Home() {
                 className="scene-effect-layer light-flicker-effect"
                 aria-hidden="true"
                 style={{
-                  ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * 0.68}`,
+                  ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`,
                   ["--light-flicker-speed" as string]: `${Math.max(0.2, 2.8 / effect.speed)}s`,
+                  ["--light-flicker-size" as string]: `${effect.size / 100}`,
+                  ["--light-flicker-glow" as string]: `${effect.glow / 100}`,
+                  ["--weather-color" as string]: effect.color,
+                  ["--weather-blur" as string]: `${effect.blur}px`,
                 }}
               />
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("snow").map((effect) => (
-              <div key={`snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${effect.intensity / 100}` }}>
-                {SNOWFLAKE_SEEDS.map((flake, index) => <i key={`snowflake-${effect.id}-${index}`} style={{ left: `${flake.x}%`, width: `${flake.size}px`, height: `${flake.size}px`, animationDuration: `${flake.duration / effect.speed}s`, animationDelay: `${flake.delay}s`, ["--snow-drift" as string]: `${flake.drift}px` }} />)}
+              <div key={`snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
+                {weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => {
+                  const position = weatherParticlePosition(flake, effect);
+                  const motion = weatherParticleMotion(effect, index, 90);
+                  const particleSize = flake.size * effect.size / 100;
+                  return <i key={`snowflake-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${particleSize}px`, height: `${particleSize}px`, animationDuration: `${flake.duration / effect.speed}s`, animationDelay: `${flake.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />;
+                })}
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("cloud").map((effect) => (
@@ -14305,13 +14457,23 @@ function Home() {
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("rain").map((effect) => (
-              <div key={`rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${effect.intensity / 100}` }}>
-                {RAIN_DROP_SEEDS.map((drop, index) => <i key={`raindrop-${effect.id}-${index}`} style={{ left: `${drop.x}%`, width: `${drop.width}px`, height: `${drop.length}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--rain-drift" as string]: `${drop.drift}px` }} />)}
+              <div key={`rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
+                {weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => {
+                  const position = weatherParticlePosition(drop, effect);
+                  const motion = weatherParticleMotion(effect, index, 90);
+                  const dropSize = effect.size / 100;
+                  return <i key={`raindrop-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, animationDuration: `${drop.duration / effect.speed}s`, animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />;
+                })}
               </div>
             ))}
             {sceneIsVisibleInPlayback && previewWeatherEffectsAtTime("sandstorm").map((effect) => (
-              <div key={`sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${effect.intensity / 100}` }}>
-                {SAND_PARTICLE_SEEDS.map((particle, index) => <i key={`sand-particle-${effect.id}-${index}`} style={{ left: `${particle.x}%`, top: `${particle.y}%`, width: `${Math.max(2, particle.size * 1.8)}px`, height: `${Math.max(1.5, particle.size)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--sand-drift" as string]: `${particle.drift}%`, ["--sand-tilt" as string]: `${particle.tilt}deg` }} />)}
+              <div key={`sandstorm-${effect.id}`} className="scene-effect-layer sandstorm-effect" aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>
+                {weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => {
+                  const position = weatherParticlePosition(particle, effect);
+                  const motion = weatherParticleMotion(effect, index, 0);
+                  const particleSize = effect.size / 100;
+                  return <i key={`sand-particle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, particle.size * 1.8 * particleSize * (1 + effect.trail / 100))}px`, height: `${Math.max(1.5, particle.size * particleSize)}px`, animationDuration: `${particle.duration / effect.speed}s`, animationDelay: `${particle.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle + particle.tilt}deg` }} />;
+                })}
               </div>
             ))}
             {sceneIsVisibleInPlayback && previewWeatherEffectsAtTime("star-twinkle").map((effect) => (
@@ -14319,26 +14481,18 @@ function Home() {
                 key={`star-twinkle-${effect.id}`}
                 className="scene-effect-layer star-twinkle-effect"
                 aria-hidden="true"
-                style={{ ["--star-twinkle-intensity" as string]: `${effect.intensity / 100}` }}
+                style={{ ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${effect.glow / 100}` }}
               >
-                {STAR_TWINKLE_SEEDS.map((star, index) => (
-                  <i
-                    key={`star-twinkle-${effect.id}-${index}`}
-                    style={{
-                      left: `${star.x}%`,
-                      top: `${star.y}%`,
-                      width: `${Math.max(2, star.size * 2.4)}px`,
-                      height: `${Math.max(2, star.size * 2.4)}px`,
-                      animationDuration: `${star.duration / effect.speed}s`,
-                      animationDelay: `${star.delay}s`,
-                      ["--star-glow" as string]: `${star.glow}px`,
-                    }}
-                  />
-                ))}
+                {weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => {
+                  const position = weatherParticlePosition(star, effect);
+                  const motion = weatherParticleMotion(effect, index, 0, 24);
+                  const starSize = star.size * 2.4 * effect.size / 100;
+                  return <i key={`star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, animationDuration: `${star.duration / effect.speed}s`, animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />;
+                })}
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("thunder").map((effect) => (
-              <div key={`thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * 0.78}`, ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / effect.speed)}s` }} />
+              <div key={`thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${Math.max(0.4, 3.6 / effect.speed)}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px` }} />
             ))}
             {sceneIsVisibleInPlayback && previewTextOverlayItems.map((overlay) => safeTrim(overlay.text) ? (
               (() => {
@@ -16404,6 +16558,7 @@ function Home() {
                             <label className="field"><span>Cường độ</span><div className="number-with-unit"><input type="number" min={0} max={100} step={1} value={effect.intensity} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { intensity: Number(event.target.value) })} /><b>%</b></div></label>
                             <label className="field"><span>Tốc độ</span><div className="number-with-unit"><input type="number" min={0.2} max={3} step={0.1} value={effect.speed} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { speed: Number(event.target.value) })} /><b>×</b></div></label>
                           </div>
+                          {renderSceneWeatherAppearanceControls(effect, definition, (values) => updateSceneWeatherEffect(effect.id, values), !hydrated)}
                         </article>
                       );
                     }) : <div className="scene-start-dark-empty">Chưa có hiệu ứng môi trường. Chọn loại hiệu ứng rồi bấm “Thêm hiệu ứng”.</div>}
