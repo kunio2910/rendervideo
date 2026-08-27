@@ -5862,7 +5862,7 @@ function Home() {
 
   const openTimelineEditor = (
     item: Scene | null,
-    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-subtitle" | "editor-effects",
+    targetId: "editor-popup" | "editor-audio" | "editor-music" | "editor-effects",
   ) => {
     if (item) {
       setSelectedId(item.id);
@@ -5876,10 +5876,8 @@ function Home() {
     setEditorSectionOpen(
       targetId === "editor-popup"
         ? "popup"
-        : targetId === "editor-subtitle"
-          ? "audio"
-          : targetId === "editor-effects"
-            ? "effects"
+        : targetId === "editor-effects"
+          ? "effects"
           : "audio",
       true,
     );
@@ -5923,6 +5921,7 @@ function Home() {
     kind: "popup" | "text" | "image" | "decoration",
     layerId: string,
     preserveSelection = false,
+    focusEditor = true,
   ) => {
     const token = previewLayerToken(kind, layerId);
     if (!preserveSelection) {
@@ -5933,7 +5932,9 @@ function Home() {
     setSelectedTextOverlayId(kind === "text" ? layerId : "");
     setSelectedSceneImageId(kind === "image" ? layerId : "");
     setSelectedDecorationId(kind === "decoration" ? layerId : "");
-    focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
+    if (focusEditor) {
+      focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
+    }
   };
 
   const selectPreviewLayerItem = (
@@ -5966,7 +5967,6 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      focusEditorSection("visual");
       return;
     }
     if (item.kind === "effect") {
@@ -5974,7 +5974,6 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      openTimelineEditor(scene, "editor-effects");
       return;
     }
     if (item.kind === "subtitle") {
@@ -5982,7 +5981,6 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      openTimelineEditor(scene, "editor-subtitle");
       return;
     }
     if (item.kind === "audio") {
@@ -5990,10 +5988,9 @@ function Home() {
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
       setSelectedDecorationId("");
-      openTimelineEditor(scene, "editor-audio");
       return;
     }
-    selectPreviewLayer(item.kind, item.id, true);
+    selectPreviewLayer(item.kind, item.id, true, false);
   };
 
   const reorderPreviewLayers = (draggedToken: string, targetToken: string) => {
@@ -6033,6 +6030,58 @@ function Home() {
     setScenes((items) => items.map((item) => item.id === scene.id
       ? { ...item, layerOrder: nextOrder }
       : item));
+  };
+
+  const movePreviewLayerByStep = (direction: "up" | "down", requestedToken = "") => {
+    if (!scene) return false;
+    const currentItems = previewLayerStackItems.filter((item) => item.canReorder !== false);
+    const currentTokens = currentItems.map((item) => item.token);
+    const activeTokens = selectedPreviewLayerTokens.includes(requestedToken)
+      ? selectedPreviewLayerTokens
+      : requestedToken
+        ? [requestedToken]
+        : selectedPreviewLayerTokens;
+    const movingTokens = currentTokens.filter((token) => activeTokens.includes(token));
+    if (!movingTokens.length) return false;
+    if (movingTokens.some((token) => sceneStructureLockForToken(token).layer)) {
+      setToast("Layer đang bị khóa");
+      window.setTimeout(() => setToast(""), 1800);
+      return true;
+    }
+    const displayIndexByToken = new Map(currentTokens.map((token, index) => [token, index]));
+    const movingIndexes = movingTokens
+      .map((token) => displayIndexByToken.get(token) ?? -1)
+      .filter((index) => index >= 0);
+    const neighborIndex = direction === "up"
+      ? Math.min(...movingIndexes) - 1
+      : Math.max(...movingIndexes) + 1;
+    if (neighborIndex < 0 || neighborIndex >= currentTokens.length) return true;
+    const neighborToken = currentTokens[neighborIndex];
+    if (sceneStructureLockForToken(neighborToken).layer) {
+      setToast("Không thể vượt qua layer đang bị khóa");
+      window.setTimeout(() => setToast(""), 1800);
+      return true;
+    }
+    const remainingTokens = currentTokens.filter((token) => !movingTokens.includes(token));
+    const neighborIndexAfterRemoval = remainingTokens.indexOf(neighborToken);
+    const insertIndex = direction === "up"
+      ? neighborIndexAfterRemoval
+      : neighborIndexAfterRemoval + 1;
+    const nextDisplayTokens = [...remainingTokens];
+    nextDisplayTokens.splice(insertIndex, 0, ...movingTokens);
+    const nextStoredTokens = [...nextDisplayTokens].reverse();
+    const storedTokens = Array.isArray(scene.layerOrder) ? scene.layerOrder : [];
+    const currentTokenSet = new Set(currentTokens);
+    const nextOrder = [
+      ...nextStoredTokens,
+      ...storedTokens.filter((token) => !currentTokenSet.has(token)),
+    ];
+    setScenes((items) => items.map((item) => item.id === scene.id
+      ? { ...item, layerOrder: nextOrder }
+      : item));
+    setSelectedPreviewLayerTokens(movingTokens);
+    setPreviewLayerSelectionAnchor(movingTokens[0] ?? "");
+    return true;
   };
 
   const startPreviewLayerDrag = (event: React.DragEvent<HTMLElement>, token: string) => {
@@ -6222,6 +6271,7 @@ function Home() {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isTyping = target?.matches("input, textarea, select, [contenteditable='true']");
+      const isInteractive = target?.matches("button, a, [role='button'], [role='link']");
       const modifier = event.ctrlKey || event.metaKey;
       if (modifier && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -6239,7 +6289,7 @@ function Home() {
         void saveProjectNow();
         return;
       }
-      if (isTyping) return;
+      if (isTyping || isInteractive) return;
       const isLayerArrow = event.key === "ArrowUp"
         || event.key === "ArrowDown"
         || event.key === "ArrowLeft"
@@ -6252,6 +6302,10 @@ function Home() {
         return;
       }
       if (event.key === " ") {
+        event.preventDefault();
+        if (playing) setPlaying(false);
+        else togglePlayback();
+      } else if (event.key === "Enter" && previewPlaybackMode && !playing) {
         event.preventDefault();
         togglePlayback();
       } else if (event.key === "ArrowLeft") {
@@ -12236,7 +12290,7 @@ function Home() {
     setSelectedSceneImageId("");
     setSelectedDecorationId("");
     if (item.kind === "subtitle") {
-      openTimelineEditor(sceneStructureScene, "editor-subtitle");
+      openTimelineEditor(sceneStructureScene, "editor-audio");
     } else if (item.kind === "audio") {
       openTimelineEditor(sceneStructureScene, "editor-audio");
     } else if (item.kind === "effect") {
@@ -13223,6 +13277,12 @@ function Home() {
           className="preview-layer-select"
           aria-selected={isSelected}
           onClick={(event) => selectPreviewLayerItem(item, event)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+            event.preventDefault();
+            event.stopPropagation();
+            movePreviewLayerByStep(event.key === "ArrowUp" ? "up" : "down", item.token);
+          }}
         >
           <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
           <span className="preview-layer-label">
@@ -14203,11 +14263,11 @@ function Home() {
                 aria-label="Mở phần Phụ đề trong Âm thanh"
                 title="Bấm để mở Phụ đề trong Âm thanh"
                 onPointerDown={startSubtitleDrag}
-                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onClick={() => openTimelineEditor(scene, "editor-audio")}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    openTimelineEditor(scene, "editor-subtitle");
+                    openTimelineEditor(scene, "editor-audio");
                   }
                 }}
                 style={{
@@ -14253,11 +14313,11 @@ function Home() {
                 aria-label="Mở phần Phụ đề trong Âm thanh hoặc kéo để di chuyển"
                 title="Bấm để mở Phụ đề trong Âm thanh · Kéo để di chuyển vùng phụ đề"
                 onPointerDown={startSubtitleDrag}
-                onClick={() => openTimelineEditor(scene, "editor-subtitle")}
+                onClick={() => openTimelineEditor(scene, "editor-audio")}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    openTimelineEditor(scene, "editor-subtitle");
+                    openTimelineEditor(scene, "editor-audio");
                   }
                 }}
               >
@@ -15841,274 +15901,6 @@ function Home() {
                   <span>Bấm “Thêm âm thanh” để tạo track đầu tiên.</span>
                   <button type="button" className="button" onClick={() => addSceneAudioTrack()}>＋ Thêm âm thanh</button>
                 </div>
-              )}
-            </div>
-            </EditorFieldGroup>
-            <EditorFieldGroup title="Phụ đề" description="Tạo, nhập và rà soát timestamp của từng câu.">
-            <div className="subtitle-editor" id="editor-subtitle">
-              <div className="subtitle-editor-heading">
-                <div>
-                  <strong>Phụ đề · rà soát timestamp</strong>
-                  <small>Nhập lời thuyết minh + audio, hệ thống tự tạo cue để bạn kiểm tra và chỉnh lại.</small>
-                </div>
-                <div className="subtitle-editor-actions">
-                  <button
-                    type="button"
-                    className="button primary subtitle-generate-button"
-                    onClick={() => void generateSubtitlesFromNarration()}
-                    disabled={subtitleAlignState.status === "running" || subtitleImportBusy}
-                  >
-                    {subtitleAlignState.status === "running" && subtitleAlignState.sceneId === scene.id
-                      ? "Đang tạo…"
-                      : "✦ Tạo từ lời thuyết minh"}
-                  </button>
-                  <button
-                    type="button"
-                    className="button subtitle-add-button"
-                    onClick={() => subtitleFileInput.current?.click()}
-                    disabled={subtitleImportBusy || subtitleAlignState.status === "running"}
-                  >
-                    {subtitleImportBusy ? "Đang đọc…" : "⇧ Import SRT/VTT"}
-                  </button>
-                  <input
-                    ref={subtitleFileInput}
-                    className="visually-hidden"
-                    type="file"
-                    accept=".srt,.vtt,application/x-subrip,text/vtt,text/plain"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      event.currentTarget.value = "";
-                      if (file) void importSubtitlesFromFile(file);
-                    }}
-                    aria-label="Chọn file phụ đề SRT hoặc VTT"
-                  />
-                  <button type="button" className="button subtitle-add-button" onClick={addSubtitleCue}>
-                    ＋ Thêm câu
-                  </button>
-                  <button
-                    type="button"
-                    className="button subtitle-delete-all-button settings-danger-button"
-                    onClick={deleteAllSubtitleCues}
-                    disabled={(scene.subtitles ?? []).length === 0}
-                    title="Xóa nhanh tất cả phụ đề của cảnh hiện tại"
-                  >
-                    ⌫ Xóa tất cả
-                  </button>
-                </div>
-              </div>
-              <div className="subtitle-align-steps">
-                <span>1. Nhập <b>Lời thuyết minh</b></span>
-                <span>2. Chọn <b>file audio</b></span>
-                <span>3. Bấm <b>Tạo từ lời thuyết minh</b></span>
-                <span>Hoặc import <b>SRT/VTT</b> đã có timestamp</span>
-                <span>4. Phát từng cue để rà soát</span>
-              </div>
-              {subtitleAlignState.sceneId === scene.id && subtitleAlignState.message && (
-                <>
-                  {subtitleAlignState.status === "running" && (
-                    <div
-                      className="subtitle-align-progress"
-                      role="status"
-                      aria-label={`Tiến độ tạo phụ đề ${subtitleAlignState.progress ?? 0}%`}
-                    >
-                      <div className="subtitle-align-progress-heading">
-                        <span>Tiến độ xử lý</span>
-                        <b>{subtitleAlignState.progress ?? 0}%</b>
-                      </div>
-                      <div
-                        className="subtitle-align-progress-track"
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={subtitleAlignState.progress ?? 0}
-                      >
-                        <i style={{ width: `${subtitleAlignState.progress ?? 0}%` }} />
-                      </div>
-                    </div>
-                  )}
-                  <p className={`subtitle-align-status is-${subtitleAlignState.status}`} role="status">
-                  {subtitleAlignState.message}
-                  </p>
-                </>
-              )}
-              <EditorFieldGroup title="Kiểu chữ phụ đề" description="Font, màu, nền, vị trí và hiệu ứng xuất hiện dùng chung cho các cue." advanced>
-              <div className="subtitle-style-editor">
-                <div className="subtitle-style-heading">
-                  <strong>Tùy chỉnh chữ xuất hiện</strong>
-                  <small>Áp dụng cho toàn bộ cue trong cảnh.</small>
-                </div>
-                <div className="field-row subtitle-style-fields">
-                  <label className="field">
-                    <span>Font</span>
-                    <select value={subtitleStyle.font} onChange={(event) => updateSubtitleStyle("font", event.target.value as OverlayTextFont)}>
-                      {(["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"] as OverlayTextFont[]).map((font) => <option key={font} value={font}>{font}</option>)}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Kiểu chữ</span>
-                    <select value={subtitleStyle.style} onChange={(event) => updateSubtitleStyle("style", event.target.value as SubtitleStyle["style"])}>
-                      <option value="normal">Thường</option>
-                      <option value="bold">Đậm</option>
-                      <option value="italic">Nghiêng</option>
-                      <option value="bold-italic">Đậm + nghiêng</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Style xuất hiện</span>
-                    <select value={subtitleStyle.animation} onChange={(event) => updateSubtitleStyle("animation", event.target.value as SubtitleAnimation)}>
-                      <option value="none">Không hiệu ứng</option>
-                      <option value="fade">Fade in</option>
-                      <option value="pop">Pop</option>
-                      <option value="slide-up">Trượt lên</option>
-                      <option value="typewriter">Hiện dần trái → phải</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="field-row subtitle-style-fields">
-                  <label className="field">
-                    <span>Màu chữ</span>
-                    <input type="color" value={subtitleStyle.color} onChange={(event) => updateSubtitleStyle("color", event.target.value)} />
-                  </label>
-                  <label className="field">
-                    <span>Cỡ chữ</span>
-                    <div className="number-with-unit"><NumericInput min={8} max={120} value={subtitleStyle.size} onCommit={(value) => updateSubtitleStyle("size", value)} /><b>px</b></div>
-                  </label>
-                  <label className="field">
-                    <span>Tốc độ xuất hiện</span>
-                    <div className="number-with-unit"><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSubtitleStyle("animationDuration", value)} /><b>s</b></div>
-                  </label>
-                  <label className="field">
-                    <span>Chiều rộng khung chữ</span>
-                    <div className="number-with-unit"><NumericInput min={40} max={100} step={1} value={subtitleStyle.boxWidth} onCommit={(value) => updateSubtitleStyle("boxWidth", value)} /><b>%</b></div>
-                  </label>
-                </div>
-                <div className="field-row subtitle-style-fields subtitle-geometry-fields">
-                  <label className="field">
-                    <span>Vị trí X</span>
-                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSubtitleStyle("x", clampPercent(value, subtitleStyle.x))} /><b>%</b></div>
-                  </label>
-                  <label className="field">
-                    <span>Vị trí Y</span>
-                    <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSubtitleStyle("y", clampPercent(value, subtitleStyle.y))} /><b>%</b></div>
-                  </label>
-                  <label className="field">
-                    <span>Chiều cao khung chữ</span>
-                    <div className="number-with-unit"><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSubtitleStyle("boxHeight", value)} onCommitEmpty={() => updateSubtitleStyle("boxHeight", undefined)} /><b>%</b></div>
-                  </label>
-                </div>
-                <small>Chỉ hiện vùng chỉnh sửa này sau khi bấm “Xem thử”. Có thể kéo khung hoặc nhập trực tiếp X/Y, rộng/cao.</small>
-                <div className="subtitle-border-heading"><strong>Border / nền phụ đề</strong><small>Điều chỉnh viền, màu viền, độ trong suốt và nền.</small></div>
-                <div className="field-row subtitle-style-fields">
-                  <label className="field">
-                    <span>Độ dày border</span>
-                    <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSubtitleStyle("borderWidth", value)} /><b>px</b></div>
-                  </label>
-                  <label className="field">
-                    <span>Màu border</span>
-                    <input type="color" value={subtitleStyle.borderColor} onChange={(event) => updateSubtitleStyle("borderColor", event.target.value)} />
-                  </label>
-                  <label className="field">
-                    <span>Màu nền</span>
-                    <input type="color" value={subtitleStyle.borderFill} onChange={(event) => updateSubtitleStyle("borderFill", event.target.value)} />
-                  </label>
-                  <label className="field">
-                    <span>Độ trong suốt nền</span>
-                    <div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSubtitleStyle("borderOpacity", value)} /><b>%</b></div>
-                  </label>
-                </div>
-              </div>
-              </EditorFieldGroup>
-              <div className="field-row subtitle-global-timing-row">
-                <label className="field">
-                  <TimeFieldLabel hint="Mốc dự phòng tính từ đầu cảnh cho cue chưa gắn với âm thanh. Cue đã gắn audio sẽ bắt đầu theo mốc của audio đó.">Thời gian bắt đầu phát tất cả phụ đề (cue chưa gắn âm thanh)</TimeFieldLabel>
-                  <div className="number-with-unit">
-                    <NumericInput
-                      min={0}
-                      max={sceneDuration}
-                      step={0.1}
-                      value={scene.subtitleStart}
-                      disabled={!hydrated}
-                      onCommit={(value) => updateScene("subtitleStart", value)}
-                    />
-                    <b>s</b>
-                  </div>
-                  <small>Cue thuộc một âm thanh sẽ tự bám mốc bắt đầu của âm thanh; cue chưa gắn âm thanh dùng mốc này.</small>
-                </label>
-              </div>
-              <label className="zoom-effect-toggle">
-                <input
-                  type="checkbox"
-                  checked={scene.subtitleEnabled !== false}
-                  disabled={!hydrated}
-                  onChange={(event) => updateScene("subtitleEnabled", event.target.checked)}
-                />
-                <span aria-hidden="true" />
-                <span>Hiện phụ đề trong bản xem trước và video</span>
-              </label>
-              {(scene.subtitles ?? []).length > 0 ? (
-                <div className="subtitle-editor-list">
-                  {(scene.subtitles ?? []).map((subtitle, index) => (
-                    <div key={subtitle.id} className={`subtitle-editor-item ${subtitle.visible === false ? "is-hidden" : ""}`}>
-                      <div className="subtitle-editor-item-heading">
-                        <strong>Câu {index + 1}</strong>
-                        <div>
-                          <button
-                            type="button"
-                            className="subtitle-visibility-button"
-                            onClick={() => toggleSubtitleCueVisibility(subtitle.id)}
-                            title={subtitle.visible === false ? "Hiện câu phụ đề" : "Ẩn câu phụ đề"}
-                          >
-                            {subtitle.visible === false ? "Hiện" : "Ẩn"}
-                          </button>
-                          <button
-                            type="button"
-                            className="subtitle-delete-button"
-                            onClick={() => deleteSubtitleCue(subtitle.id)}
-                            aria-label={`Xóa câu phụ đề ${index + 1}`}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                      <textarea
-                        rows={2}
-                        value={subtitle.text}
-                        placeholder="Nhập nội dung phụ đề..."
-                        onChange={(event) => updateSubtitleCue(subtitle.id, { text: event.target.value })}
-                      />
-                      <div className="field-row subtitle-timing-fields">
-                        <label className="field">
-                          <TimeFieldLabel hint="Mốc tương đối tính từ âm thanh được gắn; nếu chưa gắn âm thanh thì tính từ mốc dự phòng của cảnh.">Bắt đầu tương đối</TimeFieldLabel>
-                          <div className="number-with-unit">
-                            <NumericInput
-                              min={0}
-                              max={Math.max(0, sceneDuration - 0.1)}
-                              step={0.1}
-                              value={subtitle.start}
-                              onCommit={(value) => updateSubtitleCue(subtitle.id, { start: value })}
-                            />
-                            <b>s</b>
-                          </div>
-                        </label>
-                        <label className="field">
-                          <TimeFieldLabel hint="Mốc kết thúc tương đối tính từ âm thanh được gắn; nếu chưa gắn âm thanh thì tính từ mốc dự phòng của cảnh.">Kết thúc tương đối</TimeFieldLabel>
-                          <div className="number-with-unit">
-                            <NumericInput
-                              min={0.1}
-                              max={sceneDuration}
-                              step={0.1}
-                              value={subtitle.end}
-                              onCommit={(value) => updateSubtitleCue(subtitle.id, { end: value })}
-                            />
-                            <b>s</b>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-overlay-empty">Chưa có câu phụ đề. Bấm “Thêm câu” để tạo cue đầu tiên.</div>
               )}
             </div>
             </EditorFieldGroup>

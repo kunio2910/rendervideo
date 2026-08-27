@@ -249,9 +249,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /narration: data\.narration/);
   assert.match(page, /type SubtitleStyle/);
   assert.match(page, /generateSubtitlesFromNarration/);
-  assert.match(page, /Tạo từ lời thuyết minh/);
   assert.match(page, /subtitleStyle/);
-  assert.match(page, /Chiều rộng khung chữ/);
   assert.match(page, /boxWidth/);
   assert.match(page, /borderFill/);
   assert.match(page, /subtitle-animation-/);
@@ -259,10 +257,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /subtitleEnabled/);
   assert.match(page, /activeSubtitle/);
   assert.match(page, /startSubtitleDrag/);
-  assert.match(page, /deleteAllSubtitleCues/);
-  assert.match(page, /Xóa tất cả/);
+  assert.match(page, /scene-audio-subtitle-panel/);
+  assert.match(page, /Phụ đề của âm thanh này/);
   assert.match(css, /\.subtitle-track/);
-  assert.match(page, /editor-subtitle/);
+  assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
+  assert.doesNotMatch(page, /id="editor-subtitle"/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
   assert.match(page, /activeStudioTab === "settings"/);
   assert.match(page, /SettingsWorkspace/);
@@ -572,6 +571,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /selectedPreviewLayerTokens/);
   assert.match(page, /setAllPreviewLayerVisibility/);
   assert.match(page, /togglePreviewLayerLock/);
+  assert.match(page, /movePreviewLayerByStep/);
+  assert.match(page, /event\.key === "Enter" && previewPlaybackMode && !playing/);
+  assert.match(page, /Phụ đề của âm thanh này/);
+  assert.doesNotMatch(page, /EditorFieldGroup title="Phụ đề"/);
+  assert.doesNotMatch(page, /editor-subtitle/);
   assert.match(page, /item\.visible === false \|\| item\.editorVisible === false/);
   assert.match(page, /is-hidden/);
   assert.match(page, /reorderPreviewLayers/);
@@ -596,7 +600,6 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /Thời gian sáng dần/);
   assert.match(page, /Thời gian kết thúc \(tự tính\)/);
   assert.match(page, /subtitleStart/);
-  assert.match(page, /Thời gian bắt đầu phát tất cả phụ đề/);
   assert.match(page, /holdDuration/);
   assert.match(page, /Thời gian giữ tối/);
   assert.match(page, /editor-section-shortcuts/);
