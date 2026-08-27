@@ -372,19 +372,27 @@ const weatherEffectDefinitions = [
 const normalizeSceneWeatherEffects = (value, duration = 3600) => {
   const raw = value && typeof value === "object" ? value : {};
   const safeDuration = Math.max(0.1, Number(duration) || 3600);
-  const source = Array.isArray(raw.weatherEffects)
-    ? raw.weatherEffects
-    : weatherEffectDefinitions.flatMap((definition) => raw[definition.enabledKey] === true
-      ? [{
-          id: `weather-${definition.type}-1`,
-          type: definition.type,
-          enabled: true,
-          start: 0,
-          end: safeDuration,
-          intensity: raw[definition.intensityKey] ?? definition.intensity,
-          speed: raw[definition.speedKey] ?? definition.speed,
-        }]
-      : []);
+  const storedEffects = Array.isArray(raw.weatherEffects) ? raw.weatherEffects : [];
+  const hasLegacyWeatherEffects = weatherEffectDefinitions.some(
+    (definition) => raw[definition.enabledKey] === true,
+  );
+  // Keep old projects renderable when they contain legacy enabled flags but
+  // an empty weatherEffects array from a newer save format.
+  const source = storedEffects.length > 0
+    ? storedEffects
+    : hasLegacyWeatherEffects
+      ? weatherEffectDefinitions.flatMap((definition) => raw[definition.enabledKey] === true
+        ? [{
+            id: `weather-${definition.type}-1`,
+            type: definition.type,
+            enabled: true,
+            start: 0,
+            end: safeDuration,
+            intensity: raw[definition.intensityKey] ?? definition.intensity,
+            speed: raw[definition.speedKey] ?? definition.speed,
+          }]
+        : [])
+      : storedEffects;
   return Array.isArray(source) ? source.map((item, index) => {
     const candidate = item && typeof item === "object" ? item : {};
     const definition = weatherEffectDefinitions.find((entry) => entry.type === candidate.type)

@@ -518,6 +518,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /type SceneWeatherEffect =/);
   assert.match(page, /const addSceneWeatherEffect =/);
   assert.match(page, /weatherEffectsAtTime/);
+  assert.match(page, /storedEffects\.length > 0/);
+  assert.match(page, /hasLegacyWeatherEffects/);
+  assert.match(page, /previewPlaybackMode && !playing/);
   assert.match(page, /effect:weather:\$\{effect\.id\}/);
   assert.match(page, /seekTimeline\(-3\)/);
   assert.match(page, /seekTimeline\(3\)/);
@@ -538,6 +541,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /sceneWeatherEffectsOfType\(sceneEffects, "sandstorm"\)/);
   assert.match(renderer, /sceneWeatherEffectsOfType\(sceneEffects, "star-twinkle"\)/);
   assert.match(renderer, /const weatherWindowExpression/);
+  assert.match(renderer, /storedEffects\.length > 0/);
+  assert.match(renderer, /hasLegacyWeatherEffects/);
   assert.match(renderer, /label: sandLabel/);
   assert.match(renderer, /writeWeatherGradientLayer/);
   assert.match(page, /normalizeSceneWeatherAppearance/);

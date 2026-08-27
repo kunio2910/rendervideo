@@ -2174,15 +2174,23 @@ const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Sc
 
 const normalizeSceneWeatherEffects = (value: unknown): SceneWeatherEffect[] => {
   const raw = isRecord(value) ? value : {};
-  const hasStoredEffects = Array.isArray(raw.weatherEffects);
-  const source = hasStoredEffects
-    ? raw.weatherEffects
-    : SCENE_WEATHER_EFFECT_DEFINITIONS.flatMap((definition) => raw[definition.enabledKey] === true
-      ? [defaultSceneWeatherEffect(definition.type, `weather-${definition.type}-1`, {
-          intensity: Math.min(100, Math.max(0, positiveNumber(raw[definition.intensityKey], definition.intensity))),
-          speed: Math.min(3, Math.max(0, positiveNumber(raw[definition.speedKey], definition.speed, 0))),
-        })]
-      : []);
+  const storedEffects = Array.isArray(raw.weatherEffects) ? raw.weatherEffects : [];
+  const hasLegacyWeatherEffects = SCENE_WEATHER_EFFECT_DEFINITIONS.some(
+    (definition) => raw[definition.enabledKey] === true,
+  );
+  // Older projects persisted one enabled flag per effect and could later be
+  // saved with the new weatherEffects array still empty. Recreate those cards
+  // so the editor preview and the renderer use the same source of truth.
+  const source = storedEffects.length > 0
+    ? storedEffects
+    : hasLegacyWeatherEffects
+      ? SCENE_WEATHER_EFFECT_DEFINITIONS.flatMap((definition) => raw[definition.enabledKey] === true
+        ? [defaultSceneWeatherEffect(definition.type, `weather-${definition.type}-1`, {
+            intensity: Math.min(100, Math.max(0, positiveNumber(raw[definition.intensityKey], definition.intensity))),
+            speed: Math.min(3, Math.max(0, positiveNumber(raw[definition.speedKey], definition.speed, 0))),
+          })]
+        : [])
+      : storedEffects;
   if (!Array.isArray(source)) return [];
   return source.map((item, index) => {
     const candidate = isRecord(item) ? item : {};
@@ -4351,7 +4359,10 @@ function Home() {
   );
   const weatherEffectsAtTime = (type: SceneWeatherEffectType) => {
     if (!previewEffectsVisible) return [];
-    if (!previewPlaybackMode && !sceneStructurePreviewMode) {
+    // In edit mode, and after pausing a preview, keep every enabled effect
+    // mounted so its current frame remains visible instead of disappearing
+    // because the playhead is outside that effect's time range.
+    if (!previewPlaybackMode && !sceneStructurePreviewMode || (previewPlaybackMode && !playing)) {
       return sceneEffects.weatherEffects.filter((effect) => effect.type === type && effect.enabled);
     }
     return activeSceneWeatherEffects(sceneEffects, type, sceneLocalTime);
@@ -13518,10 +13529,13 @@ function Home() {
         .map((image) => image.id),
     );
     const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
-    const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) =>
-      previewEffectsVisible
-        ? activeSceneWeatherEffects(liveSceneEffects, type, localTime)
-        : [];
+    const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
+      if (!previewEffectsVisible) return [];
+      if (!previewIsPlaying) {
+        return liveSceneEffects.weatherEffects.filter((effect) => effect.type === type && effect.enabled);
+      }
+      return activeSceneWeatherEffects(liveSceneEffects, type, localTime);
+    };
 
     const liveDarkOverlayItems = previewEffectsVisible
       ? sceneStartDarkOverlayItemsAtTime(localTime)
