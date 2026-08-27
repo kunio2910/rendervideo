@@ -346,7 +346,53 @@ const popupSectionGeometry = (popup, showVisual = true, showText = true) => {
     height: Math.round(Math.max(0, height)),
   };
 };
-const normalizeSceneEffects = (value) => {
+const weatherEffectDefinitions = [
+  { type: "snow", enabledKey: "snowEnabled", intensityKey: "snowIntensity", speedKey: "snowSpeed", intensity: 55, speed: 1 },
+  { type: "light-flicker", enabledKey: "lightFlickerEnabled", intensityKey: "lightFlickerIntensity", speedKey: "lightFlickerSpeed", intensity: 45, speed: 1 },
+  { type: "rain", enabledKey: "rainEnabled", intensityKey: "rainIntensity", speedKey: "rainSpeed", intensity: 55, speed: 1 },
+  { type: "thunder", enabledKey: "thunderEnabled", intensityKey: "thunderIntensity", speedKey: "thunderSpeed", intensity: 55, speed: 1 },
+  { type: "cloud", enabledKey: "cloudEnabled", intensityKey: "cloudIntensity", speedKey: "cloudSpeed", intensity: 50, speed: 1 },
+  { type: "sandstorm", enabledKey: "sandstormEnabled", intensityKey: "sandstormIntensity", speedKey: "sandstormSpeed", intensity: 45, speed: 1 },
+];
+
+const normalizeSceneWeatherEffects = (value, duration = 3600) => {
+  const raw = value && typeof value === "object" ? value : {};
+  const safeDuration = Math.max(0.1, Number(duration) || 3600);
+  const source = Array.isArray(raw.weatherEffects)
+    ? raw.weatherEffects
+    : weatherEffectDefinitions.flatMap((definition) => raw[definition.enabledKey] === true
+      ? [{
+          id: `weather-${definition.type}-1`,
+          type: definition.type,
+          enabled: true,
+          start: 0,
+          end: safeDuration,
+          intensity: raw[definition.intensityKey] ?? definition.intensity,
+          speed: raw[definition.speedKey] ?? definition.speed,
+        }]
+      : []);
+  return Array.isArray(source) ? source.map((item, index) => {
+    const candidate = item && typeof item === "object" ? item : {};
+    const definition = weatherEffectDefinitions.find((entry) => entry.type === candidate.type)
+      ?? weatherEffectDefinitions[index % weatherEffectDefinitions.length];
+    const start = Math.min(Math.max(0, safeDuration - 0.1), Math.max(0, Number(candidate.start) || 0));
+    const end = Math.min(safeDuration, Math.max(start + 0.1, Number(candidate.end) || safeDuration));
+    return {
+      id: String(candidate.id ?? `weather-${definition.type}-${index + 1}`),
+      type: definition.type,
+      enabled: candidate.enabled !== false,
+      start,
+      end,
+      intensity: clamp(Number(candidate.intensity ?? definition.intensity) || definition.intensity, 0, 100),
+      speed: clamp(Number(candidate.speed ?? definition.speed) || definition.speed, 0.2, 3),
+    };
+  }) : [];
+};
+
+const sceneWeatherEffectsOfType = (effects, type) =>
+  effects.weatherEffects.filter((effect) => effect.type === type && effect.enabled && effect.intensity > 0);
+
+const normalizeSceneEffects = (value, duration = 3600) => {
   const raw = value && typeof value === "object" ? value : {};
   const legacyDuration = Math.max(0.1, Number(raw.sceneStartDarkDuration ?? 1.2) || 1.2);
   const legacyTiming = normalizeSceneDarkEffectTiming(
@@ -378,7 +424,7 @@ const normalizeSceneEffects = (value) => {
       })
     : [legacyDarkEffect];
   const firstDarkEffect = darkEffects[0] ?? legacyDarkEffect;
-  return {
+  const normalized = {
     sceneStartDarkEnabled: darkEffects.some((effect) => effect.enabled),
     sceneStartDarkDuration: Math.max(0.1, firstDarkEffect.end - firstDarkEffect.start),
     sceneStartDarkIntensity: firstDarkEffect.intensity,
@@ -398,7 +444,16 @@ const normalizeSceneEffects = (value) => {
     cloudEnabled: raw.cloudEnabled === true,
     cloudIntensity: clamp(Number(raw.cloudIntensity ?? 50) || 50, 0, 100),
     cloudSpeed: clamp(Number(raw.cloudSpeed ?? 1) || 1, 0.2, 3),
+    weatherEffects: normalizeSceneWeatherEffects(raw, duration),
   };
+  weatherEffectDefinitions.forEach((definition) => {
+    const matching = normalized.weatherEffects.filter((effect) => effect.type === definition.type);
+    const first = matching[0];
+    normalized[definition.enabledKey] = matching.some((effect) => effect.enabled);
+    normalized[definition.intensityKey] = first?.intensity ?? normalized[definition.intensityKey];
+    normalized[definition.speedKey] = first?.speed ?? normalized[definition.speedKey];
+  });
+  return normalized;
 };
 
 // These seeds intentionally mirror the preview component. Keeping one fixed
@@ -427,6 +482,15 @@ const cloudSeeds = Array.from({ length: 7 }, (_, index) => ({
   duration: 18 + ((index * 11) % 14),
   delay: -((index * 13) % 28),
   drift: 118 + ((index * 17) % 45),
+}));
+const sandstormSeeds = Array.from({ length: 44 }, (_, index) => ({
+  x: -8 + ((index * 29) % 116),
+  y: 8 + ((index * 47) % 84),
+  size: 1 + ((index * 7) % 4),
+  duration: 2.8 + ((index * 13) % 22) / 10,
+  delay: -((index * 19) % 38) / 10,
+  drift: 34 + ((index * 23) % 52),
+  tilt: -10 + ((index * 17) % 24),
 }));
 
 const writeWeatherGradientLayer = async (filename, kind) => {
@@ -460,16 +524,19 @@ const writeWeatherGradientLayer = async (filename, kind) => {
   return filename;
 };
 
-const weatherPhaseExpression = (cycle, delay, timeVariable = "T") => {
+const weatherPhaseExpression = (cycle, delay, timeVariable = "T", start = 0) => {
   const safeCycle = Math.max(0.05, Number(cycle) || 1);
   // Make the modulo numerator positive so a negative CSS animation-delay
   // starts at the same deterministic phase in FFmpeg.
   const offset = safeCycle * 12 + Number(delay || 0);
-  return `mod(${timeVariable}+${offset.toFixed(4)},${safeCycle.toFixed(4)})/${safeCycle.toFixed(4)}`;
+  return `mod(${timeVariable}-${Number(start || 0).toFixed(4)}+${offset.toFixed(4)},${safeCycle.toFixed(4)})/${safeCycle.toFixed(4)}`;
 };
 
 const weatherFadeExpression = (phase, plateau = 0.9) =>
   `if(lt(${phase},0.1),${plateau.toFixed(4)}*${phase}/0.1,if(gt(${phase},0.9),${plateau.toFixed(4)}*(1-${phase})/0.1,${plateau.toFixed(4)}))`;
+
+const weatherWindowExpression = (effect, timeVariable = "T") =>
+  `if(lt(${timeVariable},${Number(effect.start).toFixed(4)}),0,if(gte(${timeVariable},${Number(effect.end).toFixed(4)}),0,1))`;
 
 const popupPixelHeight = (scene) => Math.min(
   Math.round(previewPx(popupSectionGeometry(scene).height)),
@@ -1762,7 +1829,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const weatherInputSpecs = [];
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
-  const sceneEffects = normalizeSceneEffects(scene.effects);
+  const sceneEffects = normalizeSceneEffects(scene.effects, duration);
   const addWeatherOverlay = ({ source, input, x, y, label, inputFilter = "" }) => {
     const inputLabel = `${label}Input`;
     if (input) {
@@ -1776,42 +1843,42 @@ for (let index = 0; index < scenes.length; index += 1) {
       `x='${x}':y='${y}':shortest=1:eval=frame[${label}];`;
     composedLabel = `[${label}]`;
   };
-  if (sceneEffects.lightFlickerEnabled && sceneEffects.lightFlickerIntensity > 0) {
-    const cycle = Math.max(0.2, 2.8 / sceneEffects.lightFlickerSpeed);
-    const phase = weatherPhaseExpression(cycle, 0);
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "light-flicker").entries()) {
+    const cycle = Math.max(0.2, 2.8 / effect.speed);
+    const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.24),1-0.38*${phase}/0.24,if(lt(${phase},0.45),0.62+0.38*(${phase}-0.24)/0.21,if(lt(${phase},0.68),1-0.3*(${phase}-0.45)/0.23,0.7+0.3*(${phase}-0.68)/0.32)))`;
-    const alpha = ((sceneEffects.lightFlickerIntensity / 100) * 0.68).toFixed(4);
-    const lightPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-light-${index + 1}.png`), "light");
+    const alpha = ((effect.intensity / 100) * 0.68).toFixed(4);
+    const lightPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-light-${index + 1}-${effectIndex}.png`), "light");
     addWeatherOverlay({
       input: { type: "file", path: lightPath },
       x: "0",
       y: "0",
-      label: "lightFlicker",
-      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})` })}`,
+      label: `lightFlicker${effectIndex}`,
+      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
   }
-  if (sceneEffects.thunderEnabled && sceneEffects.thunderIntensity > 0) {
-    const cycle = Math.max(0.4, 3.6 / sceneEffects.thunderSpeed);
-    const phase = weatherPhaseExpression(cycle, 0);
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "thunder").entries()) {
+    const cycle = Math.max(0.4, 3.6 / effect.speed);
+    const phase = weatherPhaseExpression(cycle, 0, "T", effect.start);
     const pulse = `if(lt(${phase},0.31),0,if(lt(${phase},0.33),0.72*(${phase}-0.31)/0.02,if(lt(${phase},0.35),0.72-0.57*(${phase}-0.33)/0.02,if(lt(${phase},0.37),0.15+0.75*(${phase}-0.35)/0.02,if(lt(${phase},0.4),0.9*(0.4-${phase})/0.03,if(lt(${phase},0.68),0,if(lt(${phase},0.7),0.48*(${phase}-0.68)/0.02,if(lt(${phase},0.72),0.48*(0.72-${phase})/0.02,0))))))))`;
-    const alpha = ((sceneEffects.thunderIntensity / 100) * 0.78).toFixed(4);
-    const thunderPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-thunder-${index + 1}.png`), "thunder");
+    const alpha = ((effect.intensity / 100) * 0.78).toFixed(4);
+    const thunderPath = await writeWeatherGradientLayer(path.join(renderDir, `weather-thunder-${index + 1}-${effectIndex}.png`), "thunder");
     addWeatherOverlay({
       input: { type: "file", path: thunderPath },
       x: "0",
       y: "0",
-      label: "thunder",
-      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})` })}`,
+      label: `thunder${effectIndex}`,
+      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
   }
-  if (sceneEffects.cloudEnabled && sceneEffects.cloudIntensity > 0) {
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "cloud").entries()) {
     for (let cloudIndex = 0; cloudIndex < cloudSeeds.length; cloudIndex += 1) {
       const cloud = cloudSeeds[cloudIndex];
       const cloudWidth = Math.max(12, Math.round(outputWidth * cloud.width / 100));
       const cloudHeight = Math.max(10, Math.round(outputHeight * cloud.height / 100));
-      const cycle = cloud.duration / sceneEffects.cloudSpeed;
-      const phase = weatherPhaseExpression(cycle, cloud.delay);
-      const overlayPhase = weatherPhaseExpression(cycle, cloud.delay, "t");
+      const cycle = cloud.duration / effect.speed;
+      const phase = weatherPhaseExpression(cycle, cloud.delay, "T", effect.start);
+      const overlayPhase = weatherPhaseExpression(cycle, cloud.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.9);
       const travel = `(-0.45+(${overlayPhase})*(${cloud.drift / 100 + 0.45}))`;
       const cloudMask = "if(gt(lte((X-W*0.5)^2/(W*0.5)^2+(Y-H*0.52)^2/(H*0.45)^2,1)+lte((X-W*0.7)^2/(W*0.28)^2+(Y-H*0.42)^2/(H*0.37)^2,1)+lte((X-W*0.3)^2/(W*0.25)^2+(Y-H*0.56)^2/(H*0.32)^2,1),0),alpha(X,Y),0)";
@@ -1819,44 +1886,66 @@ for (let index = 0; index < scenes.length; index += 1) {
         source: `color=c=0xE0ECF8@0.48:s=${cloudWidth}x${cloudHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: cloudMask })},boxblur=${Math.max(1, Math.round(previewPx(5)))}:1`,
         x: `main_w*${(cloud.x / 100).toFixed(4)}+overlay_w*${travel}`,
         y: `main_h*${(cloud.y / 100).toFixed(4)}`,
-        label: `cloud${cloudIndex}`,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.cloudIntensity / 100).toFixed(4)}*(${opacity})` })}`,
+        label: `cloud${effectIndex}_${cloudIndex}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }
-  if (sceneEffects.rainEnabled && sceneEffects.rainIntensity > 0) {
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "rain").entries()) {
     for (let rainIndex = 0; rainIndex < rainDropSeeds.length; rainIndex += 1) {
       const drop = rainDropSeeds[rainIndex];
       const dropWidth = Math.max(1, Math.round(previewPx(drop.width)));
       const dropHeight = Math.max(6, Math.round(previewPx(drop.length)));
-      const cycle = drop.duration / sceneEffects.rainSpeed;
-      const phase = weatherPhaseExpression(cycle, drop.delay);
-      const overlayPhase = weatherPhaseExpression(cycle, drop.delay, "t");
+      const cycle = drop.duration / effect.speed;
+      const phase = weatherPhaseExpression(cycle, drop.delay, "T", effect.start);
+      const overlayPhase = weatherPhaseExpression(cycle, drop.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.9);
       addWeatherOverlay({
         source: `color=c=0xCAE5FF@0.95:s=${dropWidth}x${dropHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)*Y/H" })},rotate=0.244346:c=none:ow=rotw(iw):oh=roth(ih)`,
         x: `main_w*${(drop.x / 100).toFixed(4)}+${Math.round(previewPx(drop.drift))}*(${overlayPhase})`,
         y: `main_h*(-0.12+1.22*(${overlayPhase}))`,
-        label: `rain${rainIndex}`,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.rainIntensity / 100).toFixed(4)}*(${opacity})` })}`,
+        label: `rain${effectIndex}_${rainIndex}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }
-  if (sceneEffects.snowEnabled && sceneEffects.snowIntensity > 0) {
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "snow").entries()) {
     for (let snowIndex = 0; snowIndex < snowflakeSeeds.length; snowIndex += 1) {
       const flake = snowflakeSeeds[snowIndex];
       const snowSize = Math.max(1, Math.round(previewPx(flake.size)));
-      const cycle = flake.duration / sceneEffects.snowSpeed;
-      const phase = weatherPhaseExpression(cycle, flake.delay);
-      const overlayPhase = weatherPhaseExpression(cycle, flake.delay, "t");
+      const cycle = flake.duration / effect.speed;
+      const phase = weatherPhaseExpression(cycle, flake.delay, "T", effect.start);
+      const overlayPhase = weatherPhaseExpression(cycle, flake.delay, "t", effect.start);
       const opacity = weatherFadeExpression(phase, 0.92);
-      const snowLabel = `snow${snowIndex}`;
+      const snowLabel = `snow${effectIndex}_${snowIndex}`;
       addWeatherOverlay({
         source: `color=c=white@0.92:s=${snowSize}x${snowSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}`,
         x: `main_w*${(flake.x / 100).toFixed(4)}+${Math.round(previewPx(flake.drift))}*(${overlayPhase})`,
         y: `main_h*(-0.08+1.16*(${overlayPhase}))`,
         label: snowLabel,
-        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(sceneEffects.snowIntensity / 100).toFixed(4)}*(${opacity})` })}`,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
+      });
+    }
+  }
+  // Render the sand grains as real animated overlay streams. Previously the
+  // browser preview had particles, but the FFmpeg graph had no sandstorm
+  // branch, so rendered videos silently lost the moving dust.
+  for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "sandstorm").entries()) {
+    for (let sandIndex = 0; sandIndex < sandstormSeeds.length; sandIndex += 1) {
+      const grain = sandstormSeeds[sandIndex];
+      const grainWidth = Math.max(2, Math.round(previewPx(grain.size * 1.8)));
+      const grainHeight = Math.max(2, Math.round(previewPx(grain.size)));
+      const cycle = grain.duration / effect.speed;
+      const phase = weatherPhaseExpression(cycle, grain.delay, "T", effect.start);
+      const overlayPhase = weatherPhaseExpression(cycle, grain.delay, "t", effect.start);
+      const opacity = weatherFadeExpression(phase, 0.98);
+      const sandLabel = `sandstorm${effectIndex}_${sandIndex}`;
+      addWeatherOverlay({
+        source: `color=c=0xF2C26B@0.98:s=${grainWidth}x${grainHeight}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "alpha(X,Y)" })}`,
+        x: `main_w*(${(grain.x / 100).toFixed(4)}-0.18+(${overlayPhase})*(0.18+${(grain.drift / 100).toFixed(4)}))`,
+        y: `main_h*(${(grain.y / 100).toFixed(4)}-0.03*(${overlayPhase}))`,
+        label: sandLabel,
+        inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${(effect.intensity / 100).toFixed(4)}*(${opacity})*${weatherWindowExpression(effect)}` })}`,
       });
     }
   }

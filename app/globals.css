@@ -8392,6 +8392,130 @@ body {
   color: #9eafc2;
 }
 
+.scene-weather-effects-card {
+  gap: 12px;
+}
+
+.scene-weather-effects-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scene-weather-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.scene-weather-add-row select {
+  min-width: 145px;
+}
+
+.scene-weather-effect-list {
+  display: grid;
+  gap: 8px;
+}
+
+.scene-weather-effect-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #d7c6ae;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .62);
+}
+
+.scene-weather-effect-item.is-disabled {
+  opacity: .68;
+}
+
+.scene-weather-effect-item-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scene-weather-effect-item-heading > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 6px;
+}
+
+.scene-weather-effect-item-heading strong {
+  color: #4b3822;
+  font-size: 11px;
+}
+
+.scene-weather-effect-item-heading small {
+  grid-column: 2;
+  color: #9a876f;
+  font-size: 9px;
+}
+
+.scene-weather-effect-icon {
+  grid-row: 1 / span 2;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #b98c4b;
+  border-radius: 6px;
+  color: #7b4f14;
+  background: #fff2d9;
+  font-size: 14px;
+}
+
+.scene-weather-effect-time-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-item {
+  border-color: #4e6075;
+  background: #162434;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-item-heading strong {
+  color: #fff0d4;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-item-heading small {
+  color: #a9bbcf;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-effect-icon {
+  border-color: #b8893a;
+  color: #ffcf79;
+  background: #342a1b;
+}
+
+@media (max-width: 780px) {
+  .scene-weather-effects-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scene-weather-add-row {
+    justify-content: stretch;
+  }
+
+  .scene-weather-add-row select,
+  .scene-weather-add-row .button {
+    flex: 1 1 160px;
+  }
+
+  .scene-weather-effect-time-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .scene-effect-layer {
   position: absolute;
   inset: 0;
@@ -8691,8 +8815,9 @@ body {
   position: absolute;
   display: block;
   border-radius: 999px;
-  background: rgba(242, 194, 107, .92);
-  box-shadow: 0 0 4px rgba(220, 153, 53, .8);
+  background: linear-gradient(90deg, rgba(255, 225, 157, .2), rgba(248, 204, 116, .98));
+  box-shadow: 0 0 6px rgba(255, 211, 126, .95), 0 0 12px rgba(220, 153, 53, .55);
+  mix-blend-mode: screen;
   transform: rotate(var(--sand-tilt, 4deg));
   animation: scene-sand-blow 3.5s linear infinite;
 }
