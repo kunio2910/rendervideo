@@ -8648,6 +8648,46 @@ body {
   animation: scene-rainfall 1.8s linear infinite;
 }
 
+.sandstorm-effect {
+  z-index: 3;
+  overflow: hidden;
+  opacity: var(--sandstorm-intensity, .45);
+  background:
+    linear-gradient(105deg, rgba(196, 135, 48, .1), rgba(238, 190, 92, .2) 48%, rgba(157, 91, 29, .12)),
+    radial-gradient(ellipse at 10% 82%, rgba(220, 159, 69, .42), transparent 62%),
+    linear-gradient(180deg, transparent 52%, rgba(194, 119, 35, .13));
+  mix-blend-mode: multiply;
+}
+
+.sandstorm-effect::before,
+.sandstorm-effect::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  pointer-events: none;
+}
+
+.sandstorm-effect::before {
+  background: repeating-linear-gradient(168deg, transparent 0 10px, rgba(236, 184, 91, .14) 12px 15px, transparent 18px 30px);
+  filter: blur(5px);
+  animation: scene-sand-haze 4.8s linear infinite;
+}
+
+.sandstorm-effect::after {
+  background: radial-gradient(ellipse at 35% 78%, rgba(150, 86, 24, .2), transparent 58%);
+  animation: scene-sand-pulse 3.6s ease-in-out infinite;
+}
+
+.sandstorm-effect i {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  background: rgba(242, 194, 107, .92);
+  box-shadow: 0 0 4px rgba(220, 153, 53, .8);
+  transform: rotate(var(--sand-tilt, 4deg));
+  animation: scene-sand-blow 3.5s linear infinite;
+}
+
 .thunder-effect {
   z-index: 2;
   opacity: 0;
@@ -8670,6 +8710,24 @@ body {
   10% { opacity: .9; }
   90% { opacity: .9; }
   100% { top: 110%; transform: translate3d(var(--rain-drift, 0px), 0, 0) rotate(14deg); opacity: 0; }
+}
+
+@keyframes scene-sand-blow {
+  0% { transform: translate3d(-18vw, 0, 0) rotate(var(--sand-tilt, 4deg)); opacity: 0; }
+  12% { opacity: .85; }
+  86% { opacity: .85; }
+  100% { transform: translate3d(var(--sand-drift, 48%), -6px, 0) rotate(var(--sand-tilt, 4deg)); opacity: 0; }
+}
+
+@keyframes scene-sand-haze {
+  0% { transform: translate3d(-12%, 0, 0) skewX(-8deg); opacity: .25; }
+  50% { transform: translate3d(8%, -2%, 0) skewX(-8deg); opacity: .8; }
+  100% { transform: translate3d(24%, 0, 0) skewX(-8deg); opacity: .25; }
+}
+
+@keyframes scene-sand-pulse {
+  0%, 100% { opacity: .35; transform: scale(1); }
+  50% { opacity: .75; transform: scale(1.08); }
 }
 
 @keyframes scene-thunder {
@@ -11458,7 +11516,10 @@ body {
 .scene-audio-subtitle-heading > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .scene-audio-subtitle-heading strong { color: #6e3f21; font-size: 10px; }
 .scene-audio-subtitle-heading small { color: #9b7b5c; font-size: 8px; line-height: 1.35; }
-.scene-audio-subtitle-actions { display: flex; flex: 0 0 auto; gap: 5px; }
+.scene-audio-subtitle-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.scene-audio-subtitle-toggle { width: 26px; height: 26px; padding: 0; border: 1px solid #d7b27d; border-radius: 6px; background: #fffaf1; color: #6e3f21; cursor: pointer; font: 700 18px/1 var(--font-mono); }
+.scene-audio-subtitle-toggle:hover, .scene-audio-subtitle-toggle:focus-visible { border-color: #b8792e; background: #fff1d6; }
+.scene-audio-subtitle-panel.is-collapsed { gap: 0; }
 .scene-audio-subtitle-actions .button { min-height: 26px; padding-inline: 8px; font-size: 9px; }
 .scene-audio-subtitle-list { display: grid; gap: 7px; }
 .scene-audio-subtitle-card { display: grid; gap: 6px; padding: 8px; border: 1px solid #e5d3b8; border-radius: 7px; background: #fffdf9; }
@@ -11484,6 +11545,8 @@ body {
 .studio-shell[data-theme="dark"] .scene-audio-item-title input { border-color: #596572; background: #101820; color: #e8edf2; }
 .studio-shell[data-theme="dark"] .scene-audio-item-actions button { border-color: #45515d; background: #202b35; color: #d5be9d; }
 .studio-shell[data-theme="dark"] .scene-audio-subtitle-panel { border-color: #705536; background: rgba(57, 43, 29, .48); }
+.studio-shell[data-theme="dark"] .scene-audio-subtitle-toggle { border-color: #8d6d45; background: #202b35; color: #f0d0a6; }
+.studio-shell[data-theme="dark"] .scene-audio-subtitle-toggle:hover, .studio-shell[data-theme="dark"] .scene-audio-subtitle-toggle:focus-visible { border-color: #e2b36e; background: #3a3025; }
 .studio-shell[data-theme="dark"] .scene-audio-subtitle-heading strong { color: #f0d0a6; }
 .studio-shell[data-theme="dark"] .scene-audio-subtitle-heading small,
 .studio-shell[data-theme="dark"] .scene-audio-subtitle-empty { color: #ad9b85; }

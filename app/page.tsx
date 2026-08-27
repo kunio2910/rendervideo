@@ -268,6 +268,7 @@ type SceneStructureItem = {
   canHide: boolean;
   thumbnail: string;
   thumbnailIsVideo: boolean;
+  subtitleCueIds?: string[];
 };
 
 type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect" | "audio";
@@ -574,6 +575,9 @@ type SceneEffects = {
   cloudEnabled: boolean;
   cloudIntensity: number;
   cloudSpeed: number;
+  sandstormEnabled: boolean;
+  sandstormIntensity: number;
+  sandstormSpeed: number;
 };
 
 type SceneDarkEffectTimingInput = {
@@ -684,6 +688,9 @@ const defaultSceneEffects = (): SceneEffects => ({
   cloudEnabled: false,
   cloudIntensity: 50,
   cloudSpeed: 1,
+  sandstormEnabled: false,
+  sandstormIntensity: 45,
+  sandstormSpeed: 1,
 });
 
 const SNOWFLAKE_SEEDS = Array.from({ length: 36 }, (_, index) => ({
@@ -711,6 +718,16 @@ const CLOUD_SEEDS = Array.from({ length: 7 }, (_, index) => ({
   duration: 18 + ((index * 11) % 14),
   delay: -((index * 13) % 28),
   drift: 118 + ((index * 17) % 45),
+}));
+
+const SAND_PARTICLE_SEEDS = Array.from({ length: 44 }, (_, index) => ({
+  x: -8 + ((index * 29) % 116),
+  y: 8 + ((index * 47) % 84),
+  size: 1 + ((index * 7) % 4),
+  duration: 2.8 + ((index * 13) % 22) / 10,
+  delay: -((index * 19) % 38) / 10,
+  drift: 34 + ((index * 23) % 52),
+  tilt: -10 + ((index * 17) % 24),
 }));
 
 type PopupConfig = {
@@ -1883,6 +1900,11 @@ const sceneAudioSubtitles = (
   return subtitles.filter((subtitle) => subtitleIds.has(subtitle.id));
 };
 
+const sceneStructureSubtitleCueIds = (item: SceneStructureItem) => {
+  if (Array.isArray(item.subtitleCueIds) && item.subtitleCueIds.length) return item.subtitleCueIds;
+  return item.id !== "subtitle" ? [item.id] : [];
+};
+
 const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Scene => {
   const primary = audioTracks[0];
   return {
@@ -1940,6 +1962,9 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
     cloudEnabled: raw.cloudEnabled === true,
     cloudIntensity: Math.min(100, Math.max(0, positiveNumber(raw.cloudIntensity, 50))),
     cloudSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.cloudSpeed, 1, 0.2))),
+    sandstormEnabled: raw.sandstormEnabled === true,
+    sandstormIntensity: Math.min(100, Math.max(0, positiveNumber(raw.sandstormIntensity, 45))),
+    sandstormSpeed: Math.min(3, Math.max(0.2, positiveNumber(raw.sandstormSpeed, 1, 0.2))),
   };
 };
 
@@ -2202,21 +2227,29 @@ const applySceneStructureTimingUpdate = (
     return syncLegacyVoiceFields(currentScene, nextTracks);
   }
   if (item.kind === "subtitle") {
-    if (item.id !== "subtitle") {
-      const cue = (currentScene.subtitles ?? []).find((subtitle) => subtitle.id === item.id);
-      if (!cue) return currentScene;
+    const cueIds = new Set(sceneStructureSubtitleCueIds(item));
+    if (cueIds.size) {
       const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
-      const nextStart = Math.max(0, roundedStart - currentOffset);
-      const nextEnd = Math.max(nextStart + 0.1, roundedEnd - currentOffset);
+      const shift = roundedStart - item.start;
+      const maxCueEnd = Math.max(0.1, sceneDuration - currentOffset);
       return {
         ...currentScene,
-        subtitles: (currentScene.subtitles ?? []).map((subtitle) => subtitle.id === item.id
-          ? {
-              ...subtitle,
-              start: Number(nextStart.toFixed(2)),
-              end: Number(nextEnd.toFixed(2)),
-            }
-          : subtitle),
+        subtitles: (currentScene.subtitles ?? []).map((subtitle) => {
+          if (!cueIds.has(subtitle.id)) return subtitle;
+          const nextStart = Math.min(
+            Math.max(0, maxCueEnd - 0.1),
+            Math.max(0, Number(subtitle.start) || 0) + shift,
+          );
+          const nextEnd = Math.min(
+            maxCueEnd,
+            Math.max(nextStart + 0.1, (Number(subtitle.end) || nextStart + 0.1) + shift),
+          );
+          return {
+            ...subtitle,
+            start: Number(nextStart.toFixed(2)),
+            end: Number(nextEnd.toFixed(2)),
+          };
+        }),
       };
     }
     const currentOffset = Math.max(0, Number(currentScene.subtitleStart) || 0);
@@ -3026,6 +3059,7 @@ function SettingsWorkspace({
     selectedScene.effects?.rainEnabled ? "Mưa" : "",
     selectedScene.effects?.thunderEnabled ? "Sấm chớp" : "",
     selectedScene.effects?.cloudEnabled ? "Mây" : "",
+    selectedScene.effects?.sandstormEnabled ? "Bão cát" : "",
   ].filter(Boolean) : [];
   const selectedSceneMediaSources = selectedScene ? [
     selectedScene.avatar,
@@ -3728,6 +3762,7 @@ function Home() {
   const [timelineZoom, setTimelineZoom] = useState(100);
   const [zoomInputDrafts, setZoomInputDrafts] = useState<Record<string, string>>({});
   const [effectInputDrafts, setEffectInputDrafts] = useState<Record<string, string>>({});
+  const [expandedAudioSubtitleTracks, setExpandedAudioSubtitleTracks] = useState<Record<string, boolean>>({});
   const animationFrame = useRef<number | null>(null);
   const subtitleFileInput = useRef<HTMLInputElement | null>(null);
   const workspaceBackupFileInput = useRef<HTMLInputElement | null>(null);
@@ -4532,6 +4567,7 @@ function Home() {
     sceneStructureEffects.cloudEnabled ? "Mây" : "",
     sceneStructureEffects.lightFlickerEnabled ? "Chớp" : "",
     sceneStructureEffects.thunderEnabled ? "Sấm" : "",
+    sceneStructureEffects.sandstormEnabled ? "Bão cát" : "",
   ].filter(Boolean);
   if (weatherEffects.length) {
     addSceneStructureItem({
@@ -4663,59 +4699,63 @@ function Home() {
           thumbnailIsVideo: false,
         });
       }
-        if (sceneStructureScene.subtitleEnabled !== false) {
-          sceneAudioSubtitles(track, allStructureSubtitles, index)
-            .filter((subtitle) => subtitle.visible !== false)
-            .forEach((subtitle, subtitleIndex) => {
-              structureSubtitleIds.add(subtitle.id);
-              const cueStart = subtitleOffset + Math.max(0, Number(subtitle.start) || 0);
-              const cueEnd = subtitleOffset + Math.max(
-                Math.max(0, Number(subtitle.start) || 0) + 0.1,
-                Number(subtitle.end) || 0.1,
-              );
-              addSceneStructureItem({
-                token: `subtitle:${track.id}:${subtitle.id}`,
-                kind: "subtitle",
-                id: subtitle.id,
-                label: `${safeTrim(track.name) || `Âm thanh ${index + 1}`} · ${safeTrim(subtitle.text).slice(0, 32) || `Phụ đề ${subtitleIndex + 1}`}`,
-                detail: `${formatPreciseTime(subtitle.start)}–${formatPreciseTime(subtitle.end)} · ${safeTrim(subtitle.text).slice(0, 64) || "Chưa nhập nội dung"}`,
-                icon: "CC",
-                start: cueStart,
-                end: cueEnd,
-                timingMode: "both",
-                canHide: true,
-                thumbnail: "",
-                thumbnailIsVideo: false,
-              });
-            });
+      if (sceneStructureScene.subtitleEnabled !== false) {
+        const trackSubtitles = sceneAudioSubtitles(track, allStructureSubtitles, index);
+        const visibleTrackSubtitles = trackSubtitles.filter((subtitle) => subtitle.visible !== false);
+        visibleTrackSubtitles.forEach((subtitle) => structureSubtitleIds.add(subtitle.id));
+        if (visibleTrackSubtitles.length) {
+          const firstCue = visibleTrackSubtitles[0];
+          const firstStart = Math.min(...visibleTrackSubtitles.map((subtitle) => Math.max(0, Number(subtitle.start) || 0)));
+          const lastEnd = Math.max(...visibleTrackSubtitles.map((subtitle) => Math.max(
+            Math.max(0, Number(subtitle.start) || 0) + 0.1,
+            Number(subtitle.end) || 0.1,
+          )));
+          const previewText = safeTrim(firstCue.text).slice(0, 56) || "Chưa nhập nội dung";
+          addSceneStructureItem({
+            token: `subtitle:${track.id}`,
+            kind: "subtitle",
+            id: track.id,
+            subtitleCueIds: trackSubtitles.map((subtitle) => subtitle.id),
+            label: `${safeTrim(track.name) || `Âm thanh ${index + 1}`} · Phụ đề`,
+            detail: `${trackSubtitles.length} câu · ${formatPreciseTime(firstStart)}–${formatPreciseTime(lastEnd)} · ${previewText}${trackSubtitles.length > 1 ? " …" : ""}`,
+            icon: "CC",
+            start: subtitleOffset + firstStart,
+            end: subtitleOffset + lastEnd,
+            timingMode: "both",
+            canHide: true,
+            thumbnail: "",
+            thumbnailIsVideo: false,
+          });
         }
+      }
     });
-  allStructureSubtitles
-    .filter((subtitle) => sceneStructureScene.subtitleEnabled !== false
-      && !structureSubtitleIds.has(subtitle.id)
-      && subtitle.visible !== false
-    )
-    .forEach((subtitle, subtitleIndex) => {
-      const cueStart = subtitleOffset + Math.max(0, Number(subtitle.start) || 0);
-      const cueEnd = subtitleOffset + Math.max(
+  const unassignedSubtitles = allStructureSubtitles.filter((subtitle) => sceneStructureScene.subtitleEnabled !== false
+    && !structureSubtitleIds.has(subtitle.id)
+    && subtitle.visible !== false
+  );
+  if (unassignedSubtitles.length) {
+      const firstStart = Math.min(...unassignedSubtitles.map((subtitle) => Math.max(0, Number(subtitle.start) || 0)));
+      const lastEnd = Math.max(...unassignedSubtitles.map((subtitle) => Math.max(
         Math.max(0, Number(subtitle.start) || 0) + 0.1,
         Number(subtitle.end) || 0.1,
-      );
+      )));
+      const previewText = safeTrim(unassignedSubtitles[0].text).slice(0, 56) || "Chưa nhập nội dung";
       addSceneStructureItem({
-        token: `subtitle:unassigned:${subtitle.id}`,
+        token: "subtitle:unassigned",
         kind: "subtitle",
-        id: subtitle.id,
-        label: `Phụ đề chung · ${safeTrim(subtitle.text).slice(0, 32) || `Câu ${subtitleIndex + 1}`}`,
-        detail: `${formatPreciseTime(subtitle.start)}–${formatPreciseTime(subtitle.end)} · ${safeTrim(subtitle.text).slice(0, 64) || "Chưa nhập nội dung"} · Chưa gắn âm thanh`,
+        id: "subtitle-unassigned",
+        subtitleCueIds: unassignedSubtitles.map((subtitle) => subtitle.id),
+        label: "Phụ đề chung",
+        detail: `${unassignedSubtitles.length} câu · ${formatPreciseTime(firstStart)}–${formatPreciseTime(lastEnd)} · ${previewText}${unassignedSubtitles.length > 1 ? " …" : ""} · Chưa gắn âm thanh`,
         icon: "CC",
-        start: cueStart,
-        end: cueEnd,
+        start: subtitleOffset + firstStart,
+        end: subtitleOffset + lastEnd,
         timingMode: "both",
         canHide: true,
         thumbnail: "",
         thumbnailIsVideo: false,
       });
-    });
+  }
 
   const sceneStructureFirstToken = sceneStructureItems[0]?.token ?? "";
   const sceneStructureSelectedTokenExists = Boolean(
@@ -6933,7 +6973,8 @@ function Home() {
     | "lightFlickerIntensity" | "lightFlickerSpeed"
     | "rainIntensity" | "rainSpeed"
     | "thunderIntensity" | "thunderSpeed"
-    | "cloudIntensity" | "cloudSpeed";
+    | "cloudIntensity" | "cloudSpeed"
+    | "sandstormIntensity" | "sandstormSpeed";
   const effectInputKey = (field: SceneEffectNumberField) => `${scene.id}:${field}`;
   const effectInputValue = (field: SceneEffectNumberField, value: number) =>
     effectInputDrafts[effectInputKey(field)] ?? String(value);
@@ -7733,6 +7774,35 @@ function Home() {
     window.setTimeout(() => setToast(""), 2200);
   };
 
+  const deleteAudioTrackSubtitleCue = (trackId: string, subtitleId: string) => {
+    if (!scene) return;
+    const currentSubtitles = scene.subtitles ?? [];
+    const subtitleIndex = currentSubtitles.findIndex((subtitle) => subtitle.id === subtitleId);
+    if (subtitleIndex < 0) return;
+    const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
+    if (targetTrackIndex < 0) return;
+    const otherTrackHasCue = sceneAudioTracks.some((track, index) => index !== targetTrackIndex
+      && sceneAudioSubtitles(track, currentSubtitles, index).some((subtitle) => subtitle.id === subtitleId));
+    setScenes((items) => items.map((item) => {
+      if (item.id !== scene.id) return item;
+      const nextSubtitles = otherTrackHasCue
+        ? item.subtitles ?? []
+        : (item.subtitles ?? []).filter((subtitle) => subtitle.id !== subtitleId);
+      const nextTracks = (item.audioTracks ?? []).map((track, index) => {
+        if (track.id !== trackId) return track;
+        const existingIds = Array.isArray(track.subtitleCueIds)
+          ? track.subtitleCueIds
+          : index === 0
+            ? (item.subtitles ?? []).map((subtitle) => subtitle.id)
+            : [];
+        return { ...track, subtitleCueIds: existingIds.filter((cueId) => cueId !== subtitleId) };
+      });
+      return syncLegacyVoiceFields({ ...item, subtitles: nextSubtitles }, nextTracks);
+    }));
+    setToast(`Đã xóa phụ đề ${subtitleIndex + 1} khỏi âm thanh`);
+    window.setTimeout(() => setToast(""), 2200);
+  };
+
   const deleteAllSubtitleCues = () => {
     if (!scene || !(scene.subtitles ?? []).length) return;
     const count = scene.subtitles?.length ?? 0;
@@ -7748,6 +7818,15 @@ function Home() {
       : current);
     setToast(`Đã xóa ${count} phụ đề trong cảnh`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const isAudioSubtitlePanelExpanded = (trackId: string) => expandedAudioSubtitleTracks[trackId] !== false;
+
+  const toggleAudioSubtitlePanel = (trackId: string) => {
+    setExpandedAudioSubtitleTracks((current) => ({
+      ...current,
+      [trackId]: current[trackId] === false,
+    }));
   };
 
   const toggleSubtitleCueVisibility = (subtitleId: string) => {
@@ -10241,6 +10320,7 @@ function Home() {
       ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
       ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
       ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+      ["Bão cát", effects.sandstormEnabled, effects.sandstormIntensity, effects.sandstormSpeed],
     ] as const;
     return entries.filter(([, enabled]) => enabled).map(([label, , intensity, speed]) => ({
       label,
@@ -10256,6 +10336,7 @@ function Home() {
       ["Mây", effects.cloudEnabled, effects.cloudIntensity, effects.cloudSpeed],
       ["Chớp sáng", effects.lightFlickerEnabled, effects.lightFlickerIntensity, effects.lightFlickerSpeed],
       ["Sấm", effects.thunderEnabled, effects.thunderIntensity, effects.thunderSpeed],
+      ["Bão cát", effects.sandstormEnabled, effects.sandstormIntensity, effects.sandstormSpeed],
     ] as const;
     return entries.map(([label, enabled, intensity, speed]) => ({ label, enabled, intensity, speed }));
   };
@@ -10360,6 +10441,7 @@ function Home() {
       effects.cloudEnabled ? "Mây" : "",
       effects.lightFlickerEnabled ? "Chớp" : "",
       effects.thunderEnabled ? "Sấm" : "",
+      effects.sandstormEnabled ? "Bão cát" : "",
     ].filter(Boolean);
     if (weatherLabels.length) addEntry("weather", 0, sceneLength, `Nền · ${weatherLabels.join(" · ")}`, "weather");
     return entries;
@@ -10379,6 +10461,7 @@ function Home() {
       normalizeSceneEffects(item.effects).cloudEnabled,
       normalizeSceneEffects(item.effects).lightFlickerEnabled,
       normalizeSceneEffects(item.effects).thunderEnabled,
+      normalizeSceneEffects(item.effects).sandstormEnabled,
     ].filter(Boolean).length,
   });
 
@@ -11646,10 +11729,11 @@ function Home() {
             : decoration),
         };
       }
-      if (item.kind === "subtitle" && item.id !== "subtitle") {
+      if (item.kind === "subtitle" && sceneStructureSubtitleCueIds(item).length) {
+        const cueIds = new Set(sceneStructureSubtitleCueIds(item));
         return {
           ...currentScene,
-          subtitles: (currentScene.subtitles ?? []).map((subtitle) => subtitle.id === item.id
+          subtitles: (currentScene.subtitles ?? []).map((subtitle) => cueIds.has(subtitle.id)
             ? { ...subtitle, visible: false }
             : subtitle),
         };
@@ -11686,6 +11770,7 @@ function Home() {
             cloudEnabled: false,
             lightFlickerEnabled: false,
             thunderEnabled: false,
+            sandstormEnabled: false,
           },
         };
       }
@@ -11748,10 +11833,11 @@ function Home() {
           layerOrder: nextLayerOrder,
         };
       }
-      if (item.kind === "subtitle" && item.id !== "subtitle") {
-        const nextSubtitles = (currentScene.subtitles ?? []).filter((subtitle) => subtitle.id !== item.id);
+      if (item.kind === "subtitle" && sceneStructureSubtitleCueIds(item).length) {
+        const cueIds = new Set(sceneStructureSubtitleCueIds(item));
+        const nextSubtitles = (currentScene.subtitles ?? []).filter((subtitle) => !cueIds.has(subtitle.id));
         const nextTracks = (currentScene.audioTracks ?? []).map((track) => Array.isArray(track.subtitleCueIds)
-          ? { ...track, subtitleCueIds: track.subtitleCueIds.filter((cueId) => cueId !== item.id) }
+          ? { ...track, subtitleCueIds: track.subtitleCueIds.filter((cueId) => !cueIds.has(cueId)) }
           : track);
         return syncLegacyVoiceFields({
           ...currentScene,
@@ -11803,6 +11889,7 @@ function Home() {
             cloudEnabled: false,
             lightFlickerEnabled: false,
             thunderEnabled: false,
+            sandstormEnabled: false,
           },
           layerOrder: nextLayerOrder,
         };
@@ -12317,6 +12404,7 @@ function Home() {
           { enabled: "cloudEnabled", intensity: "cloudIntensity", speed: "cloudSpeed", label: "Mây trôi" },
           { enabled: "lightFlickerEnabled", intensity: "lightFlickerIntensity", speed: "lightFlickerSpeed", label: "Chớp sáng" },
           { enabled: "thunderEnabled", intensity: "thunderIntensity", speed: "thunderSpeed", label: "Sấm chớp" },
+          { enabled: "sandstormEnabled", intensity: "sandstormIntensity", speed: "sandstormSpeed", label: "Bão cát" },
         ];
         content = (
           <div className="scene-structure-quick-stack">
@@ -13544,6 +13632,29 @@ function Home() {
                       animationDuration: `${drop.duration / sceneEffects.rainSpeed}s`,
                       animationDelay: `${drop.delay}s`,
                       ["--rain-drift" as string]: `${drop.drift}px`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {sceneIsVisibleInPlayback && sceneEffects.sandstormEnabled && (
+              <div
+                className="scene-effect-layer sandstorm-effect"
+                aria-hidden="true"
+                style={{ ["--sandstorm-intensity" as string]: `${sceneEffects.sandstormIntensity / 100}` }}
+              >
+                {SAND_PARTICLE_SEEDS.map((particle, index) => (
+                  <i
+                    key={`sand-particle-${index}`}
+                    style={{
+                      left: `${particle.x}%`,
+                      top: `${particle.y}%`,
+                      width: `${particle.size}px`,
+                      height: `${Math.max(1, particle.size * 0.7)}px`,
+                      animationDuration: `${particle.duration / sceneEffects.sandstormSpeed}s`,
+                      animationDelay: `${particle.delay}s`,
+                      ["--sand-drift" as string]: `${particle.drift}%`,
+                      ["--sand-tilt" as string]: `${particle.tilt}deg`,
                     }}
                   />
                 ))}
@@ -15258,13 +15369,26 @@ function Home() {
                           </label>
                         </div>
                         {previewSource && <audio className="audio-preview" controls preload="metadata" src={previewSource} />}
-                        <section className="scene-audio-subtitle-panel" aria-label={`Phụ đề của ${safeTrim(track.name) || `Âm thanh ${index + 1}`}`}>
+                        <section
+                          className={`scene-audio-subtitle-panel ${isAudioSubtitlePanelExpanded(track.id) ? "" : "is-collapsed"}`}
+                          aria-label={`Phụ đề của ${safeTrim(track.name) || `Âm thanh ${index + 1}`}`}
+                        >
                           <div className="scene-audio-subtitle-heading">
                             <div>
                               <strong>Phụ đề của âm thanh này</strong>
-                              <small>{trackSubtitles.length ? `${trackSubtitles.length} câu · mỗi câu là một thẻ trong Cấu trúc cảnh` : "Chưa có phụ đề gắn với âm thanh này"}</small>
+                              <small>{trackSubtitles.length ? `${trackSubtitles.length} câu · gom thành 1 thẻ trong Cấu trúc cảnh` : "Chưa có phụ đề gắn với âm thanh này"}</small>
                             </div>
                             <div className="scene-audio-subtitle-actions">
+                              <button
+                                type="button"
+                                className="scene-audio-subtitle-toggle"
+                                onClick={() => toggleAudioSubtitlePanel(track.id)}
+                                aria-expanded={isAudioSubtitlePanelExpanded(track.id)}
+                                title={isAudioSubtitlePanelExpanded(track.id) ? "Thu gọn phụ đề của âm thanh" : "Xổ phụ đề của âm thanh"}
+                                aria-label={isAudioSubtitlePanelExpanded(track.id) ? "Thu gọn phụ đề của âm thanh" : "Xổ phụ đề của âm thanh"}
+                              >
+                                {isAudioSubtitlePanelExpanded(track.id) ? "−" : "+"}
+                              </button>
                               <button
                                 type="button"
                                 className="button subtitle-add-button"
@@ -15287,49 +15411,51 @@ function Home() {
                               />
                             </div>
                           </div>
-                          {trackSubtitles.length ? (
-                            <div className="scene-audio-subtitle-list">
-                              {trackSubtitles.map((subtitle, subtitleIndex) => (
-                                <article key={subtitle.id} className={`scene-audio-subtitle-card ${subtitle.visible === false ? "is-hidden" : ""}`}>
-                                  <div className="scene-audio-subtitle-card-heading">
-                                    <div>
-                                      <strong>Câu {subtitleIndex + 1}</strong>
-                                      <small>{formatPreciseTime(subtitle.start)}–{formatPreciseTime(subtitle.end)}</small>
+                          {isAudioSubtitlePanelExpanded(track.id) && (
+                            trackSubtitles.length ? (
+                              <div className="scene-audio-subtitle-list">
+                                {trackSubtitles.map((subtitle, subtitleIndex) => (
+                                  <article key={subtitle.id} className={`scene-audio-subtitle-card ${subtitle.visible === false ? "is-hidden" : ""}`}>
+                                    <div className="scene-audio-subtitle-card-heading">
+                                      <div>
+                                        <strong>Câu {subtitleIndex + 1}</strong>
+                                        <small>{formatPreciseTime(subtitle.start)}–{formatPreciseTime(subtitle.end)}</small>
+                                      </div>
+                                      <div className="scene-audio-subtitle-card-actions">
+                                        <button
+                                          type="button"
+                                          className="subtitle-visibility-button"
+                                          onClick={() => toggleSubtitleCueVisibility(subtitle.id)}
+                                          title={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
+                                          aria-label={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
+                                        >
+                                          {subtitle.visible === false ? "◌" : "◉"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="subtitle-delete-button"
+                                          onClick={() => deleteAudioTrackSubtitleCue(track.id, subtitle.id)}
+                                          title="Xóa riêng phụ đề này khỏi âm thanh"
+                                          aria-label="Xóa riêng phụ đề này khỏi âm thanh"
+                                        >×</button>
+                                      </div>
                                     </div>
-                                    <div className="scene-audio-subtitle-card-actions">
-                                      <button
-                                        type="button"
-                                        className="subtitle-visibility-button"
-                                        onClick={() => toggleSubtitleCueVisibility(subtitle.id)}
-                                        title={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
-                                        aria-label={subtitle.visible === false ? "Hiện phụ đề" : "Ẩn phụ đề"}
-                                      >
-                                        {subtitle.visible === false ? "◌" : "◉"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="subtitle-delete-button"
-                                        onClick={() => deleteSubtitleCue(subtitle.id)}
-                                        title="Xóa phụ đề"
-                                        aria-label="Xóa phụ đề"
-                                      >×</button>
+                                    <textarea
+                                      rows={2}
+                                      value={subtitle.text}
+                                      placeholder="Nhập nội dung phụ đề…"
+                                      onChange={(event) => updateSubtitleCue(subtitle.id, { text: event.target.value })}
+                                    />
+                                    <div className="subtitle-timing-fields">
+                                      <label><span>Bắt đầu (s)</span><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={subtitle.start} onCommit={(value) => updateSubtitleCue(subtitle.id, { start: value })} /></label>
+                                      <label><span>Kết thúc (s)</span><NumericInput min={Math.min(sceneDuration, subtitle.start + 0.1)} max={sceneDuration} step={0.1} value={subtitle.end} onCommit={(value) => updateSubtitleCue(subtitle.id, { end: value })} /></label>
                                     </div>
-                                  </div>
-                                  <textarea
-                                    rows={2}
-                                    value={subtitle.text}
-                                    placeholder="Nhập nội dung phụ đề…"
-                                    onChange={(event) => updateSubtitleCue(subtitle.id, { text: event.target.value })}
-                                  />
-                                  <div className="subtitle-timing-fields">
-                                    <label><span>Bắt đầu (s)</span><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={subtitle.start} onCommit={(value) => updateSubtitleCue(subtitle.id, { start: value })} /></label>
-                                    <label><span>Kết thúc (s)</span><NumericInput min={Math.min(sceneDuration, subtitle.start + 0.1)} max={sceneDuration} step={0.1} value={subtitle.end} onCommit={(value) => updateSubtitleCue(subtitle.id, { end: value })} /></label>
-                                  </div>
-                                </article>
-                              ))}
-                            </div>
-                          ) : (
-                            <small className="scene-audio-subtitle-empty">Import SRT/VTT để các cue được gắn riêng vào âm thanh này.</small>
+                                  </article>
+                                ))}
+                              </div>
+                            ) : (
+                              <small className="scene-audio-subtitle-empty">Import SRT/VTT để các cue được gắn riêng vào âm thanh này.</small>
+                            )
                           )}
                         </section>
                       </article>
@@ -16077,6 +16203,54 @@ function Home() {
                               disabled={!sceneEffects.cloudEnabled}
                               onChange={(event) => updateEffectInput("cloudSpeed", event.target.value)}
                               onBlur={() => commitEffectInput("cloudSpeed")}
+                            />
+                            <b>×</b>
+                          </div>
+                        </label>
+                        </div>
+                      )}
+                    </div>
+                    <div className="scene-visual-effect-card">
+                      <div className="scene-visual-effect-heading">
+                        <strong>Bão cát</strong>
+                        <span>Cát bụi bay ngang phủ sắc vàng lên bản đồ</span>
+                      </div>
+                      <label className="zoom-effect-toggle">
+                        <input
+                          type="checkbox"
+                          checked={sceneEffects.sandstormEnabled}
+                          disabled={!hydrated}
+                          onChange={(event) => updateSceneEffects("sandstormEnabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <span>Bật bão cát</span>
+                      </label>
+                      {sceneEffects.sandstormEnabled && (
+                      <div className="field-row">
+                        <label className="field">
+                          <span>Cường độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("sandstormIntensity", sceneEffects.sandstormIntensity)}
+                              disabled={!sceneEffects.sandstormEnabled}
+                              onChange={(event) => updateEffectInput("sandstormIntensity", event.target.value)}
+                              onBlur={() => commitEffectInput("sandstormIntensity")}
+                            />
+                            <b>%</b>
+                          </div>
+                        </label>
+                        <label className="field">
+                          <span>Tốc độ</span>
+                          <div className="number-with-unit">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={effectInputValue("sandstormSpeed", sceneEffects.sandstormSpeed)}
+                              disabled={!sceneEffects.sandstormEnabled}
+                              onChange={(event) => updateEffectInput("sandstormSpeed", event.target.value)}
+                              onBlur={() => commitEffectInput("sandstormSpeed")}
                             />
                             <b>×</b>
                           </div>
