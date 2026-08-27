@@ -226,7 +226,10 @@ type AlignmentGuides = {
 
 type SnapMode = "center" | "box";
 type RulerStyle = "center" | "grid" | "all";
-type PreviewLayerKind = "popup" | "text" | "image" | "decoration" | "audio" | "subtitle";
+type PreviewLayerKind = "background" | "popup" | "text" | "image" | "decoration" | "audio" | "subtitle" | "effect";
+type PreviewLayerGroupKey = "effects" | "subtitle" | "text" | "popups" | "images" | "background" | "audio";
+type PreviewLayerFilter = "all" | PreviewLayerGroupKey;
+type PreviewLayerViewMode = "stack" | "grouped";
 type PreviewLayerItem = {
   token: string;
   kind: PreviewLayerKind;
@@ -235,7 +238,46 @@ type PreviewLayerItem = {
   icon: string;
   visible?: boolean;
   editorVisible?: boolean;
+  canReorder?: boolean;
+  canToggleVisibility?: boolean;
+  canLock?: boolean;
 };
+
+const PREVIEW_LAYER_GROUPS: Array<{
+  key: PreviewLayerGroupKey;
+  label: string;
+  description: string;
+}> = [
+  { key: "effects", label: "Hiệu ứng", description: "Sticker, hiệu ứng và trang trí" },
+  { key: "subtitle", label: "Phụ đề", description: "Lớp chữ theo thời điểm phát" },
+  { key: "text", label: "Chữ viết", description: "Các lớp chữ trên bản đồ" },
+  { key: "popups", label: "Popup", description: "Khung nội dung và hình ảnh" },
+  { key: "images", label: "Hình ảnh", description: "Ảnh và video trong cảnh" },
+  { key: "background", label: "Nền & bản đồ", description: "Luôn nằm dưới các layer khác" },
+  { key: "audio", label: "Âm thanh", description: "Track âm thanh của cảnh" },
+];
+
+const previewLayerGroupForKind = (kind: PreviewLayerKind): PreviewLayerGroupKey => ({
+  background: "background",
+  popup: "popups",
+  text: "text",
+  image: "images",
+  decoration: "effects",
+  effect: "effects",
+  audio: "audio",
+  subtitle: "subtitle",
+}[kind]);
+
+const previewLayerKindLabel = (kind: PreviewLayerKind) => ({
+  background: "Nền & bản đồ",
+  popup: "Popup",
+  text: "Chữ viết",
+  image: "Hình ảnh / video",
+  decoration: "Trang trí",
+  effect: "Hiệu ứng",
+  audio: "Âm thanh",
+  subtitle: "Phụ đề",
+}[kind]);
 
 type SceneStructureKind =
   | "background"
@@ -3678,6 +3720,11 @@ function Home() {
   }>({ type: "", id: "", overId: "" });
   const [previewLayerDrag, setPreviewLayerDrag] = useState({ draggedId: "", overId: "" });
   const [previewLayerQuery, setPreviewLayerQuery] = useState("");
+  const [previewLayerFilter, setPreviewLayerFilter] = useState<PreviewLayerFilter>("all");
+  const [previewLayerViewMode, setPreviewLayerViewMode] = useState<PreviewLayerViewMode>("stack");
+  const [previewLayerGroupsCollapsed, setPreviewLayerGroupsCollapsed] = useState<Record<string, boolean>>({});
+  const [selectedPreviewLayerTokens, setSelectedPreviewLayerTokens] = useState<string[]>([]);
+  const [previewLayerSelectionAnchor, setPreviewLayerSelectionAnchor] = useState("");
   const [toast, setToast] = useState("");
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [googleAuthReady, setGoogleAuthReady] = useState(false);
@@ -4268,6 +4315,18 @@ function Home() {
     const wasAddedToSceneStructure = (kind: PreviewLayerKind, id: string) =>
       storedLayerTokens.has(previewLayerToken(kind, id));
     const candidates: PreviewLayerItem[] = [
+      {
+        token: previewLayerToken("background", "background"),
+        kind: "background" as const,
+        id: "background",
+        label: safeTrim(scene.background) || legacyBackgroundPreview ? "Nền bản đồ" : "Nền mặc định",
+        icon: "BG",
+        visible: scene.backgroundVisible !== false,
+        editorVisible: true,
+        canReorder: false,
+        canToggleVisibility: true,
+        canLock: false,
+      },
       // The layer panel describes the selected scene, not only the items that
       // happen to be visible at the current playhead. Keep hidden/out-of-time
       // items in this list so they can still be inspected and reordered. A
@@ -4328,7 +4387,7 @@ function Home() {
           visible: track.visible !== false,
           editorVisible: true,
         })),
-      ...(((scene.subtitles ?? []).some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text))) ? [{
+      ...(((scene.subtitles ?? []).some((subtitle) => safeTrim(subtitle.text))) ? [{
         token: previewLayerToken("subtitle", "subtitle"),
         kind: "subtitle" as const,
         id: "subtitle",
@@ -4340,11 +4399,13 @@ function Home() {
       }] : []),
     ];
     const candidateTokens = new Set(candidates.map((item) => item.token));
+    const backgroundToken = previewLayerToken("background", "background");
     const storedOrder = Array.isArray(scene.layerOrder)
       ? scene.layerOrder.filter((token): token is string => typeof token === "string")
       : [];
     const orderedTokens = Array.from(new Set([
-      ...storedOrder.filter((token) => candidateTokens.has(token)),
+      backgroundToken,
+      ...storedOrder.filter((token) => token !== backgroundToken && candidateTokens.has(token)),
       ...candidates.map((item) => item.token).filter((token) => !storedOrder.includes(token)),
     ]));
     const itemByToken = new Map(candidates.map((item) => [item.token, item]));
@@ -4358,11 +4419,15 @@ function Home() {
     scene.layerOrder,
     sceneAudioTracks,
     scenePopups,
+    scene.background,
+    scene.backgroundVisible,
+    legacyBackgroundPreview,
     scene.subtitleEnabled,
     scene.subtitles,
     sceneTextOverlays,
   ]);
   const previewLayerZIndex = (kind: PreviewLayerKind, id: string) => {
+    if (kind === "background") return 0;
     const index = previewLayerItems.findIndex((item) => item.token === previewLayerToken(kind, id));
     const baseIndex = 10 + (index < 0 ? previewLayerItems.length : index);
     if (kind === "text") return 100 + baseIndex;
@@ -4378,13 +4443,45 @@ function Home() {
         : selectedDecorationId
           ? previewLayerToken("decoration", selectedDecorationId)
           : "";
+  const previewLayerStackItems = useMemo(
+    () => [...previewLayerItems].reverse(),
+    [previewLayerItems],
+  );
   const visiblePreviewLayerItems = useMemo(() => {
     const query = safeTrim(previewLayerQuery).toLocaleLowerCase("vi-VN");
-    if (!query) return previewLayerItems;
-    return previewLayerItems.filter((item) =>
-      `${item.label} ${item.kind}`.toLocaleLowerCase("vi-VN").includes(query),
-    );
-  }, [previewLayerItems, previewLayerQuery]);
+    return previewLayerItems.filter((item) => {
+      const group = previewLayerGroupForKind(item.kind);
+      const matchesFilter = previewLayerFilter === "all" || group === previewLayerFilter;
+      const matchesQuery = !query || `${item.label} ${item.kind} ${group}`
+        .toLocaleLowerCase("vi-VN")
+        .includes(query);
+      return matchesFilter && matchesQuery;
+    });
+  }, [previewLayerFilter, previewLayerItems, previewLayerQuery]);
+  const visiblePreviewLayerStackItems = useMemo(
+    () => [...visiblePreviewLayerItems].reverse(),
+    [visiblePreviewLayerItems],
+  );
+  const previewLayerGroups = useMemo(() => PREVIEW_LAYER_GROUPS
+    .map((group) => ({
+      ...group,
+      items: visiblePreviewLayerStackItems.filter((item) => previewLayerGroupForKind(item.kind) === group.key),
+    }))
+    .filter((group) => group.items.length > 0),
+  [visiblePreviewLayerStackItems]);
+  useEffect(() => {
+    setSelectedPreviewLayerTokens((tokens) => {
+      const validTokens = new Set(previewLayerItems.map((item) => item.token));
+      const nextTokens = tokens.filter((token) => validTokens.has(token));
+      return nextTokens.length === tokens.length ? tokens : nextTokens;
+    });
+  }, [previewLayerItems]);
+  useEffect(() => {
+    setSelectedPreviewLayerTokens([]);
+    setPreviewLayerSelectionAnchor("");
+    setPreviewLayerQuery("");
+    setPreviewLayerFilter("all");
+  }, [scene.id]);
   const previewLayerAvatar = (item: PreviewLayerItem) => {
     let source = "";
     let isVideo = false;
@@ -4437,6 +4534,10 @@ function Home() {
       time: locks.time === true,
     };
   };
+  const previewLayerLockState = (item: PreviewLayerItem): Required<SceneStructureLockState> =>
+    item.canLock === false
+      ? { layer: true, position: true, time: true }
+      : sceneStructureLockForToken(item.token);
 
   useEffect(() => {
     if (!sceneStructureOpen) return;
@@ -5734,6 +5835,8 @@ function Home() {
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
       setSelectedSceneImageId("");
+      setSelectedPreviewLayerTokens([]);
+      setPreviewLayerSelectionAnchor("");
       setPlayTime(item.start);
       return;
     }
@@ -5752,6 +5855,8 @@ function Home() {
     setSelectedPopupId("");
     setSelectedTextOverlayId("");
     setSelectedSceneImageId("");
+    setSelectedPreviewLayerTokens([]);
+    setPreviewLayerSelectionAnchor("");
     setPlayTime(primary.start);
   };
 
@@ -5817,7 +5922,13 @@ function Home() {
   const selectPreviewLayer = (
     kind: "popup" | "text" | "image" | "decoration",
     layerId: string,
+    preserveSelection = false,
   ) => {
+    const token = previewLayerToken(kind, layerId);
+    if (!preserveSelection) {
+      setSelectedPreviewLayerTokens([token]);
+      setPreviewLayerSelectionAnchor(token);
+    }
     setSelectedPopupId(kind === "popup" ? layerId : "");
     setSelectedTextOverlayId(kind === "text" ? layerId : "");
     setSelectedSceneImageId(kind === "image" ? layerId : "");
@@ -5825,7 +5936,47 @@ function Home() {
     focusEditorLayer(kind === "popup" ? "popup" : kind === "image" ? "images" : "text", layerId);
   };
 
-  const selectPreviewLayerItem = (item: PreviewLayerItem) => {
+  const selectPreviewLayerItem = (
+    item: PreviewLayerItem,
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    const stackTokens = visiblePreviewLayerStackItems.map((layer) => layer.token);
+    const isAdditive = Boolean(event?.ctrlKey || event?.metaKey);
+    const anchorIndex = previewLayerSelectionAnchor
+      ? stackTokens.indexOf(previewLayerSelectionAnchor)
+      : -1;
+    const itemIndex = stackTokens.indexOf(item.token);
+    let nextSelection = [item.token];
+    if (event?.shiftKey && anchorIndex >= 0 && itemIndex >= 0) {
+      const rangeStart = Math.min(anchorIndex, itemIndex);
+      const rangeEnd = Math.max(anchorIndex, itemIndex);
+      nextSelection = stackTokens.slice(rangeStart, rangeEnd + 1);
+    } else if (isAdditive) {
+      nextSelection = selectedPreviewLayerTokens.includes(item.token)
+        ? selectedPreviewLayerTokens.length > 1
+          ? selectedPreviewLayerTokens.filter((token) => token !== item.token)
+          : selectedPreviewLayerTokens
+        : [...selectedPreviewLayerTokens, item.token];
+    }
+    setSelectedPreviewLayerTokens(nextSelection);
+    setPreviewLayerSelectionAnchor(item.token);
+
+    if (item.kind === "background") {
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      focusEditorSection("visual");
+      return;
+    }
+    if (item.kind === "effect") {
+      setSelectedPopupId("");
+      setSelectedTextOverlayId("");
+      setSelectedSceneImageId("");
+      setSelectedDecorationId("");
+      openTimelineEditor(scene, "editor-effects");
+      return;
+    }
     if (item.kind === "subtitle") {
       setSelectedPopupId("");
       setSelectedTextOverlayId("");
@@ -5842,22 +5993,37 @@ function Home() {
       openTimelineEditor(scene, "editor-audio");
       return;
     }
-    selectPreviewLayer(item.kind, item.id);
+    selectPreviewLayer(item.kind, item.id, true);
   };
 
   const reorderPreviewLayers = (draggedToken: string, targetToken: string) => {
     if (!scene || !draggedToken || !targetToken || draggedToken === targetToken) return;
-    if (sceneStructureLockForToken(draggedToken).layer || sceneStructureLockForToken(targetToken).layer) {
+    const reorderableItems = previewLayerItems.filter((item) => item.canReorder !== false);
+    const draggedItem = reorderableItems.find((item) => item.token === draggedToken);
+    const targetItem = reorderableItems.find((item) => item.token === targetToken);
+    if (!draggedItem || !targetItem) return;
+    const currentTokens = reorderableItems.map((item) => item.token);
+    const movingTokens = (selectedPreviewLayerTokens.includes(draggedToken)
+      ? selectedPreviewLayerTokens
+      : [draggedToken])
+      .filter((token) => currentTokens.includes(token))
+      .filter((token) => !sceneStructureLockForToken(token).layer);
+    if (!movingTokens.length || movingTokens.includes(targetToken) || sceneStructureLockForToken(targetToken).layer) {
       setToast("Layer đang bị khóa");
       window.setTimeout(() => setToast(""), 1800);
       return;
     }
-    const currentTokens = previewLayerItems.map((item) => item.token);
-    const nextVisibleTokens = reorderById(
-      currentTokens.map((token) => ({ id: token })),
-      draggedToken,
-      targetToken,
-    ).map((item) => item.id);
+    const displayTokens = [...currentTokens].reverse();
+    const movingDisplayTokens = displayTokens.filter((token) => movingTokens.includes(token));
+    const remainingTokens = displayTokens.filter((token) => !movingTokens.includes(token));
+    const targetIndex = remainingTokens.indexOf(targetToken);
+    if (targetIndex < 0) return;
+    const nextDisplayTokens = [
+      ...remainingTokens.slice(0, targetIndex),
+      ...movingDisplayTokens,
+      ...remainingTokens.slice(targetIndex),
+    ];
+    const nextVisibleTokens = [...nextDisplayTokens].reverse();
     const storedTokens = Array.isArray(scene.layerOrder) ? scene.layerOrder : [];
     const visibleTokenSet = new Set(currentTokens);
     const nextOrder = [
@@ -5869,22 +6035,29 @@ function Home() {
       : item));
   };
 
-  const startPreviewLayerDrag = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+  const startPreviewLayerDrag = (event: React.DragEvent<HTMLElement>, token: string) => {
     event.stopPropagation();
-    if (sceneStructureLockForToken(token).layer) return;
+    const item = previewLayerItems.find((entry) => entry.token === token);
+    if (!item || item.canReorder === false || sceneStructureLockForToken(token).layer) return;
+    if (!selectedPreviewLayerTokens.includes(token)) {
+      setSelectedPreviewLayerTokens([token]);
+      setPreviewLayerSelectionAnchor(token);
+    }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", token);
     setPreviewLayerDrag({ draggedId: token, overId: "" });
   };
 
-  const updatePreviewLayerDragOver = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+  const updatePreviewLayerDragOver = (event: React.DragEvent<HTMLElement>, token: string) => {
     if (!previewLayerDrag.draggedId || previewLayerDrag.draggedId === token) return;
+    const targetItem = previewLayerItems.find((item) => item.token === token);
+    if (!targetItem || targetItem.canReorder === false) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     setPreviewLayerDrag((current) => ({ ...current, overId: token }));
   };
 
-  const finishPreviewLayerDrop = (event: React.DragEvent<HTMLButtonElement>, token: string) => {
+  const finishPreviewLayerDrop = (event: React.DragEvent<HTMLElement>, token: string) => {
     event.preventDefault();
     reorderPreviewLayers(previewLayerDrag.draggedId, token);
     setPreviewLayerDrag({ draggedId: "", overId: "" });
@@ -7367,6 +7540,69 @@ function Home() {
         return { ...track, [key]: value };
       });
       return syncLegacyVoiceFields(item, nextTracks);
+    }));
+  };
+
+  const togglePreviewLayerVisibility = (layer: PreviewLayerItem) => {
+    if (!scene || layer.canToggleVisibility === false) return;
+    const nextVisible = layer.visible === false;
+    if (layer.kind === "background") {
+      updateCurrentScene("backgroundVisible", nextVisible);
+      return;
+    }
+    if (layer.kind === "popup") {
+      updatePopup("visible", nextVisible, layer.id);
+      return;
+    }
+    if (layer.kind === "image") {
+      toggleSceneImageVisibility(layer.id);
+      return;
+    }
+    if (layer.kind === "text") {
+      toggleTextOverlayVisibility(layer.id);
+      return;
+    }
+    if (layer.kind === "decoration") {
+      toggleMapDecorationVisibility(layer.id);
+      return;
+    }
+    if (layer.kind === "audio") {
+      updateSceneAudioTrack(layer.id, "visible", nextVisible);
+      return;
+    }
+    if (layer.kind === "subtitle") {
+      setScenes((items) => items.map((currentScene) => {
+        if (currentScene.id !== scene.id) return currentScene;
+        const subtitles = currentScene.subtitles ?? [];
+        const hasVisibleCue = subtitles.some((subtitle) => subtitle.visible !== false && safeTrim(subtitle.text));
+        return {
+          ...currentScene,
+          subtitleEnabled: nextVisible,
+          subtitles: nextVisible && !hasVisibleCue
+            ? subtitles.map((subtitle) => ({ ...subtitle, visible: true }))
+            : subtitles,
+        };
+      }));
+    }
+  };
+
+  const setAllPreviewLayerVisibility = (visible: boolean) => {
+    if (!scene) return;
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== scene.id) return currentScene;
+      const popups = scenePopupList(currentScene).map((popup) => ({ ...popup, visible }));
+      return {
+        ...currentScene,
+        backgroundVisible: visible,
+        popups,
+        ...(popups[0] ? popupSceneFields(popups[0]) : {}),
+        sceneImages: (currentScene.sceneImages ?? []).map((image) => ({ ...image, visible })),
+        textOverlays: (currentScene.textOverlays ?? []).map((overlay) => ({ ...overlay, visible })),
+        mapDecorations: (currentScene.mapDecorations ?? []).map((decoration) => ({ ...decoration, visible })),
+        audioTracks: (currentScene.audioTracks ?? []).map((track) => ({ ...track, visible })),
+        subtitles: (currentScene.subtitles ?? []).map((subtitle) => ({ ...subtitle, visible })),
+        subtitleEnabled: visible,
+      };
     }));
   };
 
@@ -11562,24 +11798,37 @@ function Home() {
     setPlayTime(sceneStructureScene.start);
   };
 
-  const toggleSceneStructureLock = (
-    item: SceneStructureItem,
+  const setSceneStructureLock = (
+    token: string,
+    itemLabel: string,
     kind: SceneStructureLockKind,
   ) => {
-    const current = sceneStructureLockForToken(item.token);
+    const current = sceneStructureLockForToken(token);
     const nextValue = !current[kind];
     setScenes((items) => items.map((currentScene) => currentScene.id === sceneStructureScene.id
       ? {
           ...currentScene,
           sceneStructureLocks: {
             ...(currentScene.sceneStructureLocks ?? {}),
-            [item.token]: { ...current, [kind]: nextValue },
+            [token]: { ...current, [kind]: nextValue },
           },
         }
       : currentScene));
-    const label = kind === "layer" ? "layer" : kind === "position" ? "vị trí" : "thời gian";
-    setToast(`${nextValue ? "Đã khóa" : "Đã mở khóa"} ${label}: ${item.label}`);
+    const lockLabel = kind === "layer" ? "layer" : kind === "position" ? "vị trí" : "thời gian";
+    setToast(`${nextValue ? "Đã khóa" : "Đã mở khóa"} ${lockLabel}: ${itemLabel}`);
     window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const toggleSceneStructureLock = (
+    item: SceneStructureItem,
+    kind: SceneStructureLockKind,
+  ) => {
+    setSceneStructureLock(item.token, item.label, kind);
+  };
+
+  const togglePreviewLayerLock = (item: PreviewLayerItem, kind: SceneStructureLockKind) => {
+    if (item.canLock === false) return;
+    setSceneStructureLock(item.token, item.label, kind);
   };
 
   const updateSceneStructureTimings = (
@@ -12941,74 +13190,186 @@ function Home() {
     );
   };
 
-  const renderPreviewLayerPanel = () => (
-    <div className="preview-layer-panel editor-layer-panel" aria-label="Các lớp trong màn hình xem trước">
-      <div className="preview-layer-panel-heading">
-        <span className="preview-layer-panel-heading-copy">
-          <strong>Layer · {previewLayerItems.length}</strong>
-          <small>{playing ? `Cảnh ${scene.number} đang phát · layer hiện tại` : "Tất cả item của cảnh · trên cùng ở phía dưới"}</small>
-        </span>
+  const renderPreviewLayerItem = (item: PreviewLayerItem) => {
+    const isHidden = item.visible === false || item.editorVisible === false;
+    const isSelected = selectedPreviewLayerTokens.includes(item.token);
+    const isPrimary = item.token === explicitlySelectedPreviewLayerToken;
+    const displayIndex = previewLayerStackItems.findIndex((layer) => layer.token === item.token);
+    const positionLabel = item.kind === "background"
+      ? "Nền dưới cùng"
+      : item.canReorder === false
+        ? "Cố định"
+        : displayIndex === 0
+          ? "Trên cùng"
+          : displayIndex === previewLayerStackItems.length - 1
+            ? "Dưới cùng"
+            : `Lớp ${displayIndex + 1}`;
+    const locks = previewLayerLockState(item);
+    return (
+      <div
+        className={`preview-layer-item ${isPrimary ? "active" : ""} ${isSelected ? "is-selected" : ""} ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""} ${isHidden ? "is-hidden" : ""} ${locks.layer ? "is-layer-locked" : ""}`}
+        key={item.token}
+        draggable={item.canReorder !== false}
+        title={item.canReorder === false ? `${item.label} · ${positionLabel}` : "Kéo để thay đổi thứ tự layer · Ctrl/Cmd hoặc Shift để chọn nhiều"}
+        aria-label={`${item.label} · ${previewLayerKindLabel(item.kind)} · ${positionLabel}`}
+        onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
+        onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
+        onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
+        onDragEnd={clearPreviewLayerDrag}
+      >
+        <span className="preview-layer-drag-handle" aria-hidden="true">{item.canReorder === false ? "·" : "⠿"}</span>
+        <button
+          type="button"
+          className="preview-layer-select"
+          aria-selected={isSelected}
+          onClick={(event) => selectPreviewLayerItem(item, event)}
+        >
+          <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
+          <span className="preview-layer-label">
+            <strong title={item.label}>{item.label}</strong>
+            <small>{positionLabel} · {previewLayerKindLabel(item.kind)}{isHidden ? " · Đang ẩn" : ""}</small>
+          </span>
+        </button>
+        <div className="preview-layer-actions" aria-label={`Điều khiển ${item.label}`}>
+          <button
+            type="button"
+            className={`preview-layer-visibility ${item.visible === false ? "is-hidden" : ""}`}
+            disabled={item.canToggleVisibility === false}
+            aria-pressed={item.visible !== false}
+            aria-label={item.visible === false ? `Hiện ${item.label}` : `Ẩn ${item.label}`}
+            title={item.visible === false ? `Hiện ${item.label}` : `Ẩn ${item.label}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePreviewLayerVisibility(item);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+              <circle cx="12" cy="12" r="2.2" />
+              {item.visible === false && <path d="m4 4 16 16" />}
+            </svg>
+          </button>
+          <div className="preview-layer-locks" aria-label={`Khóa ${item.label}`}>
+            {(["layer", "position", "time"] as const).map((kind) => {
+              const label = kind === "layer" ? "L" : kind === "position" ? "V" : "T";
+              const title = kind === "layer" ? "Khóa thứ tự layer" : kind === "position" ? "Khóa vị trí" : "Khóa thời gian";
+              return (
+                <button
+                  type="button"
+                  key={kind}
+                  className={locks[kind] ? "active" : ""}
+                  disabled={item.canLock === false}
+                  aria-pressed={locks[kind]}
+                  aria-label={`${title}: ${item.label}`}
+                  title={`${title}${locks[kind] ? " · Đang bật" : ""}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    togglePreviewLayerLock(item, kind);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
-      <label className="preview-layer-search">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="10.8" cy="10.8" r="6.4" />
-          <path d="m16 16 4.2 4.2" />
-        </svg>
-        <input
-          type="search"
-          value={previewLayerQuery}
-          onChange={(event) => setPreviewLayerQuery(event.target.value)}
-          placeholder="Tìm layer"
-          aria-label="Tìm layer trong màn hình xem trước"
-        />
-      </label>
-      <div className="preview-layer-list">
-        {visiblePreviewLayerItems.length ? visiblePreviewLayerItems.map((item) => {
-          const isHidden = item.visible === false || item.editorVisible === false;
-          const kindLabel = item.kind === "text"
-            ? "Chữ viết"
-            : item.kind === "popup"
-              ? "Popup"
-              : item.kind === "image"
-                ? "Hình ảnh / video"
-              : item.kind === "decoration"
-                  ? "Sticker / hiệu ứng"
-                  : item.kind === "audio"
-                    ? "Âm thanh"
-                  : "Phụ đề";
-          return (
+    );
+  };
+
+  const renderPreviewLayerPanel = () => {
+    const selectedCount = selectedPreviewLayerTokens.length;
+    const emptyLabel = previewLayerItems.length ? "Không tìm thấy layer phù hợp." : "Chưa có layer trong cảnh.";
+    return (
+      <div className="preview-layer-panel editor-layer-panel" aria-label="Các lớp trong màn hình xem trước">
+        <div className="preview-layer-panel-heading">
+          <span className="preview-layer-panel-heading-copy">
+            <strong>Layer · {previewLayerItems.length}</strong>
+            <small>{selectedCount > 1 ? `Đã chọn ${selectedCount} layer` : playing ? `Cảnh ${scene.number} đang phát` : "Trên cùng ở phía trên · nền ở phía dưới"}</small>
+          </span>
+          <span className="preview-layer-stack-badge" title="Thứ tự hiển thị từ trên xuống dưới">Z</span>
+        </div>
+        <div className="preview-layer-toolbar" aria-label="Công cụ quản lý layer">
+          <div className="preview-layer-bulk-actions">
+            <button type="button" onClick={() => setAllPreviewLayerVisibility(true)} title="Hiện tất cả layer" aria-label="Hiện tất cả layer">◉</button>
+            <button type="button" onClick={() => setAllPreviewLayerVisibility(false)} title="Ẩn tất cả layer" aria-label="Ẩn tất cả layer">⊘</button>
+          </div>
+          <div className="preview-layer-view-toggle" role="group" aria-label="Kiểu hiển thị layer">
             <button
               type="button"
-              key={item.token}
-              draggable
-              className={`preview-layer-item ${
-                item.token === explicitlySelectedPreviewLayerToken
-                  ? "active"
-                  : ""
-              } ${previewLayerDrag.overId === item.token ? "is-drag-over" : ""} ${isHidden ? "is-hidden" : ""}`}
-              title="Kéo để thay đổi thứ tự layer · Bấm để chọn"
-              aria-label={`${item.label}. Kéo để thay đổi thứ tự layer`}
-              onClick={() => selectPreviewLayerItem(item)}
-              onDragStart={(event) => startPreviewLayerDrag(event, item.token)}
-              onDragOver={(event) => updatePreviewLayerDragOver(event, item.token)}
-              onDrop={(event) => finishPreviewLayerDrop(event, item.token)}
-              onDragEnd={clearPreviewLayerDrag}
+              className={previewLayerViewMode === "stack" ? "active" : ""}
+              aria-pressed={previewLayerViewMode === "stack"}
+              title="Hiển thị theo thứ tự chồng lớp"
+              onClick={() => setPreviewLayerViewMode("stack")}
             >
-              <span className="preview-layer-drag-handle" aria-hidden="true">⠿</span>
-              <span className="preview-layer-avatar" aria-hidden="true">{previewLayerAvatar(item)}</span>
-              <span className="preview-layer-label">
-                <strong>{item.label}</strong>
-                <small>{isHidden ? `Đang ẩn · ${kindLabel}` : item.token === previewLayerItems[previewLayerItems.length - 1]?.token ? `Trên cùng · ${kindLabel}` : kindLabel}</small>
-              </span>
+              Stack
             </button>
-          );
-        }) : (
-          <span className="preview-layer-empty">{previewLayerItems.length ? "Không tìm thấy layer." : "Chưa có layer trên màn hình."}</span>
-        )}
+            <button
+              type="button"
+              className={previewLayerViewMode === "grouped" ? "active" : ""}
+              aria-pressed={previewLayerViewMode === "grouped"}
+              title="Nhóm theo loại layer"
+              onClick={() => setPreviewLayerViewMode("grouped")}
+            >
+              Nhóm
+            </button>
+          </div>
+        </div>
+        <label className="preview-layer-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.8" cy="10.8" r="6.4" />
+            <path d="m16 16 4.2 4.2" />
+          </svg>
+          <input
+            type="search"
+            value={previewLayerQuery}
+            onChange={(event) => setPreviewLayerQuery(event.target.value)}
+            placeholder="Tìm layer"
+            aria-label="Tìm layer trong màn hình xem trước"
+          />
+        </label>
+        <label className="preview-layer-filter">
+          <span>Nhóm</span>
+          <select value={previewLayerFilter} onChange={(event) => setPreviewLayerFilter(event.target.value as PreviewLayerFilter)} aria-label="Lọc layer theo nhóm">
+            <option value="all">Tất cả layer</option>
+            {PREVIEW_LAYER_GROUPS.map((group) => <option key={group.key} value={group.key}>{group.label}</option>)}
+          </select>
+        </label>
+        <div className={`preview-layer-list ${previewLayerViewMode === "grouped" ? "is-grouped" : "is-stack"}`}>
+          {previewLayerViewMode === "stack" ? (
+            visiblePreviewLayerStackItems.length
+              ? visiblePreviewLayerStackItems.map(renderPreviewLayerItem)
+              : <span className="preview-layer-empty">{emptyLabel}</span>
+          ) : previewLayerGroups.length ? (
+            previewLayerGroups.map((group) => {
+              const collapsed = previewLayerGroupsCollapsed[group.key] === true;
+              return (
+                <section className="preview-layer-group" key={group.key}>
+                  <button
+                    type="button"
+                    className="preview-layer-group-heading"
+                    aria-expanded={!collapsed}
+                    onClick={() => setPreviewLayerGroupsCollapsed((current) => ({ ...current, [group.key]: !collapsed }))}
+                  >
+                    <span>
+                      <strong>{group.label}</strong>
+                      <small>{group.description}</small>
+                    </span>
+                    <b>{group.items.length}</b>
+                    <i aria-hidden="true">{collapsed ? "＋" : "−"}</i>
+                  </button>
+                  {!collapsed && <div className="preview-layer-group-items">{group.items.map(renderPreviewLayerItem)}</div>}
+                </section>
+              );
+            })
+          ) : (
+            <span className="preview-layer-empty">{emptyLabel}</span>
+          )}
+        </div>
+        <small className="preview-layer-panel-hint">Kéo layer để đổi thứ tự · Ctrl/Cmd hoặc Shift để chọn nhiều · L/V/T là thứ tự, vị trí, thời gian.</small>
       </div>
-      <small className="preview-layer-panel-hint">Kéo item xuống dưới để đưa lên trên cùng.</small>
-    </div>
-  );
+    );
+  };
 
   return (
     <main
