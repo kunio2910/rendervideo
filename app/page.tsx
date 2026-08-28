@@ -1608,14 +1608,14 @@ type EditorSectionClipboard =
 type StudioTab = "compose" | "export" | "settings";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
-  visual: true,
+  visual: false,
   content: false,
   audio: false,
   effects: false,
   popup: false,
   text: false,
   images: false,
-  layer: false,
+  layer: true,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -15158,6 +15158,22 @@ function Home() {
           </div>
           <div className="editor-scroll" ref={editorScrollRef}>
             <details
+              className="editor-accordion editor-accordion-layer"
+              data-editor-section="layer"
+              open={editorSections.layer}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setEditorSectionOpen("layer", open);
+              }}
+            >
+              <summary className="editor-group-label">
+                <span>08</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
+              </summary>
+              <div className="editor-accordion-content editor-layer-panel-content">
+                {renderPreviewLayerPanel()}
+              </div>
+            </details>
+            <details
               className="editor-accordion editor-accordion-visual"
               data-editor-section="visual"
               open={editorSections.visual}
@@ -17349,22 +17365,6 @@ function Home() {
               </div>
             )}
             </div>
-            </details>
-            <details
-              className="editor-accordion editor-accordion-layer"
-              data-editor-section="layer"
-              open={editorSections.layer}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setEditorSectionOpen("layer", open);
-              }}
-            >
-              <summary className="editor-group-label">
-                <span>08</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
-              </summary>
-              <div className="editor-accordion-content editor-layer-panel-content">
-                {renderPreviewLayerPanel()}
-              </div>
             </details>
           </div>
         </aside>
