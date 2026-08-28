@@ -13057,3 +13057,93 @@ body {
 .studio-shell[data-theme="dark"] .preview-layer-group-heading > b { background: #332b21; color: #ffd899; }
 .studio-shell[data-theme="dark"] .preview-layer-group-heading > i { color: #e4bc79; }
 .studio-shell[data-theme="dark"] .preview-layer-visibility.is-hidden { color: #ff9d8a; }
+
+/* Layer focus mode: keep the editor data in place while giving the stack a
+   large, independently scrollable workspace for inspecting and reordering. */
+.preview-layer-panel-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.preview-layer-fullscreen-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid #d9c7ad;
+  border-radius: 6px;
+  background: #fffaf1;
+  color: #806a51;
+  cursor: pointer;
+}
+.preview-layer-fullscreen-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.preview-layer-fullscreen-toggle:hover,
+.preview-layer-fullscreen-toggle:focus-visible,
+.preview-layer-fullscreen-toggle[aria-pressed="true"] {
+  border-color: #b97825;
+  background: #f7e6c9;
+  color: #5d3411;
+  outline: none;
+}
+.studio-shell.layer-panel-fullscreen::before {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  content: "";
+  background: rgba(7, 12, 18, .48);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+.studio-shell.layer-panel-fullscreen .editor-layer-panel {
+  position: fixed;
+  z-index: 1201;
+  inset: 18px;
+  width: auto;
+  height: auto;
+  max-height: calc(100vh - 36px);
+  min-height: 0;
+  flex: none;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
+}
+.studio-shell.layer-panel-fullscreen .editor-layer-panel .preview-layer-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.studio-shell[data-theme="dark"] .preview-layer-fullscreen-toggle {
+  border-color: #42566d;
+  background: #1a2635;
+  color: #b9cbe0;
+}
+.studio-shell[data-theme="dark"] .preview-layer-fullscreen-toggle:hover,
+.studio-shell[data-theme="dark"] .preview-layer-fullscreen-toggle:focus-visible,
+.studio-shell[data-theme="dark"] .preview-layer-fullscreen-toggle[aria-pressed="true"] {
+  border-color: #8a6740;
+  background: #332b21;
+  color: #ffd899;
+}
+.studio-shell[data-theme="dark"].layer-panel-fullscreen::before {
+  background: rgba(0, 0, 0, .6);
+}
+.studio-shell[data-theme="dark"].layer-panel-fullscreen .editor-layer-panel {
+  border-color: #405269;
+  background: rgba(13, 20, 29, .96);
+}
+@media (max-width: 760px) {
+  .studio-shell.layer-panel-fullscreen .editor-layer-panel {
+    inset: 10px;
+    max-height: calc(100vh - 20px);
+    border-radius: 14px;
+  }
+}

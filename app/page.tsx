@@ -4171,6 +4171,7 @@ function Home() {
   const [rulerStyle, setRulerStyle] = useState<RulerStyle>("center");
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>(EMPTY_ALIGNMENT_GUIDES);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [layerFullscreen, setLayerFullscreen] = useState(false);
   const [sceneStructureOpen, setSceneStructureOpen] = useState(false);
   const [sceneStructurePreviewMode, setSceneStructurePreviewMode] = useState(false);
   const [sceneStructureLibraryCollapsed, setSceneStructureLibraryCollapsed] = useState(false);
@@ -5945,6 +5946,20 @@ function Home() {
   }, [previewFullscreen, reviewOpen]);
 
   useEffect(() => {
+    if (!layerFullscreen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLayerFullscreen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [layerFullscreen]);
+
+  useEffect(() => {
     if (!sceneStructureOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -6611,6 +6626,7 @@ function Home() {
       ? startAt
       : resumeAt);
     if (activeScene) setSelectedId(activeScene.id);
+    setPlaybackRestartToken((value) => value + 1);
     setPreviewPlaybackMode(true);
     setPlaying(true);
   };
@@ -6623,6 +6639,7 @@ function Home() {
     if (previewPlaybackMode) {
       setRulerEnabled(false);
       setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      setPlaybackRestartToken((value) => value + 1);
       setPlaying(true);
       return;
     }
@@ -13938,7 +13955,7 @@ function Home() {
             if (localTime < start || localTime >= end) return null;
             return (
               <div
-                key={`live-text-${overlay.id}`}
+                key={`live-text-${overlay.id}-${previewIsPlaying ? playbackRestartToken : "idle"}`}
                 className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${overlay.textEffectReverse === true ? "text-effect-reverse" : ""} ${previewIsPlaying ? "is-playing" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
@@ -14284,7 +14301,28 @@ function Home() {
             <strong>Layer · {previewLayerItems.length}</strong>
             <small>{selectedCount > 1 ? `Đã chọn ${selectedCount} layer` : playing ? `Cảnh ${scene.number} đang phát` : "Trên cùng ở phía trên · nền ở phía dưới"}</small>
           </span>
-          <span className="preview-layer-stack-badge" title="Thứ tự hiển thị từ trên xuống dưới">Z</span>
+          <span className="preview-layer-panel-heading-actions">
+            <button
+              type="button"
+              className="preview-layer-fullscreen-toggle"
+              aria-label={layerFullscreen ? "Thu nhỏ Layer" : "Mở Layer toàn màn hình"}
+              aria-pressed={layerFullscreen}
+              title={layerFullscreen ? "Thu nhỏ Layer (Esc)" : "Mở Layer toàn màn hình"}
+              onClick={(event) => {
+                event.stopPropagation();
+                setLayerFullscreen((current) => !current);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {layerFullscreen ? (
+                  <path d="M9 4v5H4M15 20v-5h5M4 15h5v5M20 9h-5V4" />
+                ) : (
+                  <path d="M4 9V4h5M20 15v5h-5M4 15v5h5M20 9V4h-5" />
+                )}
+              </svg>
+            </button>
+            <span className="preview-layer-stack-badge" title="Thứ tự hiển thị từ trên xuống dưới">Z</span>
+          </span>
         </div>
         <div className="preview-layer-toolbar" aria-label="Công cụ quản lý layer">
           <div className="preview-layer-bulk-actions">
@@ -14370,7 +14408,7 @@ function Home() {
 
   return (
     <main
-      className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""}`}
+      className={`studio-shell ${previewFullscreen ? "preview-fullscreen" : ""} ${layerFullscreen ? "layer-panel-fullscreen" : ""}`}
       data-studio-tab={activeStudioTab}
       data-theme={theme}
       data-timeline-visible={timelineVisible ? "true" : "false"}
@@ -15031,7 +15069,7 @@ function Home() {
                   : 0;
                 return (
               <div
-                key={overlay.id}
+                key={`${scene.id}-${overlay.id}-${previewPlaybackMode ? playbackRestartToken : "editor"}`}
                 className={`map-text-overlay text-effect-${overlay.textEffect ?? "none"} ${overlay.textEffectReverse === true ? "text-effect-reverse" : ""} ${playing ? "is-playing" : ""} ${draggingTextOverlay && overlay.id === activeTextOverlay?.id ? "is-dragging" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
