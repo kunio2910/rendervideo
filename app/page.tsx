@@ -611,6 +611,8 @@ type SceneWeatherEffect = {
   color: string;
   opacity: number;
   size: number;
+  width: number;
+  height: number;
   density: number;
   movementMode: SceneWeatherMovementMode;
   movementAngle: number;
@@ -672,6 +674,8 @@ const defaultSceneWeatherEffect = (
     color: definition.color,
     opacity: 100,
     size: definition.size,
+    width: 100,
+    height: 100,
     density: definition.density,
     movementMode: definition.movementMode,
     movementAngle: definition.movementAngle,
@@ -891,8 +895,8 @@ const weatherParticlePosition = (
 ) => {
   const spread = effect.spread / 100;
   return {
-    x: 50 + effect.offsetX + (seed.x - 50) * spread,
-    y: 50 + effect.offsetY + ((seed.y ?? 50) - 50) * spread,
+    x: 50 + (seed.x - 50) * spread,
+    y: 50 + ((seed.y ?? 50) - 50) * spread,
   };
 };
 
@@ -1665,6 +1669,8 @@ const normalizeSceneWeatherAppearance = (
   glow: Math.min(100, Math.max(0, positiveNumber(candidate.glow, 55))),
   trail: Math.min(200, Math.max(0, positiveNumber(candidate.trail, 0))),
   spread: Math.min(180, Math.max(20, positiveNumber(candidate.spread, 100, 20))),
+  width: Math.min(200, Math.max(5, positiveNumber(candidate.width, 100, 5))),
+  height: Math.min(200, Math.max(5, positiveNumber(candidate.height, 100, 5))),
   offsetX: Math.min(100, Math.max(-100, Number.isFinite(Number(candidate.offsetX)) ? Number(candidate.offsetX) : 0)),
   offsetY: Math.min(100, Math.max(-100, Number.isFinite(Number(candidate.offsetY)) ? Number(candidate.offsetY) : 0)),
 });
@@ -4367,6 +4373,15 @@ function Home() {
     }
     return activeSceneWeatherEffects(sceneEffects, type, sceneLocalTime);
   };
+  const weatherEffectLayerStyle = (effect: SceneWeatherEffect): React.CSSProperties => ({
+    left: `calc(50% + ${effect.offsetX}%)`,
+    top: `calc(50% + ${effect.offsetY}%)`,
+    right: "auto",
+    bottom: "auto",
+    width: `${Math.min(200, Math.max(5, Number(effect.width) || 100))}%`,
+    height: `${Math.min(200, Math.max(5, Number(effect.height) || 100))}%`,
+    transform: "translate(-50%, -50%)",
+  });
   const previewWeatherEffectsAtTime = weatherEffectsAtTime;
   const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
   const sceneStartDarkEffectProgress = (effect: SceneDarkEffect, localTime = sceneLocalTime) => {
@@ -6869,31 +6884,32 @@ function Home() {
   ) => {
     const hasParticles = definition.supportsParticles === true;
     const hasLight = definition.supportsLight === true;
-    if (!hasParticles && !hasLight) return null;
     const controlDisabled = disabled || !effect.enabled;
     return (
       <div className="scene-weather-appearance-controls">
         <div className="scene-weather-appearance-heading">
-          <strong>Chi tiết hạt / ánh sáng</strong>
-          <span>Màu sắc, độ rõ, kích thước và chuyển động được lưu riêng cho thẻ này.</span>
+          <strong>{hasParticles || hasLight ? "Chi tiết hạt / ánh sáng" : "Vùng hiển thị hiệu ứng"}</strong>
+          <span>{hasParticles || hasLight ? "Màu sắc, độ rõ, kích thước và chuyển động được lưu riêng cho thẻ này." : "Kích thước và vị trí vùng được lưu riêng cho thẻ này."}</span>
         </div>
         <div className="scene-weather-appearance-grid">
-          <label className="field scene-weather-color-field">
-            <span>{hasParticles ? "Màu hạt" : "Màu ánh sáng"}</span>
+          {hasParticles || hasLight ? <label className="field scene-weather-color-field">
+            <FieldLabel hint={hasParticles ? "Màu hiển thị của các hạt trong hiệu ứng." : "Màu của vùng ánh sáng hoặc tia chớp."}>{hasParticles ? "Màu hạt" : "Màu ánh sáng"}</FieldLabel>
             <div className="scene-weather-color-input">
               <input type="color" value={normalizeHexColor(effect.color, definition.color)} disabled={controlDisabled} onChange={(event) => onChange({ color: event.target.value })} />
               <code>{effect.color}</code>
             </div>
-          </label>
-          <label className="field"><span>Độ mờ</span><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.opacity} disabled={controlDisabled} onCommit={(value) => onChange({ opacity: value })} /><b>%</b></div></label>
-          <label className="field"><span>Kích thước</span><div className="number-with-unit"><NumericInput min={25} max={300} step={5} value={effect.size} disabled={controlDisabled} onCommit={(value) => onChange({ size: value })} /><b>%</b></div></label>
-          <label className="field"><span>Độ nhòe</span><div className="number-with-unit"><NumericInput min={0} max={12} step={0.5} value={effect.blur} disabled={controlDisabled} onCommit={(value) => onChange({ blur: value })} /><b>px</b></div></label>
-          <label className="field"><span>{hasLight ? "Độ phát sáng" : "Độ sáng viền"}</span><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.glow} disabled={controlDisabled} onCommit={(value) => onChange({ glow: value })} /><b>%</b></div></label>
-          {hasParticles && <label className="field"><span>Mật độ hạt</span><div className="number-with-unit"><NumericInput min={10} max={500} step={5} value={effect.density} disabled={controlDisabled} onCommit={(value) => onChange({ density: value })} /><b>%</b></div></label>}
-          {hasParticles && <label className="field"><span>Độ dài vệt</span><div className="number-with-unit"><NumericInput min={0} max={200} step={5} value={effect.trail} disabled={controlDisabled} onCommit={(value) => onChange({ trail: value })} /><b>%</b></div></label>}
-          {hasParticles && <label className="field"><span>Độ phân tán</span><div className="number-with-unit"><NumericInput min={20} max={180} step={5} value={effect.spread} disabled={controlDisabled} onCommit={(value) => onChange({ spread: value })} /><b>%</b></div></label>}
-          <label className="field"><span>Vị trí ngang</span><div className="number-with-unit"><NumericInput min={-100} max={100} step={1} value={effect.offsetX} disabled={controlDisabled} onCommit={(value) => onChange({ offsetX: value })} /><b>%</b></div></label>
-          <label className="field"><span>Vị trí dọc</span><div className="number-with-unit"><NumericInput min={-100} max={100} step={1} value={effect.offsetY} disabled={controlDisabled} onCommit={(value) => onChange({ offsetY: value })} /><b>%</b></div></label>
+          </label> : null}
+          {hasParticles || hasLight ? <label className="field"><FieldLabel hint="Mức độ trong suốt của hiệu ứng.">Độ mờ</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.opacity} disabled={controlDisabled} onCommit={(value) => onChange({ opacity: value })} /><b>%</b></div></label> : null}
+          {hasParticles || hasLight ? <label className="field"><FieldLabel hint="Tỉ lệ kích thước của hạt hoặc vùng ánh sáng bên trong vùng hiển thị.">Kích thước nội dung</FieldLabel><div className="number-with-unit"><NumericInput min={25} max={300} step={5} value={effect.size} disabled={controlDisabled} onCommit={(value) => onChange({ size: value })} /><b>%</b></div></label> : null}
+          <label className="field"><FieldLabel hint="Chiều rộng của toàn bộ vùng hiển thị hiệu ứng, tính theo phần trăm khung hình.">Chiều rộng vùng</FieldLabel><div className="number-with-unit"><NumericInput min={5} max={200} step={5} value={effect.width} disabled={controlDisabled} onCommit={(value) => onChange({ width: value })} /><b>%</b></div></label>
+          <label className="field"><FieldLabel hint="Chiều cao của toàn bộ vùng hiển thị hiệu ứng, tính theo phần trăm khung hình.">Chiều cao vùng</FieldLabel><div className="number-with-unit"><NumericInput min={5} max={200} step={5} value={effect.height} disabled={controlDisabled} onCommit={(value) => onChange({ height: value })} /><b>%</b></div></label>
+          {hasParticles || hasLight ? <label className="field"><FieldLabel hint="Độ nhòe áp dụng cho nội dung hiệu ứng.">Độ nhòe</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={12} step={0.5} value={effect.blur} disabled={controlDisabled} onCommit={(value) => onChange({ blur: value })} /><b>px</b></div></label> : null}
+          {hasParticles || hasLight ? <label className="field"><FieldLabel hint={hasLight ? "Cường độ phát sáng của vùng hiệu ứng." : "Độ sáng viền của các hạt."}>{hasLight ? "Độ phát sáng" : "Độ sáng viền"}</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.glow} disabled={controlDisabled} onCommit={(value) => onChange({ glow: value })} /><b>%</b></div></label> : null}
+          {hasParticles && <label className="field"><FieldLabel hint="Số lượng hạt được tạo trong vùng hiệu ứng.">Mật độ hạt</FieldLabel><div className="number-with-unit"><NumericInput min={10} max={500} step={5} value={effect.density} disabled={controlDisabled} onCommit={(value) => onChange({ density: value })} /><b>%</b></div></label>}
+          {hasParticles && <label className="field"><FieldLabel hint="Độ dài vệt kéo theo sau hạt khi chuyển động.">Độ dài vệt</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={200} step={5} value={effect.trail} disabled={controlDisabled} onCommit={(value) => onChange({ trail: value })} /><b>%</b></div></label>}
+          {hasParticles && <label className="field"><FieldLabel hint="Mức độ phân tán của các hạt quanh tâm vùng hiệu ứng.">Độ phân tán</FieldLabel><div className="number-with-unit"><NumericInput min={20} max={180} step={5} value={effect.spread} disabled={controlDisabled} onCommit={(value) => onChange({ spread: value })} /><b>%</b></div></label>}
+          <label className="field"><FieldLabel hint="Dịch chuyển tâm vùng hiệu ứng sang trái hoặc phải so với khung hình.">Vị trí ngang</FieldLabel><div className="number-with-unit"><NumericInput min={-100} max={100} step={1} value={effect.offsetX} disabled={controlDisabled} onCommit={(value) => onChange({ offsetX: value })} /><b>%</b></div></label>
+          <label className="field"><FieldLabel hint="Dịch chuyển tâm vùng hiệu ứng lên hoặc xuống so với khung hình.">Vị trí dọc</FieldLabel><div className="number-with-unit"><NumericInput min={-100} max={100} step={1} value={effect.offsetY} disabled={controlDisabled} onCommit={(value) => onChange({ offsetY: value })} /><b>%</b></div></label>
         </div>
         {definition.supportsDirection && (
           <div className="scene-weather-direction-panel">
@@ -6902,9 +6918,9 @@ function Home() {
               <span>0° sang phải · 90° đi xuống · 180° sang trái · 270° đi lên</span>
             </div>
             <div className="scene-weather-appearance-grid scene-weather-direction-grid">
-              <label className="field"><span>Chế độ bay</span><select value={effect.movementMode} disabled={controlDisabled} onChange={(event) => onChange({ movementMode: event.target.value as SceneWeatherMovementMode })}><option value="angle">Theo góc cố định</option><option value="random">Bay ngẫu nhiên</option></select></label>
-              <label className="field"><span>Góc di chuyển</span><div className="number-with-unit"><NumericInput min={0} max={359} step={1} value={Math.round(effect.movementAngle)} disabled={controlDisabled || effect.movementMode === "random"} onCommit={(value) => onChange({ movementAngle: value })} /><b>°</b></div></label>
-              <label className="field"><span>Độ biến thiên</span><div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={effect.randomness} disabled={controlDisabled} onCommit={(value) => onChange({ randomness: value })} /><b>%</b></div></label>
+              <label className="field"><FieldLabel hint="Chọn hiệu ứng bay theo một góc cố định hay thay đổi ngẫu nhiên.">Chế độ bay</FieldLabel><select value={effect.movementMode} disabled={controlDisabled} onChange={(event) => onChange({ movementMode: event.target.value as SceneWeatherMovementMode })}><option value="angle">Theo góc cố định</option><option value="random">Bay ngẫu nhiên</option></select></label>
+              <label className="field"><FieldLabel hint="Góc chuyển động của hạt: 0° sang phải, 90° đi xuống, 180° sang trái, 270° đi lên.">Góc di chuyển</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={359} step={1} value={Math.round(effect.movementAngle)} disabled={controlDisabled || effect.movementMode === "random"} onCommit={(value) => onChange({ movementAngle: value })} /><b>°</b></div></label>
+              <label className="field"><FieldLabel hint="Mức độ thay đổi hướng hoặc tốc độ giữa các hạt.">Độ biến thiên</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={effect.randomness} disabled={controlDisabled} onCommit={(value) => onChange({ randomness: value })} /><b>%</b></div></label>
             </div>
           </div>
         )}
@@ -13254,12 +13270,12 @@ function Home() {
           <div className="scene-structure-quick-stack">
             <label className="scene-structure-quick-toggle"><input type="checkbox" checked={darkEffect.enabled} onChange={(event) => updateSceneStructureQuickDarkEffect(effectId, { enabled: event.target.checked })} /><span>Bật hiệu ứng tối</span></label>
             <div className="scene-structure-quick-grid scene-structure-quick-grid-3 scene-structure-quick-dark-grid">
-              <label className="scene-structure-quick-field"><span>Thời điểm bắt đầu (giây)</span><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={darkEffect.start} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { start: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Thời gian tối dần (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeInDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeInDuration: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Thời gian giữ tối (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.holdDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Thời gian sáng dần (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeOutDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeOutDuration: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Thời gian kết thúc (tự tính)</span><input value={Number(darkEffect.end.toFixed(2))} readOnly aria-readonly="true" /></label>
-              <label className="scene-structure-quick-field"><span>Mức độ tối tối đa (%)</span><NumericInput min={0} max={100} step={1} value={darkEffect.intensity} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { intensity: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời điểm bắt đầu hiệu ứng tối trong cảnh.">Thời điểm bắt đầu (giây)</FieldLabel><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={darkEffect.start} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { start: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời lượng viền tối lan dần từ ngoài vào trong.">Thời gian tối dần (giây)</FieldLabel><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeInDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeInDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời lượng giữ nguyên mức tối cao nhất.">Thời gian giữ tối (giây)</FieldLabel><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.holdDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { holdDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời lượng sáng dần trở lại sau khi giữ tối.">Thời gian sáng dần (giây)</FieldLabel><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={darkEffect.fadeOutDuration} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { fadeOutDuration: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Chỉ hiển thị: thời điểm kết thúc được tự tính từ các khoảng thời gian bên trái.">Thời gian kết thúc (tự tính)</FieldLabel><input value={Number(darkEffect.end.toFixed(2))} readOnly aria-readonly="true" /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Mức độ tối tối đa của viền khi hiệu ứng đạt đỉnh.">Mức độ tối tối đa (%)</FieldLabel><NumericInput min={0} max={100} step={1} value={darkEffect.intensity} onCommit={(value) => updateSceneStructureQuickDarkEffect(effectId, { intensity: value })} /></label>
             </div>
             <small className="scene-structure-quick-note">Thời gian kết thúc = thời điểm bắt đầu + tối dần + giữ tối + sáng dần.</small>
           </div>
@@ -13276,10 +13292,10 @@ function Home() {
               <span>{definition.label}</span>
             </label>
             <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-              <label className="scene-structure-quick-field"><span>Thời điểm bắt đầu (giây)</span><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={weatherEffect.start} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { start: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Thời điểm kết thúc (giây)</span><NumericInput min={0.1} max={sceneStructureDuration} step={0.1} value={weatherEffect.end} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { end: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={weatherEffect.intensity} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { intensity: value })} /></label>
-              <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><NumericInput min={0} max={3} step={0.1} value={weatherEffect.speed} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { speed: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời điểm bắt đầu hiển thị hiệu ứng trong cảnh.">Thời điểm bắt đầu (giây)</FieldLabel><NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.1} value={weatherEffect.start} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { start: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Thời điểm dừng hiển thị hiệu ứng trong cảnh.">Thời điểm kết thúc (giây)</FieldLabel><NumericInput min={0.1} max={sceneStructureDuration} step={0.1} value={weatherEffect.end} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { end: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Mức độ mạnh hoặc rõ của hiệu ứng theo thời gian hiển thị.">Cường độ (%)</FieldLabel><NumericInput min={0} max={100} step={1} value={weatherEffect.intensity} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { intensity: value })} /></label>
+              <label className="scene-structure-quick-field"><FieldLabel hint="Tốc độ chuyển động hoặc nhịp nhấp nháy của hiệu ứng.">Tốc độ (×)</FieldLabel><NumericInput min={0} max={3} step={0.1} value={weatherEffect.speed} disabled={!weatherEffect.enabled} onCommit={(value) => updateSceneStructureQuickWeatherEffect(effectId, { speed: value })} /></label>
             </div>
             {renderSceneWeatherAppearanceControls(weatherEffect, definition, (values) => updateSceneStructureQuickWeatherEffect(effectId, values))}
             <small className="scene-structure-quick-note">{definition.description}. Thẻ này có thể kéo và chỉnh thời gian độc lập với các hiệu ứng khác.</small>
@@ -13310,8 +13326,8 @@ function Home() {
                   <span>{label}</span>
                 </label>
                 <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-                  <label className="scene-structure-quick-field"><span>Cường độ (%)</span><NumericInput min={0} max={100} step={1} value={Number(effects[intensity])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [intensity]: value } as Partial<SceneEffects>)} /></label>
-                  <label className="scene-structure-quick-field"><span>Tốc độ (×)</span><NumericInput min={0} max={3} step={0.1} value={Number(effects[speed])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [speed]: value } as Partial<SceneEffects>)} /></label>
+                  <label className="scene-structure-quick-field"><FieldLabel hint="Mức độ mạnh hoặc rõ của hiệu ứng theo thời gian hiển thị.">Cường độ (%)</FieldLabel><NumericInput min={0} max={100} step={1} value={Number(effects[intensity])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [intensity]: value } as Partial<SceneEffects>)} /></label>
+                  <label className="scene-structure-quick-field"><FieldLabel hint="Tốc độ chuyển động hoặc nhịp nhấp nháy của hiệu ứng.">Tốc độ (×)</FieldLabel><NumericInput min={0} max={3} step={0.1} value={Number(effects[speed])} disabled={!Boolean(effects[enabled])} onCommit={(value) => updateSceneStructureQuickEffects({ [speed]: value } as Partial<SceneEffects>)} /></label>
                 </div>
               </div>
             ))}
@@ -13572,13 +13588,13 @@ function Home() {
           <div className="scene-structure-live-empty-background">Chưa có nền bản đồ</div>
         )}
 
-        {liveWeatherEffectsAtTime("light-flicker").map((effect) => <div key={`live-light-${effect.id}`} className="scene-effect-layer light-flicker-effect" aria-hidden="true" style={{ ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${effect.speed > 0 ? Math.max(0.2, 2.8 / effect.speed) : 0}s`, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--light-flicker-glow" as string]: `${effect.glow / 100}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, animationName: effect.speed === 0 ? "none" : undefined }} />)}
-        {liveWeatherEffectsAtTime("snow").map((effect) => <div key={`live-snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => { const position = weatherParticlePosition(flake, effect); const motion = weatherParticleMotion(effect, index, 90); const particleSize = flake.size * effect.size / 100; return <i key={`live-snow-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${particleSize}px`, height: `${particleSize}px`, ...weatherAnimationStyle(effect.speed, flake.duration), animationDelay: `${flake.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
-        {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, ...weatherAnimationStyle(effect.speed, cloud.duration), animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
-        {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => { const position = weatherParticlePosition(drop, effect); const motion = weatherParticleMotion(effect, index, 90); const dropSize = effect.size / 100; return <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, ...weatherAnimationStyle(effect.speed, drop.duration), animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />; })}</div>)}
-        {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className={`scene-effect-layer sandstorm-effect ${effect.speed === 0 ? "is-static" : ""}`} aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => { const position = weatherParticlePosition(particle, effect); const motion = weatherParticleMotion(effect, index, 0); const particleSize = effect.size / 100; return <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, particle.size * 1.8 * particleSize * (1 + effect.trail / 100))}px`, height: `${Math.max(1.5, particle.size * particleSize)}px`, ...weatherAnimationStyle(effect.speed, particle.duration), animationDelay: `${particle.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle + particle.tilt}deg` }} />; })}</div>)}
-        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => { const position = weatherParticlePosition(star, effect); const motion = weatherParticleMotion(effect, index, 0, 24); const starSize = star.size * 2.4 * effect.size / 100; return <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...weatherAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
-        {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${effect.speed > 0 ? Math.max(0.4, 3.6 / effect.speed) : 0}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px`, opacity: effect.speed === 0 ? (effect.intensity / 100) * (effect.opacity / 100) * 0.78 : undefined, animationName: effect.speed === 0 ? "none" : undefined }} />)}
+        {liveWeatherEffectsAtTime("light-flicker").map((effect) => <div key={`live-light-${effect.id}`} className="scene-effect-layer light-flicker-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${effect.speed > 0 ? Math.max(0.2, 2.8 / effect.speed) : 0}s`, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--light-flicker-glow" as string]: `${effect.glow / 100}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, animationName: effect.speed === 0 ? "none" : undefined }} />)}
+        {liveWeatherEffectsAtTime("snow").map((effect) => <div key={`live-snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => { const position = weatherParticlePosition(flake, effect); const motion = weatherParticleMotion(effect, index, 90); const particleSize = flake.size * effect.size / 100; return <i key={`live-snow-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${particleSize}px`, height: `${particleSize}px`, ...weatherAnimationStyle(effect.speed, flake.duration), animationDelay: `${flake.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, ...weatherAnimationStyle(effect.speed, cloud.duration), animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
+        {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => { const position = weatherParticlePosition(drop, effect); const motion = weatherParticleMotion(effect, index, 90); const dropSize = effect.size / 100; return <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, ...weatherAnimationStyle(effect.speed, drop.duration), animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className={`scene-effect-layer sandstorm-effect ${effect.speed === 0 ? "is-static" : ""}`} aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => { const position = weatherParticlePosition(particle, effect); const motion = weatherParticleMotion(effect, index, 0); const particleSize = effect.size / 100; return <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, particle.size * 1.8 * particleSize * (1 + effect.trail / 100))}px`, height: `${Math.max(1.5, particle.size * particleSize)}px`, ...weatherAnimationStyle(effect.speed, particle.duration), animationDelay: `${particle.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle + particle.tilt}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => { const position = weatherParticlePosition(star, effect); const motion = weatherParticleMotion(effect, index, 0, 24); const starSize = star.size * 2.4 * effect.size / 100; return <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...weatherAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${effect.speed > 0 ? Math.max(0.4, 3.6 / effect.speed) : 0}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px`, opacity: effect.speed === 0 ? (effect.intensity / 100) * (effect.opacity / 100) * 0.78 : undefined, animationName: effect.speed === 0 ? "none" : undefined }} />)}
 
         {sceneStructureTexts
           .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
@@ -14605,6 +14621,7 @@ function Home() {
                 className="scene-effect-layer light-flicker-effect"
                 aria-hidden="true"
                 style={{
+                  ...weatherEffectLayerStyle(effect),
                   ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`,
                   ["--light-flicker-speed" as string]: `${effect.speed > 0 ? Math.max(0.2, 2.8 / effect.speed) : 0}s`,
                   ["--light-flicker-size" as string]: `${effect.size / 100}`,
@@ -14616,7 +14633,7 @@ function Home() {
               />
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("snow").map((effect) => (
-              <div key={`snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
+              <div key={`snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
                 {weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => {
                   const position = weatherParticlePosition(flake, effect);
                   const motion = weatherParticleMotion(effect, index, 90);
@@ -14626,12 +14643,12 @@ function Home() {
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("cloud").map((effect) => (
-              <div key={`cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>
+              <div key={`cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>
                 {CLOUD_SEEDS.map((cloud, index) => <i key={`cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, ...weatherAnimationStyle(effect.speed, cloud.duration), animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("rain").map((effect) => (
-              <div key={`rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
+              <div key={`rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
                 {weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => {
                   const position = weatherParticlePosition(drop, effect);
                   const motion = weatherParticleMotion(effect, index, 90);
@@ -14641,7 +14658,7 @@ function Home() {
               </div>
             ))}
             {sceneIsVisibleInPlayback && previewWeatherEffectsAtTime("sandstorm").map((effect) => (
-              <div key={`sandstorm-${effect.id}`} className={`scene-effect-layer sandstorm-effect ${effect.speed === 0 ? "is-static" : ""}`} aria-hidden="true" style={{ ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>
+              <div key={`sandstorm-${effect.id}`} className={`scene-effect-layer sandstorm-effect ${effect.speed === 0 ? "is-static" : ""}`} aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>
                 {weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => {
                   const position = weatherParticlePosition(particle, effect);
                   const motion = weatherParticleMotion(effect, index, 0);
@@ -14655,7 +14672,7 @@ function Home() {
                 key={`star-twinkle-${effect.id}`}
                 className="scene-effect-layer star-twinkle-effect"
                 aria-hidden="true"
-                style={{ ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${effect.glow / 100}` }}
+                style={{ ...weatherEffectLayerStyle(effect), ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${effect.glow / 100}` }}
               >
                 {weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => {
                   const position = weatherParticlePosition(star, effect);
@@ -14666,7 +14683,7 @@ function Home() {
               </div>
             ))}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("thunder").map((effect) => (
-              <div key={`thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${effect.speed > 0 ? Math.max(0.4, 3.6 / effect.speed) : 0}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px`, opacity: effect.speed === 0 ? (effect.intensity / 100) * (effect.opacity / 100) * 0.78 : undefined, animationName: effect.speed === 0 ? "none" : undefined }} />
+              <div key={`thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${effect.speed > 0 ? Math.max(0.4, 3.6 / effect.speed) : 0}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px`, opacity: effect.speed === 0 ? (effect.intensity / 100) * (effect.opacity / 100) * 0.78 : undefined, animationName: effect.speed === 0 ? "none" : undefined }} />
             ))}
             {sceneIsVisibleInPlayback && previewEffectsVisible && sceneEffects.weatherEffects
               .filter((effect) => effect.enabled)
@@ -16536,7 +16553,7 @@ function Home() {
                       </div>
                     </label>
                     <label className="field">
-                      <span>Tỉ lệ zoom</span>
+                      <FieldLabel hint="Mức phóng đại tối đa của bản đồ trong hiệu ứng zoom.">Tỉ lệ zoom</FieldLabel>
                       <div className="number-with-unit">
                         <input
                           type="text"
@@ -16696,7 +16713,7 @@ function Home() {
                           </label>
                         </div>
                         <label className="field scene-start-dark-intensity-field">
-                          <span>Mức độ tối tối đa (0–100%)</span>
+                          <FieldLabel hint="Mức độ tối tối đa của viền khi hiệu ứng đạt đỉnh.">Mức độ tối tối đa (0–100%)</FieldLabel>
                           <div className="number-with-unit">
                             <input
                               type="text"
@@ -16746,10 +16763,10 @@ function Home() {
                             <span>Bật hiệu ứng này</span>
                           </label>
                           <div className="field-row scene-weather-effect-time-row">
-                            <label className="field"><span>Thời điểm bắt đầu</span><div className="number-with-unit"><input type="number" min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={effect.start} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { start: Number(event.target.value) })} /><b>giây</b></div></label>
-                            <label className="field"><span>Thời điểm kết thúc</span><div className="number-with-unit"><input type="number" min={0.1} max={sceneDuration} step={0.1} value={effect.end} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { end: Number(event.target.value) })} /><b>giây</b></div></label>
-                            <label className="field"><span>Cường độ</span><div className="number-with-unit"><input type="number" min={0} max={100} step={1} value={effect.intensity} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { intensity: Number(event.target.value) })} /><b>%</b></div></label>
-                            <label className="field"><span>Tốc độ</span><div className="number-with-unit"><input type="number" min={0} max={3} step={0.1} value={effect.speed} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { speed: Number(event.target.value) })} /><b>×</b></div></label>
+                            <label className="field"><FieldLabel hint="Thời điểm bắt đầu hiển thị hiệu ứng trong cảnh.">Thời điểm bắt đầu</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={effect.start} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { start: Number(event.target.value) })} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Thời điểm dừng hiển thị hiệu ứng trong cảnh.">Thời điểm kết thúc</FieldLabel><div className="number-with-unit"><input type="number" min={0.1} max={sceneDuration} step={0.1} value={effect.end} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { end: Number(event.target.value) })} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Mức độ mạnh hoặc rõ của hiệu ứng theo thời gian hiển thị.">Cường độ</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={100} step={1} value={effect.intensity} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { intensity: Number(event.target.value) })} /><b>%</b></div></label>
+                            <label className="field"><FieldLabel hint="Tốc độ chuyển động hoặc nhịp nhấp nháy của hiệu ứng.">Tốc độ</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={3} step={0.1} value={effect.speed} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { speed: Number(event.target.value) })} /><b>×</b></div></label>
                           </div>
                           {renderSceneWeatherAppearanceControls(effect, definition, (values) => updateSceneWeatherEffect(effect.id, values), !hydrated)}
                         </article>
