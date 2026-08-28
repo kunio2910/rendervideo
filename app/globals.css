@@ -561,7 +561,7 @@ button { color: inherit; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-pop { animation-name: text-effect-pop, text-effect-pop; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-glow { animation-name: text-effect-glow, text-effect-glow; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-letter-spacing { animation-name: text-effect-letter-spacing, text-effect-letter-spacing; }
-.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur { animation-name: text-effect-blur, text-effect-blur; }
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur { animation-name: text-effect-blur, text-effect-blur-reverse; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-highlight-sweep { animation-name: text-effect-highlight, text-effect-highlight; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-shake { animation-name: text-effect-shake, text-effect-shake; }
 .map-text-overlay.is-playing.text-effect-reverse.text-effect-glitch { animation-name: text-effect-glitch, text-effect-glitch; }
@@ -607,6 +607,7 @@ button { color: inherit; }
 @keyframes text-effect-glow { 0%, 100% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 4px currentColor; } 50% { text-shadow: 0 2px 5px rgba(0,0,0,.72), 0 0 18px currentColor, 0 0 30px currentColor; } }
 @keyframes text-effect-letter-spacing { from { letter-spacing: .45em; opacity: .35; } to { letter-spacing: 0; opacity: 1; } }
 @keyframes text-effect-blur { from { opacity: .25; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
+@keyframes text-effect-blur-reverse { from { opacity: 0; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
 @keyframes text-effect-reverse-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes text-effect-reverse-exit { from { opacity: 1; } to { opacity: 0; } }
 @keyframes text-effect-highlight { from { filter: brightness(.8); } 50% { filter: brightness(1.4); } to { filter: brightness(1); } }
@@ -8470,6 +8471,7 @@ body {
   border: 1px solid #d7c6ae;
   border-radius: 8px;
   background: rgba(255, 255, 255, .62);
+  container-type: inline-size;
 }
 
 .scene-weather-effect-item.is-disabled {
@@ -8588,6 +8590,98 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* The editor column can be narrower than the browser viewport. Respond to
+   the card width so values and their units never get squeezed or obscured. */
+@container (max-width: 620px) {
+  .scene-weather-effect-time-row,
+  .scene-weather-appearance-grid,
+  .scene-weather-direction-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 360px) {
+  .scene-weather-effect-time-row,
+  .scene-weather-appearance-grid,
+  .scene-weather-direction-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scene-weather-effect-item .number-with-unit {
+  min-width: 0;
+}
+.scene-weather-effect-item .number-with-unit input {
+  min-width: 0;
+  padding-inline: 8px;
+}
+.scene-weather-effect-item .number-with-unit b {
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+
+.scene-weather-custom-image-field {
+  grid-column: span 2;
+}
+
+.scene-weather-media-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.scene-weather-media-row > input {
+  min-width: 0;
+}
+
+.scene-weather-clear-image {
+  width: 30px;
+  border: 1px solid #d7a18e;
+  border-radius: 7px;
+  background: #fff2ed;
+  color: #a34e36;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.scene-weather-clear-image:hover:not(:disabled),
+.scene-weather-clear-image:focus-visible {
+  border-color: #b86349;
+  background: #ffe3d9;
+  outline: none;
+}
+
+.scene-weather-image-preview {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 42px;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid #d7c6ae;
+  border-radius: 6px;
+  background-color: #f8f4ec;
+  background-image: linear-gradient(45deg, #e5dccd 25%, transparent 25%), linear-gradient(-45deg, #e5dccd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5dccd 75%), linear-gradient(-45deg, transparent 75%, #e5dccd 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+}
+
+.scene-weather-image-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.scene-weather-image-note {
+  display: block;
+  margin-top: 5px;
+  color: #8d785e;
+  font-size: 9px;
+}
+
 .studio-shell[data-theme="dark"] .scene-weather-effect-item {
   border-color: #4e6075;
   background: #162434;
@@ -8612,6 +8706,28 @@ body {
 
 .studio-shell[data-theme="dark"] .scene-weather-appearance-heading span,
 .studio-shell[data-theme="dark"] .scene-weather-direction-heading span {
+  color: #a9bbcf;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-clear-image {
+  border-color: #8e5d62;
+  background: #38232b;
+  color: #ffb5aa;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-clear-image:hover:not(:disabled),
+.studio-shell[data-theme="dark"] .scene-weather-clear-image:focus-visible {
+  border-color: #ff9a90;
+  background: #512d36;
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-image-preview {
+  border-color: #40536a;
+  background-color: #1a2635;
+  background-image: linear-gradient(45deg, #2b3b4d 25%, transparent 25%), linear-gradient(-45deg, #2b3b4d 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2b3b4d 75%), linear-gradient(-45deg, transparent 75%, #2b3b4d 75%);
+}
+
+.studio-shell[data-theme="dark"] .scene-weather-image-note {
   color: #a9bbcf;
 }
 
@@ -9083,6 +9199,14 @@ body {
     0 0 var(--star-glow, 6px) color-mix(in srgb, var(--star-color, #ffeba6) 98%, transparent),
     0 0 calc(var(--star-glow, 6px) * 2) color-mix(in srgb, var(--star-color, #ffc253) 68%, transparent);
   animation: scene-star-twinkle 2.4s ease-in-out infinite;
+  will-change: opacity, transform, filter;
+}
+
+.star-twinkle-effect img.star-twinkle-particle {
+  position: absolute;
+  display: block;
+  object-fit: contain;
+  mix-blend-mode: screen;
   will-change: opacity, transform, filter;
 }
 
@@ -12543,11 +12667,11 @@ body {
 }
 
 @keyframes scene-star-twinkle {
-  0%, 100% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * -1), calc(var(--weather-vector-y, 0px) * -1), 0) scale(.45); filter: brightness(.7) saturate(.9); }
-  28% { opacity: .12; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.65), calc(var(--weather-vector-y, 0px) * -.65), 0) scale(.58); filter: brightness(.85) saturate(1); }
-  36% { opacity: .3; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.35), calc(var(--weather-vector-y, 0px) * -.35), 0) scale(.8); filter: brightness(1.2) saturate(1.1); }
-  46% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.45); filter: brightness(2.5) saturate(1.55); }
-  56% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * .55), calc(var(--weather-vector-y, 0px) * .55), 0) scale(.5); filter: brightness(.7) saturate(.9); }
+  0%, 100% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * -1), calc(var(--weather-vector-y, 0px) * -1), 0) scale(.45); filter: brightness(.7) saturate(.9) drop-shadow(0 0 var(--star-custom-glow, 0px) var(--star-color, #fff6c9)); }
+  28% { opacity: .12; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.65), calc(var(--weather-vector-y, 0px) * -.65), 0) scale(.58); filter: brightness(.85) saturate(1) drop-shadow(0 0 var(--star-custom-glow, 0px) var(--star-color, #fff6c9)); }
+  36% { opacity: .3; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.35), calc(var(--weather-vector-y, 0px) * -.35), 0) scale(.8); filter: brightness(1.2) saturate(1.1) drop-shadow(0 0 var(--star-custom-glow, 0px) var(--star-color, #fff6c9)); }
+  46% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.45); filter: brightness(2.5) saturate(1.55) drop-shadow(0 0 var(--star-custom-glow, 0px) var(--star-color, #fff6c9)); }
+  56% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * .55), calc(var(--weather-vector-y, 0px) * .55), 0) scale(.5); filter: brightness(.7) saturate(.9) drop-shadow(0 0 var(--star-custom-glow, 0px) var(--star-color, #fff6c9)); }
 }
 
 /* Photoshop-like preview layer stack: topmost item is displayed first. */

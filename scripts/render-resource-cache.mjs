@@ -170,6 +170,18 @@ export const collectProjectRemoteResources = (project) => {
       const kind = videoLike(source, image.mediaType) ? "video" : "image";
       pushRemote(resources, kind, source, `scene-${sceneIndex + 1}-image-${imageIndex + 1}`);
     });
+    const weatherEffects = Array.isArray(scene.effects?.weatherEffects)
+      ? scene.effects.weatherEffects
+      : [];
+    weatherEffects.forEach((effect, effectIndex) => {
+      if (!effect || effect.enabled === false) return;
+      pushRemote(
+        resources,
+        "image",
+        effect.customImage,
+        `scene-${sceneIndex + 1}-weather-${effectIndex + 1}-custom.png`,
+      );
+    });
   });
   return resources;
 };

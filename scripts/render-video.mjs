@@ -410,8 +410,9 @@ const normalizeSceneWeatherEffects = (value, duration = 3600) => {
       flickerSpeed: clamp(
         numberOr(candidate.flickerSpeed, numberOr(candidate.speed, definition.speed)),
         0,
-        3,
+        10,
       ),
+      customImage: String(candidate.customImage ?? "").trim(),
       color: normalizeHexColor(candidate.color, definition.color),
       opacity: clamp(numberOr(candidate.opacity, 100), 0, 100),
       size: clamp(numberOr(candidate.size, definition.size), 25, 300),
@@ -640,14 +641,23 @@ const weatherFadeExpression = (phase, plateau = 0.9) =>
 
 const weatherWindowExpression = (effect, timeVariable = "T") =>
   `if(lt(${timeVariable},${Number(effect.start).toFixed(4)}),0,if(gte(${timeVariable},${Number(effect.end).toFixed(4)}),0,1))`;
+const WEATHER_FLICKER_SPEED_AT_ZERO = 0.18;
+const isWeatherFlickerEffect = (effect) =>
+  effect.type === "light-flicker" || effect.type === "thunder" || effect.type === "star-twinkle";
+const weatherFlickerRate = (speed) =>
+  Math.max(WEATHER_FLICKER_SPEED_AT_ZERO, Math.min(10, Number(speed) || 0));
 const weatherEffectCycle = (effect, baseCycle, minimum = 0.05, speed = effect.speed) =>
-  speed > 0
+  isWeatherFlickerEffect(effect)
+    ? Math.max(minimum, baseCycle / weatherFlickerRate(speed))
+    : speed > 0
     ? Math.max(minimum, baseCycle / speed)
     : effect.type === "star-twinkle"
       ? Math.max(minimum, baseCycle / 0.7)
       : 1;
 const weatherEffectPhase = (effect, cycle, delay, timeVariable, start, speed = effect.speed) =>
-  speed > 0
+  (effect.type === "light-flicker" || effect.type === "thunder" || effect.type === "star-twinkle")
+    ? weatherPhaseExpression(cycle, delay, timeVariable, start)
+    : speed > 0
     ? weatherPhaseExpression(cycle, delay, timeVariable, start)
     : effect.type === "star-twinkle"
       ? weatherPhaseExpression(cycle, delay, timeVariable, start)
@@ -1963,7 +1973,8 @@ for (let index = 0; index < scenes.length; index += 1) {
         weatherInputSpecs.push(input);
         filter += `[${inputIndex}:v]${inputFilter}[${inputLabel}];`;
       } else {
-        filter += `${source}${inputFilter ? `,${inputFilter}` : ""}[${inputLabel}];`;
+        const sourceIsLabel = typeof source === "string" && /^\[[^\]]+\]$/.test(source.trim());
+        filter += `${source}${inputFilter ? `${sourceIsLabel ? "" : ","}${inputFilter}` : ""}[${inputLabel}];`;
       }
       filter += `${regionComposedLabel}[${inputLabel}]overlay=` +
         `x='${x}':y='${y}':shortest=1:eval=frame[${sourceLabel}];`;
@@ -2153,7 +2164,25 @@ for (let index = 0; index < scenes.length; index += 1) {
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "star-twinkle").entries()) {
     const starColor = weatherColorValue(effect.color, "#fff6c9");
     const starCount = weatherParticleCount(starTwinkleSeeds, effect);
+    const customStarImage = String(effect.customImage ?? "").trim()
+      ? await resolveImage(
+          effect.customImage,
+          `weather-star-${index + 1}-${effectIndex + 1}-custom.png`,
+        )
+      : null;
     const region = createWeatherRegion(effect, `starTwinkleRegion${effectIndex}`);
+    const customStarImageLabels = [];
+    if (customStarImage) {
+      const customImageInputIndex = weatherInputIndex + weatherInputSpecs.length;
+      weatherInputSpecs.push({ type: "file", path: customStarImage });
+      filter += `[${customImageInputIndex}:v]format=rgba,split=${starCount}`;
+      for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
+        const label = `starTwinkleCustomImage${effectIndex}_${starIndex}`;
+        filter += `[${label}]`;
+        customStarImageLabels.push(label);
+      }
+      filter += ";";
+    }
     const starOpacity = (
       (effect.intensity / 100)
       * (effect.opacity / 100)
@@ -2171,8 +2200,16 @@ for (let index = 0; index < scenes.length; index += 1) {
       const overlayPhase = weatherEffectPhase(effect, cycle, star.delay, "t", effect.start, effect.flickerSpeed);
       const opacity = `if(lt(${phase},0.36),0.06+0.24*${phase}/0.36,if(lt(${phase},0.46),0.3+0.7*(${phase}-0.36)/0.1,if(lt(${phase},0.56),1-0.94*(${phase}-0.46)/0.1,0.06)))`;
       const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
+      const starSource = customStarImage
+        ? {
+            source: `[${customStarImageLabels[starIndex]}]`,
+            inputFilter: `scale=${starSize}:${starSize}:force_original_aspect_ratio=decrease,pad=${starSize}:${starSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba${weatherBlurFilter(effect)}`,
+          }
+        : {
+            source: `color=c=0x${starColor}@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}${weatherBlurFilter(effect)}`,
+          };
       region.add({
-        source: `color=c=0x${starColor}@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}${weatherBlurFilter(effect)}`,
+        ...starSource,
         x: `main_w*${(position.x / 100).toFixed(4)}+${vectorX}*(2*(${overlayPhase})-1)-overlay_w/2`,
         y: `main_h*${(position.y / 100).toFixed(4)}+${vectorY}*(2*(${overlayPhase})-1)-overlay_h/2`,
         label: starLabel,
