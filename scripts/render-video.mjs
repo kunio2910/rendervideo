@@ -1621,7 +1621,19 @@ const createSceneImage = async (image, index) => {
 const createTextOverlay = async (overlay, index) => {
   const text = String(overlay?.text ?? "").trim();
   if (!text || overlay?.visible === false) return null;
-  const fontOptions = ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"];
+  const fontOptions = [
+    "Arial",
+    "Segoe UI",
+    "Calibri",
+    "Cambria",
+    "Trebuchet MS",
+    "Tahoma",
+    "Verdana",
+    "Georgia",
+    "Book Antiqua",
+    "Times New Roman",
+    "Courier New",
+  ];
   const font = fontOptions.includes(String(overlay?.font)) ? String(overlay.font) : "Arial";
   const size = Math.round(previewPx(clamp(Number(overlay?.size ?? 24), 8, 120)));
   const strokeWidth = Math.round(previewPx(clamp(Number(overlay?.strokeWidth ?? 0), 0, 12)));

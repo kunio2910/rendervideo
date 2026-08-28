@@ -28,7 +28,35 @@ import {
   workspaceBackupFilename,
 } from "./lib/workspace-backup";
 
-type OverlayTextFont = "Arial" | "Verdana" | "Georgia" | "Tahoma" | "Times New Roman" | "Courier New";
+type OverlayTextFont =
+  | "Arial"
+  | "Verdana"
+  | "Georgia"
+  | "Tahoma"
+  | "Times New Roman"
+  | "Courier New"
+  | "Segoe UI"
+  | "Calibri"
+  | "Cambria"
+  | "Trebuchet MS"
+  | "Book Antiqua";
+
+const OVERLAY_TEXT_FONT_OPTIONS: Array<{ value: OverlayTextFont; label: string }> = [
+  { value: "Arial", label: "Arial · Gọn, tương thích cao" },
+  { value: "Segoe UI", label: "Segoe UI · Hiện đại, dễ đọc" },
+  { value: "Calibri", label: "Calibri · Mềm, sáng" },
+  { value: "Cambria", label: "Cambria · Serif rõ nét" },
+  { value: "Trebuchet MS", label: "Trebuchet MS · Thân thiện" },
+  { value: "Tahoma", label: "Tahoma · Rõ ở cỡ nhỏ" },
+  { value: "Verdana", label: "Verdana · Dễ đọc trên màn hình" },
+  { value: "Georgia", label: "Georgia · Serif trang trọng" },
+  { value: "Book Antiqua", label: "Book Antiqua · Serif mềm" },
+  { value: "Times New Roman", label: "Times New Roman · Cổ điển" },
+  { value: "Courier New", label: "Courier New · Đơn cách" },
+];
+
+const isOverlayTextFont = (value: unknown): value is OverlayTextFont =>
+  OVERLAY_TEXT_FONT_OPTIONS.some((font) => font.value === value);
 
 type TextOverlayEffect =
   | "none"
@@ -1557,6 +1585,7 @@ type StoredProject = {
   renderProfile?: RenderProfile;
   renderEncoder?: RenderEncoder;
   editorSections?: EditorSectionState;
+  effectPanelCollapsed?: Record<string, boolean>;
   expandedAudioSubtitleTracks?: Record<string, boolean>;
   sceneStructureLibraryCollapsed?: boolean;
   sceneStructureInspectorCollapsed?: boolean;
@@ -1931,9 +1960,7 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
       : base.style,
     color: normalizeHexColor(raw.color, base.color),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
-    font: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(font)
-      ? font as OverlayTextFont
-      : base.font,
+    font: isOverlayTextFont(font) ? font : base.font,
     strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth, base.strokeWidth)),
     strokeColor: normalizeHexColor(raw.strokeColor, base.strokeColor),
     borderWidth: Math.min(12, positiveNumber(raw.borderWidth, base.borderWidth)),
@@ -2097,9 +2124,7 @@ const normalizeTextOverlay = (
       : base.style,
     color: normalizeHexColor(raw.color ?? raw.overlayTextColor, base.color),
     opacity: Math.min(100, Math.max(0, positiveNumber(raw.opacity, base.opacity))),
-    font: ["Arial", "Verdana", "Georgia", "Tahoma", "Times New Roman", "Courier New"].includes(font)
-      ? font as OverlayTextFont
-      : base.font,
+    font: isOverlayTextFont(font) ? font : base.font,
     strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth ?? raw.overlayTextStrokeWidth, base.strokeWidth)),
     strokeColor: normalizeHexColor(raw.strokeColor ?? raw.overlayTextStrokeColor, base.strokeColor),
     borderWidth: Math.min(12, positiveNumber(raw.borderWidth ?? raw.overlayTextBorderWidth, base.borderWidth)),
@@ -2403,6 +2428,15 @@ const normalizeExpandedAudioSubtitleTracks = (value: unknown): Record<string, bo
   const normalized: Record<string, boolean> = {};
   Object.entries(value).forEach(([trackId, expanded]) => {
     if (trackId && typeof expanded === "boolean") normalized[trackId] = expanded;
+  });
+  return normalized;
+};
+
+const normalizeEffectPanelCollapsed = (value: unknown): Record<string, boolean> => {
+  if (!isRecord(value)) return {};
+  const normalized: Record<string, boolean> = {};
+  Object.entries(value).forEach(([panelId, collapsed]) => {
+    if (panelId && typeof collapsed === "boolean") normalized[panelId] = collapsed;
   });
   return normalized;
 };
@@ -3995,6 +4029,7 @@ function Home() {
   const [editorSections, setEditorSections] = useState<EditorSectionState>(
     DEFAULT_EDITOR_SECTIONS,
   );
+  const [effectPanelCollapsed, setEffectPanelCollapsed] = useState<Record<string, boolean>>({});
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const activeEditorSectionRef = useRef<EditorSectionKey | null>(
     (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
@@ -5574,6 +5609,7 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      effectPanelCollapsed,
       expandedAudioSubtitleTracks,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
@@ -5603,6 +5639,7 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      effectPanelCollapsed,
       expandedAudioSubtitleTracks,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
@@ -5662,6 +5699,7 @@ function Home() {
     setSceneStructureInspectorCollapsed(project.sceneStructureInspectorCollapsed === true);
     setPreviewZoom(clampPreviewZoom(project.previewZoom));
     setPreviewEffectsVisible(project.previewEffectsVisible !== false);
+    setEffectPanelCollapsed(normalizeEffectPanelCollapsed(project.effectPanelCollapsed));
     setBackgroundMusicPreview((current) => {
       if (current) URL.revokeObjectURL(current);
       return "";
@@ -5723,6 +5761,7 @@ function Home() {
         renderProfile: normalizeRenderProfile(project.renderProfile),
         renderEncoder: normalizeRenderEncoder(project.renderEncoder),
         editorSections: normalizeEditorSections(project.editorSections),
+        effectPanelCollapsed: normalizeEffectPanelCollapsed(project.effectPanelCollapsed),
         previewZoom: clampPreviewZoom(project.previewZoom),
         previewEffectsVisible: project.previewEffectsVisible !== false,
         scenes: ensureUniqueSceneIds(project.scenes),
@@ -5760,6 +5799,7 @@ function Home() {
         previewZoom: clampPreviewZoom(data.previewZoom),
         previewEffectsVisible: data.previewEffectsVisible !== false,
         editorSections: normalizeEditorSections(data.editorSections),
+        effectPanelCollapsed: normalizeEffectPanelCollapsed(data.effectPanelCollapsed),
         scenes: ensureUniqueSceneIds(data.scenes),
       };
       setProjects([migrated]);
@@ -6839,6 +6879,24 @@ function Home() {
     }));
   };
 
+  type EffectPanelKind = "zoom" | "dark" | "weather";
+  const effectPanelKey = (kind: EffectPanelKind, effectId: string) =>
+    `${scene.id}:${kind}:${effectId}`;
+  const isEffectPanelCollapsed = (kind: EffectPanelKind, effectId: string) =>
+    effectPanelCollapsed[effectPanelKey(kind, effectId)] === true;
+  const toggleEffectPanel = (kind: EffectPanelKind, effectId: string) => {
+    const key = effectPanelKey(kind, effectId);
+    setEffectPanelCollapsed((items) => ({ ...items, [key]: !items[key] }));
+  };
+  const removeEffectPanelState = (kind: EffectPanelKind, effectId: string) => {
+    const suffix = `:${kind}:${effectId}`;
+    setEffectPanelCollapsed((items) => {
+      const next = { ...items };
+      Object.keys(next).filter((key) => key.endsWith(suffix)).forEach((key) => delete next[key]);
+      return next;
+    });
+  };
+
   type SceneDarkEffectNumberField = "start" | "fadeInDuration" | "holdDuration" | "fadeOutDuration" | "end" | "intensity";
   const darkEffectInputKey = (effectId: string, field: SceneDarkEffectNumberField) =>
     `${scene.id}:dark:${effectId}:${field}`;
@@ -6962,11 +7020,53 @@ function Home() {
   const deleteSceneDarkEffect = (effectId: string) => {
     const nextEffects = sceneEffects.sceneStartDarkEffects.filter((effect) => effect.id !== effectId);
     updateSceneEffects("sceneStartDarkEffects", nextEffects);
+    removeEffectPanelState("dark", effectId);
     setEffectInputDrafts((items) => {
       const next = { ...items };
       (Object.keys(next) as string[]).filter((key) => key.includes(`:dark:${effectId}:`)).forEach((key) => delete next[key]);
       return next;
     });
+  };
+
+  const duplicateSceneDarkEffect = (effectId: string) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const copySeed = Date.now().toString(36);
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const effects = normalizeSceneEffects(item.effects);
+      const sourceIndex = effects.sceneStartDarkEffects.findIndex((effect) => effect.id === effectId);
+      if (sourceIndex < 0) return item;
+      const source = effects.sceneStartDarkEffects[sourceIndex];
+      const copy = { ...source, id: `${item.id}-dark-copy-${copySeed}` };
+      const nextDarkEffects = [
+        ...effects.sceneStartDarkEffects.slice(0, sourceIndex + 1),
+        copy,
+        ...effects.sceneStartDarkEffects.slice(sourceIndex + 1),
+      ];
+      const first = nextDarkEffects[0];
+      return {
+        ...item,
+        effects: {
+          ...effects,
+          sceneStartDarkEffects: nextDarkEffects,
+          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+          sceneStartDarkDuration: first ? Math.max(0.1, first.end - first.start) : effects.sceneStartDarkDuration,
+          sceneStartDarkIntensity: first?.intensity ?? effects.sceneStartDarkIntensity,
+        },
+      };
+    }));
+    setEffectPanelCollapsed((items) => {
+      const next = { ...items };
+      targetIds.forEach((sceneId) => {
+        next[`${sceneId}:dark:${sceneId}-dark-copy-${copySeed}`] = false;
+      });
+      return next;
+    });
+    setToast("Đã nhân đôi hiệu ứng tối");
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const updateSceneWeatherEffect = (
@@ -7017,6 +7117,39 @@ function Home() {
       "weatherEffects",
       sceneEffects.weatherEffects.filter((effect) => effect.id !== effectId),
     );
+    removeEffectPanelState("weather", effectId);
+  };
+
+  const duplicateSceneWeatherEffect = (effectId: string) => {
+    if (!hydrated) return;
+    const targetIds = new Set(
+      selectedSceneIds.length > 0 ? selectedSceneIds : [selectedId],
+    );
+    const copySeed = Date.now().toString(36);
+    setScenes((items) => items.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+      const effects = normalizeSceneEffects(item.effects);
+      const sourceIndex = effects.weatherEffects.findIndex((effect) => effect.id === effectId);
+      if (sourceIndex < 0) return item;
+      const source = effects.weatherEffects[sourceIndex];
+      const copy = { ...source, id: `${item.id}-${source.type}-copy-${copySeed}` };
+      const nextWeatherEffects = [
+        ...effects.weatherEffects.slice(0, sourceIndex + 1),
+        copy,
+        ...effects.weatherEffects.slice(sourceIndex + 1),
+      ];
+      return { ...item, effects: syncSceneWeatherFields(effects, nextWeatherEffects) };
+    }));
+    setEffectPanelCollapsed((items) => {
+      const next = { ...items };
+      targetIds.forEach((sceneId) => {
+        const source = sceneEffects.weatherEffects.find((effect) => effect.id === effectId);
+        if (source) next[`${sceneId}:weather:${sceneId}-${source.type}-copy-${copySeed}`] = false;
+      });
+      return next;
+    });
+    setToast("Đã nhân đôi hiệu ứng môi trường");
+    window.setTimeout(() => setToast(""), 2200);
   };
 
   const renderSceneWeatherAppearanceControls = (
@@ -13302,7 +13435,7 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(overlay.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickText(overlay.id, { color: event.target.value })} /></label>
           </div>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-2">
-            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={overlay.font} onChange={(event) => updateSceneStructureQuickText(overlay.id, { font: event.target.value as OverlayTextFont })}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
+            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={overlay.font} onChange={(event) => updateSceneStructureQuickText(overlay.id, { font: event.target.value as OverlayTextFont })}>{OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng chữ</span><select value={overlay.textEffect} onChange={(event) => updateSceneStructureQuickText(overlay.id, { textEffect: event.target.value as TextOverlayEffect })}>{TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><NumericInput min={0.05} max={8} step={0.05} value={overlay.textEffectDuration} onCommit={(value) => updateSceneStructureQuickText(overlay.id, { textEffectDuration: value })} /></label>
             <label className="scene-structure-quick-field"><span>Chiều rộng (%)</span><NumericInput min={4} max={100} step={0.1} value={overlay.width ?? ""} placeholder="Tự động" onCommit={(value) => updateSceneStructureQuickText(overlay.id, { width: value })} onCommitEmpty={() => updateSceneStructureQuickText(overlay.id, { width: undefined })} /></label>
@@ -13406,7 +13539,7 @@ function Home() {
           <label className="scene-structure-quick-field"><span>Mốc phụ đề chưa gắn âm thanh (giây)</span><NumericInput min={0} max={sceneStructureDuration} step={0.1} value={quickScene.subtitleStart} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStart: value }))} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
             <label className="scene-structure-quick-field"><span>Cỡ chữ</span><NumericInput min={8} max={120} step={1} value={subtitleStyle.size} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), size: value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={subtitleStyle.font} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), font: event.target.value as OverlayTextFont } }))}><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Tahoma">Tahoma</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier New</option></select></label>
+            <label className="scene-structure-quick-field"><span>Font chữ</span><select value={subtitleStyle.font} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), font: event.target.value as OverlayTextFont } }))}>{OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label>
             <label className="scene-structure-quick-field"><span>Kiểu chữ</span><select value={subtitleStyle.style} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), style: event.target.value as SubtitleStyle["style"] } }))}><option value="normal">Bình thường</option><option value="bold">Đậm</option><option value="italic">Nghiêng</option><option value="bold-italic">Đậm nghiêng</option></select></label>
             <label className="scene-structure-quick-field"><span>Vị trí X (%)</span><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), x: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Vị trí Y (%)</span><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), y: value } }))} /></label>
@@ -16031,12 +16164,7 @@ function Home() {
                       value={activeTextOverlay?.font ?? "Arial"}
                       onChange={(event) => updateTextOverlay("font", event.target.value as OverlayTextFont)}
                     >
-                      <option value="Arial">Arial</option>
-                      <option value="Verdana">Verdana</option>
-                      <option value="Georgia">Georgia</option>
-                      <option value="Tahoma">Tahoma</option>
-                      <option value="Times New Roman">Times New Roman</option>
-                      <option value="Courier New">Courier New</option>
+                      {OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
                     </select>
                   </label>
                   <label className="field color-field">
@@ -16724,9 +16852,19 @@ function Home() {
               </summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card scene-visual-effect-card scene-zoom-effect-card" aria-label="Hiệu ứng zoom bản đồ">
-                  <div className="motion-settings-title scene-visual-effect-heading">
-                    <strong>Zoom bản đồ</strong>
-                    <span>Kéo vòng tròn trên bản đồ để chọn tâm zoom</span>
+                  <div className="motion-settings-title scene-visual-effect-heading scene-effect-panel-heading">
+                    <div>
+                      <strong>Zoom bản đồ</strong>
+                      <span>Kéo vòng tròn trên bản đồ để chọn tâm zoom</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="scene-effect-panel-toggle"
+                      onClick={() => toggleEffectPanel("zoom", "zoom")}
+                      aria-expanded={!isEffectPanelCollapsed("zoom", "zoom")}
+                      aria-label={`${isEffectPanelCollapsed("zoom", "zoom") ? "Mở" : "Thu gọn"} bảng Zoom bản đồ`}
+                      title={isEffectPanelCollapsed("zoom", "zoom") ? "Mở bảng Zoom bản đồ" : "Thu gọn bảng Zoom bản đồ"}
+                    >{isEffectPanelCollapsed("zoom", "zoom") ? "+" : "−"}</button>
                   </div>
                   <label className="zoom-effect-toggle">
                     <input
@@ -16738,7 +16876,7 @@ function Home() {
                     <span aria-hidden="true" />
                     <span>Bật hiệu ứng zoom bản đồ</span>
                   </label>
-                  {zoomEnabled && (
+                  {!isEffectPanelCollapsed("zoom", "zoom") && zoomEnabled && (
                     <>
                   <div className="field-row zoom-settings-fields">
                     <label className="field">
@@ -16827,10 +16965,21 @@ function Home() {
                   </div>
                   <div className="scene-start-dark-list">
                     {sceneEffects.sceneStartDarkEffects.length > 0 ? sceneEffects.sceneStartDarkEffects.map((effect, index) => (
-                      <div className="scene-start-dark-effect-item" key={effect.id}>
+                      <div className={`scene-start-dark-effect-item ${isEffectPanelCollapsed("dark", effect.id) ? "is-collapsed" : ""}`} key={effect.id}>
                         <div className="scene-start-dark-effect-item-heading">
                           <strong>Hiệu ứng tối {index + 1}</strong>
-                          <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneDarkEffect(effect.id)} aria-label={`Xóa hiệu ứng tối ${index + 1}`} title="Xóa hiệu ứng tối">×</button>
+                          <div className="scene-effect-panel-actions">
+                            <button
+                              type="button"
+                              className="scene-effect-panel-toggle"
+                              onClick={() => toggleEffectPanel("dark", effect.id)}
+                              aria-expanded={!isEffectPanelCollapsed("dark", effect.id)}
+                              aria-label={`${isEffectPanelCollapsed("dark", effect.id) ? "Mở" : "Thu gọn"} hiệu ứng tối ${index + 1}`}
+                              title={isEffectPanelCollapsed("dark", effect.id) ? "Mở hiệu ứng" : "Thu gọn hiệu ứng"}
+                            >{isEffectPanelCollapsed("dark", effect.id) ? "+" : "−"}</button>
+                            <button type="button" className="scene-effect-panel-duplicate" onClick={() => duplicateSceneDarkEffect(effect.id)} aria-label={`Nhân đôi hiệu ứng tối ${index + 1}`} title="Nhân đôi hiệu ứng">⧉</button>
+                            <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneDarkEffect(effect.id)} aria-label={`Xóa hiệu ứng tối ${index + 1}`} title="Xóa hiệu ứng tối">×</button>
+                          </div>
                         </div>
                         <label className="zoom-effect-toggle">
                           <input
@@ -16842,7 +16991,7 @@ function Home() {
                           <span aria-hidden="true" />
                           <span>Bật hiệu ứng tối này</span>
                         </label>
-                        {effect.enabled && (
+                        {!isEffectPanelCollapsed("dark", effect.id) && effect.enabled && (
                           <>
                         <div className="field-row scene-start-dark-time-row">
                           <label className="field">
@@ -16955,23 +17104,34 @@ function Home() {
                     {sceneEffects.weatherEffects.length ? sceneEffects.weatherEffects.map((effect, index) => {
                       const definition = sceneWeatherEffectDefinition(effect.type);
                       return (
-                        <article className={`scene-weather-effect-item ${effect.enabled ? "is-enabled" : "is-disabled"}`} key={effect.id}>
+                        <article className={`scene-weather-effect-item ${effect.enabled ? "is-enabled" : "is-disabled"} ${isEffectPanelCollapsed("weather", effect.id) ? "is-collapsed" : ""}`} key={effect.id}>
                           <div className="scene-weather-effect-item-heading">
                             <div><span className="scene-weather-effect-icon">{definition.icon}</span><strong>{definition.label} {index + 1}</strong><small>{definition.description}</small></div>
-                            <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneWeatherEffect(effect.id)} aria-label={`Xóa ${definition.label} ${index + 1}`} title="Xóa hiệu ứng">×</button>
+                            <div className="scene-effect-panel-actions">
+                              <button
+                                type="button"
+                                className="scene-effect-panel-toggle"
+                                onClick={() => toggleEffectPanel("weather", effect.id)}
+                                aria-expanded={!isEffectPanelCollapsed("weather", effect.id)}
+                                aria-label={`${isEffectPanelCollapsed("weather", effect.id) ? "Mở" : "Thu gọn"} ${definition.label} ${index + 1}`}
+                                title={isEffectPanelCollapsed("weather", effect.id) ? "Mở hiệu ứng" : "Thu gọn hiệu ứng"}
+                              >{isEffectPanelCollapsed("weather", effect.id) ? "+" : "−"}</button>
+                              <button type="button" className="scene-effect-panel-duplicate" onClick={() => duplicateSceneWeatherEffect(effect.id)} aria-label={`Nhân đôi ${definition.label} ${index + 1}`} title="Nhân đôi hiệu ứng">⧉</button>
+                              <button type="button" className="scene-start-dark-delete" onClick={() => deleteSceneWeatherEffect(effect.id)} aria-label={`Xóa ${definition.label} ${index + 1}`} title="Xóa hiệu ứng">×</button>
+                            </div>
                           </div>
                           <label className="zoom-effect-toggle">
                             <input type="checkbox" checked={effect.enabled} disabled={!hydrated} onChange={(event) => updateSceneWeatherEffect(effect.id, { enabled: event.target.checked })} />
                             <span aria-hidden="true" />
                             <span>Bật hiệu ứng này</span>
                           </label>
-                          <div className="field-row scene-weather-effect-time-row">
+                          {!isEffectPanelCollapsed("weather", effect.id) && <div className="field-row scene-weather-effect-time-row">
                             <label className="field"><FieldLabel hint="Thời điểm bắt đầu hiển thị hiệu ứng trong cảnh.">Thời điểm bắt đầu</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={effect.start} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { start: Number(event.target.value) })} /><b>giây</b></div></label>
                             <label className="field"><FieldLabel hint="Thời điểm dừng hiển thị hiệu ứng trong cảnh.">Thời điểm kết thúc</FieldLabel><div className="number-with-unit"><input type="number" min={0.1} max={sceneDuration} step={0.1} value={effect.end} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { end: Number(event.target.value) })} /><b>giây</b></div></label>
                             <label className="field"><FieldLabel hint="Mức độ mạnh hoặc rõ của hiệu ứng theo thời gian hiển thị.">Cường độ</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={100} step={1} value={effect.intensity} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { intensity: Number(event.target.value) })} /><b>%</b></div></label>
                             {definition.supportsParticles === true || definition.supportsLight !== true ? <label className="field"><FieldLabel hint="Tốc độ chuyển động của hạt hoặc vùng hiệu ứng.">Tốc độ</FieldLabel><div className="number-with-unit"><input type="number" min={0} max={3} step={0.1} value={effect.speed} disabled={!hydrated || !effect.enabled} onChange={(event) => updateSceneWeatherEffect(effect.id, { speed: Number(event.target.value) })} /><b>×</b></div></label> : null}
-                          </div>
-                          {renderSceneWeatherAppearanceControls(effect, definition, (values) => updateSceneWeatherEffect(effect.id, values), !hydrated)}
+                          </div>}
+                          {!isEffectPanelCollapsed("weather", effect.id) && renderSceneWeatherAppearanceControls(effect, definition, (values) => updateSceneWeatherEffect(effect.id, values), !hydrated)}
                         </article>
                       );
                     }) : <div className="scene-start-dark-empty">Chưa có hiệu ứng môi trường. Chọn loại hiệu ứng rồi bấm “Thêm hiệu ứng”.</div>}

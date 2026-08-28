@@ -573,6 +573,13 @@ button { color: inherit; }
 .map-text-overlay.is-playing.text-effect-reverse .text-effect-reverse-exit {
   animation: text-effect-reverse-exit var(--text-effect-duration, .6s) cubic-bezier(.22, .72, .26, 1) var(--text-effect-reverse-delay, 0s) 1 normal both;
 }
+/* Blur reverse is animated on the complete surface below, so the text
+   spans must not fade independently from the border/background surface. */
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur .text-effect-reverse-enter,
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur .text-effect-reverse-exit {
+  animation: none;
+  opacity: 1;
+}
 .map-text-overlay.text-effect-highlight-sweep::after {
   content: "";
   position: absolute;
@@ -8409,6 +8416,56 @@ body {
   gap: 2px;
 }
 
+.scene-effect-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scene-effect-panel-heading > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scene-effect-panel-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.scene-effect-panel-toggle,
+.scene-effect-panel-duplicate {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #d7c6ae;
+  border-radius: 6px;
+  color: #6f4d22;
+  background: rgba(255, 255, 255, .7);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scene-effect-panel-duplicate {
+  font-size: 14px;
+}
+
+.scene-effect-panel-toggle:hover,
+.scene-effect-panel-toggle:focus-visible,
+.scene-effect-panel-duplicate:hover,
+.scene-effect-panel-duplicate:focus-visible {
+  border-color: #b98c4b;
+  color: #3f2b16;
+  background: #fff2d9;
+}
+
 .scene-visual-effect-heading strong {
   color: #4b3822;
   font-size: 11px;
@@ -8434,6 +8491,22 @@ body {
 
 .studio-shell[data-theme="dark"] .scene-visual-effect-heading span {
   color: #9eafc2;
+}
+
+.studio-shell[data-theme="dark"] .scene-effect-panel-toggle,
+.studio-shell[data-theme="dark"] .scene-effect-panel-duplicate {
+  border-color: #52657a;
+  color: #d7e5f2;
+  background: #1b2a39;
+}
+
+.studio-shell[data-theme="dark"] .scene-effect-panel-toggle:hover,
+.studio-shell[data-theme="dark"] .scene-effect-panel-toggle:focus-visible,
+.studio-shell[data-theme="dark"] .scene-effect-panel-duplicate:hover,
+.studio-shell[data-theme="dark"] .scene-effect-panel-duplicate:focus-visible {
+  border-color: #7da9d1;
+  color: #fff;
+  background: #29445c;
 }
 
 .scene-weather-effects-card {
@@ -8478,6 +8551,11 @@ body {
   opacity: .68;
 }
 
+.scene-weather-effect-item.is-collapsed,
+.scene-start-dark-effect-item.is-collapsed {
+  gap: 0;
+}
+
 .scene-weather-effect-item-heading {
   display: flex;
   align-items: flex-start;
@@ -8485,7 +8563,7 @@ body {
   gap: 8px;
 }
 
-.scene-weather-effect-item-heading > div {
+.scene-weather-effect-item-heading > div:first-child {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
