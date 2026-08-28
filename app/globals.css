@@ -8807,6 +8807,16 @@ body {
   filter: blur(var(--weather-blur, 0px));
 }
 
+/* Every scene owns a separate stacking/lifecycle boundary. When the scene
+   key changes React unmounts this whole subtree, so full-screen effects from
+   the previous scene cannot remain above the next scene. */
+.scene-render-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
 /* Pausing a preview keeps the exact visual frame, including weather layers. */
 .phone-preview.is-playback-paused .scene-effect-layer,
 .phone-preview.is-playback-paused .scene-effect-layer * {
@@ -9092,6 +9102,22 @@ body {
     radial-gradient(circle at 78% 68%, color-mix(in srgb, var(--weather-color, #ffbe5b) 55%, transparent), transparent 42%);
   mix-blend-mode: screen;
   animation: scene-light-flicker var(--light-flicker-speed, 2s) ease-in-out infinite;
+}
+
+.light-flicker-effect.has-custom-image {
+  background: transparent;
+}
+
+.light-flicker-effect img.light-flicker-custom-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  user-select: none;
 }
 
 .snow-effect {

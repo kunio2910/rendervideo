@@ -7027,6 +7027,8 @@ function Home() {
   ) => {
     const hasParticles = definition.supportsParticles === true;
     const hasLight = definition.supportsLight === true;
+    const supportsCustomImage = definition.type === "light-flicker" || definition.type === "star-twinkle";
+    const customImageLabel = definition.type === "star-twinkle" ? "Hình hạt tùy chỉnh" : "Ảnh ánh sáng tùy chỉnh";
     const controlDisabled = disabled || !effect.enabled;
     return (
       <div className="scene-weather-appearance-controls">
@@ -7049,14 +7051,14 @@ function Home() {
           {hasParticles || hasLight ? <label className="field"><FieldLabel hint="Độ nhòe áp dụng cho nội dung hiệu ứng.">Độ nhòe</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={12} step={0.5} value={effect.blur} disabled={controlDisabled} onCommit={(value) => onChange({ blur: value })} /><b>px</b></div></label> : null}
           {hasParticles || hasLight ? <label className="field"><FieldLabel hint={hasLight ? "Cường độ phát sáng của vùng hiệu ứng." : "Độ sáng viền của các hạt."}>{hasLight ? "Độ phát sáng" : "Độ sáng viền"}</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={effect.glow} disabled={controlDisabled} onCommit={(value) => onChange({ glow: value })} /><b>%</b></div></label> : null}
           {hasLight ? <label className="field"><FieldLabel hint="Tốc độ thay đổi của nhịp sáng. Giá trị 0 là nhấp nháy chậm nhất; giá trị 10 là nhanh nhất.">Tốc độ nhấp nháy</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={10} step={0.1} value={weatherEffectFlickerSpeed(effect)} disabled={controlDisabled} onCommit={(value) => onChange({ flickerSpeed: value })} /><b>×</b></div></label> : null}
-          {definition.type === "star-twinkle" ? <div className="field scene-weather-custom-image-field">
-            <FieldLabel hint="Ảnh thay thế hạt tròn mặc định. Nên dùng PNG hoặc WebP có nền trong suốt để mỗi hạt giữ đúng hình ảnh và alpha.">Hình hạt tùy chỉnh</FieldLabel>
+          {supportsCustomImage ? <div className="field scene-weather-custom-image-field">
+            <FieldLabel hint={definition.type === "star-twinkle" ? "Ảnh thay thế hạt tròn mặc định. Nên dùng PNG hoặc WebP có nền trong suốt để mỗi hạt giữ đúng hình ảnh và alpha." : "Ảnh PNG/WebP có nền trong suốt sẽ thay thế quầng gradient mặc định và vẫn nhấp nháy theo hiệu ứng."}>{customImageLabel}</FieldLabel>
             <div className="scene-weather-media-row">
               <input type="url" value={effect.customImage ?? ""} placeholder="https://.../spark.png" disabled={controlDisabled} onChange={(event) => onChange({ customImage: event.target.value })} />
               <LocalFileButton accept="image/png,image/webp,image/gif,image/apng" label="Chọn ảnh" onPick={(file) => applyLocalMediaFile(file, (value) => onChange({ customImage: value }))} />
-              {safeTrim(effect.customImage) ? <button type="button" className="scene-weather-clear-image" disabled={controlDisabled} onClick={() => onChange({ customImage: "" })} aria-label="Bỏ hình hạt tùy chỉnh" title="Dùng lại hạt tròn mặc định">×</button> : null}
+              {safeTrim(effect.customImage) ? <button type="button" className="scene-weather-clear-image" disabled={controlDisabled} onClick={() => onChange({ customImage: "" })} aria-label={`Bỏ ${customImageLabel.toLowerCase()}`} title={definition.type === "star-twinkle" ? "Dùng lại hạt tròn mặc định" : "Dùng lại quầng sáng mặc định"}>×</button> : null}
             </div>
-            {assetPreviewSource(effect.customImage ?? "") ? <div className="scene-weather-image-preview"><img src={assetPreviewSource(effect.customImage ?? "")} alt="Xem trước hình hạt tùy chỉnh" /></div> : <small className="scene-weather-image-note">Không chọn ảnh = dùng hạt tròn mặc định.</small>}
+            {assetPreviewSource(effect.customImage ?? "") ? <div className="scene-weather-image-preview"><img src={assetPreviewSource(effect.customImage ?? "")} alt={`Xem trước ${customImageLabel.toLowerCase()}`} /></div> : <small className="scene-weather-image-note">Không chọn ảnh = dùng {definition.type === "star-twinkle" ? "hạt tròn" : "quầng sáng"} mặc định.</small>}
           </div> : null}
           {hasParticles && <label className="field"><FieldLabel hint="Số lượng hạt được tạo trong vùng hiệu ứng. Có thể tăng tối đa đến 1000% để tạo hiệu ứng dày hơn.">Mật độ hạt</FieldLabel><div className="number-with-unit"><NumericInput min={10} max={1000} step={5} value={effect.density} disabled={controlDisabled} onCommit={(value) => onChange({ density: value })} /><b>%</b></div></label>}
           {hasParticles && <label className="field"><FieldLabel hint="Độ dài vệt kéo theo sau hạt khi chuyển động.">Độ dài vệt</FieldLabel><div className="number-with-unit"><NumericInput min={0} max={200} step={5} value={effect.trail} disabled={controlDisabled} onCommit={(value) => onChange({ trail: value })} /><b>%</b></div></label>}
@@ -13748,7 +13750,7 @@ function Home() {
       : [];
 
     return (
-      <div className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
+      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
         {sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
@@ -13778,7 +13780,12 @@ function Home() {
           <div className="scene-structure-live-empty-background">Chưa có nền bản đồ</div>
         )}
 
-        {liveWeatherEffectsAtTime("light-flicker").map((effect) => <div key={`live-light-${effect.id}`} className="scene-effect-layer light-flicker-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${weatherEffectFlickerDuration(weatherEffectFlickerSpeed(effect), 2.8)}s`, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--light-flicker-glow" as string]: `${effect.glow / 100}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px` }} />)}
+        {liveWeatherEffectsAtTime("light-flicker").map((effect) => {
+          const customImageSource = assetPreviewSource(effect.customImage ?? "");
+          return <div key={`live-light-${effect.id}`} className={`scene-effect-layer light-flicker-effect${customImageSource ? " has-custom-image" : ""}`} aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--light-flicker-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.68}`, ["--light-flicker-speed" as string]: `${weatherEffectFlickerDuration(weatherEffectFlickerSpeed(effect), 2.8)}s`, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--light-flicker-glow" as string]: `${effect.glow / 100}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px` }}>
+            {customImageSource ? <img className="light-flicker-custom-image" src={customImageSource} alt="" aria-hidden="true" draggable={false} /> : null}
+          </div>;
+        })}
         {liveWeatherEffectsAtTime("snow").map((effect) => <div key={`live-snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => { const position = weatherParticlePosition(flake, effect); const motion = weatherParticleMotion(effect, index, 90); const particleSize = flake.size * effect.size / 100; return <i key={`live-snow-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${particleSize}px`, height: `${particleSize}px`, ...weatherAnimationStyle(effect.speed, flake.duration), animationDelay: `${flake.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
         {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, ...weatherAnimationStyle(effect.speed, cloud.duration), animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
         {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => { const position = weatherParticlePosition(drop, effect); const motion = weatherParticleMotion(effect, index, 90); const dropSize = effect.size / 100; return <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, ...weatherAnimationStyle(effect.speed, drop.duration), animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />; })}</div>)}
@@ -14768,6 +14775,12 @@ function Home() {
             onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}
             onDrop={sceneStructurePreviewMode ? undefined : handleMapEffectDrop}
           >
+            <div
+              key={`scene-render-${scene.id}`}
+              data-scene-id={scene.id}
+              data-scene-local-time={sceneLocalTime.toFixed(3)}
+              className="scene-render-container"
+            >
             {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
                 <video
@@ -14806,10 +14819,11 @@ function Home() {
                 />
               )
             )}
-            {sceneIsVisibleInPlayback && weatherEffectsAtTime("light-flicker").map((effect) => (
-              <div
+            {sceneIsVisibleInPlayback && weatherEffectsAtTime("light-flicker").map((effect) => {
+              const customImageSource = assetPreviewSource(effect.customImage ?? "");
+              return <div
                 key={`light-flicker-${effect.id}`}
-                className="scene-effect-layer light-flicker-effect"
+                className={`scene-effect-layer light-flicker-effect${customImageSource ? " has-custom-image" : ""}`}
                 aria-hidden="true"
                 style={{
                   ...weatherEffectLayerStyle(effect),
@@ -14820,8 +14834,10 @@ function Home() {
                   ["--weather-color" as string]: effect.color,
                   ["--weather-blur" as string]: `${effect.blur}px`,
                 }}
-              />
-            ))}
+              >
+                {customImageSource ? <img className="light-flicker-custom-image" src={customImageSource} alt="" aria-hidden="true" draggable={false} /> : null}
+              </div>;
+            })}
             {sceneIsVisibleInPlayback && weatherEffectsAtTime("snow").map((effect) => (
               <div key={`snow-${effect.id}`} className="scene-effect-layer snow-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--snow-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${2 + effect.glow * 0.06}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>
                 {weatherParticleInstances(SNOWFLAKE_SEEDS, effect).map(({ seed: flake, index }) => {
@@ -15253,8 +15269,9 @@ function Home() {
                   ["--scene-start-dark-center-opacity" as string]: String(item.centerOpacity),
                   ["--scene-start-dark-blur" as string]: `${item.blur}px`,
                 }}
-              />
+                />
             ))}
+            </div>
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (

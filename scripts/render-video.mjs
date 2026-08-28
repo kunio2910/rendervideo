@@ -628,6 +628,37 @@ const writeWeatherGradientLayer = async (filename, kind, color) => {
   return filename;
 };
 
+const writeWeatherSandstormHazeLayer = async (filename, width, height, color) => {
+  const safeColor = normalizeHexColor(color, "#f2c26b");
+  const svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="sandBase" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${safeColor}" stop-opacity=".22" />
+        <stop offset="48%" stop-color="${safeColor}" stop-opacity=".34" />
+        <stop offset="100%" stop-color="${safeColor}" stop-opacity=".22" />
+      </linearGradient>
+      <radialGradient id="sandGlow" cx="10%" cy="82%" r="62%">
+        <stop offset="0%" stop-color="${safeColor}" stop-opacity=".58" />
+        <stop offset="100%" stop-color="${safeColor}" stop-opacity="0" />
+      </radialGradient>
+      <linearGradient id="sandLow" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="42%" stop-color="${safeColor}" stop-opacity="0" />
+        <stop offset="100%" stop-color="${safeColor}" stop-opacity=".24" />
+      </linearGradient>
+      <pattern id="sandStreaks" width="42" height="30" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+        <rect width="42" height="30" fill="none" />
+        <rect x="0" y="12" width="42" height="3" rx="1.5" fill="${safeColor}" fill-opacity=".14" />
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#sandBase)" />
+    <rect width="100%" height="100%" fill="url(#sandGlow)" />
+    <rect width="100%" height="100%" fill="url(#sandLow)" />
+    <rect x="-18%" y="-18%" width="136%" height="136%" fill="url(#sandStreaks)" opacity=".85" />
+  </svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(filename);
+  return filename;
+};
+
 const weatherPhaseExpression = (cycle, delay, timeVariable = "T", start = 0) => {
   const safeCycle = Math.max(0.05, Number(cycle) || 1);
   // Make the modulo numerator positive so a negative CSS animation-delay
@@ -1918,21 +1949,13 @@ for (let index = 0; index < scenes.length; index += 1) {
   const decorationLayerIds = decorationRenders.map(({ scene: decoration }, index) => layerItemId(decoration, index, "decoration"));
   const sceneImageLayerIds = sceneImageRenders.map(({ scene: image }, index) => layerItemId(image, index, "image"));
   const popupLayerIds = popupRenders.map(({ scene: popup }, index) => layerItemId(popup, index, "popup"));
-  const layerCandidates = [
+  const nonWeatherLayerCandidates = [
     ...textLayerIds.map((id) => layerToken("text", id)),
     ...popupLayerIds.map((id) => layerToken("popup", id)),
     ...decorationLayerIds.map((id) => layerToken("decoration", id)),
     ...sceneImageLayerIds.map((id) => layerToken("image", id)),
     ...(subtitleRenders.length ? [layerToken("subtitle", "subtitle")] : []),
   ];
-  const knownLayerTokens = new Set(layerCandidates);
-  const storedLayerOrder = Array.isArray(scene.layerOrder)
-    ? scene.layerOrder.filter((token) => typeof token === "string")
-    : [];
-  const orderedLayerTokens = Array.from(new Set([
-    ...storedLayerOrder.filter((token) => knownLayerTokens.has(token)),
-    ...layerCandidates.filter((token) => !storedLayerOrder.includes(token)),
-  ]));
   const textInputIndices = textOverlayRenders.map((_, index) => 1 + index);
   const decorationInputStartIndex = 1 + textOverlayRenders.length;
   const decorationInputIndices = decorationRenders.map((_, index) => decorationInputStartIndex + index);
@@ -1955,6 +1978,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   let filter = backgroundFilter;
   let composedLabel = "[bg]";
   const sceneEffects = normalizeSceneEffects(scene.effects, duration);
+  const weatherLayerOutputs = [];
   const createWeatherRegion = (effect, label) => {
     const widthPercent = clamp(Number(effect.width ?? 100) / 100, 0.05, 2);
     const heightPercent = clamp(Number(effect.height ?? 100) / 100, 0.05, 2);
@@ -1982,12 +2006,13 @@ for (let index = 0; index < scenes.length; index += 1) {
     };
 
     const finish = () => {
-      const centerX = `main_w*(0.5+${(Number(effect.offsetX ?? 0) / 100).toFixed(4)})-overlay_w/2`;
-      const centerY = `main_h*(0.5+${(Number(effect.offsetY ?? 0) / 100).toFixed(4)})-overlay_h/2`;
-      const outputLabel = `${label}Output`;
-      filter += `${composedLabel}${regionComposedLabel}overlay=` +
-        `x='${centerX}':y='${centerY}':shortest=1:eval=frame[${outputLabel}];`;
-      composedLabel = `[${outputLabel}]`;
+      weatherLayerOutputs.push({
+        token: layerToken("effect", `weather:${effect.id}`),
+        effect,
+        label: regionComposedLabel,
+        width: regionWidth,
+        height: regionHeight,
+      });
     };
 
     return { width: regionWidth, height: regionHeight, add, finish };
@@ -1999,7 +2024,6 @@ for (let index = 0; index < scenes.length; index += 1) {
     const alpha = (
       (effect.intensity / 100)
       * (effect.opacity / 100)
-      * (0.35 + (effect.glow / 100) * 0.65)
       * 0.68
     ).toFixed(4);
     const lightScaleValue = Math.max(0.25, effect.size / 100);
@@ -2008,15 +2032,28 @@ for (let index = 0; index < scenes.length; index += 1) {
       "light",
       effect.color,
     );
+    const customLightImage = String(effect.customImage ?? "").trim()
+      ? await resolveImage(
+          effect.customImage,
+          `weather-light-${index + 1}-${effectIndex + 1}-custom.png`,
+        )
+      : null;
     const region = createWeatherRegion(effect, `lightFlickerRegion${effectIndex}`);
     const lightWidth = Math.max(2, Math.round(region.width * lightScaleValue / 2) * 2);
     const lightHeight = Math.max(2, Math.round(region.height * lightScaleValue / 2) * 2);
     region.add({
-      input: { type: "file", path: lightPath },
+      ...(customLightImage
+        ? {
+            input: { type: "file", path: customLightImage },
+            inputFilter: `format=rgba,scale=${lightWidth}:${lightHeight}:force_original_aspect_ratio=decrease,pad=${lightWidth}:${lightHeight}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
+          }
+        : {
+            input: { type: "file", path: lightPath },
+            inputFilter: `format=rgba,scale=${lightWidth}:${lightHeight}${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
+          }),
       x: `(main_w-overlay_w)/2`,
       y: `(main_h-overlay_h)/2`,
       label: `lightFlicker${effectIndex}`,
-      inputFilter: `format=rgba,scale=${lightWidth}:${lightHeight}${weatherBlurFilter(effect)},${geqRgba({ alpha: `alpha(X,Y)*${alpha}*(${pulse})*${weatherWindowExpression(effect)}` })}`,
     });
     region.finish();
   }
@@ -2132,10 +2169,33 @@ for (let index = 0; index < scenes.length; index += 1) {
     const sandColor = weatherColorValue(effect.color, "#f2c26b");
     const sandCount = weatherParticleCount(sandstormSeeds, effect);
     const region = createWeatherRegion(effect, `sandstormRegion${effectIndex}`);
+    const hazePath = await writeWeatherSandstormHazeLayer(
+      path.join(renderDir, `weather-sandstorm-haze-${index + 1}-${effectIndex}.png`),
+      region.width,
+      region.height,
+      effect.color,
+    );
+    const hazePhase = weatherPhaseExpression(
+      weatherEffectCycle(effect, 4.8),
+      0,
+      "T",
+      effect.start,
+    );
+    const hazePulse = `(0.7+0.3*(0.5+0.5*sin(6.283185*${hazePhase})))`;
+    const sandHazeOpacity = (
+      (effect.intensity / 100)
+      * (effect.opacity / 100)
+    ).toFixed(4);
+    region.add({
+      input: { type: "file", path: hazePath },
+      x: `(main_w-overlay_w)/2`,
+      y: `(main_h-overlay_h)/2`,
+      label: `sandstormHaze${effectIndex}`,
+      inputFilter: `format=rgba,${geqRgba({ alpha: `alpha(X,Y)*${sandHazeOpacity}*${hazePulse}*${weatherWindowExpression(effect)}` })}`,
+    });
     const sandOpacity = (
       (effect.intensity / 100)
       * (effect.opacity / 100)
-      * (0.45 + (effect.glow / 100) * 0.55)
     ).toFixed(4);
     for (let sandIndex = 0; sandIndex < sandCount; sandIndex += 1) {
       const grain = sandstormSeeds[sandIndex % sandstormSeeds.length];
@@ -2218,6 +2278,28 @@ for (let index = 0; index < scenes.length; index += 1) {
     }
     region.finish();
   }
+  const layerCandidates = [
+    ...weatherLayerOutputs.map(({ token }) => token),
+    ...nonWeatherLayerCandidates,
+  ];
+  const knownLayerTokens = new Set(layerCandidates);
+  const storedLayerOrder = Array.isArray(scene.layerOrder)
+    ? scene.layerOrder.filter((token) => typeof token === "string")
+    : [];
+  const orderedLayerTokens = Array.from(new Set([
+    ...storedLayerOrder.filter((token) => knownLayerTokens.has(token)),
+    ...layerCandidates.filter((token) => !storedLayerOrder.includes(token)),
+  ]));
+  const appendWeatherLayer = (weatherIndex) => {
+    const weatherLayer = weatherLayerOutputs[weatherIndex];
+    if (!weatherLayer) return;
+    const centerX = `main_w*(0.5+${(Number(weatherLayer.effect.offsetX ?? 0) / 100).toFixed(4)})-overlay_w/2`;
+    const centerY = `main_h*(0.5+${(Number(weatherLayer.effect.offsetY ?? 0) / 100).toFixed(4)})-overlay_h/2`;
+    const outputLabel = `weatherLayer${weatherIndex}`;
+    filter += `${composedLabel}${weatherLayer.label}overlay=` +
+      `x='${centerX}':y='${centerY}':shortest=1:eval=frame[${outputLabel}];`;
+    composedLabel = `[${outputLabel}]`;
+  };
   const appendTextLayer = (textIndex) => {
     const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
@@ -2552,10 +2634,13 @@ for (let index = 0; index < scenes.length; index += 1) {
     const separatorIndex = token.indexOf(":");
     const kind = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
     const id = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : "";
-    if (kind === "text") {
-      const index = textLayerIds.indexOf(id);
-      if (index >= 0) appendTextLayer(index);
-    } else if (kind === "image") {
+        if (kind === "text") {
+          const index = textLayerIds.indexOf(id);
+          if (index >= 0) appendTextLayer(index);
+        } else if (kind === "effect" && id.startsWith("weather:")) {
+          const index = weatherLayerOutputs.findIndex((item) => item.token === token);
+          if (index >= 0) appendWeatherLayer(index);
+        } else if (kind === "image") {
       const index = sceneImageLayerIds.indexOf(id);
       if (index >= 0) appendSceneImageLayer(index);
     } else if (kind === "decoration") {
@@ -2661,7 +2746,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     filter += `${composedLabel}[${fadeInputIndex}:v]overlay=0:0:shortest=1[${fadeLabel}];`;
     composedLabel = `[${fadeLabel}]`;
   });
-  filter += `${composedLabel}copy[composed]`;
+  // Close every scene at its own local boundary before the individual clips
+  // are concatenated. This prevents a delayed/looped layer from carrying a
+  // frame or a non-zero timestamp into the next scene clip.
+  filter += `${composedLabel}trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[composed]`;
   // Weather, subtitles and layered media can make a filter graph much longer
   // than Windows' process command-line limit. Keep the graph in a file so a
   // scene with all environmental effects can still be rendered reliably.
