@@ -865,9 +865,23 @@ const CLOUD_SEEDS = Array.from({ length: 7 }, (_, index) => ({
   drift: 118 + ((index * 17) % 45),
 }));
 
+const radicalInverse = (index: number, base: number) => {
+  let value = 0;
+  let fraction = 1 / base;
+  let current = index + 1;
+  while (current > 0) {
+    value += (current % base) * fraction;
+    current = Math.floor(current / base);
+    fraction /= base;
+  }
+  return value;
+};
+
 const STAR_TWINKLE_SEEDS = Array.from({ length: 34 }, (_, index) => ({
-  x: 6 + ((index * 31) % 88),
-  y: 6 + ((index * 53) % 82),
+  // A low-discrepancy 2D sequence avoids the diagonal bands created by two
+  // unrelated modulo formulas while keeping the result deterministic.
+  x: 8 + radicalInverse(index, 2) * 84,
+  y: 8 + radicalInverse(index, 3) * 84,
   size: 1 + ((index * 7) % 3),
   duration: 1.8 + ((index * 17) % 24) / 10,
   delay: -((index * 29) % 30) / 10,
@@ -2308,8 +2322,14 @@ const normalizeEditorSections = (
   sections?: Partial<EditorSectionState>,
 ): EditorSectionState => {
   const source = sections ?? DEFAULT_EDITOR_SECTIONS;
-  const firstOpen = (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
-    .find((section) => source[section] === true);
+  // Older saved projects did not contain the Layer section at all. Treat that
+  // shape as a legacy snapshot and open the migrated Layer panel by default.
+  const hasLayerPreference = !sections
+    || Object.prototype.hasOwnProperty.call(sections, "layer");
+  const firstOpen = hasLayerPreference
+    ? (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
+      .find((section) => source[section] === true)
+    : "layer";
   return firstOpen
     ? {
         visual: firstOpen === "visual",
@@ -4381,6 +4401,7 @@ function Home() {
     width: `${Math.min(200, Math.max(5, Number(effect.width) || 100))}%`,
     height: `${Math.min(200, Math.max(5, Number(effect.height) || 100))}%`,
     transform: "translate(-50%, -50%)",
+    zIndex: previewLayerZIndex("effect", `weather:${effect.id}`),
   });
   const previewWeatherEffectsAtTime = weatherEffectsAtTime;
   const sceneStartDarkEffects = sceneEffects.sceneStartDarkEffects;
@@ -4611,6 +4632,38 @@ function Home() {
         canToggleVisibility: true,
         canLock: false,
       },
+      {
+        token: previewLayerToken("effect", "zoom"),
+        kind: "effect" as const,
+        id: "zoom",
+        label: "Zoom bản đồ",
+        icon: "⌕",
+        visible: scene.zoomEnabled !== false,
+        editorVisible: true,
+        canReorder: false,
+        canLock: false,
+      },
+      ...sceneEffects.sceneStartDarkEffects.map((effect, index) => ({
+        token: previewLayerToken("effect", `dark:${effect.id}`),
+        kind: "effect" as const,
+        id: `dark:${effect.id}`,
+        label: `Hiệu ứng tối ${index + 1}`,
+        icon: "◐",
+        visible: effect.enabled,
+        editorVisible: true,
+      })),
+      ...sceneEffects.weatherEffects.map((effect, index) => {
+        const definition = sceneWeatherEffectDefinition(effect.type);
+        return {
+          token: previewLayerToken("effect", `weather:${effect.id}`),
+          kind: "effect" as const,
+          id: `weather:${effect.id}`,
+          label: `${definition.label} ${index + 1}`,
+          icon: definition.icon,
+          visible: effect.enabled,
+          editorVisible: true,
+        };
+      }),
       // The layer panel describes the selected scene, not only the items that
       // happen to be visible at the current playhead. Keep hidden/out-of-time
       // items in this list so they can still be inspected and reordered. A
@@ -4705,6 +4758,8 @@ function Home() {
     scenePopups,
     scene.background,
     scene.backgroundVisible,
+    scene.effects,
+    scene.zoomEnabled,
     legacyBackgroundPreview,
     scene.subtitleEnabled,
     scene.subtitles,
@@ -8036,6 +8091,33 @@ function Home() {
       updateCurrentScene("backgroundVisible", nextVisible);
       return;
     }
+    if (layer.kind === "effect") {
+      if (layer.id === "zoom") {
+        updateCurrentScene("zoomEnabled", nextVisible);
+        return;
+      }
+      const currentEffects = normalizeSceneEffects(scene.effects);
+      if (layer.id.startsWith("dark:")) {
+        const effectId = layer.id.slice("dark:".length);
+        updateSceneEffects(
+          "sceneStartDarkEffects",
+          currentEffects.sceneStartDarkEffects.map((effect) =>
+            effect.id === effectId ? { ...effect, enabled: nextVisible } : effect,
+          ),
+        );
+        return;
+      }
+      if (layer.id.startsWith("weather:")) {
+        const effectId = layer.id.slice("weather:".length);
+        updateSceneEffects(
+          "weatherEffects",
+          currentEffects.weatherEffects.map((effect) =>
+            effect.id === effectId ? { ...effect, enabled: nextVisible } : effect,
+          ),
+        );
+      }
+      return;
+    }
     if (layer.kind === "popup") {
       updatePopup("visible", nextVisible, layer.id);
       return;
@@ -8077,9 +8159,18 @@ function Home() {
     setScenes((items) => items.map((currentScene) => {
       if (currentScene.id !== scene.id) return currentScene;
       const popups = scenePopupList(currentScene).map((popup) => ({ ...popup, visible }));
+      const currentEffects = normalizeSceneEffects(currentScene.effects);
+      const nextEffects: SceneEffects = {
+        ...currentEffects,
+        sceneStartDarkEnabled: visible,
+        sceneStartDarkEffects: currentEffects.sceneStartDarkEffects.map((effect) => ({ ...effect, enabled: visible })),
+        weatherEffects: currentEffects.weatherEffects.map((effect) => ({ ...effect, enabled: visible })),
+      };
       return {
         ...currentScene,
         backgroundVisible: visible,
+        zoomEnabled: visible,
+        effects: syncSceneWeatherFields(nextEffects, nextEffects.weatherEffects),
         popups,
         ...(popups[0] ? popupSceneFields(popups[0]) : {}),
         sceneImages: (currentScene.sceneImages ?? []).map((image) => ({ ...image, visible })),
@@ -13810,6 +13901,7 @@ function Home() {
             className="scene-start-dark-effect scene-structure-live-layer"
             aria-hidden="true"
             style={{
+              zIndex: previewLayerZIndex("effect", `dark:${item.effect.id}`),
               ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
               ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
               ["--scene-start-dark-mid-opacity" as string]: String(item.midOpacity),
@@ -15061,6 +15153,7 @@ function Home() {
                 className="scene-start-dark-effect"
                 aria-hidden="true"
                 style={{
+                  zIndex: previewLayerZIndex("effect", `dark:${item.effect.id}`),
                   ["--scene-start-dark-clear-radius" as string]: `${item.clearRadius}%`,
                   ["--scene-start-dark-edge-opacity" as string]: String(item.edgeOpacity),
                   ["--scene-start-dark-mid-opacity" as string]: String(item.midOpacity),

@@ -537,9 +537,23 @@ const sandstormSeeds = Array.from({ length: 44 }, (_, index) => ({
   drift: 34 + ((index * 23) % 52),
   tilt: -10 + ((index * 17) % 24),
 }));
+
+const radicalInverse = (index, base) => {
+  let value = 0;
+  let fraction = 1 / base;
+  let current = index + 1;
+  while (current > 0) {
+    value += (current % base) * fraction;
+    current = Math.floor(current / base);
+    fraction /= base;
+  }
+  return value;
+};
+
 const starTwinkleSeeds = Array.from({ length: 34 }, (_, index) => ({
-  x: 6 + ((index * 31) % 88),
-  y: 6 + ((index * 53) % 82),
+  // Keep render output aligned with the preview while avoiding diagonal bands.
+  x: 8 + radicalInverse(index, 2) * 84,
+  y: 8 + radicalInverse(index, 3) * 84,
   size: 1 + ((index * 7) % 3),
   duration: 1.8 + ((index * 17) % 24) / 10,
   delay: -((index * 29) % 30) / 10,
@@ -2144,7 +2158,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       const cycle = weatherEffectCycle(effect, star.duration);
       const phase = weatherEffectPhase(effect, cycle, star.delay, "T", effect.start);
       const overlayPhase = weatherEffectPhase(effect, cycle, star.delay, "t", effect.start);
-      const opacity = `if(lt(${phase},0.18),${phase}/0.18,if(gt(${phase},0.82),(1-${phase})/0.18,0.35+0.65*sin(PI*(${phase}-0.18)/0.64)))`;
+      const opacity = `if(lt(${phase},0.36),0.06+0.24*${phase}/0.36,if(lt(${phase},0.46),0.3+0.7*(${phase}-0.36)/0.1,if(lt(${phase},0.56),1-0.94*(${phase}-0.46)/0.1,0.06)))`;
       const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
       region.add({
         source: `color=c=0x${starColor}@0.98:s=${starSize}x${starSize}:r=${fps}:d=${duration},format=rgba,${geqRgba({ alpha: "if(lte((X-W/2)^2+(Y-H/2)^2,(min(W,H)/2)^2),alpha(X,Y),0)" })}${weatherBlurFilter(effect)}`,

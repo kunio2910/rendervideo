@@ -4973,7 +4973,7 @@ body {
 .studio-shell[data-studio-tab="compose"] .editor-accordion-audio { order: 5; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-effects { order: 6; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion-popup { order: 7; }
-.studio-shell[data-studio-tab="compose"] .editor-accordion-layer { order: 8; }
+.studio-shell[data-studio-tab="compose"] .editor-accordion-layer { order: 0; }
 .studio-shell[data-studio-tab="compose"] .editor-accordion {
   flex: 0 0 auto;
   min-height: max-content;
@@ -9070,7 +9070,7 @@ body {
 
 .star-twinkle-effect {
   z-index: 4;
-  opacity: var(--star-twinkle-intensity, .6);
+  opacity: min(1, calc(var(--star-twinkle-intensity, .6) * 1.25));
   mix-blend-mode: screen;
 }
 
@@ -9083,6 +9083,7 @@ body {
     0 0 var(--star-glow, 6px) color-mix(in srgb, var(--star-color, #ffeba6) 98%, transparent),
     0 0 calc(var(--star-glow, 6px) * 2) color-mix(in srgb, var(--star-color, #ffc253) 68%, transparent);
   animation: scene-star-twinkle 2.4s ease-in-out infinite;
+  will-change: opacity, transform, filter;
 }
 
 .thunder-effect {
@@ -12542,10 +12543,11 @@ body {
 }
 
 @keyframes scene-star-twinkle {
-  0%, 100% { opacity: .12; transform: translate3d(calc(var(--weather-vector-x, 0px) * -1), calc(var(--weather-vector-y, 0px) * -1), 0) scale(.65); }
-  18% { opacity: .46; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.6), calc(var(--weather-vector-y, 0px) * -.6), 0) scale(.85); }
-  50% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.2); }
-  82% { opacity: .34; transform: translate3d(calc(var(--weather-vector-x, 0px) * .6), calc(var(--weather-vector-y, 0px) * .6), 0) scale(.8); }
+  0%, 100% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * -1), calc(var(--weather-vector-y, 0px) * -1), 0) scale(.45); filter: brightness(.7) saturate(.9); }
+  28% { opacity: .12; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.65), calc(var(--weather-vector-y, 0px) * -.65), 0) scale(.58); filter: brightness(.85) saturate(1); }
+  36% { opacity: .3; transform: translate3d(calc(var(--weather-vector-x, 0px) * -.35), calc(var(--weather-vector-y, 0px) * -.35), 0) scale(.8); filter: brightness(1.2) saturate(1.1); }
+  46% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.45); filter: brightness(2.5) saturate(1.55); }
+  56% { opacity: .06; transform: translate3d(calc(var(--weather-vector-x, 0px) * .55), calc(var(--weather-vector-y, 0px) * .55), 0) scale(.5); filter: brightness(.7) saturate(.9); }
 }
 
 /* Photoshop-like preview layer stack: topmost item is displayed first. */
