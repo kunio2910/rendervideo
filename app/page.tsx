@@ -4231,6 +4231,7 @@ function Home() {
   const timelinePopupMoved = useRef(false);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineZoomRef = useRef(100);
+  const textOverlayPlaybackOriginRef = useRef(0);
   const reviewZoomRef = useRef(readReviewZoomPreference());
   const rulerToggleRef = useRef<HTMLButtonElement | null>(null);
   const rulerPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -4628,6 +4629,29 @@ function Home() {
     const configuredDuration = Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6);
     const availablePhase = overlay.textEffectReverse ? visibleSpan / 2 : visibleSpan;
     return Math.max(0.05, Math.min(configuredDuration, availablePhase));
+  };
+  const textOverlayPlaybackStyle = (
+    overlay: TextOverlay,
+    start: number,
+    end: number,
+    localTime: number,
+    playbackOriginTime: number,
+    playbackActive: boolean,
+  ): React.CSSProperties => {
+    if (!playbackActive || normalizeTextOverlayEffect(overlay.textEffect) !== "blur") return {};
+    const effectDuration = textOverlayEffectDuration(overlay, start, end);
+    const clampProgress = (value: number) => Math.min(1, Math.max(0, value));
+    const reverseStart = end - effectDuration;
+    const entryStart = Math.max(start, Math.min(end, playbackOriginTime));
+    const progress = overlay.textEffectReverse
+      ? localTime < reverseStart
+        ? clampProgress((localTime - entryStart) / effectDuration)
+        : clampProgress((end - localTime) / effectDuration)
+      : clampProgress((localTime - entryStart) / effectDuration);
+    return {
+      filter: `blur(${(12 * (1 - progress)).toFixed(2)}px)`,
+      opacity: Number((0.25 + progress * 0.75).toFixed(3)),
+    };
   };
   const previewTextOverlayItems = sceneIsVisibleInPlayback
     ? previewPlaybackMode
@@ -6620,11 +6644,13 @@ function Home() {
       visibleScenes.find((item) => item.start >= resumeAt) ??
       visibleScenes[0];
     const startAt = activeScene?.start ?? resumeAt;
+    const nextPlayTime = activeScene && !(resumeAt >= activeScene.start && resumeAt < activeScene.end)
+      ? startAt
+      : resumeAt;
     setRulerEnabled(false);
     setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
-    setPlayTime(activeScene && !(resumeAt >= activeScene.start && resumeAt < activeScene.end)
-      ? startAt
-      : resumeAt);
+    textOverlayPlaybackOriginRef.current = nextPlayTime;
+    setPlayTime(nextPlayTime);
     if (activeScene) setSelectedId(activeScene.id);
     setPlaybackRestartToken((value) => value + 1);
     setPreviewPlaybackMode(true);
@@ -6639,6 +6665,7 @@ function Home() {
     if (previewPlaybackMode) {
       setRulerEnabled(false);
       setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      textOverlayPlaybackOriginRef.current = playTimeRef.current;
       setPlaybackRestartToken((value) => value + 1);
       setPlaying(true);
       return;
@@ -12729,9 +12756,11 @@ function Home() {
     }
     const enteringPreview = !sceneStructurePreviewMode;
     const shouldRestart = !sceneStructurePreviewMode || playTime >= sceneStructureScene.end;
+    const nextPlayTime = shouldRestart ? sceneStructureScene.start : playTime;
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
-    if (shouldRestart) setPlayTime(sceneStructureScene.start);
+    textOverlayPlaybackOriginRef.current = nextPlayTime;
+    if (shouldRestart) setPlayTime(nextPlayTime);
     setPlaybackRestartToken((value) => value + 1);
     setPreviewPlaybackMode(true);
     if (enteringPreview) setSceneStructurePreviewPortalHost(null);
@@ -13952,6 +13981,14 @@ function Home() {
             const effectReverseDelay = overlay.textEffectReverse
               ? Math.max(0, end - start - effectDuration * 2)
               : 0;
+            const blurPlaybackStyle = textOverlayPlaybackStyle(
+              overlay,
+              start,
+              end,
+              localTime,
+              Math.max(0, textOverlayPlaybackOriginRef.current - sceneStructureScene.start),
+              previewIsPlaying,
+            );
             if (localTime < start || localTime >= end) return null;
             return (
               <div
@@ -13964,6 +14001,7 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
+                  ...blurPlaybackStyle,
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
@@ -15067,6 +15105,14 @@ function Home() {
                 const effectReverseDelay = overlay.textEffectReverse
                   ? Math.max(0, end - start - effectDuration * 2)
                   : 0;
+                const blurPlaybackStyle = textOverlayPlaybackStyle(
+                  overlay,
+                  start,
+                  end,
+                  sceneLocalTime,
+                  Math.max(0, textOverlayPlaybackOriginRef.current - scene.start),
+                  playing,
+                );
                 return (
               <div
                 key={`${scene.id}-${overlay.id}-${previewPlaybackMode ? playbackRestartToken : "editor"}`}
@@ -15078,6 +15124,7 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.width)) ? { width: `${overlay.width}%` } : {}),
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
+                  ...blurPlaybackStyle,
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,

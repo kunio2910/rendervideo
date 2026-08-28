@@ -13109,8 +13109,10 @@ body {
   z-index: 1201;
   inset: 18px;
   width: auto;
-  height: auto;
+  height: calc(100vh - 36px);
+  height: calc(100dvh - 36px);
   max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
   min-height: 0;
   flex: none;
   border-radius: 16px;
@@ -13143,7 +13145,10 @@ body {
 @media (max-width: 760px) {
   .studio-shell.layer-panel-fullscreen .editor-layer-panel {
     inset: 10px;
+    height: calc(100vh - 20px);
+    height: calc(100dvh - 20px);
     max-height: calc(100vh - 20px);
+    max-height: calc(100dvh - 20px);
     border-radius: 14px;
   }
 }
