@@ -2343,15 +2343,17 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
       filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
     } else if (effect === "blur") {
-      const sharpSourceLabel = `textBlurSharpSource${textIndex}`;
-      const sharpLabel = `textBlurSharp${textIndex}`;
-      const blurSourceLabel = `textBlurSource${textIndex}`;
-      const blurLabel = `textBlurred${textIndex}`;
-      const blurProgress = geqProgress;
-      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpSourceLabel}][${blurSourceLabel}];`;
-      filter += `[${blurSourceLabel}]gblur=sigma=10,${geqRgba({ alpha: `alpha(X,Y)*(1-(${blurProgress}))` })}[${blurLabel}];`;
-      filter += `[${sharpSourceLabel}]${geqRgba({ alpha: `alpha(X,Y)*(${blurProgress})` })}[${sharpLabel}];`;
-      filter += `[${blurLabel}][${sharpLabel}]overlay=0:0:format=auto[${inputLabel}];`;
+      // Blur the complete overlay as one surface. A sharp/blurred crossfade
+      // makes high-contrast borders leave a visible halo after the letters
+      // look sharp, because the blurred border spreads beyond its source
+      // pixels. A time-varying radius keeps the text, stroke and frame on
+      // exactly the same blur curve in preview and in the final video.
+      const blurProgress = progress;
+      const blurRadius = `min(10,max(0,10*(1-(${blurProgress}))))`;
+      filter += `[${inputIndex}:v]format=rgba,boxblur=` +
+        `luma_radius='${blurRadius}':luma_power=1:` +
+        `chroma_radius='${blurRadius}':chroma_power=1:` +
+        `alpha_radius='${blurRadius}':alpha_power=1[${inputLabel}];`;
     } else {
       let inputFilter = `[${inputIndex}:v]format=rgba`;
       if (effect === "fade") {
