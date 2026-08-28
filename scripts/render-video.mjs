@@ -407,12 +407,17 @@ const normalizeSceneWeatherEffects = (value, duration = 3600) => {
       end,
       intensity: clamp(Number(candidate.intensity ?? definition.intensity) || definition.intensity, 0, 100),
       speed: clamp(numberOr(candidate.speed, definition.speed), 0, 3),
+      flickerSpeed: clamp(
+        numberOr(candidate.flickerSpeed, numberOr(candidate.speed, definition.speed)),
+        0,
+        3,
+      ),
       color: normalizeHexColor(candidate.color, definition.color),
       opacity: clamp(numberOr(candidate.opacity, 100), 0, 100),
       size: clamp(numberOr(candidate.size, definition.size), 25, 300),
       width: clamp(numberOr(candidate.width, 100), 5, 200),
       height: clamp(numberOr(candidate.height, 100), 5, 200),
-      density: clamp(numberOr(candidate.density, definition.density), 10, 500),
+      density: clamp(numberOr(candidate.density, definition.density), 10, 1000),
       movementMode: candidate.movementMode === "random" ? "random" : definition.movementMode,
       movementAngle: normalizeWeatherAngle(candidate.movementAngle, definition.movementAngle),
       randomness: clamp(numberOr(candidate.randomness, 45), 0, 100),
@@ -635,14 +640,14 @@ const weatherFadeExpression = (phase, plateau = 0.9) =>
 
 const weatherWindowExpression = (effect, timeVariable = "T") =>
   `if(lt(${timeVariable},${Number(effect.start).toFixed(4)}),0,if(gte(${timeVariable},${Number(effect.end).toFixed(4)}),0,1))`;
-const weatherEffectCycle = (effect, baseCycle, minimum = 0.05) =>
-  effect.speed > 0
-    ? Math.max(minimum, baseCycle / effect.speed)
+const weatherEffectCycle = (effect, baseCycle, minimum = 0.05, speed = effect.speed) =>
+  speed > 0
+    ? Math.max(minimum, baseCycle / speed)
     : effect.type === "star-twinkle"
       ? Math.max(minimum, baseCycle / 0.7)
       : 1;
-const weatherEffectPhase = (effect, cycle, delay, timeVariable, start) =>
-  effect.speed > 0
+const weatherEffectPhase = (effect, cycle, delay, timeVariable, start, speed = effect.speed) =>
+  speed > 0
     ? weatherPhaseExpression(cycle, delay, timeVariable, start)
     : effect.type === "star-twinkle"
       ? weatherPhaseExpression(cycle, delay, timeVariable, start)
@@ -1977,8 +1982,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     return { width: regionWidth, height: regionHeight, add, finish };
   };
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "light-flicker").entries()) {
-    const cycle = weatherEffectCycle(effect, 2.8, 0.2);
-    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start);
+    const cycle = weatherEffectCycle(effect, 2.8, 0.2, effect.flickerSpeed);
+    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start, effect.flickerSpeed);
     const pulse = `if(lt(${phase},0.24),1-0.38*${phase}/0.24,if(lt(${phase},0.45),0.62+0.38*(${phase}-0.24)/0.21,if(lt(${phase},0.68),1-0.3*(${phase}-0.45)/0.23,0.7+0.3*(${phase}-0.68)/0.32)))`;
     const alpha = (
       (effect.intensity / 100)
@@ -2005,8 +2010,8 @@ for (let index = 0; index < scenes.length; index += 1) {
     region.finish();
   }
   for (const [effectIndex, effect] of sceneWeatherEffectsOfType(sceneEffects, "thunder").entries()) {
-    const cycle = weatherEffectCycle(effect, 3.6, 0.4);
-    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start);
+    const cycle = weatherEffectCycle(effect, 3.6, 0.4, effect.flickerSpeed);
+    const phase = weatherEffectPhase(effect, cycle, 0, "T", effect.start, effect.flickerSpeed);
     const pulse = `if(lt(${phase},0.31),0,if(lt(${phase},0.33),0.72*(${phase}-0.31)/0.02,if(lt(${phase},0.35),0.72-0.57*(${phase}-0.33)/0.02,if(lt(${phase},0.37),0.15+0.75*(${phase}-0.35)/0.02,if(lt(${phase},0.4),0.9*(0.4-${phase})/0.03,if(lt(${phase},0.68),0,if(lt(${phase},0.7),0.48*(${phase}-0.68)/0.02,if(lt(${phase},0.72),0.48*(0.72-${phase})/0.02,0))))))))`;
     const alpha = (
       (effect.intensity / 100)
@@ -2161,9 +2166,9 @@ for (let index = 0; index < scenes.length; index += 1) {
       const vectorX = Math.round(region.width * motion.x / 100);
       const vectorY = Math.round(region.height * motion.y / 100);
       const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4 * Math.max(0.25, effect.size / 100))));
-      const cycle = weatherEffectCycle(effect, star.duration);
-      const phase = weatherEffectPhase(effect, cycle, star.delay, "T", effect.start);
-      const overlayPhase = weatherEffectPhase(effect, cycle, star.delay, "t", effect.start);
+      const cycle = weatherEffectCycle(effect, star.duration, 0.05, effect.flickerSpeed);
+      const phase = weatherEffectPhase(effect, cycle, star.delay, "T", effect.start, effect.flickerSpeed);
+      const overlayPhase = weatherEffectPhase(effect, cycle, star.delay, "t", effect.start, effect.flickerSpeed);
       const opacity = `if(lt(${phase},0.36),0.06+0.24*${phase}/0.36,if(lt(${phase},0.46),0.3+0.7*(${phase}-0.36)/0.1,if(lt(${phase},0.56),1-0.94*(${phase}-0.46)/0.1,0.06)))`;
       const starLabel = `starTwinkle${effectIndex}_${starIndex}`;
       region.add({
