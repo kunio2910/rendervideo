@@ -936,6 +936,13 @@ const weatherAnimationStyle = (speed: number, duration: number) => speed > 0
   ? { animationDuration: `${duration / speed}s` }
   : { animationName: "none", animationDuration: "0s" };
 
+// Ánh sao vẫn cần một chu kỳ nhấp nháy khi người dùng đặt tốc độ bằng 0;
+// giá trị này chỉ được xem là tốc độ tối thiểu riêng cho hiệu ứng sao.
+const starTwinkleAnimationStyle = (speed: number, duration: number) => ({
+  animationName: "scene-star-twinkle",
+  animationDuration: `${duration / Math.max(0.7, speed)}s`,
+});
+
 type PopupConfig = {
   id: string;
   title: string;
@@ -1536,6 +1543,7 @@ type StoredProject = {
   renderProfile?: RenderProfile;
   renderEncoder?: RenderEncoder;
   editorSections?: EditorSectionState;
+  expandedAudioSubtitleTracks?: Record<string, boolean>;
   sceneStructureLibraryCollapsed?: boolean;
   sceneStructureInspectorCollapsed?: boolean;
   previewZoom?: number;
@@ -1561,14 +1569,14 @@ const EDITOR_SECTION_SHORTCUTS: Array<{
   number: string;
   label: string;
 }> = [
-  { key: "visual", number: "01", label: "Hình & nền" },
-  { key: "content", number: "02", label: "Nội dung" },
-  { key: "images", number: "03", label: "Hình ảnh" },
-  { key: "text", number: "04", label: "Chữ viết" },
-  { key: "audio", number: "05", label: "Âm thanh" },
-  { key: "effects", number: "06", label: "Hiệu ứng" },
-  { key: "popup", number: "07", label: "Popup" },
-  { key: "layer", number: "08", label: "Layer" },
+  { key: "layer", number: "01", label: "Layer" },
+  { key: "visual", number: "02", label: "Hình & nền" },
+  { key: "content", number: "03", label: "Nội dung" },
+  { key: "images", number: "04", label: "Hình ảnh" },
+  { key: "text", number: "05", label: "Chữ viết" },
+  { key: "audio", number: "06", label: "Âm thanh" },
+  { key: "effects", number: "07", label: "Hiệu ứng" },
+  { key: "popup", number: "08", label: "Popup" },
 ];
 
 type EditorSectionClipboard =
@@ -2351,6 +2359,26 @@ const normalizeEditorSections = (
         images: false,
         layer: false,
       };
+};
+
+const editorSectionsWithOnly = (section: EditorSectionKey): EditorSectionState => ({
+  visual: section === "visual",
+  content: section === "content",
+  audio: section === "audio",
+  effects: section === "effects",
+  popup: section === "popup",
+  text: section === "text",
+  images: section === "images",
+  layer: section === "layer",
+});
+
+const normalizeExpandedAudioSubtitleTracks = (value: unknown): Record<string, boolean> => {
+  if (!isRecord(value)) return {};
+  const normalized: Record<string, boolean> = {};
+  Object.entries(value).forEach(([trackId, expanded]) => {
+    if (trackId && typeof expanded === "boolean") normalized[trackId] = expanded;
+  });
+  return normalized;
 };
 
 const popupDimensionLayout = (value: unknown): NonNullable<Scene["popupLayout"]> =>
@@ -3958,7 +3986,7 @@ function Home() {
       ).forEach((item) => {
         if (item.dataset.editorSection !== section) item.open = false;
       });
-      setEditorSections(normalizeEditorSections({ [section]: true }));
+      setEditorSections(editorSectionsWithOnly(section));
       return;
     }
     if (activeEditorSectionRef.current !== section) return;
@@ -5489,6 +5517,7 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      expandedAudioSubtitleTracks,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom: clampPreviewZoom(previewZoom),
@@ -5517,6 +5546,7 @@ function Home() {
       backgroundMusic,
       backgroundMusicVolume,
       editorSections,
+      expandedAudioSubtitleTracks,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom,
@@ -5585,6 +5615,9 @@ function Home() {
       backgroundVisible: item.backgroundVisible ?? project.backgroundVisible ?? true,
     }));
     if (!preserveHistory) setEditorSections(normalizeEditorSections(project.editorSections));
+    setExpandedAudioSubtitleTracks(
+      normalizeExpandedAudioSubtitleTracks(project.expandedAudioSubtitleTracks),
+    );
     setScenes(restoredScenes);
     const preferredSelectedId = preserveHistory ? preservedSelectedId : safeTrim(project.activeSceneId);
     const restoredSelectedScene = restoredScenes.find((item) => item.id === preferredSelectedId)
@@ -6024,6 +6057,7 @@ function Home() {
         const firstScene = visibleScenes[0];
         setPlayTime(firstScene?.start ?? 0);
         setPlaying(false);
+        setPreviewPlaybackMode(false);
         if (firstScene) {
           setSelectedId(firstScene.id);
           setSelectedSceneIds([firstScene.id]);
@@ -6498,25 +6532,22 @@ function Home() {
     togglePlayback();
   };
 
-  const replayPlayback = () => {
-    const firstScene = visibleScenes[0];
-    if (!firstScene) {
-      setToast("Chưa có cảnh đang hiện để chạy lại");
-      window.setTimeout(() => setToast(""), 2600);
-      return;
-    }
-    setRulerEnabled(false);
+  const endPreview = () => {
+    setPlaying(false);
+    setPreviewPlaybackMode(false);
     setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
-    setPlayTime(firstScene.start);
-    setSelectedId(firstScene.id);
-    setSelectedSceneIds([firstScene.id]);
+    const firstScene = visibleScenes[0];
+    setPlayTime(firstScene?.start ?? 0);
+    if (firstScene) {
+      setSelectedId(firstScene.id);
+      setSelectedSceneIds([firstScene.id]);
+    }
     setSelectedPopupId("");
     setSelectedTextOverlayId("");
     setSelectedDecorationId("");
     setSelectedSceneImageId("");
-    setPlaybackRestartToken((value) => value + 1);
-    setPreviewPlaybackMode(true);
-    setPlaying(true);
+    setSelectedPreviewLayerTokens([]);
+    setPreviewLayerSelectionAnchor("");
   };
 
   const togglePreviewAudio = () => {
@@ -13684,7 +13715,7 @@ function Home() {
         {liveWeatherEffectsAtTime("cloud").map((effect) => <div key={`live-cloud-${effect.id}`} className="scene-effect-layer cloud-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--cloud-intensity" as string]: `${effect.intensity / 100}` }}>{CLOUD_SEEDS.map((cloud, index) => <i key={`live-cloud-${effect.id}-${index}`} style={{ left: `${cloud.x}%`, top: `${cloud.y}%`, width: `${cloud.width}%`, height: `${cloud.height}px`, ...weatherAnimationStyle(effect.speed, cloud.duration), animationDelay: `${cloud.delay}s`, ["--cloud-drift" as string]: `${cloud.drift}%` }} />)}</div>)}
         {liveWeatherEffectsAtTime("rain").map((effect) => <div key={`live-rain-${effect.id}`} className="scene-effect-layer rain-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--rain-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-glow" as string]: `${1 + effect.glow * 0.05}px`, ["--weather-blur" as string]: `${effect.blur}px` }}>{weatherParticleInstances(RAIN_DROP_SEEDS, effect).map(({ seed: drop, index }) => { const position = weatherParticlePosition(drop, effect); const motion = weatherParticleMotion(effect, index, 90); const dropSize = effect.size / 100; return <i key={`live-rain-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(1, drop.width * dropSize)}px`, height: `${Math.max(6, drop.length * dropSize * (1 + effect.trail / 100))}px`, ...weatherAnimationStyle(effect.speed, drop.duration), animationDelay: `${drop.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle - 76}deg` }} />; })}</div>)}
         {liveWeatherEffectsAtTime("sandstorm").map((effect) => <div key={`live-sandstorm-${effect.id}`} className={`scene-effect-layer sandstorm-effect ${effect.speed === 0 ? "is-static" : ""}`} aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--sandstorm-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--weather-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(SAND_PARTICLE_SEEDS, effect).map(({ seed: particle, index }) => { const position = weatherParticlePosition(particle, effect); const motion = weatherParticleMotion(effect, index, 0); const particleSize = effect.size / 100; return <i key={`live-sand-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, particle.size * 1.8 * particleSize * (1 + effect.trail / 100))}px`, height: `${Math.max(1.5, particle.size * particleSize)}px`, ...weatherAnimationStyle(effect.speed, particle.duration), animationDelay: `${particle.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--weather-streak-angle" as string]: `${motion.angle + particle.tilt}deg` }} />; })}</div>)}
-        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => { const position = weatherParticlePosition(star, effect); const motion = weatherParticleMotion(effect, index, 0, 24); const starSize = star.size * 2.4 * effect.size / 100; return <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...weatherAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
+        {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => { const position = weatherParticlePosition(star, effect); const motion = weatherParticleMotion(effect, index, 0, effect.speed > 0 ? 24 : 0); const starSize = star.size * 2.4 * effect.size / 100; return <i key={`live-star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...starTwinkleAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />; })}</div>)}
         {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${effect.speed > 0 ? Math.max(0.4, 3.6 / effect.speed) : 0}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px`, opacity: effect.speed === 0 ? (effect.intensity / 100) * (effect.opacity / 100) * 0.78 : undefined, animationName: effect.speed === 0 ? "none" : undefined }} />)}
 
         {sceneStructureTexts
@@ -14494,12 +14525,12 @@ function Home() {
                 type="button"
                 className="preview-replay-button"
                 disabled={!hydrated || !visibleScenes.length}
-                aria-label="Chạy lại từ đầu"
-                title="Chạy lại toàn bộ video từ đầu"
-                onClick={replayPlayback}
+                aria-label="Kết thúc xem trước"
+                title="Dừng xem trước và quay về trạng thái ban đầu"
+                onClick={endPreview}
               >
-                <span aria-hidden="true">↻</span>
-                <b>Chạy lại</b>
+                <span aria-hidden="true">■</span>
+                <b>Kết thúc</b>
               </button>
               <button
                 type="button"
@@ -14768,9 +14799,9 @@ function Home() {
               >
                 {weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => {
                   const position = weatherParticlePosition(star, effect);
-                  const motion = weatherParticleMotion(effect, index, 0, 24);
+                  const motion = weatherParticleMotion(effect, index, 0, effect.speed > 0 ? 24 : 0);
                   const starSize = star.size * 2.4 * effect.size / 100;
-                  return <i key={`star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...weatherAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />;
+                  return <i key={`star-twinkle-${effect.id}-${index}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${Math.max(2, starSize)}px`, height: `${Math.max(2, starSize)}px`, ...starTwinkleAnimationStyle(effect.speed, star.duration), animationDelay: `${star.delay}s`, ["--weather-vector-x" as string]: `${motion.x}cqw`, ["--weather-vector-y" as string]: `${motion.y}cqh`, ["--star-glow" as string]: `${star.glow * (0.35 + effect.glow / 100)}px`, ["--weather-streak-angle" as string]: `${motion.angle}deg` }} />;
                 })}
               </div>
             ))}
@@ -15277,7 +15308,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>08</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
+                <span>01</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
               </summary>
               <div className="editor-accordion-content editor-layer-panel-content">
                 {renderPreviewLayerPanel()}
@@ -15293,7 +15324,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>01</span><strong>Hình ảnh & nền</strong>{editorSectionActions("visual")}<i />
+                <span>02</span><strong>Hình ảnh & nền</strong>{editorSectionActions("visual")}<i />
               </summary>
               <div className="editor-accordion-content">
             <EditorFieldGroup
@@ -15394,7 +15425,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>03</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
+                <span>04</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <div className="scene-image-manager">
@@ -15619,7 +15650,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>02</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
+                <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
             <EditorFieldGroup title="Thông tin cơ bản" description="Tên và độ dài tổng thể của cảnh đang chọn.">
@@ -15662,7 +15693,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>04</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
+                <span>05</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <EditorFieldGroup title="Nội dung chữ" description="Chọn layer và nhập nội dung hiển thị trên bản đồ.">
@@ -16317,7 +16348,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>05</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
+                <span>06</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
               </summary>
               <div className="editor-accordion-content">
             <EditorFieldGroup title="Nhạc nền" description="Nhạc dùng chung cho video và mức âm lượng phát nền.">
@@ -16610,7 +16641,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>06</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
+                <span>07</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
               </summary>
               <div className="editor-accordion-content">
                 <div className="zoom-settings-card scene-visual-effect-card scene-zoom-effect-card" aria-label="Hiệu ứng zoom bản đồ">
@@ -17173,7 +17204,7 @@ function Home() {
               }}
             >
               <summary className="editor-group-label">
-                <span>07</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
+                <span>08</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
               </summary>
               <div className="editor-accordion-content">
             <EditorFieldGroup title="Danh sách popup" description="Chọn popup để chỉnh, kéo để đổi thứ tự hoặc dùng các nút thao tác nhanh.">

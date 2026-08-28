@@ -636,10 +636,16 @@ const weatherFadeExpression = (phase, plateau = 0.9) =>
 const weatherWindowExpression = (effect, timeVariable = "T") =>
   `if(lt(${timeVariable},${Number(effect.start).toFixed(4)}),0,if(gte(${timeVariable},${Number(effect.end).toFixed(4)}),0,1))`;
 const weatherEffectCycle = (effect, baseCycle, minimum = 0.05) =>
-  effect.speed > 0 ? Math.max(minimum, baseCycle / effect.speed) : 1;
+  effect.speed > 0
+    ? Math.max(minimum, baseCycle / effect.speed)
+    : effect.type === "star-twinkle"
+      ? Math.max(minimum, baseCycle / 0.7)
+      : 1;
 const weatherEffectPhase = (effect, cycle, delay, timeVariable, start) =>
   effect.speed > 0
     ? weatherPhaseExpression(cycle, delay, timeVariable, start)
+    : effect.type === "star-twinkle"
+      ? weatherPhaseExpression(cycle, delay, timeVariable, start)
     : effect.type === "thunder" ? "0.35" : "0.5";
 
 const popupPixelHeight = (scene) => Math.min(
@@ -2151,7 +2157,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
       const star = starTwinkleSeeds[starIndex % starTwinkleSeeds.length];
       const position = weatherParticlePosition(star, effect);
-      const motion = weatherParticleMotion(effect, starIndex, 0, 24);
+      const motion = weatherParticleMotion(effect, starIndex, 0, effect.speed > 0 ? 24 : 0);
       const vectorX = Math.round(region.width * motion.x / 100);
       const vectorY = Math.round(region.height * motion.y / 100);
       const starSize = Math.max(2, Math.round(previewPx(star.size * 2.4 * Math.max(0.25, effect.size / 100))));
