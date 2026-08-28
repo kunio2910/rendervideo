@@ -2355,17 +2355,21 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
       filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
     } else if (effect === "blur") {
-      // Blur the complete overlay as one surface. A sharp/blurred crossfade
-      // makes high-contrast borders leave a visible halo after the letters
-      // look sharp, because the blurred border spreads beyond its source
-      // pixels. A time-varying radius keeps the text, stroke and frame on
-      // exactly the same blur curve in preview and in the final video.
-      const blurProgress = progress;
-      const blurRadius = `min(10,max(0,10*(1-(${blurProgress}))))`;
-      filter += `[${inputIndex}:v]format=rgba,boxblur=` +
-        `luma_radius='${blurRadius}':luma_power=1:` +
-        `chroma_radius='${blurRadius}':chroma_power=1:` +
-        `alpha_radius='${blurRadius}':alpha_power=1[${inputLabel}];`;
+      // boxblur does not expose a frame-time variable in its radius
+      // expression. Build one fixed blurred surface and blend it with the
+      // sharp surface using blend's per-frame T variable instead. This keeps
+      // the text, stroke and border on the exact same blur curve.
+      const sharpLabel = `textSharp${textIndex}`;
+      const blurSourceLabel = `textBlurSource${textIndex}`;
+      const blurredLabel = `textBlurred${textIndex}`;
+      const blendProgress = geqProgress;
+      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
+      filter += `[${blurSourceLabel}]boxblur=` +
+        `luma_radius=10:luma_power=1:` +
+        `chroma_radius=10:chroma_power=1:` +
+        `alpha_radius=10:alpha_power=1[${blurredLabel}];`;
+      filter += `[${blurredLabel}][${sharpLabel}]blend=` +
+        `all_expr='A*(1-(${blendProgress}))+B*(${blendProgress})'[${inputLabel}];`;
     } else {
       let inputFilter = `[${inputIndex}:v]format=rgba`;
       if (effect === "fade") {

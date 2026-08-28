@@ -524,7 +524,13 @@ button { color: inherit; }
   animation-timing-function: ease-in-out;
 }
 .map-text-overlay.is-playing.text-effect-letter-spacing { animation-name: text-effect-letter-spacing; }
-.map-text-overlay.is-playing.text-effect-blur { animation-name: text-effect-blur; }
+.map-text-overlay.is-playing.text-effect-blur {
+  animation-name: text-effect-blur;
+  will-change: opacity, filter;
+}
+.map-text-overlay.is-playing.text-effect-blur:not(.text-effect-reverse) {
+  animation: text-effect-blur var(--text-effect-duration, .6s) cubic-bezier(.22, .72, .26, 1) 0s 1 normal both;
+}
 .map-text-overlay.is-playing.text-effect-highlight-sweep { animation-name: text-effect-highlight; }
 .map-text-overlay.is-playing.text-effect-shake {
   animation-name: text-effect-shake;
