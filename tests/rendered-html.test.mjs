@@ -528,7 +528,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /preview-control-panel-portrait/);
   assert.match(page, /scene\.zoomEnabled !== false \? \[\{/);
   assert.match(css, /preview-control-panel\.preview-control-panel-portrait/);
-  assert.match(css, /grid-template-columns: 32px 32px repeat\(5, 28px\) 54px/);
+  assert.match(css, /preview-control-panel-portrait \.preview-control-bar \{[\s\S]{0,180}display: flex;[\s\S]{0,80}flex-wrap: nowrap;/);
   assert.match(css, /scene-structure-info-row\.is-selected \{[\s\S]{0,220}border-color: #3bb273/);
   assert.match(css, /\.preview-ruler-style-popover \{[\s\S]{0,180}position: fixed;/);
   assert.doesNotMatch(css, /editor-accordion-popup\[open\] > \.editor-accordion-content/);
