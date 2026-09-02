@@ -8,6 +8,33 @@ import sharp from "sharp";
 import { cacheRemoteResource, collectProjectRemoteResources } from "../scripts/render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "../scripts/sprite-sheet.mjs";
 import { measureSvgTextWidth, wrapTextByPixelWidth } from "../scripts/render-text-layout.mjs";
+import {
+  sceneImagePlaybackEndAt,
+  sortSceneImagesByStart,
+} from "../scripts/render-scene-images.mjs";
+
+test("orders scene images chronologically before calculating transition overlap", () => {
+  const sceneImages = [
+    { id: "start-12", start: 12, duration: 6, transition: "crossfade", transitionEnd: 13.1 },
+    { id: "start-23", start: 23, duration: 21.84, transition: "crossfade", transitionEnd: 24.1 },
+    { id: "start-45", start: 45, duration: 10, transition: "crossfade", transitionEnd: 46.1 },
+    { id: "start-95", start: 95, duration: 30, transition: "crossfade", transitionEnd: 96.1 },
+    { id: "start-124", start: 124, duration: 44, transition: "crossfade", transitionEnd: 125.1 },
+    { id: "start-54", start: 54, duration: 25, transition: "crossfade", transitionEnd: 55.1 },
+    { id: "start-17", start: 17, duration: 8, transition: "crossfade", transitionEnd: 18.1 },
+    { id: "start-78", start: 78, duration: 18, transition: "crossfade", transitionEnd: 79.1 },
+  ];
+
+  const ordered = sortSceneImagesByStart(sceneImages);
+  assert.deepEqual(ordered.map((image) => image.start), [12, 17, 23, 45, 54, 78, 95, 124]);
+  assert.deepEqual(sceneImages.map((image) => image.start), [12, 23, 45, 95, 124, 54, 17, 78]);
+
+  const start17Index = ordered.findIndex((image) => image.id === "start-17");
+  assert.equal(sceneImagePlaybackEndAt(ordered, start17Index, 175), 25);
+
+  const start45Index = ordered.findIndex((image) => image.id === "start-45");
+  assert.ok(Math.abs(sceneImagePlaybackEndAt(ordered, start45Index, 175) - 55.1) < 0.0001);
+});
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -383,12 +410,13 @@ test("keeps editor safety and render checks in the source", async () => {
 });
 
 test("keeps preview and FFmpeg render settings aligned", async () => {
-  const [page, css, renderer, localServer, resourceCache] = await Promise.all([
+  const [page, css, renderer, localServer, resourceCache, desktopRuntime] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../scripts/render-video.mjs", import.meta.url), "utf8"),
     readFile(new URL("../scripts/local-render-server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../scripts/render-resource-cache.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../desktop/stage-runtime.mjs", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /assetPreviewUrls/);
@@ -709,7 +737,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /orderedLayerTokens/);
   assert.match(renderer, /layerToken = \(kind, id\)/);
   assert.match(renderer, /appendSceneImageLayer/);
-  assert.match(renderer, /sceneImageTransitionNeedsOverlap/);
+  assert.match(renderer, /sortSceneImagesByStart/);
+  assert.match(renderer, /sceneImagePlaybackEndAt/);
+  assert.match(page, /layerOrder: Array\.isArray\(item\.layerOrder\)/);
+  assert.match(desktopRuntime, /"render-scene-images\.mjs"/);
   assert.match(renderer, /imageTransitionFilter/);
   assert.match(renderer, /sceneImageFadeBlack/);
   assert.match(renderer, /boxblur=luma_radius/);

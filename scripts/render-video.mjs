@@ -6,6 +6,12 @@ import sharp from "sharp";
 import { cacheRemoteResource, isRemoteResourceUrl, resourceKey } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 import { measureSvgTextWidth, wrapTextByPixelWidth } from "./render-text-layout.mjs";
+import {
+  normalizeSceneImageTransition,
+  sceneImagePlaybackEndAt,
+  sceneImageTransitionDuration,
+  sortSceneImagesByStart,
+} from "./render-scene-images.mjs";
 
 const [jsonPath, outputPath] = process.argv.slice(2);
 if (!jsonPath || !outputPath) {
@@ -252,8 +258,6 @@ const textOverlayEffectValues = [
 const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(String(value))
   ? String(value)
   : "none";
-const sceneImageTransitionValues = ["cut", "crossfade", "fade-black", "slide-left", "slide-right", "zoom", "blur"];
-const normalizeSceneImageTransition = (value) => sceneImageTransitionValues.includes(String(value)) ? String(value) : "cut";
 const nonNegativeDarkEffectNumber = (value, fallback) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
@@ -308,19 +312,6 @@ const normalizeSceneDarkEffectTiming = (value, fallback, limit = 3600) => {
     end: start + fadeInDuration + holdDuration + fadeOutDuration,
   };
 };
-const sceneImageTransitionEnd = (image) => {
-  const start = Math.max(0, Number(image?.start ?? 0) || 0);
-  const legacyDuration = Math.max(0.1, Number(image?.transitionDuration ?? 0.5) || 0.5);
-  const end = Number.isFinite(Number(image?.transitionEnd))
-    ? Number(image.transitionEnd)
-    : start + legacyDuration;
-  return Math.max(start + 0.1, end);
-};
-const sceneImageTransitionDuration = (image) => normalizeSceneImageTransition(image?.transition) === "cut"
-  ? 0
-  : Math.max(0.1, sceneImageTransitionEnd(image) - Math.max(0, Number(image?.start ?? 0) || 0));
-const sceneImageTransitionNeedsOverlap = (transition) =>
-  transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 const popupDimensionLayout = (value) => ["image-top", "split", "quote", "stats", "image-only", "content-only"].includes(String(value))
   ? String(value)
   : "image-top";
@@ -1826,27 +1817,13 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
     if (rendered) decorationRenders.push({ scene: decoration, rendered });
   }
-  const sceneImageScenes = Array.isArray(scene.sceneImages)
-    ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
-    : [];
-  const sceneImagePlaybackEnd = (imageIndex) => {
-    const image = sceneImageScenes[imageIndex];
-    if (!image) return 0;
-    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
-    const baseEnd = imageStart + Math.max(0.1, Number(image.duration ?? duration) || 0.1);
-    const imageTransition = normalizeSceneImageTransition(image.transition);
-    const ownTransitionEnd = imageTransition === "cut"
-      ? imageStart
-      : sceneImageTransitionEnd(image);
-    const imageEnd = Math.min(duration, Math.max(baseEnd, ownTransitionEnd));
-    const nextImage = sceneImageScenes[imageIndex + 1];
-    if (!nextImage) return imageEnd;
-    const nextStart = Math.min(duration, Math.max(0, Number(nextImage.start ?? 0) || 0));
-    const nextTransition = normalizeSceneImageTransition(nextImage.transition);
-    if (!sceneImageTransitionNeedsOverlap(nextTransition)) return imageEnd;
-    const overlapEnd = nextStart + sceneImageTransitionDuration(nextImage);
-    return Math.min(duration, Math.max(imageEnd, overlapEnd));
-  };
+  const sceneImageScenes = sortSceneImagesByStart(
+    Array.isArray(scene.sceneImages)
+      ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
+      : [],
+  );
+  const sceneImagePlaybackEnd = (imageIndex) =>
+    sceneImagePlaybackEndAt(sceneImageScenes, imageIndex, duration);
   const sceneImageRenders = [];
   for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
     const image = sceneImageScenes[imageIndex];

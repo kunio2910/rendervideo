@@ -11,6 +11,7 @@ const requiredScripts = [
   "align-subtitles.mjs",
   "local-render-server.mjs",
   "render-resource-cache.mjs",
+  "render-scene-images.mjs",
   "render-text-layout.mjs",
   "render-video.mjs",
   "sprite-sheet.mjs",

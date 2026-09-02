@@ -10694,6 +10694,7 @@ function Home() {
               spriteDelay: image.spriteDelay,
               transparent: image.transparent === true,
              })),
+             layerOrder: Array.isArray(item.layerOrder) ? [...item.layerOrder] : [],
              subtitleEnabled: item.subtitleEnabled !== false,
              subtitleStart: item.subtitleStart,
              subtitleStyle: { ...normalizeSubtitleStyle(item.subtitleStyle) },
