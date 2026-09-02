@@ -15579,7 +15579,7 @@ function Home() {
               <i style={{ left: `${sceneProgress * 100}%` }} />
             </div>
           </div>
-          <div className="preview-stage-layout">
+          <div className={`preview-stage-layout ${aspectRatio === "16:9" ? "preview-stage-layout-landscape" : "preview-stage-layout-portrait"}`}>
             <aside className="preview-tool-sidebar" aria-label="Công cụ xem trước">
               <button
                 type="button"

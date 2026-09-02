@@ -14279,11 +14279,18 @@ body {
 @media (min-width: 761px) {
   .studio-shell[data-studio-tab="compose"] .preview-stage-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: start;
     justify-content: stretch;
     width: min(100%, 720px);
     margin-inline: auto;
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-stage-layout-portrait {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px) minmax(0, 1fr);
+  }
+
+  .studio-shell[data-studio-tab="compose"] .preview-stage-layout-landscape {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 528px) minmax(0, 1fr);
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-stage-layout > .preview-tool-sidebar {
@@ -14295,12 +14302,15 @@ body {
   .studio-shell[data-studio-tab="compose"] .preview-stage-layout > .preview-stage {
     grid-column: 2;
     grid-row: 1;
-    width: auto;
-    flex: 0 1 auto;
+    width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
     align-items: center;
   }
 
   .studio-shell[data-studio-tab="compose"] .preview-stage-layout > .preview-stage > .phone-preview {
+    width: 100%;
+    max-width: 100%;
     margin-inline: auto;
   }
 }
