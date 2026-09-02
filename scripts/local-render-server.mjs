@@ -98,6 +98,47 @@ const formatRenderClock = (value) => {
   return `${String(minutes).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 };
 
+// Keep progress tied to the same visible scenes, duration fallback and FPS
+// rules used by render-video.mjs. A scene count alone is misleading when one
+// scene is much longer than another.
+const getRenderFrameMetrics = (project) => {
+  const requestedFps = Math.max(1, Number(project?.fps ?? 30) || 30);
+  const fps = project?.renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
+  const scenes = (Array.isArray(project?.scenes) ? project.scenes : [])
+    .filter((scene) => scene?.sceneVisible !== false)
+    .map((scene) => {
+      const sourceDuration = Number(scene?.end ?? 0) - Number(scene?.start ?? 0);
+      const duration = Math.max(0.1, Number.isFinite(sourceDuration) ? sourceDuration : 0.1);
+      return {
+        duration,
+        frames: Math.max(1, Math.round(duration * fps)),
+      };
+    });
+  let frameOffset = 0;
+  const sceneMetrics = scenes.map((scene) => {
+    const metric = { ...scene, frameOffset };
+    frameOffset += scene.frames;
+    return metric;
+  });
+  return {
+    fps,
+    scenes: sceneMetrics,
+    totalDuration: sceneMetrics.reduce((sum, scene) => sum + scene.duration, 0),
+    totalFrames: frameOffset,
+  };
+};
+
+const clampRenderFrame = (value, totalFrames) => Math.min(
+  Math.max(0, Math.round(Number(value) || 0)),
+  Math.max(0, Number(totalFrames) || 0),
+);
+
+const renderProgressFromFrames = (renderedFrames, totalFrames) => {
+  if (!(Number(totalFrames) > 0)) return 8;
+  const ratio = Math.min(1, Math.max(0, Number(renderedFrames) || 0) / totalFrames);
+  return Number((8 + ratio * 80).toFixed(2));
+};
+
 const renderElapsedSeconds = (job) => job.startedAt
   ? Math.max(0, (Date.now() - job.startedAt) / 1000)
   : Math.max(0, Number(job.elapsedSeconds) || 0);
@@ -119,6 +160,11 @@ const renderJobPayload = (job) => {
     detail: job.detail || job.message,
     scene: Number(job.scene) || 0,
     totalScenes: Number(job.totalScenes) || 0,
+    renderFps: Number(job.renderFps) || 0,
+    renderedFrames: Number(job.renderedFrames) || 0,
+    totalFrames: Number(job.totalFrames) || 0,
+    sceneRenderedFrames: Number(job.sceneRenderedFrames) || 0,
+    sceneTotalFrames: Number(job.sceneTotalFrames) || 0,
     elapsedSeconds: Math.round(elapsedSeconds),
     etaSeconds: renderEtaSeconds(job, elapsedSeconds),
     mediaTimeSeconds: Number(job.mediaTimeSeconds) || 0,
@@ -342,14 +388,15 @@ const runJob = async (job, project, files) => {
       job.detail = job.message;
       return;
     }
-    job.totalScenes = project.scenes?.length || 0;
-    job.totalDuration = project.scenes.reduce((sum, scene) => {
-      const duration = Number(scene.duration);
-      if (Number.isFinite(duration) && duration > 0) return sum + duration;
-      const start = Number(scene.start);
-      const end = Number(scene.end);
-      return sum + (Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0);
-    }, 0);
+    const frameMetrics = job.frameMetrics || getRenderFrameMetrics(project);
+    job.frameMetrics = frameMetrics;
+    job.renderFps = frameMetrics.fps;
+    job.totalScenes = frameMetrics.scenes.length;
+    job.totalDuration = frameMetrics.totalDuration;
+    job.totalFrames = frameMetrics.totalFrames;
+    job.renderedFrames = 0;
+    job.sceneRenderedFrames = 0;
+    job.sceneTotalFrames = 0;
     job.startedAt = Date.now();
     job.status = "rendering";
     job.stage = "scene";
@@ -404,10 +451,17 @@ const runJob = async (job, project, files) => {
           job.scene = scene;
           job.totalScenes = totalScenes;
           job.sceneName = sceneName;
-          job.sceneDuration = Number(project.scenes?.[scene - 1]?.duration) || 0;
+          const sceneMetric = job.frameMetrics?.scenes?.[scene - 1];
+          job.sceneDuration = sceneMetric?.duration || 0;
+          job.sceneRenderedFrames = 0;
+          job.sceneTotalFrames = sceneMetric?.frames || 0;
+          job.renderedFrames = sceneMetric?.frameOffset || 0;
           job.mediaTimeSeconds = 0;
           job.mediaDurationSeconds = job.sceneDuration;
-          job.progress = Math.max(job.progress, Math.round(8 + ((scene - 1) / Math.max(1, totalScenes)) * 80));
+          const frameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(sceneMetric?.frameOffset || 0, job.totalFrames)
+            : Number((8 + ((scene - 1) / Math.max(1, totalScenes)) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, frameRatio);
           job.detail = `Cảnh ${scene}/${totalScenes}: ${sceneName}`;
           job.message = job.detail;
           continue;
@@ -419,7 +473,16 @@ const runJob = async (job, project, files) => {
           const totalScenes = Number(sceneComplete[2]);
           job.scene = scene;
           job.totalScenes = totalScenes;
-          job.progress = Math.max(job.progress, Math.round(8 + (scene / Math.max(1, totalScenes)) * 80));
+          const sceneMetric = job.frameMetrics?.scenes?.[scene - 1];
+          if (sceneMetric) {
+            job.sceneRenderedFrames = sceneMetric.frames;
+            job.sceneTotalFrames = sceneMetric.frames;
+            job.renderedFrames = sceneMetric.frameOffset + sceneMetric.frames;
+          }
+          const frameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(job.renderedFrames, job.totalFrames)
+            : Number((8 + (scene / Math.max(1, totalScenes)) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, frameRatio);
           job.detail = `Đã dựng xong cảnh ${scene}/${totalScenes}; đang chuyển sang bước tiếp theo…`;
           job.message = job.detail;
           continue;
@@ -457,14 +520,29 @@ const runJob = async (job, project, files) => {
           continue;
         }
 
+        const frameMatch = line.match(/(?:^|\s)frame=\s*(\d+)/i);
         const time = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/i);
-        if (!time) continue;
-        const mediaTime = Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3]);
+        if (!frameMatch && !time) continue;
+        const mediaTime = time
+          ? Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3])
+          : job.mediaTimeSeconds;
         job.mediaTimeSeconds = mediaTime;
         if (job.stage === "scene" && job.sceneDuration > 0 && job.totalScenes > 0) {
-          const sceneProgress = Math.min(1, mediaTime / job.sceneDuration);
-          job.progress = Math.max(job.progress, Math.min(88, Math.round(8 + ((job.scene - 1 + sceneProgress) / job.totalScenes) * 80)));
-          job.detail = `Cảnh ${job.scene}/${job.totalScenes}: ${job.sceneName || "đang mã hóa"} · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.sceneDuration)}`;
+          const sceneMetric = job.frameMetrics?.scenes?.[job.scene - 1];
+          const renderedSceneFrames = frameMatch
+            ? clampRenderFrame(frameMatch[1], sceneMetric?.frames || job.sceneTotalFrames)
+            : clampRenderFrame(mediaTime * job.renderFps, sceneMetric?.frames || job.sceneTotalFrames);
+          const sceneProgress = sceneMetric?.frames > 0
+            ? renderedSceneFrames / sceneMetric.frames
+            : Math.min(1, mediaTime / job.sceneDuration);
+          job.sceneRenderedFrames = renderedSceneFrames;
+          job.sceneTotalFrames = sceneMetric?.frames || job.sceneTotalFrames;
+          job.renderedFrames = (sceneMetric?.frameOffset || 0) + renderedSceneFrames;
+          const overallFrameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(job.renderedFrames, job.totalFrames)
+            : Number((8 + ((job.scene - 1 + sceneProgress) / job.totalScenes) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, Math.min(88, overallFrameRatio));
+          job.detail = `Cảnh ${job.scene}/${job.totalScenes}: ${job.sceneName || "đang mã hóa"} · ${renderedSceneFrames}/${job.sceneTotalFrames} frame · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.sceneDuration)}`;
           job.message = job.detail;
         } else if ((job.stage === "joining" || job.stage === "mixing") && job.mediaDurationSeconds > 0) {
           const start = job.stage === "joining" ? 90 : 95;
@@ -897,6 +975,7 @@ const server = http.createServer(async (request, response) => {
       if (!Array.isArray(project.scenes) || project.scenes.length === 0) {
         throw new Error("Dự án chưa có cảnh để render");
       }
+      const frameMetrics = getRenderFrameMetrics(project);
       const files = form.getAll("media").filter(
         (item) => typeof item !== "string" && typeof item.arrayBuffer === "function",
       );
@@ -912,7 +991,13 @@ const server = http.createServer(async (request, response) => {
         stageLabel: "Đang xếp hàng",
         detail: "Đang chờ phiên render được khởi động…",
         scene: 0,
-        totalScenes: project.scenes.length,
+        totalScenes: frameMetrics.scenes.length,
+        frameMetrics,
+        renderFps: frameMetrics.fps,
+        renderedFrames: 0,
+        totalFrames: frameMetrics.totalFrames,
+        sceneRenderedFrames: 0,
+        sceneTotalFrames: 0,
         mediaTimeSeconds: 0,
         mediaDurationSeconds: 0,
         elapsedSeconds: 0,

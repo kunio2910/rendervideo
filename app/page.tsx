@@ -1473,6 +1473,11 @@ type LocalRenderState = {
   detail?: string;
   scene?: number;
   totalScenes?: number;
+  renderFps?: number;
+  renderedFrames?: number;
+  totalFrames?: number;
+  sceneRenderedFrames?: number;
+  sceneTotalFrames?: number;
   elapsedSeconds?: number;
   etaSeconds?: number | null;
   mediaTimeSeconds?: number;
@@ -11313,6 +11318,11 @@ function Home() {
           detail: typeof status.detail === "string" ? status.detail : undefined,
           scene: Number(status.scene) || 0,
           totalScenes: Number(status.totalScenes) || renderPayload.scenes.length,
+          renderFps: Number(status.renderFps) || renderFps,
+          renderedFrames: Number(status.renderedFrames) || 0,
+          totalFrames: Number(status.totalFrames) || 0,
+          sceneRenderedFrames: Number(status.sceneRenderedFrames) || 0,
+          sceneTotalFrames: Number(status.sceneTotalFrames) || 0,
           elapsedSeconds: Number(status.elapsedSeconds) || 0,
           etaSeconds: Number.isFinite(Number(status.etaSeconds)) ? Number(status.etaSeconds) : null,
           mediaTimeSeconds: Number(status.mediaTimeSeconds) || 0,
@@ -11649,6 +11659,12 @@ function Home() {
   const activeRenderStageIndex = localRenderState.status === "completed"
     ? renderStageSteps.length - 1
     : renderStageSteps.findIndex((step) => step.key === localRenderState.stage);
+  const renderedFramePercent = localRenderState.totalFrames
+    ? Math.min(100, Math.max(0, ((localRenderState.renderedFrames || 0) / localRenderState.totalFrames) * 100))
+    : null;
+  const sceneFramePercent = localRenderState.sceneTotalFrames
+    ? Math.min(100, Math.max(0, ((localRenderState.sceneRenderedFrames || 0) / localRenderState.sceneTotalFrames) * 100))
+    : null;
 
   const reviewAssetSource = (value: string) => assetPreviewSource(value);
   const reviewLayoutLabel = (value: PopupConfig["layout"]) => ({
@@ -19373,7 +19389,7 @@ function Home() {
               <div className={`local-render-status ${localRenderState.status}`}>
               <div className="local-render-status-heading">
                 <strong>{localRenderState.message}</strong>
-                <span>{Math.round(localRenderState.progress)}%</span>
+                <span>{localRenderState.progress.toFixed(1)}%</span>
               </div>
               <div className="local-render-progress">
                 <i style={{ width: `${localRenderState.progress}%` }} />
@@ -19386,7 +19402,7 @@ function Home() {
                     <span className="local-render-detail-kicker">TIẾN TRÌNH CHI TIẾT</span>
                     <strong>{localRenderState.stageLabel || "Đang chuẩn bị"}</strong>
                   </div>
-                  <span className="local-render-detail-percent">{Math.round(localRenderState.progress)}%</span>
+                  <span className="local-render-detail-percent">{localRenderState.progress.toFixed(1)}%</span>
                 </div>
                 <ol className="local-render-stage-track" aria-label="Các giai đoạn render">
                   {renderStageSteps.map((step, index) => {
@@ -19423,6 +19439,14 @@ function Home() {
                   <div className="local-render-detail-item">
                     <small>Thời gian FFmpeg</small>
                     <strong>{localRenderState.mediaDurationSeconds ? `${formatRenderDuration(localRenderState.mediaTimeSeconds)} / ${formatRenderDuration(localRenderState.mediaDurationSeconds)}` : "—"}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Frame cảnh</small>
+                    <strong>{localRenderState.sceneTotalFrames ? `${sceneFramePercent?.toFixed(1)}% · ${localRenderState.sceneRenderedFrames || 0} / ${localRenderState.sceneTotalFrames}` : "—"}</strong>
+                  </div>
+                  <div className="local-render-detail-item">
+                    <small>Tiến độ frame toàn video</small>
+                    <strong>{localRenderState.totalFrames ? `${renderedFramePercent?.toFixed(1)}% · ${localRenderState.renderedFrames || 0} / ${localRenderState.totalFrames}` : "—"}</strong>
                   </div>
                 </div>
               </section>
