@@ -6483,6 +6483,7 @@ body {
   min-width: 0;
 }
 .time-field-hint {
+  position: relative;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -6494,6 +6495,35 @@ body {
   font: 800 9px/1 var(--font-mono);
   cursor: help;
   outline: none;
+}
+.time-field-hint::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1500;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 9px;
+  border: 1px solid #c8b28e;
+  border-radius: 7px;
+  background: #fffaf1;
+  color: #4b3926;
+  box-shadow: 0 6px 18px rgba(28, 39, 54, .18);
+  font: 500 10px/1.4 Arial, sans-serif;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+}
+.time-field-hint:hover::after,
+.time-field-hint:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
 }
 .time-field-hint:hover,
 .time-field-hint:focus-visible {
@@ -6517,6 +6547,12 @@ body {
 .studio-shell[data-theme="dark"] .time-field-hint { color: #e4bc79; }
 .studio-shell[data-theme="dark"] .time-field-hint:hover,
 .studio-shell[data-theme="dark"] .time-field-hint:focus-visible { color: #ffd899; background: #3a2f22; }
+.studio-shell[data-theme="dark"] .time-field-hint::after {
+  border-color: #52657a;
+  background: #1a2635;
+  color: #e4edf5;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .4);
+}
 .studio-shell[data-theme="dark"] .preview-layer-panel-hint { border-color: #304052; }
 @media (max-width: 760px) {
   .preview-stage-layout {
@@ -13113,15 +13149,15 @@ body {
 .studio-shell.layer-panel-fullscreen .editor-layer-panel {
   position: fixed;
   z-index: 1201;
-  inset: 18px;
+  inset: 8px clamp(36px, 14vw, 240px);
   width: auto;
-  height: calc(100vh - 36px);
-  height: calc(100dvh - 36px);
-  max-height: calc(100vh - 36px);
-  max-height: calc(100dvh - 36px);
+  height: calc(100vh - 16px);
+  height: calc(100dvh - 16px);
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
   min-height: 0;
   flex: none;
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
 }
 .studio-shell.layer-panel-fullscreen .editor-layer-panel .preview-layer-list {

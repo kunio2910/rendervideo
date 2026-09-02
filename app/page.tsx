@@ -435,19 +435,45 @@ const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
 const SCENE_STRUCTURE_MINIMAP_ENABLED = false;
 
 const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
-  <span className="field-label-with-hint">
-    <span>{children}</span>
-    <span
-      className="time-field-hint"
-      title={hint}
-      role="img"
-      aria-label={`Giải thích: ${hint}`}
-      tabIndex={0}
-    >
-      !
-    </span>
-  </span>
+  <FieldLabelWithRangeHint hint={hint}>{children}</FieldLabelWithRangeHint>
 );
+
+const FieldLabelWithRangeHint = ({ children, hint }: { children: ReactNode; hint: string }) => {
+  const hintRef = useRef<HTMLSpanElement | null>(null);
+  const [limits, setLimits] = useState<{ min: string; max: string }>({ min: "", max: "" });
+  useEffect(() => {
+    const control = hintRef.current?.closest("label")?.querySelector<HTMLElement>("[min], [max]");
+    const min = control?.getAttribute("min") ?? "";
+    const max = control?.getAttribute("max") ?? "";
+    setLimits((current) => current.min === min && current.max === max ? current : { min, max });
+  });
+  const limitText = limits.min || limits.max
+    ? ` · Min: ${limits.min || "—"} · Max: ${limits.max || "—"}`
+    : "";
+  const tooltip = `${hint}${limitText}`;
+  return (
+    <span className="field-label-with-hint">
+      <span>{children}</span>
+      <span
+        ref={hintRef}
+        className="time-field-hint"
+        title={tooltip}
+        data-tooltip={tooltip}
+        role="img"
+        aria-label={`Giải thích: ${tooltip}`}
+        tabIndex={0}
+      >
+        !
+      </span>
+    </span>
+  );
+};
+
+const toggleDetailsSummary = (event: React.MouseEvent<HTMLElement>) => {
+  event.preventDefault();
+  const details = event.currentTarget.parentElement;
+  if (details instanceof HTMLDetailsElement) details.open = !details.open;
+};
 
 const TimeFieldLabel = FieldLabel;
 
@@ -482,7 +508,7 @@ const EditorFieldGroup = ({
   if (advanced) {
     return (
       <details className={`editor-field-group editor-field-group-advanced ${className}`.trim()}>
-        <summary>{heading}</summary>
+        <summary onClick={toggleDetailsSummary}>{heading}</summary>
         <div className="editor-field-group-content">{children}</div>
       </details>
     );
@@ -1013,7 +1039,8 @@ type PopupConfig = {
 };
 
 type AspectRatio = "9:16" | "16:9";
-type RenderResolution = "1080x1920" | "720x1280" | "1920x1080" | "1280x720";
+type RenderResolution = "1080x1920" | "720x1280" | "360x640" | "1920x1080" | "1280x720";
+type RenderFps = 12 | 24 | 30 | 60;
 type RenderProfile = "quality" | "fast";
 type RenderEncoder = "auto" | "cpu" | "intel-qsv" | "amd-amf" | "nvidia-nvenc";
 
@@ -1038,7 +1065,13 @@ const resolutionOptionsFor = (aspectRatio: AspectRatio) => aspectRatio === "16:9
   : [
       { value: "1080x1920" as RenderResolution, label: "1080×1920" },
       { value: "720x1280" as RenderResolution, label: "720×1280" },
+      { value: "360x640" as RenderResolution, label: "360×640" },
     ];
+
+const normalizeRenderFps = (value: unknown): RenderFps => {
+  const fps = Number.parseInt(String(value).replace(/\s*FPS$/i, ""), 10);
+  return fps === 12 || fps === 24 || fps === 30 || fps === 60 ? fps : 30;
+};
 
 const defaultResolutionFor = (aspectRatio: AspectRatio): RenderResolution =>
   aspectRatio === "16:9" ? "1920x1080" : "1080x1920";
@@ -1581,7 +1614,7 @@ type StoredProject = {
   backgroundVisible?: boolean;
   backgroundMusic?: string;
   backgroundMusicVolume?: number;
-  renderFps?: 24 | 30 | 60;
+  renderFps?: RenderFps;
   renderProfile?: RenderProfile;
   renderEncoder?: RenderEncoder;
   editorSections?: EditorSectionState;
@@ -4014,7 +4047,7 @@ function Home() {
   const [projectDuration, setProjectDuration] = useState(30);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [renderResolution, setRenderResolution] = useState<RenderResolution>("1080x1920");
-  const [renderFps, setRenderFps] = useState<24 | 30 | 60>(30);
+  const [renderFps, setRenderFps] = useState<RenderFps>(30);
   const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
   const [renderEncoder, setRenderEncoder] = useState<RenderEncoder>("auto");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
@@ -5712,7 +5745,7 @@ function Home() {
     setRenderResolution(normalizeRenderResolution(project.renderResolution, nextAspectRatio));
     setImageEnabled(project.imageEnabled);
     setNarrationEnabled(project.narrationEnabled);
-    setRenderFps(project.renderFps ?? 30);
+    setRenderFps(normalizeRenderFps(project.renderFps));
     setRenderProfile(normalizeRenderProfile(project.renderProfile));
     setRenderEncoder(normalizeRenderEncoder(project.renderEncoder));
     setBackground(project.background ?? "");
@@ -5814,7 +5847,7 @@ function Home() {
         ),
         imageEnabled: data.imageEnabled ?? true,
         narrationEnabled: data.narrationEnabled ?? true,
-        renderFps: data.renderFps ?? 30,
+        renderFps: normalizeRenderFps(data.renderFps),
         renderProfile: normalizeRenderProfile(data.renderProfile),
         renderEncoder: normalizeRenderEncoder(data.renderEncoder),
         background: data.background ?? "",
@@ -15602,7 +15635,7 @@ function Home() {
                 setEditorSectionOpen("layer", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>01</span><strong>Layer</strong>{editorSectionActions("layer")}<i />
               </summary>
               <div className="editor-accordion-content editor-layer-panel-content">
@@ -15618,7 +15651,7 @@ function Home() {
                 setEditorSectionOpen("visual", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>02</span><strong>Hình ảnh & nền</strong>{editorSectionActions("visual")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -15719,7 +15752,7 @@ function Home() {
                 setEditorSectionOpen("images", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>04</span><strong>Hình ảnh</strong>{editorSectionActions("images")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -15944,7 +15977,7 @@ function Home() {
                 setEditorSectionOpen("content", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>03</span><strong>Nội dung cảnh</strong>{editorSectionActions("content")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -15987,7 +16020,7 @@ function Home() {
                 setEditorSectionOpen("text", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>05</span><strong>Chữ viết</strong>{editorSectionActions("text")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -16637,7 +16670,7 @@ function Home() {
                 setEditorSectionOpen("audio", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>06</span><strong>Âm thanh</strong>{editorSectionActions("audio")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -16930,7 +16963,7 @@ function Home() {
                 setEditorSectionOpen("effects", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>07</span><strong>Hiệu ứng</strong>{editorSectionActions("effects")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -16968,6 +17001,8 @@ function Home() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          min={0}
+                          max={Math.max(0, sceneDuration - 0.1)}
                           value={zoomInputValue("zoomStart", scene.zoomStart)}
                           disabled={!zoomEnabled}
                           onChange={(event) => updateZoomInput("zoomStart", event.target.value)}
@@ -16982,6 +17017,8 @@ function Home() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          min={1}
+                          max={4}
                           value={zoomInputValue("zoom", scene.zoom)}
                           disabled={!zoomEnabled}
                           onChange={(event) => updateZoomInput("zoom", event.target.value)}
@@ -16996,6 +17033,8 @@ function Home() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          min={Math.min(sceneDuration, scene.zoomStart + 0.1)}
+                          max={sceneDuration}
                           value={zoomInputValue("zoomEnd", scene.zoomEnd)}
                           disabled={!zoomEnabled}
                           onChange={(event) => updateZoomInput("zoomEnd", event.target.value)}
@@ -17010,6 +17049,8 @@ function Home() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          min={0}
+                          max={sceneDuration}
                           value={zoomInputValue("zoomInDuration", scene.zoomInDuration)}
                           disabled={!zoomEnabled}
                           onChange={(event) => updateZoomInput("zoomInDuration", event.target.value)}
@@ -17024,6 +17065,8 @@ function Home() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          min={0}
+                          max={sceneDuration}
                           value={zoomInputValue("zoomOutDuration", scene.zoomOutDuration)}
                           disabled={!zoomEnabled}
                           onChange={(event) => updateZoomInput("zoomOutDuration", event.target.value)}
@@ -17525,7 +17568,7 @@ function Home() {
                 setEditorSectionOpen("popup", open);
               }}
             >
-              <summary className="editor-group-label">
+              <summary className="editor-group-label" onClick={toggleDetailsSummary}>
                 <span>08</span><strong>Popup</strong>{editorSectionActions("popup")}<i />
               </summary>
               <div className="editor-accordion-content">
@@ -18236,8 +18279,9 @@ function Home() {
                           <select
                             value={`${renderFps} FPS`}
                             aria-label="Khung hình render"
-                            onChange={(event) => setRenderFps(Number.parseInt(event.target.value, 10) as 24 | 30 | 60)}
+                            onChange={(event) => setRenderFps(normalizeRenderFps(event.target.value))}
                           >
+                            <option value="12 FPS">12 FPS</option>
                             <option value="30 FPS">30 FPS</option>
                             <option value="24 FPS">24 FPS</option>
                             <option value="60 FPS">60 FPS</option>

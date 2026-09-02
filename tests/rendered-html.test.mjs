@@ -116,6 +116,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /popupStart/);
   assert.match(page, /Bật hiệu ứng zoom bản đồ/);
   assert.match(page, /Thời gian kết thúc zoom/);
+  assert.match(page, /field-label-with-hint/);
+  assert.match(page, /data-tooltip=\{tooltip\}/);
+  assert.match(page, /toggleDetailsSummary/);
+  assert.match(page, /360x640/);
+  assert.match(page, /12 FPS/);
+  assert.match(page, /type RenderFps = 12 \| 24 \| 30 \| 60/);
   assert.match(page, /Âm lượng nhạc nền/);
   assert.match(page, /Âm lượng âm thanh/);
   assert.match(page, /zoom-focus-target/);
@@ -337,6 +343,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /scene-thunder/);
   assert.match(css, /is-playback-paused[\s\S]{0,180}animation-play-state: paused !important/);
   assert.match(css, /scene-visual-effect-card/);
+  assert.match(css, /time-field-hint::after/);
+  assert.match(css, /layer-panel-fullscreen[\s\S]*inset: 8px clamp/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });
