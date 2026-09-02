@@ -1657,6 +1657,7 @@ type StoredProject = {
   sceneStructureInspectorCollapsed?: boolean;
   previewZoom?: number;
   previewEffectsVisible?: boolean;
+  previewTikTokSettings?: PreviewTikTokSettings;
   scenes: Scene[];
 };
 
@@ -1755,6 +1756,27 @@ const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+type PreviewTikTokSettings = {
+  enabled: boolean;
+  showUi: boolean;
+  showSafeArea: boolean;
+};
+
+const DEFAULT_PREVIEW_TIKTOK_SETTINGS: PreviewTikTokSettings = {
+  enabled: false,
+  showUi: true,
+  showSafeArea: true,
+};
+
+const normalizePreviewTikTokSettings = (value: unknown): PreviewTikTokSettings => {
+  const candidate = isRecord(value) ? value : {};
+  return {
+    enabled: candidate.enabled === true,
+    showUi: candidate.showUi !== false,
+    showSafeArea: candidate.showSafeArea !== false,
+  };
+};
 
 const clampPercent = (value: unknown, fallback = 50) => {
   const numeric = value === null || value === undefined ? Number.NaN : Number(value);
@@ -4203,6 +4225,9 @@ function Home() {
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(PREVIEW_ZOOM_DEFAULT);
   const [previewEffectsVisible, setPreviewEffectsVisible] = useState(true);
+  const [previewTikTokSettings, setPreviewTikTokSettings] = useState<PreviewTikTokSettings>(
+    DEFAULT_PREVIEW_TIKTOK_SETTINGS,
+  );
   const [clipboardScene, setClipboardScene] = useState<Scene | null>(null);
   const [sectionClipboard, setSectionClipboard] = useState<Partial<Record<EditorSectionKey, EditorSectionClipboard>>>({});
   const [localRenderState, setLocalRenderState] = useState<LocalRenderState>({
@@ -5714,6 +5739,7 @@ function Home() {
       sceneStructureInspectorCollapsed,
       previewZoom: clampPreviewZoom(previewZoom),
       previewEffectsVisible,
+      previewTikTokSettings,
       scenes,
     }),
     [
@@ -5744,6 +5770,7 @@ function Home() {
       sceneStructureInspectorCollapsed,
       previewZoom,
       previewEffectsVisible,
+      previewTikTokSettings,
       scenes,
     ],
   );
@@ -5798,6 +5825,7 @@ function Home() {
     setSceneStructureInspectorCollapsed(project.sceneStructureInspectorCollapsed === true);
     setPreviewZoom(clampPreviewZoom(project.previewZoom));
     setPreviewEffectsVisible(project.previewEffectsVisible !== false);
+    setPreviewTikTokSettings(normalizePreviewTikTokSettings(project.previewTikTokSettings));
     setEffectPanelCollapsed(normalizeEffectPanelCollapsed(project.effectPanelCollapsed));
     setBackgroundMusicPreview((current) => {
       if (current) URL.revokeObjectURL(current);
@@ -5863,6 +5891,7 @@ function Home() {
         effectPanelCollapsed: normalizeEffectPanelCollapsed(project.effectPanelCollapsed),
         previewZoom: clampPreviewZoom(project.previewZoom),
         previewEffectsVisible: project.previewEffectsVisible !== false,
+        previewTikTokSettings: normalizePreviewTikTokSettings(project.previewTikTokSettings),
         scenes: ensureUniqueSceneIds(project.scenes),
       }));
       setProjects(restoredProjects);
@@ -5897,6 +5926,7 @@ function Home() {
         backgroundMusic: data.backgroundMusic ?? "",
         previewZoom: clampPreviewZoom(data.previewZoom),
         previewEffectsVisible: data.previewEffectsVisible !== false,
+        previewTikTokSettings: normalizePreviewTikTokSettings(data.previewTikTokSettings),
         editorSections: normalizeEditorSections(data.editorSections),
         effectPanelCollapsed: normalizeEffectPanelCollapsed(data.effectPanelCollapsed),
         scenes: ensureUniqueSceneIds(data.scenes),
@@ -6793,6 +6823,10 @@ function Home() {
 
   const togglePreviewAudio = () => {
     setPreviewAudioMuted((muted) => !muted);
+  };
+
+  const updatePreviewTikTokSettings = (patch: Partial<PreviewTikTokSettings>) => {
+    setPreviewTikTokSettings((current) => ({ ...current, ...patch }));
   };
 
   const seekTimeline = (seconds: number) => {
@@ -8174,6 +8208,7 @@ function Home() {
       backgroundMusicVolume: 18,
       previewZoom: PREVIEW_ZOOM_DEFAULT,
       previewEffectsVisible: true,
+      previewTikTokSettings: DEFAULT_PREVIEW_TIKTOK_SETTINGS,
       editorSections: DEFAULT_EDITOR_SECTIONS,
       scenes: [blankScene],
     };
@@ -15423,6 +15458,20 @@ function Home() {
               </button>
               <button
                 type="button"
+                className={`preview-tiktok-toggle ${previewTikTokSettings.enabled ? "active" : ""}`}
+                aria-label={previewTikTokSettings.enabled ? "Tắt mô phỏng TikTok" : "Bật mô phỏng TikTok"}
+                aria-pressed={previewTikTokSettings.enabled}
+                title={previewTikTokSettings.enabled ? "Tắt mô phỏng TikTok" : "Mô phỏng clip khi đăng lên TikTok"}
+                onClick={() => updatePreviewTikTokSettings({ enabled: !previewTikTokSettings.enabled })}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="5" y="3" width="14" height="18" rx="3" />
+                  <path d="M10 7.5h4M9 17h6" />
+                </svg>
+                <span>TikTok</span>
+              </button>
+              <button
+                type="button"
                 className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
                 aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
                 aria-pressed={subtitleGuideVisible}
@@ -15521,6 +15570,30 @@ function Home() {
                 </svg>
               </button>
             </div>
+            {previewTikTokSettings.enabled && !sceneStructurePreviewMode && (
+              <div className="preview-tiktok-options" role="group" aria-label="Tùy chọn mô phỏng TikTok">
+                <span className="preview-tiktok-options-label">Mô phỏng TikTok · 9:16</span>
+                <button
+                  type="button"
+                  className={previewTikTokSettings.showUi ? "active" : ""}
+                  aria-pressed={previewTikTokSettings.showUi}
+                  title={previewTikTokSettings.showUi ? "Ẩn giao diện TikTok" : "Hiện giao diện TikTok"}
+                  onClick={() => updatePreviewTikTokSettings({ showUi: !previewTikTokSettings.showUi })}
+                >
+                  <span aria-hidden="true">◉</span> Giao diện
+                </button>
+                <button
+                  type="button"
+                  className={previewTikTokSettings.showSafeArea ? "active" : ""}
+                  aria-pressed={previewTikTokSettings.showSafeArea}
+                  title={previewTikTokSettings.showSafeArea ? "Ẩn vùng an toàn" : "Hiện vùng an toàn"}
+                  onClick={() => updatePreviewTikTokSettings({ showSafeArea: !previewTikTokSettings.showSafeArea })}
+                >
+                  <span aria-hidden="true">⌗</span> Vùng an toàn
+                </button>
+                <small>Không render UI TikTok vào video</small>
+              </div>
+            )}
             <div
               className="preview-panel-progress"
               role="progressbar"
@@ -16050,6 +16123,48 @@ function Home() {
                 />
             ))}
             </div>
+            {previewTikTokSettings.enabled && !sceneStructurePreviewMode && (
+              <div
+                className={`preview-tiktok-overlay ${previewTikTokSettings.showUi ? "show-ui" : "hide-ui"} ${previewTikTokSettings.showSafeArea ? "show-safe-area" : ""}`}
+                aria-label="Lớp mô phỏng TikTok, chỉ dùng để xem trước"
+              >
+                {previewTikTokSettings.showUi && (
+                  <>
+                    <div className="preview-tiktok-top-fade" aria-hidden="true" />
+                    <div className="preview-tiktok-tabs" aria-hidden="true">
+                      <span>Đang follow</span>
+                      <b>Dành cho bạn</b>
+                    </div>
+                    <div className="preview-tiktok-action-rail" aria-hidden="true">
+                      <span className="preview-tiktok-avatar" />
+                      <span className="preview-tiktok-action"><b>♡</b><small>12,4K</small></span>
+                      <span className="preview-tiktok-action"><b>◌</b><small>486</small></span>
+                      <span className="preview-tiktok-action"><b>▱</b><small>1.2K</small></span>
+                      <span className="preview-tiktok-action"><b>↗</b><small>Chia sẻ</small></span>
+                    </div>
+                    <div className="preview-tiktok-bottom-fade" aria-hidden="true" />
+                    <div className="preview-tiktok-caption" aria-hidden="true">
+                      <strong>@kito.video.studio</strong>
+                      <span>{scene.sceneName || "Hành trình Kinh Thánh"} · Một câu chuyện được kể bằng hình ảnh.</span>
+                      <span className="preview-tiktok-music">♫ Âm thanh gốc · Kito Video Studio</span>
+                    </div>
+                    <div className="preview-tiktok-nav" aria-hidden="true">
+                      <span><b>⌂</b>Trang chủ</span>
+                      <span><b>⌕</b>Khám phá</span>
+                      <span><b>＋</b>Đăng</span>
+                      <span><b>♧</b>Hộp thư</span>
+                      <span><b>◯</b>Hồ sơ</span>
+                    </div>
+                  </>
+                )}
+                {previewTikTokSettings.showSafeArea && (
+                  <div className="preview-tiktok-safe-area" aria-hidden="true">
+                    <span>VÙNG AN TOÀN NỘI DUNG</span>
+                  </div>
+                )}
+                <span className="preview-tiktok-mode-badge">TikTok · chỉ mô phỏng</span>
+              </div>
+            )}
             {rulerEnabled && (
               <div className={`preview-alignment-guides ruler-style-${rulerStyle}`} aria-hidden="true">
                 {(rulerStyle === "grid" || rulerStyle === "all") && (
