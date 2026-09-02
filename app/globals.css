@@ -13976,3 +13976,124 @@ body {
     border-radius: 14px;
   }
 }
+
+/* Preview tool sidebar: keeps the existing toolbar markup available for rollback
+   while presenting the five secondary preview actions in a Photoshop-style rail. */
+.preview-with-sidebar .preview-control-bar .preview-audio-toggle,
+.preview-with-sidebar .preview-control-bar .preview-effects-toggle,
+.preview-with-sidebar .preview-control-bar .preview-tiktok-toggle,
+.preview-with-sidebar .preview-control-bar .preview-subtitle-guide-toggle,
+.preview-with-sidebar .preview-control-bar .preview-review-toggle {
+  display: none;
+}
+.preview-with-sidebar .preview-stage-layout {
+  width: min(100%, 640px);
+  align-items: stretch;
+  gap: 10px;
+}
+.preview-with-sidebar .preview-tool-sidebar {
+  display: flex;
+  flex: 0 0 58px;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+  gap: 7px;
+  min-height: 0;
+  padding: 13px 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.preview-tool-sidebar-title {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font: 800 8px/1 var(--font-mono);
+  letter-spacing: .45px;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+.preview-tool-sidebar-button {
+  width: 45px;
+  min-height: 47px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.preview-tool-sidebar-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.preview-tool-sidebar-button span {
+  font-size: 8px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+.preview-tool-sidebar-button:hover,
+.preview-tool-sidebar-button:focus-visible {
+  border-color: #3c80ae;
+  color: var(--text);
+  background: rgba(28, 90, 133, .28);
+}
+.preview-tool-sidebar-button.active {
+  border-color: #328ecb;
+  color: #e8f6ff;
+  background: rgba(21, 105, 160, .38);
+  box-shadow: 0 0 0 2px rgba(21, 147, 239, .12);
+}
+.preview-tool-sidebar-button:nth-of-type(4).active {
+  border-color: #c27a26;
+  color: #ffe5ba;
+  background: rgba(96, 55, 17, .58);
+  box-shadow: 0 0 0 2px rgba(244, 136, 22, .12);
+}
+.preview-tool-sidebar-divider {
+  width: 34px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
+.preview-with-sidebar .preview-stage {
+  min-width: 0;
+}
+.studio-shell[data-theme="dark"] .preview-with-sidebar .preview-tool-sidebar {
+  border-color: #31465e;
+  background: #0b1724;
+}
+.studio-shell[data-theme="dark"] .preview-tool-sidebar-button {
+  color: #9fb5c8;
+}
+.studio-shell[data-theme="dark"] .preview-tool-sidebar-button.active {
+  border-color: #3a9fe2;
+  color: #ecf8ff;
+  background: rgba(17, 92, 145, .48);
+}
+.studio-shell[data-theme="dark"] .preview-tool-sidebar-button:nth-of-type(4).active {
+  border-color: #b97928;
+  color: #ffe1ad;
+  background: rgba(96, 55, 17, .62);
+}
+@media (max-width: 760px) {
+  .preview-with-sidebar .preview-stage-layout {
+    width: min(100%, 520px);
+  }
+  .preview-with-sidebar .preview-tool-sidebar {
+    flex-basis: 54px;
+    width: 54px;
+  }
+  .preview-tool-sidebar-button {
+    width: 42px;
+  }
+}

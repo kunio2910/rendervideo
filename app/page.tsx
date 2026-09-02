@@ -15365,7 +15365,7 @@ function Home() {
           </div>
         </aside>
 
-        <section className={`preview-panel ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
+        <section className={`preview-panel preview-with-sidebar ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
           <div className="preview-control-panel">
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
@@ -15607,6 +15607,88 @@ function Home() {
             </div>
           </div>
           <div className="preview-stage-layout">
+            <aside className="preview-tool-sidebar" aria-label="Công cụ xem trước">
+              <span className="preview-tool-sidebar-title">Công cụ</span>
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button ${previewAudioMuted ? "active" : ""}`}
+                aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
+                aria-pressed={previewAudioMuted}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                onClick={togglePreviewAudio}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 10v4h3l4 3V7l-4 3H4Z" />
+                  {previewAudioMuted ? (
+                    <path d="m16 9 5 6m0-6-5 6" />
+                  ) : (
+                    <path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" />
+                  )}
+                </svg>
+                <span>Âm thanh</span>
+              </button>
+              <button
+                type="button"
+                className="preview-tool-sidebar-button"
+                aria-label="Mở Review tổng quan"
+                title="Review tổng quan các cảnh đang hiện"
+                onClick={() => {
+                  setPlaying(false);
+                  setPreviewFullscreen(false);
+                  setReviewOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M8 4v16M3 9h18M3 14h18" />
+                </svg>
+                <span>Review</span>
+              </button>
+              <span className="preview-tool-sidebar-divider" />
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button ${!subtitleGuideVisible ? "active" : ""}`}
+                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-pressed={!subtitleGuideVisible}
+                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                onClick={() => setSubtitleGuideVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                </svg>
+                <span>Khung chữ</span>
+              </button>
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button ${previewTikTokSettings.enabled ? "active" : ""}`}
+                aria-label={previewTikTokSettings.enabled ? "Tắt mô phỏng TikTok" : "Bật mô phỏng TikTok"}
+                aria-pressed={previewTikTokSettings.enabled}
+                title={previewTikTokSettings.enabled ? "Tắt mô phỏng TikTok" : "Mô phỏng clip khi đăng lên TikTok"}
+                onClick={() => updatePreviewTikTokSettings({ enabled: !previewTikTokSettings.enabled })}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="5" y="3" width="14" height="18" rx="3" />
+                  <path d="M10 7.5h4M9 17h6" />
+                </svg>
+                <span>Mô phỏng</span>
+              </button>
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button ${!previewEffectsVisible ? "active" : ""}`}
+                aria-label={previewEffectsVisible ? "Ẩn hiệu ứng xem trước" : "Hiện hiệu ứng xem trước"}
+                aria-pressed={!previewEffectsVisible}
+                title={previewEffectsVisible ? "Ẩn hiệu ứng môi trường trên màn hình xem trước" : "Hiện hiệu ứng môi trường trên màn hình xem trước"}
+                onClick={() => setPreviewEffectsVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m12 2.8 2.2 6.1 6.4.6-4.9 4.1 1.5 6.3-5.2-3.2-5.2 3.2 1.5-6.3-4.9-4.1 6.4-.6L12 2.8Z" />
+                  {!previewEffectsVisible && <path d="m4 4 16 16" />}
+                </svg>
+                <span>Hiệu ứng</span>
+              </button>
+            </aside>
             <div className="preview-stage">
           {(() => {
             const previewCanvas = (
