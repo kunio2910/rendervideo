@@ -4257,6 +4257,7 @@ function Home() {
   const [sceneStructureImageSyncGapDraft, setSceneStructureImageSyncGapDraft] = useState(() => String(readSceneImageSyncGapPreference()));
   const [sceneStructureImageSyncIncludeHidden, setSceneStructureImageSyncIncludeHidden] = useState(readSceneImageSyncIncludeHiddenPreference);
   const [sceneStructureImageSyncNotice, setSceneStructureImageSyncNotice] = useState("");
+  const [sceneStructureImageSyncPreviewOpen, setSceneStructureImageSyncPreviewOpen] = useState(false);
   const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
@@ -6015,6 +6016,17 @@ function Home() {
       // localStorage may be unavailable in private browsing or restricted contexts.
     }
   }, [sceneStructureImageSyncGapDraft, sceneStructureImageSyncIncludeHidden]);
+
+  useEffect(() => {
+    if (!sceneStructureImageSyncPreviewOpen) return;
+    const handlePreviewKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setSceneStructureImageSyncPreviewOpen(false);
+    };
+    window.addEventListener("keydown", handlePreviewKeyDown);
+    return () => window.removeEventListener("keydown", handlePreviewKeyDown);
+  }, [sceneStructureImageSyncPreviewOpen]);
 
   useEffect(() => {
     if (!rulerEnabled) return;
@@ -11832,6 +11844,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructureImageSyncPreviewOpen(false);
     setSceneStructurePreviewPortalHost(null);
     sceneStructureItemPointerDrag.current = null;
     sceneStructureItemDidDrag.current = false;
@@ -11854,6 +11867,7 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructureImageSyncPreviewOpen(false);
     setSceneStructurePreviewPortalHost(null);
     setSceneStructureQuickEditToken("");
     sceneStructureItemPointerDrag.current = null;
@@ -13963,6 +13977,30 @@ function Home() {
     return "";
   };
 
+  const sceneStructureItemEffectInfo = (item: SceneStructureItem) => {
+    if (item.kind === "image") {
+      const image = sceneStructureImages.find((entry) => entry.id === item.id);
+      if (!image) return { label: "Kết thúc chuyển", value: "—" };
+      const transition = normalizeSceneImageTransition(image.transition);
+      const transitionLabel = sceneImageTransitionOptions.find((option) => option.value === transition)?.label;
+      return {
+        label: "Kết thúc chuyển",
+        value: `${formatPreciseTime(sceneImageTransitionEnd(image))}${transitionLabel ? ` · ${transitionLabel}` : ""}`,
+      };
+    }
+    if (item.kind === "text") {
+      const overlay = sceneStructureTexts.find((entry) => entry.id === item.id);
+      const effect = normalizeTextOverlayEffect(overlay?.textEffect);
+      const effectLabel = TEXT_OVERLAY_EFFECT_OPTIONS.find((option) => option.value === effect)?.label;
+      const duration = Math.max(0.05, Number(overlay?.textEffectDuration ?? 0.6) || 0.6);
+      return {
+        label: "Thời lượng hiệu ứng",
+        value: effect === "none" ? "Không dùng" : `${duration.toFixed(2)}s${effectLabel ? ` · ${effectLabel}` : ""}`,
+      };
+    }
+    return { label: "Chi tiết", value: "—" };
+  };
+
   const updateSceneStructureItemName = (item: SceneStructureItem, name: string) => {
     if (!hydrated) return;
     if (item.kind === "background") {
@@ -14064,6 +14102,16 @@ function Home() {
             >↺ 0</button>
             <button
               type="button"
+              className="button secondary scene-structure-image-sync-preview-button"
+              disabled={sceneStructureImageSyncPlan.length < 2}
+              title="Mở bảng xem trước thời gian trước và sau khi đồng bộ"
+              onClick={() => setSceneStructureImageSyncPreviewOpen(true)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.2-5 9-5 9 5 9 5-3.2 5-9 5-9-5-9-5Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+              Xem trước thay đổi
+            </button>
+            <button
+              type="button"
               className="button primary scene-structure-image-sync-apply"
               disabled={!hydrated || sceneStructureImageSyncPlan.length < 2}
               title="Đồng bộ các thẻ hình ảnh theo thứ tự thời gian"
@@ -14074,43 +14122,129 @@ function Home() {
             </button>
           </div>
         </div>
-        <div className="scene-structure-image-sync-preview" aria-live="polite">
-          <div className="scene-structure-image-sync-preview-heading">
-            <strong>Xem trước thay đổi</strong>
-            <span>Ảnh đầu tiên giữ nguyên thời gian</span>
-          </div>
-          {sceneStructureImageSyncPlan.length > 1 ? (
-            <div className="scene-structure-image-sync-preview-list">
-              {sceneStructureImageSyncPlan.slice(1).map((row) => (
-                <div className="scene-structure-image-sync-preview-row" key={row.image.id}>
-                  <span title={row.label}>{row.label}</span>
-                  <small>{formatPreciseTime(row.currentStart)} → {formatPreciseTime(row.currentEnd)}</small>
-                  <b aria-hidden="true">→</b>
-                  <small className={row.changed ? "is-changed" : ""}>{formatPreciseTime(row.nextStart)} → {formatPreciseTime(row.nextEnd)}</small>
-                  {row.locked ? <em>Khóa thời gian</em> : row.constrained ? <em>Giới hạn theo cảnh</em> : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>Thêm ít nhất 2 thẻ hình ảnh để xem trước kết quả đồng bộ.</p>
+        <div className="scene-structure-image-sync-preview-summary" aria-live="polite">
+          <span>
+            {sceneStructureImageSyncPlan.length > 1
+              ? "Bảng xem trước hiển thị đầy đủ thumbnail và mốc thời gian trước / sau."
+              : "Thêm ít nhất 2 thẻ hình ảnh để bật xem trước thay đổi."}
+          </span>
+          {sceneStructureImageSyncPlan.length > 1 && (
+            <strong>{sceneStructureImageSyncPlan.filter((row) => row.changed).length} thay đổi · ảnh đầu tiên giữ nguyên</strong>
           )}
         </div>
         {sceneStructureImageSyncNotice && (
           <p className="scene-structure-image-sync-notice" role="status">{sceneStructureImageSyncNotice}</p>
         )}
       </section>
+      {sceneStructureImageSyncPreviewOpen && (
+        <div
+          className="scene-structure-image-sync-preview-modal"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSceneStructureImageSyncPreviewOpen(false);
+          }}
+        >
+          <section
+            className="scene-structure-image-sync-preview-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scene-structure-image-sync-preview-title"
+          >
+            <header>
+              <div>
+                <span className="scene-structure-image-sync-preview-dialog-icon" aria-hidden="true">↔</span>
+                <div>
+                  <h2 id="scene-structure-image-sync-preview-title">Xem trước thay đổi</h2>
+                  <p>So sánh trực quan thời gian hiện tại với thời gian sau khi đồng bộ chuỗi hình ảnh.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="scene-structure-modal-close"
+                aria-label="Đóng xem trước thay đổi"
+                title="Đóng"
+                onClick={() => setSceneStructureImageSyncPreviewOpen(false)}
+              >×</button>
+            </header>
+            <div className="scene-structure-image-sync-preview-meta">
+              <span><b>{sceneStructureImageSyncPlan.length}</b> ảnh tham gia</span>
+              <span>Khoảng đồng bộ: <b>{sceneStructureImageSyncGap >= 0 ? "+" : ""}{sceneStructureImageSyncGap.toFixed(2)}s</b></span>
+              <span>Thời lượng cảnh: <b>{formatPreciseTime(sceneStructureDuration)}</b></span>
+              <span>{sceneStructureImageSyncIncludeHidden ? "Bao gồm ảnh đang ẩn" : "Chỉ ảnh đang hiển thị"}</span>
+            </div>
+            <div className="scene-structure-image-sync-preview-dialog-body">
+              {sceneStructureImageSyncPlan.length > 1 ? (
+                <div className="scene-structure-image-sync-preview-table" role="table" aria-label="So sánh thời gian hình ảnh">
+                  <div className="scene-structure-image-sync-preview-table-heading" role="row">
+                    <span role="columnheader">Hình ảnh</span>
+                    <span role="columnheader">Hiện tại</span>
+                    <span role="columnheader">Sau đồng bộ</span>
+                    <span role="columnheader">Trạng thái</span>
+                  </div>
+                  {sceneStructureImageSyncPlan.map((row) => {
+                    const previewSource = sceneImageSpritePreviewUrls[row.image.id] || assetPreviewSource(row.image.url);
+                    const previewIsVideo = row.image.mediaType === "video" || isVideoMedia(row.image.url);
+                    return (
+                      <div className={`scene-structure-image-sync-preview-table-row ${row.changed ? "is-changed" : ""}`} role="row" key={row.image.id}>
+                        <div className="scene-structure-image-sync-preview-image" role="cell">
+                          <span>
+                            {previewSource ? (
+                              previewIsVideo ? <video src={previewSource} muted loop playsInline preload="metadata" aria-hidden="true" /> : <img src={previewSource} alt="" />
+                            ) : <b>IMG</b>}
+                          </span>
+                          <strong title={row.label}>{row.label}</strong>
+                          <small>{row.index === 0 ? "Ảnh đầu tiên" : `Ảnh ${row.index + 1}`}</small>
+                        </div>
+                        <div className="scene-structure-image-sync-preview-time" role="cell">
+                          <span>{formatPreciseTime(row.currentStart)} → {formatPreciseTime(row.currentEnd)}</span>
+                          <small>{row.duration.toFixed(2)}s</small>
+                        </div>
+                        <div className={`scene-structure-image-sync-preview-time ${row.changed ? "is-changed" : ""}`} role="cell">
+                          <span>{formatPreciseTime(row.nextStart)} → {formatPreciseTime(row.nextEnd)}</span>
+                          <small>{row.index === 0 ? "Giữ nguyên" : row.changed ? `Dịch ${row.nextStart >= row.currentStart ? "+" : ""}${(row.nextStart - row.currentStart).toFixed(2)}s` : "Không đổi"}</small>
+                        </div>
+                        <div className="scene-structure-image-sync-preview-status" role="cell">
+                          {row.locked ? <em className="is-locked">🔒 Khóa thời gian</em> : row.constrained ? <em className="is-constrained">⚠ Giới hạn theo cảnh</em> : row.index === 0 ? <em className="is-kept">✓ Giữ nguyên</em> : row.changed ? <em className="is-changed">● Sẽ thay đổi</em> : <em>— Không đổi</em>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="scene-structure-image-sync-preview-dialog-empty">Thêm ít nhất 2 thẻ hình ảnh để xem trước kết quả đồng bộ.</div>
+              )}
+            </div>
+            <footer>
+              <span>Ảnh bị khóa thời gian sẽ không bị thay đổi.</span>
+              <div>
+                <button type="button" className="button secondary" onClick={() => setSceneStructureImageSyncPreviewOpen(false)}>Đóng</button>
+                <button
+                  type="button"
+                  className="button primary scene-structure-image-sync-preview-apply"
+                  disabled={!hydrated || sceneStructureImageSyncPlan.length < 2}
+                  onClick={() => {
+                    syncSceneStructureImages();
+                    setSceneStructureImageSyncPreviewOpen(false);
+                  }}
+                >Đồng bộ ngay</button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
       {sceneStructureItems.length ? (
         <div className="scene-structure-info-list" role="list" aria-label="Thông tin các thẻ trong cảnh">
           <div className="scene-structure-info-list-heading" role="row" aria-hidden="true">
-            <span>Thẻ</span><span>Tên</span><span>Bắt đầu</span><span>Kết thúc</span><span>Thao tác</span>
+            <span>Thẻ</span><span>Tên</span><span>Bắt đầu</span><span>Kết thúc</span><span>Chi tiết hiệu ứng</span><span>Thao tác</span>
           </div>
           {sceneStructureItems.map((item, index) => {
             const timing = quickTimingDraftFor(item);
             const locked = sceneStructureLockForToken(item.token);
+            const effectInfo = sceneStructureItemEffectInfo(item);
             return (
               <article
                 key={item.token}
-                className={`scene-structure-info-row scene-structure-info-row-${item.kind} ${sceneStructurePreviewMode && sceneStructureLocalTime >= item.start && sceneStructureLocalTime < item.end ? "is-live" : ""}`}
+                className={`scene-structure-info-row scene-structure-info-row-${item.kind} ${selectedSceneStructureTokenSet.has(item.token) ? "is-selected" : ""} ${sceneStructurePreviewMode && sceneStructureLocalTime >= item.start && sceneStructureLocalTime < item.end ? "is-live" : ""}`}
                 role="listitem"
                 onClick={() => selectSceneStructureItem(item)}
               >
@@ -14159,6 +14293,10 @@ function Home() {
                     onClick={(event) => event.stopPropagation()}
                   />
                 </label>
+                <div className="scene-structure-info-field scene-structure-info-effect-field">
+                  <span>{effectInfo.label}</span>
+                  <strong title={effectInfo.value}>{effectInfo.value}</strong>
+                </div>
                 <button
                   type="button"
                   className="button secondary scene-structure-info-detail-button"
