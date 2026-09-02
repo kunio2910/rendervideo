@@ -658,6 +658,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /reviewEffectConfiguration/);
   assert.match(page, /reviewTextEffectLabel/);
   assert.match(page, /review-text-detail-list/);
+  assert.match(page, /const textOverlayPlaybackStyle = \(/);
+  assert.match(page, /WebkitFilter: `blur\(/);
+  assert.match(page, /animation: "none"/);
+  assert.match(page, /textOverlayPlaybackStyle\([\s\S]*previewPlaybackMode,/);
+  assert.match(css, /text-effect-blur,[\s\S]*animation: none !important/);
   assert.match(page, /Hiệu ứng tối/);
   assert.match(page, /Chuyển hình/);
   assert.match(renderer, /orderedLayerTokens/);

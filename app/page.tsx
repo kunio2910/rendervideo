@@ -4635,22 +4635,22 @@ function Home() {
     start: number,
     end: number,
     localTime: number,
-    playbackOriginTime: number,
     playbackActive: boolean,
   ): React.CSSProperties => {
     if (!playbackActive || normalizeTextOverlayEffect(overlay.textEffect) !== "blur") return {};
     const effectDuration = textOverlayEffectDuration(overlay, start, end);
     const clampProgress = (value: number) => Math.min(1, Math.max(0, value));
     const reverseStart = end - effectDuration;
-    const entryStart = Math.max(start, Math.min(end, playbackOriginTime));
-    const progress = overlay.textEffectReverse
-      ? localTime < reverseStart
-        ? clampProgress((localTime - entryStart) / effectDuration)
-        : clampProgress((end - localTime) / effectDuration)
-      : clampProgress((localTime - entryStart) / effectDuration);
+    const entryProgress = clampProgress((localTime - start) / effectDuration);
+    const progress = overlay.textEffectReverse && localTime >= reverseStart
+      ? clampProgress((end - localTime) / effectDuration)
+      : entryProgress;
     return {
       filter: `blur(${(12 * (1 - progress)).toFixed(2)}px)`,
+      WebkitFilter: `blur(${(12 * (1 - progress)).toFixed(2)}px)`,
       opacity: Number((0.25 + progress * 0.75).toFixed(3)),
+      animation: "none",
+      willChange: "filter, opacity",
     };
   };
   const previewTextOverlayItems = sceneIsVisibleInPlayback
@@ -13986,8 +13986,7 @@ function Home() {
               start,
               end,
               localTime,
-              Math.max(0, textOverlayPlaybackOriginRef.current - sceneStructureScene.start),
-              previewIsPlaying,
+              sceneStructurePreviewMode,
             );
             if (localTime < start || localTime >= end) return null;
             return (
@@ -15110,8 +15109,7 @@ function Home() {
                   start,
                   end,
                   sceneLocalTime,
-                  Math.max(0, textOverlayPlaybackOriginRef.current - scene.start),
-                  playing,
+                  previewPlaybackMode,
                 );
                 return (
               <div

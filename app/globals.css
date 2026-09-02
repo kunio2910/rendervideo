@@ -586,6 +586,12 @@ button { color: inherit; }
   animation: none;
   opacity: 1;
 }
+/* Blur progress is calculated from the shared playhead in React. Do not let a
+   second CSS animation race that value; this keeps desktop and mobile in sync. */
+.map-text-overlay.is-playing.text-effect-blur,
+.map-text-overlay.is-playing.text-effect-reverse.text-effect-blur {
+  animation: none !important;
+}
 .map-text-overlay.text-effect-highlight-sweep::after {
   content: "";
   position: absolute;
