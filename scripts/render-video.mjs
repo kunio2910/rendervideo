@@ -31,6 +31,7 @@ const renderCacheDir = process.env.RENDER_CACHE_DIR
   : path.join(root, "work", "render-cache");
 const assetCacheDir = path.join(renderCacheDir, "assets");
 const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
+const generatedPngCacheDir = path.join(renderCacheDir, "generated-png");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
 
@@ -124,11 +125,13 @@ const resolveVideoEncoder = async (requested, probeSettings = {}) => {
 };
 
 // A scene can contain many looped PNG/video inputs (for example, dozens of
-// subtitle cues). FFmpeg's automatic filter threading and input queues can
-// then retain a frame per input until the graph drains, which may exhaust
-// memory near the end of a long scene. Keep the graph bounded by default,
-// while allowing advanced local setups to opt into larger values.
-const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? 1) || 1);
+// subtitle cues). Keep filter parallelism conservative on older machines,
+// while using a second worker by default when the host has enough CPUs.
+const detectedLogicalProcessors = typeof process.availableParallelism === "function"
+  ? process.availableParallelism()
+  : 2;
+const defaultFilterThreads = Math.min(2, Math.max(1, Math.floor(detectedLogicalProcessors / 2)));
+const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? defaultFilterThreads) || 1);
 const ffmpegInputQueueSize = Math.max(1, Number(process.env.FFMPEG_INPUT_QUEUE_SIZE ?? 2) || 2);
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
 const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
@@ -593,6 +596,22 @@ const weatherParticleMotion = (effect, index, fallbackAngle, distance = 115) => 
 const weatherColorValue = (value, fallback) =>
   normalizeHexColor(value, fallback).slice(1).toUpperCase();
 
+// Generated SVG layers (text, subtitles and weather gradients) are
+// deterministic for the same project settings. Reuse their PNG raster between
+// renders so a small timing change does not make Sharp rasterize every layer
+// again.
+const writeCachedSvgPng = async (svg, filename) => {
+  const cacheKey = createHash("sha1").update(String(svg)).digest("hex");
+  const cachedPath = path.join(generatedPngCacheDir, `${cacheKey}.png`);
+  await fs.mkdir(generatedPngCacheDir, { recursive: true });
+  try {
+    await fs.access(cachedPath);
+  } catch {
+    await sharp(Buffer.from(String(svg))).png().toFile(cachedPath);
+  }
+  await fs.copyFile(cachedPath, filename);
+};
+
 const weatherBlurFilter = (effect) => effect.blur > 0
   ? `,gblur=sigma=${Number(effect.blur).toFixed(2)}`
   : "";
@@ -626,7 +645,7 @@ const writeWeatherGradientLayer = async (filename, kind, color) => {
         <rect width="100%" height="100%" fill="url(#warm)" />
         <rect width="100%" height="100%" fill="url(#amber)" />
       </svg>`;
-  await sharp(Buffer.from(svg)).png().toFile(filename);
+  await writeCachedSvgPng(svg, filename);
   return filename;
 };
 
@@ -657,7 +676,7 @@ const writeWeatherSandstormHazeLayer = async (filename, width, height, color) =>
     <rect width="100%" height="100%" fill="url(#sandLow)" />
     <rect x="-18%" y="-18%" width="136%" height="136%" fill="url(#sandStreaks)" opacity=".85" />
   </svg>`;
-  await sharp(Buffer.from(svg)).png().toFile(filename);
+  await writeCachedSvgPng(svg, filename);
   return filename;
 };
 
@@ -1403,7 +1422,7 @@ const createMapDecoration = async (decoration, index) => {
     </svg>
   `);
   const filename = path.join(renderDir, `decoration-${index + 1}.png`);
-  await sharp(svg).png().toFile(filename);
+  await writeCachedSvgPng(svg, filename);
   return { path: filename };
 };
 
@@ -1726,7 +1745,7 @@ const createTextOverlay = async (overlay, index) => {
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);
-  await sharp(svg).png().toFile(filename);
+  await writeCachedSvgPng(svg, filename);
   return { path: filename, width, height };
 };
 
@@ -1938,6 +1957,8 @@ for (let index = 0; index < scenes.length; index += 1) {
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
     ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
+    : targetZoom <= 1
+      ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
     : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
       `zoompan=z='${zoomExpression}':` +
       `x='iw*${centerX}*(1-1/zoom)':` +
@@ -2300,6 +2321,11 @@ for (let index = 0; index < scenes.length; index += 1) {
       `x='${centerX}':y='${centerY}':shortest=1:eval=frame[${outputLabel}];`;
     composedLabel = `[${outputLabel}]`;
   };
+  const textInputDurations = [];
+  const sceneImageInputDurations = [];
+  const decorationInputDurations = [];
+  const popupInputDurations = [];
+  const subtitleInputDurations = [];
   const appendTextLayer = (textIndex) => {
     const { scene: overlay } = textOverlayRenders[textIndex];
     const x = clamp(Number(overlay.x ?? 50) / 100, 0, 1);
@@ -2309,6 +2335,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       duration,
       Math.max(textStart + 0.1, Number(overlay.end) || duration),
     );
+    textInputDurations[textIndex] = Math.max(0.1, textEnd - textStart);
     const textSpan = Math.max(0.1, textEnd - textStart);
     const effect = normalizeTextOverlayEffect(overlay.textEffect ?? overlay.overlayTextEffect);
     const reverse = overlay.textEffectReverse === true || overlay.overlayTextEffectReverse === true;
@@ -2339,7 +2366,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       const sharpLabel = `textSharp${textIndex}`;
       const glowSourceLabel = `textGlowSource${textIndex}`;
       const glowLabel = `textGlow${textIndex}`;
-      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${textStart}/TB,format=rgba,split=2[${sharpLabel}][${glowSourceLabel}];`;
       filter += `[${glowSourceLabel}]gblur=sigma=6,eq=brightness='0.08+0.08*sin(2*PI*(t-${textStart})/${effectDuration})',colorchannelmixer=aa=0.65[${glowLabel}];`;
       filter += `[${sharpLabel}][${glowLabel}]blend=all_mode=screen:all_opacity=0.85[${inputLabel}];`;
     } else if (effect === "blur") {
@@ -2351,7 +2378,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       const blurSourceLabel = `textBlurSource${textIndex}`;
       const blurredLabel = `textBlurred${textIndex}`;
       const blendProgress = geqProgress;
-      filter += `[${inputIndex}:v]format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${textStart}/TB,format=rgba,split=2[${sharpLabel}][${blurSourceLabel}];`;
       filter += `[${blurSourceLabel}]boxblur=` +
         `luma_radius=10:luma_power=1:` +
         `chroma_radius=10:chroma_power=1:` +
@@ -2359,7 +2386,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${blurredLabel}][${sharpLabel}]blend=` +
         `all_expr='A*(1-(${blendProgress}))+B*(${blendProgress})'[${inputLabel}];`;
     } else {
-      let inputFilter = `[${inputIndex}:v]format=rgba`;
+      let inputFilter = `[${inputIndex}:v]setpts=PTS-STARTPTS+${textStart}/TB,format=rgba`;
       if (effect === "fade") {
         const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
         inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
@@ -2412,6 +2439,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const sceneImageInputIndex = sceneImageInputIndices[imageIndex];
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
     const imageEnd = sceneImagePlaybackEnd(imageIndex);
+    sceneImageInputDurations[imageIndex] = Math.max(0.1, imageEnd - imageStart);
     const imageTransition = normalizeSceneImageTransition(image.transition);
     const imageTransitionDuration = sceneImageTransitionDuration(image);
     const imageTransitionProgress = imageTransitionDuration > 0
@@ -2468,7 +2496,7 @@ for (let index = 0; index < scenes.length; index += 1) {
         imageLayerLabel = `${imageLayerLabel}bordered`;
       }
     } else {
-      filter += `[${sceneImageInputIndex}:v]format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
+      filter += `[${sceneImageInputIndex}:v]setpts=PTS-STARTPTS+${imageStart}/TB,format=rgba,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
     }
     if (imageTransitionFilter) {
       const transitionedLabel = `sceneImageTransition${imageIndex}`;
@@ -2483,6 +2511,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const decorationStart = Math.min(duration, Math.max(0, Number(decoration.start ?? 0) || 0));
     const decorationDuration = Math.max(0.1, Number(decoration.duration ?? duration) || 0.1);
     const decorationEnd = Math.min(duration, decorationStart + decorationDuration);
+    decorationInputDurations[decorationIndex] = Math.max(0.1, decorationEnd - decorationStart);
     const animation = String(decoration.animation ?? "none");
     const popDuration = Math.min(0.45, Math.max(0.1, decorationEnd - decorationStart));
     const popScale = animation === "pop"
@@ -2504,7 +2533,9 @@ for (let index = 0; index < scenes.length; index += 1) {
     const x = clamp(Number(decoration.x ?? 50) / 100, 0, 1);
     const y = clamp(Number(decoration.y ?? 50) / 100, 0, 1);
     const decorationInputIndex = decorationInputIndices[decorationIndex];
-    const animatedFilter = decoration.animated ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS,` : "format=rgba,";
+    const animatedFilter = decoration.animated
+      ? `format=rgba,fps=${fps},setpts=PTS-STARTPTS+${decorationStart}/TB,`
+      : `setpts=PTS-STARTPTS+${decorationStart}/TB,format=rgba,`;
     const animatedStickerFit = decoration.animated
       ? `${ffmpegMediaFit(animatedStickerSize, animatedStickerSize, "contain")},`
       : "";
@@ -2517,6 +2548,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popupInputIndex = popupInputIndices[popupIndex];
     const popupStart = Math.min(duration, Math.max(0, Number(popupScene.popupStart ?? 0)));
     const popupEnd = Math.min(duration, popupStart + Number(popupScene.popupDuration ?? duration));
+    popupInputDurations[popupIndex] = Math.max(0.1, popupEnd - popupStart);
     const transition = Math.min(0.65, Math.max(0.25, (popupEnd - popupStart) / 3));
     const popupIn = popupScene.popupIn ?? "fade-slide-up";
     const popupOut = popupScene.popupOut ?? "fade-slide-down";
@@ -2586,12 +2618,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popLabel = `pop${popupIndex}`;
     const composedOutput = `[composed${popupIndex}]`;
     if (popup.video) {
-      filter += `[${videoInputIndex}:v]format=rgba,scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight},setpts=PTS-STARTPTS[${videoLabel}];[${popupInputIndex}:v]format=rgba[${baseLabel}input];[${baseLabel}input][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
+      filter += `[${videoInputIndex}:v]setpts=PTS-STARTPTS+${popupStart}/TB,format=rgba,scale=${popup.videoWidth}:${popup.videoHeight}:force_original_aspect_ratio=increase,crop=${popup.videoWidth}:${popup.videoHeight}[${videoLabel}];[${popupInputIndex}:v]setpts=PTS-STARTPTS+${popupStart}/TB,format=rgba[${baseLabel}input];[${baseLabel}input][${videoLabel}]overlay=0:0:shortest=1[${baseLabel}];`;
       if (borderInputIndex !== null) {
-        filter += `[${borderInputIndex}:v]format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
+        filter += `[${borderInputIndex}:v]setpts=PTS-STARTPTS+${popupStart}/TB,format=rgba[${borderLabel}];[${baseLabel}][${borderLabel}]overlay=0:0:shortest=1[${borderedLabel}];`;
       }
     }
-    filter += `${popup.video ? `[${borderInputIndex !== null ? borderedLabel : baseLabel}]` : `[${popupInputIndex}:v]`}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
+    const popupSource = popup.video
+      ? `[${borderInputIndex !== null ? borderedLabel : baseLabel}]`
+      : `[${popupInputIndex}:v]setpts=PTS-STARTPTS+${popupStart}/TB`;
+    filter += `${popupSource}format=rgba,scale=w='iw*(${popupScale})':h='ih*(${popupScale})':eval=frame,`;
     if (popupIn === "flip" || popupOut === "flip") filter += `rotate=angle='${popupAngle}':fillcolor=none:ow=rotw(iw):oh=roth(ih),`;
     filter += `fade=t=in:st=${popupStart}:d=${transition}:alpha=1,fade=t=out:st=${Math.max(popupStart, popupEnd - transition)}:d=${transition}:alpha=1[${popLabel}];`;
     filter += `${composedLabel}[${popLabel}]overlay=x='${closingX}':y='${popupY}':enable='between(t,${popupStart},${popupEnd})'${composedOutput};`;
@@ -2606,6 +2641,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       duration,
       Math.max(subtitleStart + 0.1, subtitleAudioStart + (Number(subtitle.end) || cueStart + 0.1)),
     );
+    subtitleInputDurations[subtitleIndex] = Math.max(0.1, subtitleEnd - subtitleStart);
     const subtitleOutput = `[subtitled${subtitleIndex}]`;
     const inputIndex = subtitleInputStartIndex + subtitleIndex;
     const subtitleX = clamp(Number(style?.x ?? 50) / 100, 0, 1);
@@ -2616,15 +2652,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const animationDuration = clamp(Number(style?.animationDuration ?? 0.25), 0.05, 1);
     const subtitleInputLabel = `subtitleInput${subtitleIndex}`;
     if (animation === "fade") {
-      filter += `[${inputIndex}:v]format=rgba,fade=t=in:st=${subtitleStart}:d=${animationDuration}:alpha=1[${subtitleInputLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${subtitleStart}/TB,format=rgba,fade=t=in:st=${subtitleStart}:d=${animationDuration}:alpha=1[${subtitleInputLabel}];`;
     } else if (animation === "pop") {
       const progress = `min(1,max(0,(t-${subtitleStart})/${animationDuration}))`;
-      filter += `[${inputIndex}:v]scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${subtitleStart}/TB,scale=w='iw*(0.92+0.08*${progress})':h='ih*(0.92+0.08*${progress})':eval=frame[${subtitleInputLabel}];`;
     } else if (animation === "typewriter") {
       const progress = `min(1,max(0,(T-${subtitleStart})/${animationDuration}))`;
-      filter += `[${inputIndex}:v]format=rgba,${geqRgba({ alpha: `if(lt(X/W,${progress}),alpha(X,Y),0)` })}[${subtitleInputLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${subtitleStart}/TB,format=rgba,${geqRgba({ alpha: `if(lt(X/W,${progress}),alpha(X,Y),0)` })}[${subtitleInputLabel}];`;
     } else {
-      filter += `[${inputIndex}:v]format=rgba[${subtitleInputLabel}];`;
+      filter += `[${inputIndex}:v]setpts=PTS-STARTPTS+${subtitleStart}/TB,format=rgba[${subtitleInputLabel}];`;
     }
     const slideOffset = animation === "slide-up"
       ? `+main_h*0.03*(1-min(1,max(0,(t-${subtitleStart})/${animationDuration})))`
@@ -2760,13 +2796,13 @@ for (let index = 0; index < scenes.length; index += 1) {
   // than Windows' process command-line limit. Keep the graph in a file so a
   // scene with all environmental effects can still be rendered reliably.
   const args = ["-y"];
-  const addInput = (...inputArgs) => {
+  const addInputForDuration = (inputDuration, ...inputArgs) => {
     const inputIndex = inputArgs.indexOf("-i");
     const boundedInputArgs = inputIndex < 0
       ? inputArgs
       : [
           ...inputArgs.slice(0, inputIndex),
-          "-t", String(duration),
+          "-t", String(Math.max(0.1, inputDuration)),
           ...inputArgs.slice(inputIndex),
         ];
     args.push(
@@ -2774,48 +2810,51 @@ for (let index = 0; index < scenes.length; index += 1) {
       ...boundedInputArgs,
     );
   };
+  const addInput = (...inputArgs) => addInputForDuration(duration, ...inputArgs);
   addInput(
     ...(backgroundIsVideo
       ? ["-stream_loop", "-1", "-i", sceneBackground]
       : ["-loop", "1", "-i", sceneBackground]),
   );
-  textOverlayRenders.forEach(({ rendered: overlay }) => {
-    addInput("-loop", "1", "-i", overlay.path);
+  textOverlayRenders.forEach(({ rendered: overlay }, textIndex) => {
+    addInputForDuration(textInputDurations[textIndex] ?? duration, "-loop", "1", "-i", overlay.path);
   });
-  decorationRenders.forEach(({ rendered: decoration }) => {
+  decorationRenders.forEach(({ rendered: decoration }, decorationIndex) => {
+    const decorationInputDuration = decorationInputDurations[decorationIndex] ?? duration;
     if (decoration.animated) {
-      addInput("-stream_loop", "-1", "-i", decoration.path);
+      addInputForDuration(decorationInputDuration, "-stream_loop", "-1", "-i", decoration.path);
     } else {
-      addInput("-loop", "1", "-i", decoration.path);
+      addInputForDuration(decorationInputDuration, "-loop", "1", "-i", decoration.path);
     }
   });
-  sceneImageRenders.forEach(({ rendered: image }) => {
+  sceneImageRenders.forEach(({ rendered: image }, imageIndex) => {
     if (image.animated) {
       if (image.frameSequence) {
-        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+        addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
       } else {
-        addInput("-stream_loop", "-1", "-i", image.path);
+        addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-stream_loop", "-1", "-i", image.path);
       }
       addInput("-loop", "1", "-i", image.maskPath);
       if (image.fillPath) addInput("-loop", "1", "-i", image.fillPath);
       if (image.borderPath) addInput("-loop", "1", "-i", image.borderPath);
     } else {
-      addInput("-loop", "1", "-i", image.path);
+      addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-loop", "1", "-i", image.path);
     }
   });
-  popupRenders.forEach(({ rendered: popup }) => {
-    addInput("-loop", "1", "-i", popup.path);
+  popupRenders.forEach(({ rendered: popup }, popupIndex) => {
+    const popupInputDuration = popupInputDurations[popupIndex] ?? duration;
+    addInputForDuration(popupInputDuration, "-loop", "1", "-i", popup.path);
     if (popup.video) {
       if (popup.videoFrameSequence) {
-        addInput("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
+        addInputForDuration(popupInputDuration, "-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup.video);
       } else {
-        addInput("-stream_loop", "-1", "-i", popup.video);
+        addInputForDuration(popupInputDuration, "-stream_loop", "-1", "-i", popup.video);
       }
-      addInput("-loop", "1", "-i", popup.borderPath);
+      addInputForDuration(popupInputDuration, "-loop", "1", "-i", popup.borderPath);
     }
   });
-  subtitleRenders.forEach(({ rendered: subtitle }) => {
-    addInput("-loop", "1", "-i", subtitle.path);
+  subtitleRenders.forEach(({ rendered: subtitle }, subtitleIndex) => {
+    addInputForDuration(subtitleInputDurations[subtitleIndex] ?? duration, "-loop", "1", "-i", subtitle.path);
   });
   weatherInputSpecs.forEach((specification) => {
     if (typeof specification === "object" && specification?.type === "file") {
