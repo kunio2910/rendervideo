@@ -11789,6 +11789,26 @@ function Home() {
     });
     return entries;
   });
+  const timelinePopupItems = visibleScenes
+    .filter((item) => item.sceneVisible !== false)
+    .flatMap((item) => scenePopupList(item)
+      .filter((popup) => popup.visible !== false && popupHasContent(popup))
+      .map((popup) => {
+        const sceneLength = Math.max(0.1, item.end - item.start);
+        const popupStart = Math.min(sceneLength, Math.max(0, Number(popup.start) || 0));
+        const duration = Math.min(
+          Math.max(0.1, Number(popup.duration) || 0.1),
+          Math.max(0.1, sceneLength - popupStart),
+        );
+        return {
+          id: `${item.id}-${popup.id}`,
+          item,
+          popup,
+          start: item.start + popupStart,
+          end: item.start + popupStart + duration,
+          duration,
+        };
+      }));
 
   const sceneStructureSceneStats = (item: Scene) => ({
     images: (item.sceneImages ?? []).length,
@@ -15391,11 +15411,14 @@ function Home() {
                 >
                   16:9
                 </button>
+                <span className="preview-inline-time">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
               </div>
-              <span className="time-pill">{formatTime(sceneLocalTime)} / {formatTime(sceneDuration)}</span>
               <button
+                type="button"
                 className="button ghost preview-play-button"
                 disabled={!hydrated}
+                aria-label={!hydrated ? "Đang tải xem trước" : playing ? "Tạm dừng xem trước" : previewPlaybackMode ? "Tiếp tục xem trước" : "Xem thử"}
+                title={!hydrated ? "Đang tải xem trước" : playing ? "Tạm dừng" : previewPlaybackMode ? "Tiếp tục" : "Xem thử"}
                 onClick={togglePlayback}
               >
                 <span className="play-icon">{playing ? "Ⅱ" : "▶"}</span>
@@ -15411,20 +15434,6 @@ function Home() {
               >
                 <span aria-hidden="true">■</span>
                 <b>Kết thúc</b>
-              </button>
-              <button
-                type="button"
-                className="preview-scene-structure-button"
-                aria-label="Mở Cấu trúc cảnh"
-                title="Cấu trúc cảnh"
-                onClick={openSceneStructure}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="3" y="4" width="6" height="5" rx="1" />
-                  <rect x="15" y="4" width="6" height="5" rx="1" />
-                  <rect x="9" y="15" width="6" height="5" rx="1" />
-                  <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
-                </svg>
               </button>
               <button
                 type="button"
@@ -15501,58 +15510,6 @@ function Home() {
                 </svg>
                 <span>Review</span>
               </button>
-              <div className="preview-ruler-control">
-                <button
-                  type="button"
-                  ref={rulerToggleRef}
-                  className={`preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
-                  aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
-                  aria-pressed={rulerEnabled}
-                  aria-expanded={rulerEnabled}
-                  title={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
-                  onClick={toggleRuler}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 5h16v14H4z" />
-                    <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
-                  </svg>
-                </button>
-                {rulerEnabled && (
-                  <div
-                    ref={rulerPopoverRef}
-                    className="preview-ruler-style-popover"
-                    role="group"
-                    aria-label="Kiểu thước căn chỉnh"
-                    style={{ top: rulerPopoverPosition.top, left: rulerPopoverPosition.left }}
-                  >
-                    <span>Kiểu thước</span>
-                    <button
-                      type="button"
-                      className={rulerStyle === "center" ? "active" : ""}
-                      aria-pressed={rulerStyle === "center"}
-                      onClick={() => setRulerStyle("center")}
-                    >
-                      Canh giữa
-                    </button>
-                    <button
-                      type="button"
-                      className={rulerStyle === "grid" ? "active" : ""}
-                      aria-pressed={rulerStyle === "grid"}
-                      onClick={() => setRulerStyle("grid")}
-                    >
-                      Kẻ ô
-                    </button>
-                    <button
-                      type="button"
-                      className={rulerStyle === "all" ? "active" : ""}
-                      aria-pressed={rulerStyle === "all"}
-                      onClick={() => setRulerStyle("all")}
-                    >
-                      Tất cả
-                    </button>
-                  </div>
-                )}
-              </div>
               <button
                 type="button"
                 className={`preview-fullscreen-toggle ${previewFullscreen ? "active" : ""}`}
@@ -15608,24 +15565,20 @@ function Home() {
           </div>
           <div className="preview-stage-layout">
             <aside className="preview-tool-sidebar" aria-label="Công cụ xem trước">
-              <span className="preview-tool-sidebar-title">Công cụ</span>
               <button
                 type="button"
-                className={`preview-tool-sidebar-button ${previewAudioMuted ? "active" : ""}`}
-                aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
-                aria-pressed={previewAudioMuted}
-                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
-                onClick={togglePreviewAudio}
+                className="preview-tool-sidebar-button"
+                aria-label="Mở Cấu trúc cảnh"
+                title="Cấu trúc cảnh"
+                onClick={openSceneStructure}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 10v4h3l4 3V7l-4 3H4Z" />
-                  {previewAudioMuted ? (
-                    <path d="m16 9 5 6m0-6-5 6" />
-                  ) : (
-                    <path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" />
-                  )}
+                  <rect x="3" y="4" width="6" height="5" rx="1" />
+                  <rect x="15" y="4" width="6" height="5" rx="1" />
+                  <rect x="9" y="15" width="6" height="5" rx="1" />
+                  <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
                 </svg>
-                <span>Âm thanh</span>
+                <span>Cấu trúc</span>
               </button>
               <button
                 type="button"
@@ -15644,7 +15597,78 @@ function Home() {
                 </svg>
                 <span>Review</span>
               </button>
+              <div className="preview-tool-sidebar-ruler preview-ruler-control">
+                <button
+                  type="button"
+                  ref={rulerToggleRef}
+                  className={`preview-tool-sidebar-button preview-ruler-toggle ${rulerEnabled ? "active" : ""}`}
+                  aria-label={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                  aria-pressed={rulerEnabled}
+                  aria-expanded={rulerEnabled}
+                  title={rulerEnabled ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                  onClick={toggleRuler}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16v14H4z" />
+                    <path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" />
+                  </svg>
+                  <span>Thước</span>
+                </button>
+                {rulerEnabled && (
+                  <div
+                    ref={rulerPopoverRef}
+                    className="preview-ruler-style-popover"
+                    role="group"
+                    aria-label="Kiểu thước căn chỉnh"
+                    style={{ top: rulerPopoverPosition.top, left: rulerPopoverPosition.left }}
+                  >
+                    <span>Kiểu thước</span>
+                    <button
+                      type="button"
+                      className={rulerStyle === "center" ? "active" : ""}
+                      aria-pressed={rulerStyle === "center"}
+                      onClick={() => setRulerStyle("center")}
+                    >
+                      Canh giữa
+                    </button>
+                    <button
+                      type="button"
+                      className={rulerStyle === "grid" ? "active" : ""}
+                      aria-pressed={rulerStyle === "grid"}
+                      onClick={() => setRulerStyle("grid")}
+                    >
+                      Kẻ ô
+                    </button>
+                    <button
+                      type="button"
+                      className={rulerStyle === "all" ? "active" : ""}
+                      aria-pressed={rulerStyle === "all"}
+                      onClick={() => setRulerStyle("all")}
+                    >
+                      Tất cả
+                    </button>
+                  </div>
+                )}
+              </div>
               <span className="preview-tool-sidebar-divider" />
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button ${previewAudioMuted ? "active" : ""}`}
+                aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
+                aria-pressed={previewAudioMuted}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                onClick={togglePreviewAudio}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 10v4h3l4 3V7l-4 3H4Z" />
+                  {previewAudioMuted ? (
+                    <path d="m16 9 5 6m0-6-5 6" />
+                  ) : (
+                    <path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" />
+                  )}
+                </svg>
+                <span>Âm thanh</span>
+              </button>
               <button
                 type="button"
                 className={`preview-tool-sidebar-button ${!subtitleGuideVisible ? "active" : ""}`}
@@ -18830,24 +18854,55 @@ function Home() {
               <div className="track effects-track">
                 <strong>Hiệu ứng</strong>
                 <div className="track-content grid">
-                  {timelineEffectItems.length ? timelineEffectItems.map((effect) => (
-                    <button
-                      key={effect.id}
-                      type="button"
-                      className={`clip effect-clip effect-clip-${effect.kind} ${!playing && effect.scene.id === selectedId ? "selected" : ""}`}
-                      style={{
-                        left: timelinePercent(effect.start),
-                        width: timelinePercent(effect.end - effect.start),
-                      }}
-                      title={`${effect.label} · ${formatTime(effect.start)} – ${formatTime(effect.end)}`}
-                      onClick={() => {
-                        openTimelineEditor(effect.scene, "editor-effects");
-                        setPlayTime(effect.start);
-                      }}
-                    >
-                      <span className="timeline-clip-label">{effect.label}</span>
-                    </button>
-                  )) : (
+                  {timelineEffectItems.length || timelinePopupItems.length ? (
+                    <>
+                      {timelineEffectItems.map((effect) => (
+                        <button
+                          key={effect.id}
+                          type="button"
+                          className={`clip effect-clip effect-clip-${effect.kind} ${!playing && effect.scene.id === selectedId ? "selected" : ""}`}
+                          style={{
+                            left: timelinePercent(effect.start),
+                            width: timelinePercent(effect.end - effect.start),
+                          }}
+                          title={`${effect.label} · ${formatTime(effect.start)} – ${formatTime(effect.end)}`}
+                          onClick={() => {
+                            openTimelineEditor(effect.scene, "editor-effects");
+                            setPlayTime(effect.start);
+                          }}
+                        >
+                          <span className="timeline-clip-label">{effect.label}</span>
+                        </button>
+                      ))}
+                      {timelinePopupItems.map(({ id, item, popup, start, end, duration }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`clip popup-clip effects-track-popup-clip ${!playing && item.id === selectedId && popup.id === activePopup?.id ? "selected" : ""}`}
+                          style={{
+                            left: timelinePercent(start),
+                            width: timelinePercent(duration),
+                          }}
+                          onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "move", popup.id)}
+                          onClick={(event) => {
+                            if (timelinePopupMoved.current) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              timelinePopupMoved.current = false;
+                              return;
+                            }
+                            setSelectedPopupId(popup.id);
+                            openTimelineEditor(item, "editor-popup");
+                          }}
+                          title={`${popup.title || `Popup ${item.number}`} · ${formatTime(start)} – ${formatTime(end)}`}
+                        >
+                          <span className="timeline-edge-handle timeline-edge-start" title="Kéo để đổi thời gian bắt đầu popup" aria-label="Điểm bắt đầu popup" onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "start", popup.id)} onClick={(event) => event.stopPropagation()} />
+                          <span className="timeline-clip-label">{popup.title || `Popup ${item.number}`} · {duration}s</span>
+                          <span className="timeline-edge-handle timeline-edge-end" title="Kéo để đổi thời lượng popup" aria-label="Điểm kết thúc popup" onPointerDown={(event) => startTimelinePopupDrag(event, item.id, "end", popup.id)} onClick={(event) => event.stopPropagation()} />
+                        </button>
+                      ))}
+                    </>
+                  ) : (
                     <span className="timeline-track-empty">Chưa có hiệu ứng</span>
                   )}
                 </div>
