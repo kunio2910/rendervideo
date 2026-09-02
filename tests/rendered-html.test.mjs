@@ -243,6 +243,13 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
   assert.match(page, /style=\{\{ zoom: sceneStructurePreviewMode \? 1 : previewZoom \/ 100 \}\}/);
+  assert.match(page, /value: "info", label: "Thông tin"/);
+  assert.match(page, /const sceneStructureItemNameValue/);
+  assert.match(page, /const updateSceneStructureItemName/);
+  assert.match(page, /renderSceneStructureInfo/);
+  assert.match(page, /scene-structure-info-row/);
+  assert.match(page, /backgroundName/);
+  assert.match(page, /zoomName/);
   assert.match(page, /replayPlayback/);
   assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
@@ -345,6 +352,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /scene-visual-effect-card/);
   assert.match(css, /time-field-hint::after/);
   assert.match(css, /layer-panel-fullscreen[\s\S]*inset: 8px clamp/);
+  assert.match(css, /data-studio-tab="compose"\]\.layer-panel-fullscreen \.editor-layer-panel[\s\S]{0,240}width: auto/);
+  assert.match(css, /scene-structure-info-editor/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });

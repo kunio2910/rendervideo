@@ -343,7 +343,7 @@ type SceneStructureItem = {
 
 type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect" | "audio";
 
-type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script" | "subtitles";
+type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script" | "subtitles" | "info";
 
 type SceneStructureTemplate = {
   kind: SceneStructureTemplateKind;
@@ -428,6 +428,7 @@ const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
   { value: "tree", label: "Cây", icon: "⌘", description: "Cấu trúc thành phần" },
   { value: "script", label: "Kịch bản", icon: "✓", description: "Nội dung và kiểm tra" },
   { value: "subtitles", label: "Phụ đề", icon: "CC", description: "Nhóm hình ảnh theo từng câu phụ đề" },
+  { value: "info", label: "Thông tin", icon: "ⓘ", description: "Xem và chỉnh sửa nhanh thông tin tất cả thẻ" },
 ];
 
 // Tạm ẩn minimap khỏi giao diện Cấu trúc cảnh; giữ nguyên phần render và logic
@@ -580,6 +581,7 @@ type Scene = {
   image: string;
   avatar: string;
   background?: string;
+  backgroundName?: string;
   start: number;
   end: number;
   zoomStart: number;
@@ -587,6 +589,7 @@ type Scene = {
   zoomInDuration: number;
   zoomOutDuration: number;
   zoom: number;
+  zoomName?: string;
   centerX: number;
   centerY: number;
   zoomEnabled: boolean;
@@ -642,6 +645,7 @@ type Scene = {
 
 type SceneDarkEffect = {
   id: string;
+  name?: string;
   enabled: boolean;
   start: number;
   fadeInDuration: number;
@@ -656,6 +660,7 @@ type SceneWeatherMovementMode = "angle" | "random";
 
 type SceneWeatherEffect = {
   id: string;
+  name?: string;
   type: SceneWeatherEffectType;
   enabled: boolean;
   start: number;
@@ -1121,6 +1126,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   image: "",
   avatar: "",
   background: "",
+  backgroundName: "",
   start,
   end: start + 5,
   zoomStart: 0,
@@ -1128,6 +1134,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   zoomInDuration: 0.8,
   zoomOutDuration: 0.8,
   zoom: 1.25,
+  zoomName: "",
   centerX: 50,
   centerY: 50,
   zoomEnabled: true,
@@ -2316,6 +2323,7 @@ const normalizeSceneWeatherEffects = (value: unknown): SceneWeatherEffect[] => {
     return {
       ...defaultSceneWeatherEffect(type, `weather-${type}-${index + 1}`),
       id: String(candidate.id ?? `weather-${type}-${index + 1}`),
+      name: String(candidate.name ?? "").trim(),
       type,
       enabled: candidate.enabled !== false,
       start: Number(start.toFixed(2)),
@@ -2372,6 +2380,7 @@ const normalizeSceneEffects = (value: unknown): SceneEffects => {
         return {
           ...fallback,
           id: String(dark.id ?? `scene-dark-${index + 1}`),
+          name: String(dark.name ?? "").trim(),
           enabled: dark.enabled !== false,
           ...timing,
           intensity: Math.min(100, Math.max(0, positiveNumber(dark.intensity, 0))),
@@ -2937,6 +2946,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       id,
       avatar: String((item as Scene & { avatar?: unknown }).avatar ?? ""),
       sceneName: String((item as Scene & { sceneName?: unknown }).sceneName ?? item.title ?? `Cảnh ${index + 1}`),
+      backgroundName: String((item as Scene & { backgroundName?: unknown }).backgroundName ?? "").trim(),
       ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
       mapDecorations,
@@ -2946,6 +2956,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       zoomInDuration,
       zoomOutDuration: positiveNumber(item.zoomOutDuration, 0.8),
       zoom: Math.min(5, Math.max(1, positiveNumber(item.zoom, 1.25, 1))),
+      zoomName: String((item as Scene & { zoomName?: unknown }).zoomName ?? "").trim(),
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
@@ -4802,7 +4813,7 @@ function Home() {
         token: previewLayerToken("background", "background"),
         kind: "background" as const,
         id: "background",
-        label: safeTrim(scene.background) || legacyBackgroundPreview ? "Nền bản đồ" : "Nền mặc định",
+        label: safeTrim(scene.backgroundName) || (safeTrim(scene.background) || legacyBackgroundPreview ? "Nền bản đồ" : "Nền mặc định"),
         icon: "BG",
         visible: scene.backgroundVisible !== false,
         editorVisible: true,
@@ -4814,7 +4825,7 @@ function Home() {
         token: previewLayerToken("effect", "zoom"),
         kind: "effect" as const,
         id: "zoom",
-        label: "Zoom bản đồ",
+        label: safeTrim(scene.zoomName) || "Zoom bản đồ",
         icon: "⌕",
         visible: scene.zoomEnabled !== false,
         editorVisible: true,
@@ -4825,7 +4836,7 @@ function Home() {
         token: previewLayerToken("effect", `dark:${effect.id}`),
         kind: "effect" as const,
         id: `dark:${effect.id}`,
-        label: `Hiệu ứng tối ${index + 1}`,
+        label: safeTrim(effect.name) || `Hiệu ứng tối ${index + 1}`,
         icon: "◐",
         visible: effect.enabled,
         editorVisible: true,
@@ -4836,7 +4847,7 @@ function Home() {
           token: previewLayerToken("effect", `weather:${effect.id}`),
           kind: "effect" as const,
           id: `weather:${effect.id}`,
-          label: `${definition.label} ${index + 1}`,
+          label: safeTrim(effect.name) || `${definition.label} ${index + 1}`,
           icon: definition.icon,
           visible: effect.enabled,
           editorVisible: true,
@@ -5157,7 +5168,7 @@ function Home() {
       token: "background:scene",
       kind: "background",
       id: "scene",
-      label: "Nền bản đồ",
+      label: safeTrim(sceneStructureScene.backgroundName) || "Nền bản đồ",
       detail: fileNameOnly(sceneStructureBackgroundValue) || "Nền cảnh",
       icon: "▧",
       start: 0,
@@ -5173,7 +5184,7 @@ function Home() {
       token: "effect:zoom",
       kind: "effect",
       id: "zoom",
-      label: "Zoom bản đồ",
+      label: safeTrim(sceneStructureScene.zoomName) || "Zoom bản đồ",
       detail: `Mức zoom ${Number(sceneStructureScene.zoom ?? 1.25).toFixed(2)}×`,
       icon: "✦",
       start: Number(sceneStructureScene.zoomStart ?? 0),
@@ -5191,7 +5202,7 @@ function Home() {
         token: `effect:dark:${effect.id}`,
         kind: "effect",
         id: `dark:${effect.id}`,
-        label: `Hiệu ứng tối ${index + 1}`,
+        label: safeTrim(effect.name) || `Hiệu ứng tối ${index + 1}`,
         detail: `${effect.fadeInDuration}s tối · ${effect.holdDuration}s giữ · ${effect.fadeOutDuration}s sáng`,
         icon: "◐",
         start: effect.start,
@@ -5210,7 +5221,7 @@ function Home() {
         token: `effect:weather:${effect.id}`,
         kind: "effect",
         id: `weather:${effect.id}`,
-        label: `${definition.label} ${index + 1}`,
+        label: safeTrim(effect.name) || `${definition.label} ${index + 1}`,
         detail: `${effect.intensity}% · ×${effect.speed}`,
         icon: definition.icon,
         start: effect.start,
@@ -8228,6 +8239,7 @@ function Home() {
       image: "",
       avatar: "",
       background: "",
+      backgroundName: "",
       backgroundVisible: true,
       start: last.end,
       end: last.end + 3,
@@ -8236,6 +8248,7 @@ function Home() {
       zoomInDuration: 0.8,
       zoomOutDuration: 0.8,
       zoom: 1.25,
+      zoomName: "",
       centerX: 50,
       centerY: 50,
       zoomEnabled: true,
@@ -13786,6 +13799,151 @@ function Home() {
       </div>
     );
   };
+
+  const sceneStructureItemNameValue = (item: SceneStructureItem) => {
+    if (item.kind === "background") return safeTrim(sceneStructureScene.backgroundName);
+    if (item.kind === "image") return safeTrim(sceneStructureImages.find((image) => image.id === item.id)?.name);
+    if (item.kind === "popup") return safeTrim(sceneStructurePopups.find((popup) => popup.id === item.id)?.title);
+    if (item.kind === "text") return safeTrim(sceneStructureTexts.find((overlay) => overlay.id === item.id)?.name);
+    if (item.kind === "decoration") return safeTrim(sceneStructureDecorations.find((decoration) => decoration.id === item.id)?.name);
+    if (item.kind === "audio" || item.kind === "subtitle") return safeTrim(sceneStructureAudioTracks.find((track) => track.id === item.id)?.name);
+    if (item.id === "zoom") return safeTrim(sceneStructureScene.zoomName);
+    if (item.id.startsWith("dark:")) {
+      const effectId = item.id.slice("dark:".length);
+      return safeTrim(sceneStructureEffects.sceneStartDarkEffects.find((effect) => effect.id === effectId)?.name);
+    }
+    if (item.id.startsWith("weather:")) {
+      const effectId = item.id.slice("weather:".length);
+      return safeTrim(sceneStructureEffects.weatherEffects.find((effect) => effect.id === effectId)?.name);
+    }
+    return "";
+  };
+
+  const updateSceneStructureItemName = (item: SceneStructureItem, name: string) => {
+    if (!hydrated) return;
+    if (item.kind === "background") {
+      updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, backgroundName: name }));
+      return;
+    }
+    if (item.kind === "image") {
+      updateSceneStructureQuickImage(item.id, { name });
+      return;
+    }
+    if (item.kind === "popup") {
+      updateSceneStructureQuickPopup(item.id, { title: name });
+      return;
+    }
+    if (item.kind === "text") {
+      updateSceneStructureQuickText(item.id, { name });
+      return;
+    }
+    if (item.kind === "decoration") {
+      updateSceneStructureQuickDecoration(item.id, { name });
+      return;
+    }
+    if (item.kind === "audio" || item.kind === "subtitle") {
+      updateSceneStructureQuickAudio(item.id, { name });
+      return;
+    }
+    if (item.id === "zoom") {
+      updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, zoomName: name }));
+      return;
+    }
+    if (item.id.startsWith("dark:")) {
+      updateSceneStructureQuickDarkEffect(item.id.slice("dark:".length), { name });
+      return;
+    }
+    if (item.id.startsWith("weather:")) {
+      updateSceneStructureQuickWeatherEffect(item.id.slice("weather:".length), { name });
+    }
+  };
+
+  const renderSceneStructureInfo = () => (
+    <div className="scene-structure-info-editor">
+      <div className="scene-structure-info-toolbar">
+        <div>
+          <strong>Thông tin tất cả thẻ</strong>
+          <p>Chỉnh sửa tên và thời gian ngay tại đây. Mọi thay đổi được ghi vào cảnh đang chọn và đồng bộ với Biên soạn, Xem trước, Layer và bản render.</p>
+        </div>
+        <span>{sceneStructureItems.length} thẻ · {sceneStructureScene.sceneName || "Cảnh đang chọn"}</span>
+      </div>
+      {sceneStructureItems.length ? (
+        <div className="scene-structure-info-list" role="list" aria-label="Thông tin các thẻ trong cảnh">
+          <div className="scene-structure-info-list-heading" role="row" aria-hidden="true">
+            <span>Thẻ</span><span>Tên</span><span>Bắt đầu</span><span>Kết thúc</span><span>Thao tác</span>
+          </div>
+          {sceneStructureItems.map((item, index) => {
+            const timing = quickTimingDraftFor(item);
+            const locked = sceneStructureLockForToken(item.token);
+            return (
+              <article
+                key={item.token}
+                className={`scene-structure-info-row scene-structure-info-row-${item.kind}`}
+                role="listitem"
+                onClick={() => selectSceneStructureItem(item)}
+              >
+                <div className="scene-structure-info-item">
+                  <span className="scene-structure-info-thumb">{renderSceneStructureThumbnail(item)}</span>
+                  <span className="scene-structure-info-item-copy">
+                    <small>{String(index + 1).padStart(2, "0")} · {sceneStructureKindLabel(item.kind)}</small>
+                    <strong title={item.label}>{item.label}</strong>
+                    <span title={item.detail}>{item.detail}</span>
+                  </span>
+                </div>
+                <label className="scene-structure-info-field">
+                  <span>Tên thẻ</span>
+                  <input
+                    type="text"
+                    value={sceneStructureItemNameValue(item)}
+                    placeholder={item.label}
+                    aria-label={`Tên thẻ ${item.label}`}
+                    onChange={(event) => updateSceneStructureItemName(item, event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </label>
+                <label className="scene-structure-info-field">
+                  <span>Bắt đầu (giây)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={timing.start}
+                    disabled={item.timingMode === "none" || locked.time}
+                    aria-label={`Thời gian bắt đầu ${item.label}`}
+                    onChange={(event) => updateQuickTimingDraft(item, "start", event.target.value)}
+                    onBlur={() => commitQuickTimingDraft(item)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </label>
+                <label className="scene-structure-info-field">
+                  <span>Kết thúc (giây)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={timing.end}
+                    disabled={item.timingMode !== "both" || locked.time}
+                    aria-label={`Thời gian kết thúc ${item.label}`}
+                    onChange={(event) => updateQuickTimingDraft(item, "end", event.target.value)}
+                    onBlur={() => commitQuickTimingDraft(item)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="button secondary scene-structure-info-detail-button"
+                  onClick={() => openSceneStructureQuickEditor(item)}
+                >Chi tiết</button>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="scene-structure-info-empty">
+          <strong>Cảnh chưa có thẻ</strong>
+          <span>Thêm hình ảnh, popup, chữ, âm thanh hoặc hiệu ứng để xem thông tin tại đây.</span>
+        </div>
+      )}
+    </div>
+  );
 
   const renderSceneStructureSubtitleEditor = () => {
     const cues = sceneStructureScene.subtitles ?? [];
@@ -19388,7 +19546,7 @@ function Home() {
                           <span>{SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.icon}</span>
                           <div>
                             <strong>{SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.label}</strong>
-                            <small>{scenes.length} cảnh · kéo thả để thay đổi thứ tự</small>
+                            <small>{sceneStructureViewMode === "info" ? `${sceneStructureItems.length} thẻ · chỉnh sửa trực tiếp` : `${scenes.length} cảnh · kéo thả để thay đổi thứ tự`}</small>
                           </div>
                         </div>
                         <b>{formatPreciseTime(Math.max(0, ...scenes.map((item) => item.end)))}</b>
@@ -19548,6 +19706,7 @@ function Home() {
                       )}
 
                       {sceneStructureViewMode === "subtitles" && renderSceneStructureSubtitleEditor()}
+                      {sceneStructureViewMode === "info" && renderSceneStructureInfo()}
                     </div>
                   </div>
                 )}
