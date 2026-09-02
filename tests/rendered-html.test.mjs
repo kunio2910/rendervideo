@@ -548,6 +548,14 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /PREVIEW_CANVAS_HEIGHT = aspectRatio === "16:9" \? 289 : 632/);
   assert.match(renderer, /aspectRatio = project\.aspectRatio === "16:9"/);
   assert.match(renderer, /defaultResolution = aspectRatio === "16:9" \? "1920x1080" : "1080x1920"/);
+  assert.match(renderer, /const probeEncoder = async \(encoder, \{ width = 1280, height = 720, fps = 30 \} = \{\}\)/);
+  assert.match(renderer, /color=c=black:s=\$\{probeWidth\}x\$\{probeHeight\}:r=\$\{probeFps\}/);
+  assert.match(renderer, /const resolvedVideoEncoder = await resolveVideoEncoder\(requestedVideoEncoder, \{/);
+  assert.match(renderer, /width: outputWidth/);
+  assert.match(renderer, /height: outputHeight/);
+  assert.match(renderer, /\"-pix_fmt\", \"nv12\"/);
+  assert.match(renderer, /reusing the only rendered scene/);
+  assert.match(renderer, /\"-c:a\", \"copy\"/);
   assert.match(renderer, /popupPixelHeight/);
   assert.match(renderer, /const geometry = popupSectionGeometry\(/);
   assert.match(renderer, /const height = Math\.min\(/);

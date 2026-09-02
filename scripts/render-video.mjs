@@ -79,14 +79,21 @@ const readAvailableEncoders = async () => {
   );
 };
 
-const probeEncoder = async (encoder) => {
+const probeEncoder = async (encoder, { width = 1280, height = 720, fps = 30 } = {}) => {
+  // Probe with the same kind of dimensions/pixel format used by the real
+  // render. Some QSV drivers reject tiny synthetic frames such as 16x16 even
+  // though they encode the project's 720p/1080p output correctly.
+  const probeWidth = Math.max(16, Math.floor((Number(width) || 1280) / 2) * 2);
+  const probeHeight = Math.max(16, Math.floor((Number(height) || 720) / 2) * 2);
+  const probeFps = Math.max(1, Number(fps) || 30);
   const result = await captureProcess(ffmpeg, [
     "-hide_banner",
     "-loglevel", "error",
     "-f", "lavfi",
-    "-i", "color=c=black:s=16x16:r=1",
+    "-i", `color=c=black:s=${probeWidth}x${probeHeight}:r=${probeFps}`,
     "-frames:v", "1",
     "-an",
+    "-pix_fmt", "nv12",
     "-c:v", encoder,
     "-f", "null",
     "-",
@@ -94,7 +101,7 @@ const probeEncoder = async (encoder) => {
   return result.code === 0;
 };
 
-const resolveVideoEncoder = async (requested) => {
+const resolveVideoEncoder = async (requested, probeSettings = {}) => {
   const normalized = normalizeRenderEncoder(requested);
   if (normalized === "cpu") {
     return { requested: normalized, codec: "libx264", fallback: false };
@@ -105,7 +112,7 @@ const resolveVideoEncoder = async (requested) => {
     : encoderCandidates[normalized] ?? [];
   for (const candidate of candidates) {
     if (!available.has(candidate)) continue;
-    if (await probeEncoder(candidate)) {
+    if (await probeEncoder(candidate, probeSettings)) {
       return { requested: normalized, codec: candidate, fallback: false };
     }
   }
@@ -124,14 +131,6 @@ const resolveVideoEncoder = async (requested) => {
 const ffmpegFilterThreads = Math.max(1, Number(process.env.FFMPEG_FILTER_THREADS ?? 1) || 1);
 const ffmpegInputQueueSize = Math.max(1, Number(process.env.FFMPEG_INPUT_QUEUE_SIZE ?? 2) || 2);
 const project = JSON.parse(await fs.readFile(jsonPath, "utf8"));
-const requestedVideoEncoder = normalizeRenderEncoder(
-  process.env.RENDER_VIDEO_ENCODER ?? project.renderEncoder,
-);
-const resolvedVideoEncoder = await resolveVideoEncoder(requestedVideoEncoder);
-console.log(`Video encoder: ${encoderLabels[resolvedVideoEncoder.codec] ?? resolvedVideoEncoder.codec}`);
-if (resolvedVideoEncoder.fallback) {
-  console.warn(`Encoder ${requestedVideoEncoder} không khả dụng trên máy này; chuyển về CPU · libx264.`);
-}
 const sourceScenes = Array.isArray(project.scenes) ? project.scenes : [];
 let renderCursor = 0;
 const scenes = sourceScenes
@@ -181,6 +180,18 @@ const requestedFps = Math.max(1, Number(project.fps ?? 30) || 30);
 const fps = renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
 const videoPreset = renderProfile === "fast" ? "veryfast" : "medium";
 const videoCrf = renderProfile === "fast" ? "24" : "20";
+const requestedVideoEncoder = normalizeRenderEncoder(
+  process.env.RENDER_VIDEO_ENCODER ?? project.renderEncoder,
+);
+const resolvedVideoEncoder = await resolveVideoEncoder(requestedVideoEncoder, {
+  width: outputWidth,
+  height: outputHeight,
+  fps,
+});
+console.log(`Video encoder: ${encoderLabels[resolvedVideoEncoder.codec] ?? resolvedVideoEncoder.codec}`);
+if (resolvedVideoEncoder.fallback) {
+  console.warn(`Encoder ${requestedVideoEncoder} không khả dụng trên máy này; chuyển về CPU · libx264.`);
+}
 const hardwareQuality = renderProfile === "fast" ? "26" : "23";
 const videoEncoderArgs = resolvedVideoEncoder.codec === "libx264"
   ? ["-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf]
@@ -2868,7 +2879,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     ...videoEncoderArgs,
     "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
-    "-movflags", "+faststart",
+    ...(scenes.length === 1 ? ["-movflags", "+faststart"] : []),
     clip,
   );
   console.log(`Rendering scene ${index + 1}/${scenes.length}: ${scene.sceneName ?? scene.title ?? `Cảnh ${index + 1}`}`);
@@ -2888,21 +2899,26 @@ const music = project.backgroundMusic
 const narrationVideo = music
   ? path.join(renderDir, "narration-video.mp4")
   : outputPath;
-console.log(`Render stage: joining ${clipPaths.length} rendered scenes`);
-await run(ffmpeg, [
-  "-y",
-  "-f", "concat",
-  "-safe", "0",
-  "-i", concatFile,
-  "-c:v", "copy",
-  "-c:a", "aac",
-  "-b:a", audioBitrate,
-  "-ar", "48000",
-  "-ac", "2",
-  "-af", "aresample=async=1:first_pts=0",
-  "-movflags", "+faststart",
-  narrationVideo,
-]);
+if (clipPaths.length === 1) {
+  // The scene was already encoded with the final video/audio settings.
+  // Reusing it avoids starting a second FFmpeg process for one-scene clips.
+  console.log("Render stage: reusing the only rendered scene");
+  await fs.copyFile(clipPaths[0], narrationVideo);
+} else {
+  console.log(`Render stage: joining ${clipPaths.length} rendered scenes`);
+  // Every scene is encoded with the same AAC format above, so stream-copy
+  // audio here instead of decoding and encoding it a second time.
+  await run(ffmpeg, [
+    "-y",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", concatFile,
+    "-c:v", "copy",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    narrationVideo,
+  ]);
+}
 
 if (music) {
   console.log("Render stage: mixing background music");
