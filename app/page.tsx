@@ -1379,6 +1379,8 @@ const LOCAL_ACTIVE_PROJECT_KEY = "kito-video-studio-active-project";
 const LOCAL_SAVED_AT_KEY = "kito-video-studio-project-saved-at";
 const LOCAL_REVIEW_ZOOM_KEY = "kito-video-studio-review-zoom";
 const LOCAL_SCENE_STRUCTURE_ZOOM_KEY = "kito-video-studio-scene-structure-zoom";
+const LOCAL_SCENE_IMAGE_SYNC_GAP_KEY = "kito-video-studio-scene-image-sync-gap";
+const LOCAL_SCENE_IMAGE_SYNC_INCLUDE_HIDDEN_KEY = "kito-video-studio-scene-image-sync-include-hidden";
 const REVIEW_ZOOM_MIN = 35;
 const REVIEW_ZOOM_MAX = 200;
 const REVIEW_ZOOM_DEFAULT = 50;
@@ -1432,6 +1434,30 @@ const readSceneStructureZoomPreference = () => {
     return clampSceneStructureZoom(window.localStorage.getItem(LOCAL_SCENE_STRUCTURE_ZOOM_KEY));
   } catch {
     return SCENE_STRUCTURE_ZOOM_DEFAULT;
+  }
+};
+
+const clampSceneImageSyncGap = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.min(60, Math.max(-60, numeric));
+};
+
+const readSceneImageSyncGapPreference = () => {
+  if (typeof window === "undefined") return 0;
+  try {
+    return clampSceneImageSyncGap(window.localStorage.getItem(LOCAL_SCENE_IMAGE_SYNC_GAP_KEY));
+  } catch {
+    return 0;
+  }
+};
+
+const readSceneImageSyncIncludeHiddenPreference = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(LOCAL_SCENE_IMAGE_SYNC_INCLUDE_HIDDEN_KEY) === "true";
+  } catch {
+    return false;
   }
 };
 
@@ -4228,6 +4254,9 @@ function Home() {
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [selectedSceneStructureTokens, setSelectedSceneStructureTokens] = useState<string[]>([]);
   const [sceneStructureQuickEditToken, setSceneStructureQuickEditToken] = useState("");
+  const [sceneStructureImageSyncGapDraft, setSceneStructureImageSyncGapDraft] = useState(() => String(readSceneImageSyncGapPreference()));
+  const [sceneStructureImageSyncIncludeHidden, setSceneStructureImageSyncIncludeHidden] = useState(readSceneImageSyncIncludeHiddenPreference);
+  const [sceneStructureImageSyncNotice, setSceneStructureImageSyncNotice] = useState("");
   const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
@@ -5971,6 +6000,21 @@ function Home() {
       // localStorage may be unavailable in private browsing or restricted contexts.
     }
   }, [sceneStructureZoom]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        LOCAL_SCENE_IMAGE_SYNC_GAP_KEY,
+        String(clampSceneImageSyncGap(parsePreciseTime(sceneStructureImageSyncGapDraft, 0))),
+      );
+      window.localStorage.setItem(
+        LOCAL_SCENE_IMAGE_SYNC_INCLUDE_HIDDEN_KEY,
+        String(sceneStructureImageSyncIncludeHidden),
+      );
+    } catch {
+      // localStorage may be unavailable in private browsing or restricted contexts.
+    }
+  }, [sceneStructureImageSyncGapDraft, sceneStructureImageSyncIncludeHidden]);
 
   useEffect(() => {
     if (!rulerEnabled) return;
@@ -13800,6 +13844,106 @@ function Home() {
     );
   };
 
+  const sceneStructureImageSyncGap = clampSceneImageSyncGap(
+    parsePreciseTime(sceneStructureImageSyncGapDraft, 0),
+  );
+  const sceneStructureImageSyncPlan = (() => {
+    const candidates = sceneStructureImages
+      .filter((image) => sceneStructureImageSyncIncludeHidden || image.visible !== false)
+      .map((image) => ({ image, originalStart: Number(image.start) || 0 }))
+      .sort((first, second) => first.originalStart - second.originalStart || first.image.id.localeCompare(second.image.id));
+    let previousEnd = 0;
+    return candidates.map(({ image }, index) => {
+      const duration = Math.min(
+        sceneStructureDuration,
+        Math.max(0.1, Number(image.duration) || 0.1),
+      );
+      const maxStart = Math.max(0, sceneStructureDuration - duration);
+      const currentStart = Number(Math.min(maxStart, Math.max(0, Number(image.start) || 0)).toFixed(2));
+      const currentEnd = Number(Math.min(sceneStructureDuration, currentStart + duration).toFixed(2));
+      const locked = sceneStructureLockForToken(`image:${image.id}`).time;
+      const desiredStart = index === 0 ? currentStart : previousEnd + sceneStructureImageSyncGap;
+      const nextStart = index === 0 || locked
+        ? currentStart
+        : Number(Math.min(maxStart, Math.max(0, desiredStart)).toFixed(2));
+      const nextEnd = Number(Math.min(sceneStructureDuration, nextStart + duration).toFixed(2));
+      previousEnd = nextEnd;
+      return {
+        image,
+        index,
+        label: safeTrim(image.name) || `Hình ảnh ${index + 1}`,
+        duration,
+        currentStart,
+        currentEnd,
+        desiredStart,
+        nextStart,
+        nextEnd,
+        locked,
+        constrained: index > 0 && !locked && Math.abs(nextStart - desiredStart) > 0.009,
+        changed: Math.abs(nextStart - currentStart) > 0.009,
+      };
+    });
+  })();
+
+  const syncSceneStructureImages = () => {
+    if (!hydrated) return;
+    const plan = sceneStructureImageSyncPlan;
+    if (plan.length < 2) {
+      const message = sceneStructureImageSyncIncludeHidden
+        ? "Cần ít nhất 2 thẻ hình ảnh để đồng bộ."
+        : "Cần ít nhất 2 thẻ hình ảnh đang hiển thị để đồng bộ.";
+      setSceneStructureImageSyncNotice(message);
+      return;
+    }
+    const changedRows = plan.filter((row) => row.index > 0 && !row.locked && row.changed);
+    const lockedRows = plan.filter((row) => row.index > 0 && row.locked && Math.abs(row.nextStart - row.desiredStart) > 0.009);
+    if (!changedRows.length) {
+      const message = lockedRows.length
+        ? "Không có thay đổi: các vị trí cần đồng bộ đang bị khóa thời gian."
+        : "Các thẻ hình ảnh đã ở đúng khoảng cách đồng bộ.";
+      setSceneStructureImageSyncNotice(message);
+      return;
+    }
+    const rowByImageId = new Map(plan.map((row) => [row.image.id, row]));
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      return {
+        ...currentScene,
+        sceneImages: (currentScene.sceneImages ?? []).map((image) => {
+          const row = rowByImageId.get(image.id);
+          if (!row || row.index === 0 || row.locked || !row.changed) return image;
+          const shift = row.nextStart - row.currentStart;
+          const originalTransitionEnd = Number(image.transitionEnd);
+          const transitionEnd = normalizeSceneImageTransition(image.transition) === "cut"
+            ? row.nextStart
+            : Number(Math.min(
+                row.nextEnd,
+                Math.max(
+                  row.nextStart + 0.1,
+                  (Number.isFinite(originalTransitionEnd) ? originalTransitionEnd : row.currentStart + 0.1) + shift,
+                ),
+              ).toFixed(2));
+          return {
+            ...image,
+            start: row.nextStart,
+            duration: Number((row.nextEnd - row.nextStart).toFixed(2)),
+            transitionEnd,
+          };
+        }),
+      };
+    }));
+    const constrainedCount = changedRows.filter((row) => row.constrained).length;
+    const lockedCount = lockedRows.length;
+    const details = [
+      constrainedCount ? `${constrainedCount} ảnh bị giới hạn theo thời lượng cảnh` : "",
+      lockedCount ? `${lockedCount} ảnh bị bỏ qua vì khóa thời gian` : "",
+    ].filter(Boolean).join(" · ");
+    const message = `Đã đồng bộ ${changedRows.length} ảnh với khoảng ${sceneStructureImageSyncGap >= 0 ? "+" : ""}${sceneStructureImageSyncGap.toFixed(2)}s${details ? ` · ${details}` : ""} · Có thể hoàn tác bằng Ctrl+Z.`;
+    setSceneStructureImageSyncNotice(message);
+    setToast(message);
+    window.setTimeout(() => setToast(""), 3200);
+  };
+
   const sceneStructureItemNameValue = (item: SceneStructureItem) => {
     if (item.kind === "background") return safeTrim(sceneStructureScene.backgroundName);
     if (item.kind === "image") return safeTrim(sceneStructureImages.find((image) => image.id === item.id)?.name);
@@ -13867,6 +14011,94 @@ function Home() {
         </div>
         <span>{sceneStructureItems.length} thẻ · {sceneStructureScene.sceneName || "Cảnh đang chọn"}</span>
       </div>
+      <section className="scene-structure-image-sync-panel" aria-labelledby="scene-structure-image-sync-heading">
+        <div className="scene-structure-image-sync-heading">
+          <div>
+            <strong id="scene-structure-image-sync-heading">Đồng bộ chuỗi hình ảnh</strong>
+            <p>Đặt ảnh sau bắt đầu từ thời điểm kết thúc của ảnh trước cộng khoảng cách bên dưới. Khoảng âm tạo hiệu ứng chồng hình.</p>
+          </div>
+          <span>{sceneStructureImageSyncPlan.length} ảnh tham gia</span>
+        </div>
+        <div className="scene-structure-image-sync-controls">
+          <label className="scene-structure-info-field scene-structure-image-sync-gap-field">
+            <span>Khoảng đồng bộ (giây)</span>
+            <input
+              type="number"
+              min={-60}
+              max={60}
+              step={0.1}
+              value={sceneStructureImageSyncGapDraft}
+              aria-label="Khoảng thời gian đồng bộ hình ảnh"
+              title="Cho phép từ -60 đến 60 giây"
+              onChange={(event) => {
+                setSceneStructureImageSyncGapDraft(event.target.value);
+                setSceneStructureImageSyncNotice("");
+              }}
+              onBlur={() => setSceneStructureImageSyncGapDraft(sceneStructureImageSyncGap.toFixed(2))}
+            />
+            <small>Giới hạn -60 đến 60 · Dương = khoảng trống · Âm = chồng hình</small>
+          </label>
+          <label className="scene-structure-image-sync-check">
+            <input
+              type="checkbox"
+              checked={sceneStructureImageSyncIncludeHidden}
+              onChange={(event) => {
+                setSceneStructureImageSyncIncludeHidden(event.target.checked);
+                setSceneStructureImageSyncNotice("");
+              }}
+            />
+            <span>
+              <strong>Bao gồm ảnh đang ẩn</strong>
+              <small>Mặc định chỉ đồng bộ các ảnh đang hiển thị.</small>
+            </span>
+          </label>
+          <div className="scene-structure-image-sync-actions">
+            <button
+              type="button"
+              className="button secondary scene-structure-image-sync-reset"
+              title="Đặt khoảng đồng bộ về 0 giây"
+              onClick={() => {
+                setSceneStructureImageSyncGapDraft("0");
+                setSceneStructureImageSyncNotice("Đã đặt khoảng đồng bộ về 0 giây.");
+              }}
+            >↺ 0</button>
+            <button
+              type="button"
+              className="button primary scene-structure-image-sync-apply"
+              disabled={!hydrated || sceneStructureImageSyncPlan.length < 2}
+              title="Đồng bộ các thẻ hình ảnh theo thứ tự thời gian"
+              onClick={syncSceneStructureImages}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h12m0 0-3-3m3 3-3 3M20 17H8m0 0 3-3m-3 3 3 3" /></svg>
+              Đồng bộ ảnh
+            </button>
+          </div>
+        </div>
+        <div className="scene-structure-image-sync-preview" aria-live="polite">
+          <div className="scene-structure-image-sync-preview-heading">
+            <strong>Xem trước thay đổi</strong>
+            <span>Ảnh đầu tiên giữ nguyên thời gian</span>
+          </div>
+          {sceneStructureImageSyncPlan.length > 1 ? (
+            <div className="scene-structure-image-sync-preview-list">
+              {sceneStructureImageSyncPlan.slice(1).map((row) => (
+                <div className="scene-structure-image-sync-preview-row" key={row.image.id}>
+                  <span title={row.label}>{row.label}</span>
+                  <small>{formatPreciseTime(row.currentStart)} → {formatPreciseTime(row.currentEnd)}</small>
+                  <b aria-hidden="true">→</b>
+                  <small className={row.changed ? "is-changed" : ""}>{formatPreciseTime(row.nextStart)} → {formatPreciseTime(row.nextEnd)}</small>
+                  {row.locked ? <em>Khóa thời gian</em> : row.constrained ? <em>Giới hạn theo cảnh</em> : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>Thêm ít nhất 2 thẻ hình ảnh để xem trước kết quả đồng bộ.</p>
+          )}
+        </div>
+        {sceneStructureImageSyncNotice && (
+          <p className="scene-structure-image-sync-notice" role="status">{sceneStructureImageSyncNotice}</p>
+        )}
+      </section>
       {sceneStructureItems.length ? (
         <div className="scene-structure-info-list" role="list" aria-label="Thông tin các thẻ trong cảnh">
           <div className="scene-structure-info-list-heading" role="row" aria-hidden="true">
@@ -13878,7 +14110,7 @@ function Home() {
             return (
               <article
                 key={item.token}
-                className={`scene-structure-info-row scene-structure-info-row-${item.kind}`}
+                className={`scene-structure-info-row scene-structure-info-row-${item.kind} ${sceneStructurePreviewMode && sceneStructureLocalTime >= item.start && sceneStructureLocalTime < item.end ? "is-live" : ""}`}
                 role="listitem"
                 onClick={() => selectSceneStructureItem(item)}
               >

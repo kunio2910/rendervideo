@@ -248,6 +248,16 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /const updateSceneStructureItemName/);
   assert.match(page, /renderSceneStructureInfo/);
   assert.match(page, /scene-structure-info-row/);
+  assert.match(page, /const sceneStructureImageSyncPlan/);
+  assert.match(page, /const syncSceneStructureImages/);
+  assert.match(page, /sceneStructureImageSyncGapDraft/);
+  assert.match(page, /sceneStructureImageSyncIncludeHidden/);
+  assert.match(page, /readSceneImageSyncGapPreference/);
+  assert.match(page, /readSceneImageSyncIncludeHiddenPreference/);
+  assert.match(page, /row\.nextStart - row\.currentStart/);
+  assert.match(page, /row\.constrained/);
+  assert.match(page, /Có thể hoàn tác bằng Ctrl\+Z/);
+  assert.match(page, /sceneStructurePreviewMode && sceneStructureLocalTime >= item\.start/);
   assert.match(page, /backgroundName/);
   assert.match(page, /zoomName/);
   assert.match(page, /replayPlayback/);
@@ -354,6 +364,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /layer-panel-fullscreen[\s\S]*inset: 8px clamp/);
   assert.match(css, /data-studio-tab="compose"\]\.layer-panel-fullscreen \.editor-layer-panel[\s\S]{0,240}width: auto/);
   assert.match(css, /scene-structure-info-editor/);
+  assert.match(css, /scene-structure-info-row\.is-live/);
+  assert.match(css, /scene-structure-image-sync-panel/);
+  assert.match(css, /scene-structure-image-sync-apply/);
+  assert.match(css, /scene-structure-image-sync-preview/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });
