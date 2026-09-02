@@ -4881,17 +4881,17 @@ function Home() {
         canToggleVisibility: true,
         canLock: false,
       },
-      {
+      ...(scene.zoomEnabled !== false ? [{
         token: previewLayerToken("effect", "zoom"),
         kind: "effect" as const,
         id: "zoom",
         label: safeTrim(scene.zoomName) || "Zoom bản đồ",
         icon: "⌕",
-        visible: scene.zoomEnabled !== false,
+        visible: true,
         editorVisible: true,
         canReorder: false,
         canLock: false,
-      },
+      }] : []),
       ...sceneEffects.sceneStartDarkEffects.map((effect, index) => ({
         token: previewLayerToken("effect", `dark:${effect.id}`),
         kind: "effect" as const,
@@ -15402,7 +15402,7 @@ function Home() {
         </aside>
 
         <section className={`preview-panel preview-with-sidebar ${previewFullscreen ? "preview-fullscreen-panel" : ""}`}>
-          <div className="preview-control-panel">
+          <div className={`preview-control-panel ${aspectRatio === "16:9" ? "preview-control-panel-landscape" : "preview-control-panel-portrait"}`}>
             <span className="preview-panel-kicker">XEM TRƯỚC</span>
             <div className="preview-panel-meta">
               <strong>Cảnh {scene.number} · {scene.sceneName || "CẢNH MỚI"}</strong>
