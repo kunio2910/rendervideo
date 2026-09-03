@@ -13873,7 +13873,10 @@ body {
 
 /* Preview-only image visibility switch. This is deliberately scoped to the
    canvas so it cannot affect the scene data consumed by the renderer. */
-.phone-preview.preview-images-hidden .scene-image-overlay {
+.phone-preview.preview-images-hidden .project-background,
+.phone-preview.preview-images-hidden .scene-image-overlay,
+.phone-preview.preview-images-hidden .preview-card .photo-placeholder img,
+.phone-preview.preview-images-hidden .preview-card .photo-placeholder video {
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;

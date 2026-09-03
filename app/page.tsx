@@ -14566,7 +14566,7 @@ function Home() {
 
     return (
       <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-images-visible={previewImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!previewImagesVisible ? "preview-images-hidden" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
-        {sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
+        {previewImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
               key={`${sceneStructureBackgroundSource}-${previewIsPlaying ? "playing" : "paused"}`}
@@ -15765,7 +15765,7 @@ function Home() {
               data-scene-local-time={sceneLocalTime.toFixed(3)}
               className="scene-render-container"
             >
-            {sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
+            {previewImagesVisible && sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
                 <video
                   key={backgroundVideoPreviewSource}
@@ -16140,12 +16140,12 @@ function Home() {
                 : sceneLocalTime < popupStart + popupTransition
                   ? "opening"
                   : sceneLocalTime > popupEnd - popupTransition ? "closing" : "visible";
-              const popupImageSource = imageEnabled && popup.imageVisible !== false
+              const popupImageSource = previewImagesVisible && imageEnabled && popup.imageVisible !== false
                 ? assetPreviewSource(popup.image)
                 : "";
-              const popupVideoSource = assetPreviewSource(popup.video);
-              const popupHasMedia = (imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
-                || Boolean(safeTrim(popup.video));
+              const popupVideoSource = previewImagesVisible ? assetPreviewSource(popup.video) : "";
+              const popupHasMedia = previewImagesVisible && ((imageEnabled && popup.imageVisible !== false && Boolean(safeTrim(popup.image)))
+                || Boolean(safeTrim(popup.video)));
               const popupHasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
               const popupLayout = popup.layout ?? "image-top";
               const popupShowMedia = popupLayout !== "content-only" && popupHasMedia;
