@@ -4229,6 +4229,7 @@ function Home() {
   const [workspaceBackupBusy, setWorkspaceBackupBusy] = useState(false);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [previewZoom, setPreviewZoom] = useState(PREVIEW_ZOOM_DEFAULT);
+  const [previewImagesVisible, setPreviewImagesVisible] = useState(true);
   const [previewEffectsVisible, setPreviewEffectsVisible] = useState(true);
   const [previewTikTokSettings, setPreviewTikTokSettings] = useState<PreviewTikTokSettings>(
     DEFAULT_PREVIEW_TIKTOK_SETTINGS,
@@ -4816,7 +4817,7 @@ function Home() {
         })
       : sceneDecorations.filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
     : [];
-  const previewSceneImageItems = sceneIsVisibleInPlayback
+  const previewSceneImageItems = previewImagesVisible && sceneIsVisibleInPlayback
     ? previewPlaybackMode
       ? sceneImages.filter((image, imageIndex) => {
           const { start, end } = sceneImagePlaybackWindow(image, imageIndex);
@@ -4827,7 +4828,7 @@ function Home() {
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
-  const activeFadeBlackImage = previewEffectsVisible && previewPlaybackMode
+  const activeFadeBlackImage = previewImagesVisible && previewEffectsVisible && previewPlaybackMode
     ? sceneImages.find((image) => {
         const transition = normalizeSceneImageTransition(image.transition);
         const duration = sceneImageTransitionDuration(image);
@@ -14539,14 +14540,16 @@ function Home() {
       ? `inset(0 ${Math.max(0, 100 - liveSubtitleProgress * 100)}% 0 0)`
       : "none";
     const activeLiveImageIds = new Set(
-      sceneStructureImages
-        .filter((image) => image.visible !== false && safeTrim(image.url))
-        .filter((image) => {
-          const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
-          const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
-          return localTime >= start && localTime < end;
-        })
-        .map((image) => image.id),
+      previewImagesVisible
+        ? sceneStructureImages
+          .filter((image) => image.visible !== false && safeTrim(image.url))
+          .filter((image) => {
+            const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
+            const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+            return localTime >= start && localTime < end;
+          })
+          .map((image) => image.id)
+        : [],
     );
     const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
     const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
@@ -15669,6 +15672,21 @@ function Home() {
               <span className="preview-tool-sidebar-divider" />
               <button
                 type="button"
+                className={`preview-tool-sidebar-button ${!previewImagesVisible ? "active" : ""}`}
+                aria-label={previewImagesVisible ? "Ẩn hình ảnh trong bản đồ" : "Hiện hình ảnh trong bản đồ"}
+                aria-pressed={!previewImagesVisible}
+                title={previewImagesVisible ? "Ẩn hình ảnh trong bản đồ khi xem trước" : "Hiện hình ảnh trong bản đồ khi xem trước"}
+                onClick={() => setPreviewImagesVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  {!previewImagesVisible && <path d="m4 4 16 16" />}
+                </svg>
+                <span>Hình ảnh</span>
+              </button>
+              <button
+                type="button"
                 className={`preview-tool-sidebar-button ${previewAudioMuted ? "active" : ""}`}
                 aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
                 aria-pressed={previewAudioMuted}
@@ -15702,6 +15720,20 @@ function Home() {
               </button>
               <button
                 type="button"
+                className={`preview-tool-sidebar-button preview-effects-sidebar-toggle ${!previewEffectsVisible ? "active" : ""}`}
+                aria-label={previewEffectsVisible ? "Ẩn hiệu ứng xem trước" : "Hiện hiệu ứng xem trước"}
+                aria-pressed={!previewEffectsVisible}
+                title={previewEffectsVisible ? "Ẩn hiệu ứng môi trường trên màn hình xem trước" : "Hiện hiệu ứng môi trường trên màn hình xem trước"}
+                onClick={() => setPreviewEffectsVisible((visible) => !visible)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m12 2.8 2.2 6.1 6.4.6-4.9 4.1 1.5 6.3-5.2-3.2-5.2 3.2 1.5-6.3-4.9-4.1 6.4-.6L12 2.8Z" />
+                  {!previewEffectsVisible && <path d="m4 4 16 16" />}
+                </svg>
+                <span>Hiệu ứng</span>
+              </button>
+              <button
+                type="button"
                 className={`preview-tool-sidebar-button ${previewTikTokSettings.enabled ? "active" : ""}`}
                 aria-label={previewTikTokSettings.enabled ? "Tắt mô phỏng TikTok" : "Bật mô phỏng TikTok"}
                 aria-pressed={previewTikTokSettings.enabled}
@@ -15713,20 +15745,6 @@ function Home() {
                   <path d="M10 7.5h4M9 17h6" />
                 </svg>
                 <span>Mô phỏng</span>
-              </button>
-              <button
-                type="button"
-                className={`preview-tool-sidebar-button ${!previewEffectsVisible ? "active" : ""}`}
-                aria-label={previewEffectsVisible ? "Ẩn hiệu ứng xem trước" : "Hiện hiệu ứng xem trước"}
-                aria-pressed={!previewEffectsVisible}
-                title={previewEffectsVisible ? "Ẩn hiệu ứng môi trường trên màn hình xem trước" : "Hiện hiệu ứng môi trường trên màn hình xem trước"}
-                onClick={() => setPreviewEffectsVisible((visible) => !visible)}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m12 2.8 2.2 6.1 6.4.6-4.9 4.1 1.5 6.3-5.2-3.2-5.2 3.2 1.5-6.3-4.9-4.1 6.4-.6L12 2.8Z" />
-                  {!previewEffectsVisible && <path d="m4 4 16 16" />}
-                </svg>
-                <span>Hiệu ứng</span>
               </button>
             </aside>
             <div className="preview-stage">

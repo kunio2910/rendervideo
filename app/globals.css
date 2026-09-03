@@ -14053,7 +14053,7 @@ body {
   background: rgba(21, 105, 160, .38);
   box-shadow: 0 0 0 2px rgba(21, 147, 239, .12);
 }
-.preview-tool-sidebar-button:nth-of-type(4).active {
+.preview-effects-sidebar-toggle.active {
   border-color: #c27a26;
   color: #ffe5ba;
   background: rgba(96, 55, 17, .58);
@@ -14080,7 +14080,7 @@ body {
   color: #ecf8ff;
   background: rgba(17, 92, 145, .48);
 }
-.studio-shell[data-theme="dark"] .preview-tool-sidebar-button:nth-of-type(4).active {
+.studio-shell[data-theme="dark"] .preview-effects-sidebar-toggle.active {
   border-color: #b97928;
   color: #ffe1ad;
   background: rgba(96, 55, 17, .62);
