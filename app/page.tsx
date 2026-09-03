@@ -2379,10 +2379,16 @@ const sceneAudioSubtitles = (
   track: SceneAudioTrack,
   subtitles: SubtitleCue[],
   trackIndex = 0,
+  allTracks: SceneAudioTrack[] = [],
 ) => {
+  // Legacy scenes with one unassigned track treated every subtitle as
+  // belonging to the first track. Once any track has explicit cue IDs, that
+  // fallback must stop; otherwise importing subtitles into track 2 also
+  // makes them appear on track 1 and applies the wrong audio offset.
+  const hasExplicitAssignments = allTracks.some((item) => Array.isArray(item.subtitleCueIds));
   const subtitleIds = Array.isArray(track.subtitleCueIds)
     ? new Set(track.subtitleCueIds)
-    : trackIndex === 0
+    : trackIndex === 0 && !hasExplicitAssignments
       ? new Set(subtitles.map((subtitle) => subtitle.id))
       : new Set<string>();
   return subtitles.filter((subtitle) => subtitleIds.has(subtitle.id));
@@ -2396,11 +2402,15 @@ type SubtitleTimingScene = {
 const subtitleAudioTrackForCue = (
   scene: SubtitleTimingScene,
   subtitleId: string,
-) => (scene.audioTracks ?? []).find((track, trackIndex) => (
-  Array.isArray(track.subtitleCueIds)
-    ? track.subtitleCueIds.includes(subtitleId)
-    : trackIndex === 0
-));
+) => {
+  const audioTracks = scene.audioTracks ?? [];
+  const hasExplicitAssignments = audioTracks.some((track) => Array.isArray(track.subtitleCueIds));
+  return audioTracks.find((track, trackIndex) => (
+    Array.isArray(track.subtitleCueIds)
+      ? track.subtitleCueIds.includes(subtitleId)
+      : trackIndex === 0 && !hasExplicitAssignments
+  ));
+};
 
 const subtitleTimingForScene = (
   scene: SubtitleTimingScene,
@@ -5523,7 +5533,7 @@ function Home() {
         });
       }
       if (sceneStructureScene.subtitleEnabled !== false) {
-        const trackSubtitles = sceneAudioSubtitles(track, allStructureSubtitles, index);
+        const trackSubtitles = sceneAudioSubtitles(track, allStructureSubtitles, index, sceneStructureAudioTracks);
         const visibleTrackSubtitles = trackSubtitles.filter((subtitle) => subtitle.visible !== false);
         visibleTrackSubtitles.forEach((subtitle) => structureSubtitleIds.add(subtitle.id));
         if (visibleTrackSubtitles.length) {
@@ -8967,7 +8977,7 @@ function Home() {
     const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
     const targetTrack = sceneAudioTracks[targetTrackIndex];
     if (!targetTrack || targetTrackIndex < 0) return;
-    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex);
+    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex, sceneAudioTracks);
     if (existingCues.length > 0
       && !window.confirm(`Import SRT/VTT sẽ thay thế ${existingCues.length} phụ đề của “${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}”. Tiếp tục?`)) {
       return;
@@ -9196,7 +9206,7 @@ function Home() {
     const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
     if (targetTrackIndex < 0) return;
     const otherTrackHasCue = sceneAudioTracks.some((track, index) => index !== targetTrackIndex
-      && sceneAudioSubtitles(track, currentSubtitles, index).some((subtitle) => subtitle.id === subtitleId));
+      && sceneAudioSubtitles(track, currentSubtitles, index, sceneAudioTracks).some((subtitle) => subtitle.id === subtitleId));
     setScenes((items) => items.map((item) => {
       if (item.id !== scene.id) return item;
       const nextSubtitles = otherTrackHasCue
@@ -18168,7 +18178,7 @@ function Home() {
                   {sceneAudioTracks.map((track, index) => {
                     const inputKey = sceneAudioTrackKey(scene.id, track.id);
                     const previewSource = audioTrackPreviewSource(track, index);
-                    const trackSubtitles = sceneAudioSubtitles(track, scene.subtitles ?? [], index);
+                    const trackSubtitles = sceneAudioSubtitles(track, scene.subtitles ?? [], index, sceneAudioTracks);
                     const subtitleInputId = `audio-subtitle-file-${scene.id}-${track.id}`;
                     return (
                       <article key={track.id} className={`scene-audio-item ${track.visible === false ? "is-hidden" : ""}`}>
