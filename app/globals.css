@@ -6147,9 +6147,9 @@ body {
   transform-origin: center center;
 }
 .studio-shell[data-studio-tab="compose"] .compose-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  position: relative;
+  top: auto;
+  z-index: 20;
   isolation: isolate;
 }
 .preview-navigation {
