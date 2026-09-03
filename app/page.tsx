@@ -5279,7 +5279,10 @@ function Home() {
       if (!run.length) return;
       const first = run[0];
       const last = run[run.length - 1];
-      const totalDuration = run.reduce((total, entry) => total + Math.max(0.1, entry.end - entry.start), 0);
+       // A generated image represents the whole subtitle run, not only the
+       // sum of cue durations. Using the span from the first cue to the last
+       // cue keeps the Timeline aligned when there is a pause between cues.
+       const totalDuration = Math.max(0.1, last.end - first.start);
       const groupIndex = groups.length;
       const cueIds = run.map(({ cue }) => cue.id);
       groups.push({
@@ -13102,13 +13105,18 @@ function Home() {
       const findExistingImage = (group: SceneStructureSubtitleImageGroup) => {
         let bestMatch: SceneImage | null = null;
         let bestScore = 0;
+        const groupCueIds = new Set(group.cueIds);
         for (const image of existingGeneratedImages) {
           if (usedExistingIds.has(image.id)) continue;
-          const cueIds = new Set(image.subtitleCueIds ?? []);
-          const overlapCount = group.cueIds.filter((cueId) => cueIds.has(cueId)).length;
-          const sameGroup = image.subtitleGroupId === group.groupId;
+            const cueIds = new Set(image.subtitleCueIds ?? []);
+            const sameCueSet = cueIds.size === groupCueIds.size
+            && groupCueIds.size > 0
+            && [...groupCueIds].every((cueId) => cueIds.has(cueId));
+          // groupId contains the array index and changes when groups are
+          // inserted or removed. Match by the actual cue IDs first so an old
+          // generated image cannot be reused for a different time range.
           const sameSource = safeTrim(image.url) === safeTrim(group.imageUrl);
-          const score = (sameGroup ? 10000 : 0) + overlapCount * 100 + (sameSource ? 10 : 0);
+          const score = sameCueSet ? 10000 + (sameSource ? 100 : 0) : 0;
           if (score > bestScore) {
             bestMatch = image;
             bestScore = score;
@@ -13126,9 +13134,10 @@ function Home() {
           Math.max(0, segment.start),
           Math.max(0, sceneStructureDuration - 0.1),
         );
+        const segmentDuration = Math.max(0.1, segment.end - segment.start);
         const duration = Number(Math.max(0.1, Math.min(
           Math.max(0.1, sceneStructureDuration - start),
-          Math.max(0.1, group.totalDuration),
+          segmentDuration,
         )).toFixed(2));
         const transitionDuration = transition === "cut"
           ? 0
@@ -13153,22 +13162,25 @@ function Home() {
           subtitleCueIds: segment.cueIds,
           subtitleGroupTotalDuration: group.totalDuration,
         } satisfies Partial<SceneImage>;
-        if (existingImage) {
-          // Keep the existing Timeline values (ID, start, duration and layer
-          // position). Only synchronize source/style fields from the subtitle
-          // editor, so a second update does not rebuild old cards.
-          return {
-            ...existingImage,
-            ...syncedFields,
-          } satisfies SceneImage;
-        }
-        return defaultSceneImage(imageId, {
-          ...syncedFields,
+        const synchronizedTiming = {
           start,
           duration,
           transitionEnd: transition === "cut"
             ? start
             : Number(Math.min(sceneStructureDuration, start + transitionDuration).toFixed(2)),
+        };
+        if (existingImage) {
+          // Keep the existing ID and layer position, but always refresh its
+          // timing from the current subtitle cue range.
+          return {
+            ...existingImage,
+            ...syncedFields,
+            ...synchronizedTiming,
+          } satisfies SceneImage;
+        }
+        return defaultSceneImage(imageId, {
+          ...syncedFields,
+          ...synchronizedTiming,
         });
       }));
     };
@@ -15026,7 +15038,13 @@ function Home() {
                   transition: draft.transition,
                   transparent: draft.transparent,
                 };
-            const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+           const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+            const timing = subtitleTimingForScene(sceneStructureScene, cue);
+            const timelineStart = Math.min(sceneStructureDuration, Math.max(0, timing.start));
+            const timelineEnd = Math.min(
+              sceneStructureDuration,
+              Math.max(timelineStart + 0.1, timing.end),
+            );
             const previewSource = assetPreviewSource(imageDraft.imageUrl);
             return (
               <article key={cue.id} className={`scene-structure-subtitle-row ${cue.visible === false ? "is-hidden" : ""}`} data-scene-structure-subtitle-cue={cue.id}>
@@ -15034,7 +15052,7 @@ function Home() {
                   <span className="scene-structure-subtitle-number">{String(index + 1).padStart(2, "0")}</span>
                   <div>
                     <strong>{formatPreciseTime(cue.start)} → {formatPreciseTime(cue.end)}</strong>
-                    <small>{cue.visible === false ? "Đang ẩn" : group ? `${group.cueIds.length} câu dùng chung ảnh · Tổng ${group.totalDuration.toFixed(2)} giây` : "Chưa gán ảnh"}</small>
+                    <small>{cue.visible === false ? "Đang ẩn" : `Timeline: ${formatPreciseTime(timelineStart)} → ${formatPreciseTime(timelineEnd)} · ${group ? `${group.cueIds.length} câu dùng chung ảnh · Tổng ${group.totalDuration.toFixed(2)} giây` : "Chưa gán ảnh"}`}</small>
                   </div>
                   <div className="scene-structure-subtitle-row-actions">
                     <button type="button" className="scene-structure-subtitle-copy" disabled={!safeTrim(imageDraft.imageUrl)} onClick={() => copySceneStructureSubtitleImage(cue.id)}>Sao chép</button>
