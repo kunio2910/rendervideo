@@ -129,6 +129,7 @@ type TextOverlay = {
   textEffect: TextOverlayEffect;
   textEffectDuration: number;
   textEffectReverse: boolean;
+  timingLinked?: boolean;
   start: number;
   end: number;
   x: number;
@@ -193,6 +194,8 @@ type SceneImage = {
   spriteSheet: boolean;
   spriteDelay: number;
   transparent: boolean;
+  fillMap?: boolean;
+  timingLinked?: boolean;
   shape: SceneImageShape;
   x: number;
   y: number;
@@ -436,8 +439,47 @@ const SCENE_STRUCTURE_VIEW_OPTIONS: Array<{
 // để có thể bật lại bằng một thay đổi cấu hình nhỏ khi cần.
 const SCENE_STRUCTURE_MINIMAP_ENABLED = false;
 
-const FieldLabel = ({ children, hint }: { children: ReactNode; hint: string }) => (
-  <FieldLabelWithRangeHint hint={hint}>{children}</FieldLabelWithRangeHint>
+type TimingLinkControl = {
+  active: boolean;
+  onToggle: () => void;
+  label?: string;
+};
+
+const FieldLabel = ({
+  children,
+  hint,
+  timingLink,
+}: {
+  children: ReactNode;
+  hint: string;
+  timingLink?: TimingLinkControl;
+}) => (
+  <FieldLabelWithRangeHint hint={hint}>
+    <span className="field-label-content">
+      <span>{children}</span>
+      {timingLink && (
+        <button
+          type="button"
+          className={`timing-link-toggle ${timingLink.active ? "is-active" : ""}`}
+          aria-pressed={timingLink.active}
+          aria-label={timingLink.label ?? (timingLink.active ? "Tắt liên kết thời gian" : "Bật liên kết thời gian")}
+          title={timingLink.label ?? (timingLink.active ? "Tắt liên kết thời gian" : "Liên kết thời gian bắt đầu và kết thúc")}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            timingLink.onToggle();
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m9.2 14.8 5.6-5.6" />
+            <path d="m7.6 17.8-1.3 1.3a4 4 0 0 1-5.6-5.6l3.1-3.1a4 4 0 0 1 5.6 0" />
+            <path d="m16.4 6.2 1.3-1.3a4 4 0 0 1 5.6 5.6l-3.1 3.1a4 4 0 0 1-5.6 0" />
+          </svg>
+        </button>
+      )}
+    </span>
+  </FieldLabelWithRangeHint>
 );
 
 const FieldLabelWithRangeHint = ({ children, hint }: { children: ReactNode; hint: string }) => {
@@ -549,6 +591,7 @@ type SceneAudioTrack = {
   name: string;
   source: string;
   volume: number;
+  timingLinked?: boolean;
   start: number;
   end: number;
   visible: boolean;
@@ -563,6 +606,7 @@ const defaultSceneAudioTrack = (
   name: "Thuyết minh",
   source: "",
   volume: 95,
+  timingLinked: false,
   start: 0,
   end: 5,
   visible: true,
@@ -1025,6 +1069,7 @@ type PopupConfig = {
   image: string;
   video: string;
   transparentMedia: boolean;
+  timingLinked?: boolean;
   start: number;
   duration: number;
   in: string;
@@ -1253,6 +1298,32 @@ const clampNumericInputValue = (value: number, min?: number, max?: number) => {
   if (typeof min === "number") next = Math.max(min, next);
   if (typeof max === "number") next = Math.min(max, next);
   return next;
+};
+
+const moveLinkedTimingStart = (
+  requestedStart: number,
+  currentStart: number,
+  currentEnd: number,
+  limit: number,
+) => {
+  const safeLimit = Math.max(0.1, Number(limit) || 0.1);
+  const safeStart = Math.min(
+    Math.max(0, safeLimit - 0.1),
+    Math.max(0, Number(currentStart) || 0),
+  );
+  const safeEnd = Math.min(
+    safeLimit,
+    Math.max(safeStart + 0.1, Number(currentEnd) || safeLimit),
+  );
+  const span = Math.min(safeLimit, Math.max(0.1, safeEnd - safeStart));
+  const nextStart = Math.min(
+    Math.max(0, safeLimit - span),
+    Math.max(0, Number(requestedStart) || 0),
+  );
+  return {
+    start: Number(nextStart.toFixed(2)),
+    end: Number((nextStart + span).toFixed(2)),
+  };
 };
 
 type NumericInputProps = Omit<
@@ -1933,6 +2004,8 @@ const defaultSceneImage = (
   spriteSheet: false,
   spriteDelay: 180,
   transparent: false,
+  fillMap: false,
+  timingLinked: false,
   shape: "rectangle",
   x: 50,
   y: 50,
@@ -1988,6 +2061,8 @@ const normalizeSceneImage = (
     transparent: typeof raw.transparent === "boolean"
       ? raw.transparent
       : raw.transparentMedia === true || isTransparentMedia(url),
+    fillMap: typeof raw.fillMap === "boolean" ? raw.fillMap : raw.subtitleGenerated === true,
+    timingLinked: raw.timingLinked === true,
     shape,
     x: clampPercent(raw.x ?? base.x, base.x),
     y: clampPercent(raw.y ?? base.y, base.y),
@@ -2045,6 +2120,7 @@ const defaultTextOverlay = (
   textEffect: "none",
   textEffectDuration: 0.6,
   textEffectReverse: false,
+  timingLinked: false,
   start: 0,
   end: 3600,
   x: 50,
@@ -2243,6 +2319,7 @@ const normalizeTextOverlay = (
     textEffectReverse: typeof (raw.textEffectReverse ?? raw.overlayTextEffectReverse) === "boolean"
       ? (raw.textEffectReverse ?? raw.overlayTextEffectReverse)
       : base.textEffectReverse,
+    timingLinked: raw.timingLinked === true,
     start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
     end: Math.min(3600, Math.max(
       Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
@@ -2286,6 +2363,7 @@ const normalizeSceneAudioTrack = (
     name: String(raw.name ?? base.name),
     source: String(raw.source ?? raw.url ?? raw.file ?? base.source),
     volume: clampVolume(raw.volume, base.volume),
+    timingLinked: raw.timingLinked === true,
     start: Number(start.toFixed(2)),
     end: Number(end.toFixed(2)),
     visible: raw.visible !== false,
@@ -2603,6 +2681,7 @@ const defaultPopupConfig = (id: string, overrides: Partial<PopupConfig> = {}): P
   image: "",
   video: "",
   transparentMedia: false,
+  timingLinked: false,
   start: 0.5,
   duration: 3,
   in: "fade-slide-up",
@@ -2897,6 +2976,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
                 : typeof rawPopup.popupTransparentMedia === "boolean"
                   ? rawPopup.popupTransparentMedia
                   : fallback.transparentMedia,
+              timingLinked: rawPopup.timingLinked === true,
               start: positiveNumber(rawPopup.start ?? rawPopup.popupStart, fallback.start),
               duration: positiveNumber(rawPopup.duration ?? rawPopup.popupDuration, fallback.duration, 0.1),
               in: String(rawPopup.in ?? rawPopup.popupIn ?? fallback.in),
@@ -6164,7 +6244,13 @@ function Home() {
       setPlaying(false);
       setSceneStructurePreviewMode(false);
       setPreviewPlaybackMode(false);
+      setSceneStructureImageSyncPreviewOpen(false);
       setSceneStructurePreviewPortalHost(null);
+      setPreviewFullscreen(false);
+      setReviewOpen(false);
+      setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+      setSelectedPreviewLayerTokens([]);
+      setPreviewLayerSelectionAnchor("");
       setSceneStructureOpen(false);
     };
     const previousOverflow = document.body.style.overflow;
@@ -7918,11 +8004,22 @@ function Home() {
     const sceneLimit = Math.max(0.1, sceneDuration);
     const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
     if (field === "start") {
-      const nextStart = Math.min(sceneLimit - 0.1, Math.max(0, numericValue));
       const currentEnd = Math.min(sceneLimit, Math.max(currentStart + 0.1, Number(overlay.end) || sceneLimit));
-      updateTextOverlay("start", nextStart);
-      if (currentEnd < nextStart + 0.1) {
-        updateTextOverlay("end", Math.min(sceneLimit, nextStart + 0.1));
+      if (overlay.timingLinked === true) {
+        const nextTiming = moveLinkedTimingStart(numericValue, currentStart, currentEnd, sceneLimit);
+        updateTextOverlay("start", nextTiming.start);
+        updateTextOverlay("end", nextTiming.end);
+        setTextOverlayTimingDrafts((items) => {
+          const next = { ...items };
+          delete next[textOverlayTimingKey(overlay.id, "end")];
+          return next;
+        });
+      } else {
+        const nextStart = Math.min(sceneLimit - 0.1, Math.max(0, numericValue));
+        updateTextOverlay("start", nextStart);
+        if (currentEnd < nextStart + 0.1) {
+          updateTextOverlay("end", Math.min(sceneLimit, nextStart + 0.1));
+        }
       }
     } else {
       updateTextOverlay("end", Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue)));
@@ -7936,7 +8033,14 @@ function Home() {
       const sceneLimit = Math.max(0.1, sceneDuration);
       const currentStart = Math.min(sceneLimit - 0.1, Math.max(0, Number(overlay.start) || 0));
       const normalized = field === "start"
-        ? Math.min(sceneLimit - 0.1, Math.max(0, numericValue))
+        ? overlay.timingLinked === true
+          ? moveLinkedTimingStart(
+              numericValue,
+              currentStart,
+              Math.min(sceneLimit, Math.max(currentStart + 0.1, Number(overlay.end) || sceneLimit)),
+              sceneLimit,
+            ).start
+          : Math.min(sceneLimit - 0.1, Math.max(0, numericValue))
         : Math.min(sceneLimit, Math.max(currentStart + 0.1, numericValue));
       updateTextOverlayTimingInput(overlay, field, String(normalized));
       setTextOverlayTimingDrafts((items) => ({ ...items, [key]: String(normalized) }));
@@ -8028,11 +8132,22 @@ function Home() {
       Math.max(0.1, activePopup?.duration ?? 0.1),
       duration,
     );
-    const nextStart = Math.min(
-      Math.max(0, duration - popupDuration),
-      Math.max(0, Number(value) || 0),
+    const currentStart = Math.min(
+      Math.max(0, duration - 0.1),
+      Math.max(0, Number(activePopup?.start) || 0),
     );
-    updatePopup("start", Number(nextStart.toFixed(2)));
+    const currentEnd = Math.min(duration, currentStart + popupDuration);
+    const nextTiming = activePopup?.timingLinked === true
+      ? moveLinkedTimingStart(value, currentStart, currentEnd, duration)
+      : {
+          start: Number(Math.min(
+            Math.max(0, duration - popupDuration),
+            Math.max(0, Number(value) || 0),
+          ).toFixed(2)),
+          end: currentEnd,
+    };
+    updatePopup("start", nextTiming.start);
+    updatePopup("duration", Number(Math.max(0.1, nextTiming.end - nextTiming.start).toFixed(2)));
   };
 
   const updatePopupDuration = (value: number) => {
@@ -8520,6 +8635,18 @@ function Home() {
       const nextTracks = (item.audioTracks ?? []).map((track) => {
         if (track.id !== trackId) return track;
         if (key === "start") {
+          const currentStart = Math.min(
+            Math.max(0, duration - 0.1),
+            Math.max(0, Number(track.start) || 0),
+          );
+          const currentEnd = Math.min(
+            duration,
+            Math.max(currentStart + 0.1, Number(track.end) || currentStart + 0.1),
+          );
+          if (track.timingLinked === true) {
+            const nextTiming = moveLinkedTimingStart(Number(value) || 0, currentStart, currentEnd, duration);
+            return { ...track, start: nextTiming.start, end: nextTiming.end };
+          }
           const start = Math.min(
             Math.max(0, duration - 0.1),
             Math.max(0, Number(value) || 0),
@@ -11126,6 +11253,7 @@ function Home() {
         url: group.source,
         mediaType: isVideoMedia(group.source) ? "video" : "image",
         transparent: isTransparentMedia(group.source),
+        fillMap: true,
         x: 50,
         y: 50,
         width: 100,
@@ -12382,6 +12510,11 @@ function Home() {
     setSceneStructureHoverPreview(null);
     setSceneStructureSceneDragId("");
     setSceneStructureSceneDragOverId("");
+    setPreviewFullscreen(false);
+    setReviewOpen(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+    setSelectedPreviewLayerTokens([]);
+    setPreviewLayerSelectionAnchor("");
     setSceneStructureOpen(false);
   };
 
@@ -13789,7 +13922,26 @@ function Home() {
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
+    setSceneStructureImageSyncPreviewOpen(false);
+    setSceneStructurePreviewPortalHost(null);
     setSceneStructureQuickEditToken("");
+    sceneStructureItemPointerDrag.current = null;
+    sceneStructureItemDidDrag.current = false;
+    setSceneStructureItemDragToken("");
+    sceneStructureTemplateMouseCleanup.current?.();
+    sceneStructureTemplateMouseCleanup.current = null;
+    sceneStructureTemplatePointerDrag.current = null;
+    sceneStructureTemplateDidDrag.current = false;
+    setSceneStructureDraggedTemplate("");
+    setSceneStructureDropTime(null);
+    setSceneStructureHoverPreview(null);
+    setSceneStructureSceneDragId("");
+    setSceneStructureSceneDragOverId("");
+    setPreviewFullscreen(false);
+    setReviewOpen(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+    setSelectedPreviewLayerTokens([]);
+    setPreviewLayerSelectionAnchor("");
     setSceneStructureOpen(false);
     setActiveStudioTab("compose");
     setSelectedId(sceneStructureScene.id);
@@ -16374,7 +16526,8 @@ function Home() {
             {sceneIsVisibleInPlayback && previewSceneImageItems.map((image) => {
               const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
               const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
-              const imageIsTransparent = image.transparent || Boolean(sceneImageSpritePreviewUrls[image.id]);
+              const imageIsTransparent = image.fillMap !== true
+                && (image.transparent || Boolean(sceneImageSpritePreviewUrls[image.id]));
               const squareSize = Math.min(image.width, image.height);
               const width = image.shape === "square" ? squareSize : image.width;
               const height = image.shape === "square" ? squareSize : image.height;
@@ -17086,14 +17239,34 @@ function Home() {
 
                       <EditorFieldGroup title="Thời gian hiển thị" description="Các mốc tuyệt đối tính từ đầu cảnh.">
                         <div className="field-row">
-                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này.">Bắt đầu</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={activeSceneImage.start} onCommit={(value) => {
-                            const nextStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, value));
-                            updateSceneImage("start", nextStart);
-                            if (activeSceneImage.transitionEnd < nextStart + 0.1) {
-                              updateSceneImage("transitionEnd", Math.min(sceneDuration, nextStart + 0.1));
+                          <label className="field"><TimeFieldLabel
+                            hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh bắt đầu hiển thị từ thời điểm này."
+                            timingLink={{
+                              active: activeSceneImage.timingLinked === true,
+                              onToggle: () => updateSceneImage("timingLinked", activeSceneImage.timingLinked !== true),
+                            }}
+                          >Bắt đầu</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={activeSceneImage.start} onCommit={(value) => {
+                            const currentStart = Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, activeSceneImage.start));
+                            const currentEnd = Math.min(sceneDuration, currentStart + Math.max(0.1, activeSceneImage.duration));
+                            const nextTiming = activeSceneImage.timingLinked === true
+                              ? moveLinkedTimingStart(value, currentStart, currentEnd, sceneDuration)
+                              : {
+                                  start: Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, value)),
+                                  end: Math.min(
+                                    sceneDuration,
+                                    Math.max(
+                                      currentEnd,
+                                      Math.min(Math.max(0, sceneDuration - 0.1), Math.max(0, value)) + 0.1,
+                                    ),
+                                  ),
+                                };
+                            updateSceneImage("start", nextTiming.start);
+                            updateSceneImage("duration", Number(Math.max(0.1, nextTiming.end - nextTiming.start).toFixed(2)));
+                            if (activeSceneImage.transitionEnd < nextTiming.start + 0.1) {
+                              updateSceneImage("transitionEnd", Math.min(sceneDuration, nextTiming.start + 0.1));
                             }
                           }} /><b>s</b></div></label>
-                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step={0.1} value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onCommit={updateSceneImageEndTime} /><b>s</b></div></label>
+                          <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; hình ảnh sẽ tự tắt khi chạy đến thời điểm này.">Thời gian kết thúc</TimeFieldLabel><div className="number-with-unit"><NumericInput disabled={activeSceneImage.timingLinked === true} min={Math.min(sceneDuration, activeSceneImage.start + 0.1)} max={sceneDuration} step={0.1} value={Number(Math.min(sceneDuration, activeSceneImage.start + Math.max(0.1, activeSceneImage.duration)).toFixed(1))} onCommit={updateSceneImageEndTime} /><b>s</b></div></label>
                         </div>
                         <div className="editor-field-feedback" role="status">
                           Hiển thị từ {formatTime(activeSceneImage.start)} đến {formatTime(Math.min(sceneDuration, activeSceneImage.start + activeSceneImage.duration))} · tổng {formatTime(Math.min(sceneDuration - activeSceneImage.start, activeSceneImage.duration))}
@@ -17418,7 +17591,13 @@ function Home() {
                 <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và kết thúc tuyệt đối tính từ đầu cảnh.">
                 <div className="field-row text-overlay-timing-fields">
                   <label className="field">
-                    <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; chữ bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu chữ</TimeFieldLabel>
+                    <TimeFieldLabel
+                      hint="Mốc tuyệt đối tính từ đầu cảnh; chữ bắt đầu xuất hiện từ thời điểm này."
+                      timingLink={{
+                        active: activeTextOverlay?.timingLinked === true,
+                        onToggle: () => activeTextOverlay && updateTextOverlay("timingLinked", activeTextOverlay.timingLinked !== true),
+                      }}
+                    >Thời gian bắt đầu chữ</TimeFieldLabel>
                     <div className="number-with-unit">
                       <input
                         type="text"
@@ -17439,6 +17618,7 @@ function Home() {
                         inputMode="decimal"
                         value={activeTextOverlay ? textOverlayTimingValue(activeTextOverlay, "end") : String(sceneDuration)}
                         disabled={!activeTextOverlay}
+                        readOnly={activeTextOverlay?.timingLinked === true}
                         onChange={(event) => activeTextOverlay && updateTextOverlayTimingInput(activeTextOverlay, "end", event.target.value)}
                         onBlur={() => activeTextOverlay && commitTextOverlayTimingInput(activeTextOverlay, "end")}
                       />
@@ -18064,12 +18244,18 @@ function Home() {
                             <div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={track.volume} onCommit={(value) => updateSceneAudioTrack(track.id, "volume", value)} /><b>%</b></div>
                           </label>
                           <label className="field">
-                            <TimeFieldLabel hint="Mốc tính từ đầu cảnh; 0 giây nghĩa là phát ngay.">Bắt đầu</TimeFieldLabel>
+                            <TimeFieldLabel
+                              hint="Mốc tính từ đầu cảnh; 0 giây nghĩa là phát ngay."
+                              timingLink={{
+                                active: track.timingLinked === true,
+                                onToggle: () => updateSceneAudioTrack(track.id, "timingLinked", track.timingLinked !== true),
+                              }}
+                            >Bắt đầu</TimeFieldLabel>
                             <div className="number-with-unit"><NumericInput min={0} max={Math.max(0, sceneDuration - 0.1)} step={0.1} value={track.start} onCommit={(value) => updateSceneAudioTrack(track.id, "start", value)} /><b>s</b></div>
                           </label>
                           <label className="field">
                             <TimeFieldLabel hint="Âm thanh sẽ dừng tại mốc này, kể cả khi file gốc còn dài.">Kết thúc</TimeFieldLabel>
-                            <div className="number-with-unit"><NumericInput min={Math.min(sceneDuration, track.start + 0.1)} max={sceneDuration} step={0.1} value={track.end} onCommit={(value) => updateSceneAudioTrack(track.id, "end", value)} /><b>s</b></div>
+                            <div className="number-with-unit"><NumericInput disabled={track.timingLinked === true} min={Math.min(sceneDuration, track.start + 0.1)} max={sceneDuration} step={0.1} value={track.end} onCommit={(value) => updateSceneAudioTrack(track.id, "end", value)} /><b>s</b></div>
                           </label>
                         </div>
                         {previewSource && <audio className="audio-preview" controls preload="metadata" src={previewSource} />}
@@ -19015,7 +19201,13 @@ function Home() {
               )}
               <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và độ dài popup trong cảnh.">
               <label className="field">
-                <TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; popup bắt đầu xuất hiện từ thời điểm này.">Thời gian bắt đầu xuất hiện popup</TimeFieldLabel>
+                <TimeFieldLabel
+                  hint="Mốc tuyệt đối tính từ đầu cảnh; popup bắt đầu xuất hiện từ thời điểm này."
+                  timingLink={{
+                    active: activePopup?.timingLinked === true,
+                    onToggle: () => activePopup && updatePopup("timingLinked", activePopup.timingLinked !== true),
+                  }}
+                >Thời gian bắt đầu xuất hiện popup</TimeFieldLabel>
                 <div className="number-with-unit">
                   <NumericInput
                     min={0}

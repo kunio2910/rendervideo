@@ -1617,8 +1617,9 @@ const createSceneImage = async (image, index) => {
     };
   }
   const imageFit = image.transparent === true ? "contain" : "cover";
+  const resolvedImageFit = image.fillMap === true ? "cover" : imageFit;
   const resized = await sharp(source)
-    .resize(width, height, { fit: imageFit, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(width, height, { fit: resolvedImageFit, background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .composite([{ input: alphaMaskSvg, blend: "dest-in" }])
     .png()
     .toBuffer();
@@ -2482,10 +2483,11 @@ for (let index = 0; index < scenes.length; index += 1) {
         || imageRender.webpAnimation === true
         ? "contain"
         : "cover";
+      const resolvedImageFit = image.fillMap === true ? "cover" : imageFit;
       // Preview mounts the media when its start time is reached, so the
       // animation begins at frame 0 there. Offset the input timestamps to
       // reproduce that same behaviour in the final video.
-      filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, imageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
+      filter += `[${sceneImageInputIndex}:v]format=rgba,${ffmpegMediaFit(imageRender.width, imageRender.height, resolvedImageFit)},setpts=PTS-STARTPTS+${imageStart}/TB,split=2[${imageVideoLabel}][${imageAlphaSourceLabel}];`;
       filter += `[${imageAlphaSourceLabel}]alphaextract[${imageAlphaLabel}];[${imageMaskInputIndex}:v]format=gray[${imageMaskLabel}];[${imageAlphaLabel}][${imageMaskLabel}]blend=all_mode=multiply[${imageAlphaLabel}masked];[${imageVideoLabel}][${imageAlphaLabel}masked]alphamerge,${imageColorFilter}format=rgba[${imageAssetLabel}];`;
       if (hasImageFill && imageFillInputIndex !== null) {
         filter += `[${imageFillInputIndex}:v]format=rgba[${imageFillLabel}];[${imageFillLabel}][${imageAssetLabel}]overlay=0:0:shortest=1[${imageFilledLabel}];`;
