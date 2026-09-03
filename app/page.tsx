@@ -14565,7 +14565,7 @@ function Home() {
       : [];
 
     return (
-      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
+      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-images-visible={previewImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!previewImagesVisible ? "preview-images-hidden" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
         {sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
@@ -15752,7 +15752,8 @@ function Home() {
             const previewCanvas = (
           <div
             data-preview-source="editor"
-            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${previewPlaybackMode && !playing ? "is-playback-paused" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
+            data-preview-images-visible={previewImagesVisible ? "true" : "false"}
+            className={`phone-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${playing ? "is-playing" : ""} ${previewPlaybackMode && !playing ? "is-playback-paused" : ""} ${!previewImagesVisible ? "preview-images-hidden" : ""} ${!sceneStructurePreviewMode && rulerEnabled ? "ruler-enabled" : ""} ${!sceneStructurePreviewMode && mapEffectDragActive ? "effect-drop-target" : ""} ${sceneStructurePreviewMode ? "scene-structure-live-preview" : ""}`}
             style={{ zoom: sceneStructurePreviewMode ? 1 : previewZoom / 100 }}
             onDragOver={sceneStructurePreviewMode ? undefined : handleMapEffectDragOver}
             onDragLeave={sceneStructurePreviewMode ? undefined : () => setMapEffectDragActive(false)}

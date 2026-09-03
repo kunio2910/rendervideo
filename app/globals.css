@@ -13871,6 +13871,14 @@ body {
 .studio-shell[data-theme="dark"] .preview-layer-group-heading > i { color: #e4bc79; }
 .studio-shell[data-theme="dark"] .preview-layer-visibility.is-hidden { color: #ff9d8a; }
 
+/* Preview-only image visibility switch. This is deliberately scoped to the
+   canvas so it cannot affect the scene data consumed by the renderer. */
+.phone-preview.preview-images-hidden .scene-image-overlay {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Layer focus mode: keep the editor data in place while giving the stack a
    large, independently scrollable workspace for inspecting and reordering. */
 .preview-layer-panel-heading-actions {
