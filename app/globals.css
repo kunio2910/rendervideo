@@ -14349,3 +14349,105 @@ body {
   border-color: #2d9f62;
   box-shadow: 0 0 10px rgba(45, 159, 98, .22);
 }
+
+/* Automatic clip builder is an isolated flow. Existing editor panels keep
+   their current markup and styles; these rules only target the new button and
+   modal. */
+.auto-clip-button {
+  color: #9b4f18;
+  background: #fff3e2;
+  border-color: #efc58f;
+  font-weight: 650;
+}
+.auto-clip-button:hover { background: #ffe8ca; border-color: #e3a45f; }
+.studio-shell[data-theme="dark"] .auto-clip-button {
+  color: #ffd09c;
+  background: #3b281b;
+  border-color: #80522c;
+}
+.studio-shell[data-theme="dark"] .auto-clip-button:hover { background: #51331f; }
+
+.auto-clip-backdrop { z-index: 60; }
+.auto-clip-modal {
+  width: min(980px, 100%);
+  max-height: min(900px, calc(100vh - 32px));
+  padding: 24px;
+  overflow: hidden;
+  background: var(--panel-bg);
+  color: var(--studio-ink);
+}
+.auto-clip-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--studio-line);
+}
+.auto-clip-heading h2 { margin: 6px 0 7px; font: 500 26px/1.15 "Fraunces", Georgia, serif; }
+.auto-clip-heading p { max-width: 700px; margin: 0; color: var(--studio-muted); line-height: 1.5; }
+.auto-clip-modal-scroll { max-height: min(640px, calc(100vh - 240px)); overflow: auto; padding: 20px 5px 3px 1px; scrollbar-gutter: stable; }
+.auto-clip-input-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 16px; }
+.auto-clip-field { margin: 0; }
+.auto-clip-field-wide { grid-column: 1 / -1; }
+.auto-clip-field > span { font-size: 12px; font-weight: 650; color: var(--studio-ink); }
+.auto-clip-field > small { display: block; margin-top: 4px; color: var(--studio-muted); font-size: 11px; line-height: 1.4; }
+.auto-clip-field textarea { min-height: 105px; resize: vertical; }
+.auto-clip-input-with-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; }
+.auto-clip-file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 7px; }
+.auto-clip-file-row .button { min-height: 31px; }
+.auto-clip-file-row small { color: var(--studio-muted); font-size: 11px; }
+.auto-clip-apply-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 18px;
+  margin-top: 18px;
+  padding: 12px 13px;
+  border: 1px solid var(--studio-line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.auto-clip-apply-row > span { font-weight: 650; }
+.auto-clip-apply-row label { display: inline-flex; align-items: center; gap: 6px; }
+.auto-clip-apply-row input { accent-color: var(--blue); }
+.auto-clip-apply-row small { color: var(--studio-muted); font-size: 11px; }
+.auto-clip-run-state {
+  margin-top: 15px;
+  padding: 14px;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.auto-clip-run-state.error { border-color: #e3a0a0; background: #fff0f0; }
+.studio-shell[data-theme="dark"] .auto-clip-run-state.error { background: #351e25; border-color: #80424d; }
+.auto-clip-run-state.success { border-color: #8bc8a2; }
+.auto-clip-run-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.auto-clip-run-heading div { display: grid; gap: 3px; min-width: 0; }
+.auto-clip-run-heading span { color: var(--studio-muted); font: 700 10px var(--font-mono); letter-spacing: .1em; }
+.auto-clip-run-heading strong { font-weight: 650; overflow-wrap: anywhere; }
+.auto-clip-run-heading > b { color: var(--blue); font-size: 18px; font-variant-numeric: tabular-nums; }
+.auto-clip-progress { height: 7px; margin-top: 12px; overflow: hidden; border-radius: 99px; background: var(--panel-strong); }
+.auto-clip-progress i { display: block; height: 100%; border-radius: inherit; background: var(--blue); transition: width .2s ease; }
+.auto-clip-run-state.success .auto-clip-progress i { background: #2e9b68; }
+.auto-clip-run-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; color: var(--studio-muted); font-size: 11px; }
+.auto-clip-run-steps span { padding-top: 7px; border-top: 2px solid var(--studio-line); }
+.auto-clip-run-steps span.active { color: var(--blue); border-color: var(--blue); font-weight: 650; }
+.auto-clip-run-steps span.done { color: #2e9b68; border-color: #2e9b68; }
+.auto-clip-warning { margin: 11px 0 0; color: #a15d1f; font-size: 11px; line-height: 1.45; }
+.studio-shell[data-theme="dark"] .auto-clip-warning { color: #ffd39d; }
+.auto-clip-result { margin: 11px 0 0; color: #24734d; font-weight: 650; font-size: 12px; }
+.studio-shell[data-theme="dark"] .auto-clip-result { color: #9ee0ba; }
+.auto-clip-actions { align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--studio-line); }
+
+@media (max-width: 760px) {
+  .auto-clip-modal { max-height: calc(100vh - 20px); padding: 18px; }
+  .auto-clip-heading { gap: 10px; }
+  .auto-clip-heading h2 { font-size: 22px; }
+  .auto-clip-input-grid { grid-template-columns: 1fr; }
+  .auto-clip-field-wide { grid-column: auto; }
+  .auto-clip-input-with-action { grid-template-columns: 1fr; }
+  .auto-clip-run-steps { grid-template-columns: repeat(2, 1fr); row-gap: 8px; }
+  .auto-clip-actions { justify-content: stretch; }
+  .auto-clip-actions .button { flex: 1; }
+}

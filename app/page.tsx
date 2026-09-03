@@ -27,6 +27,7 @@ import {
   readWorkspaceBackup,
   workspaceBackupFilename,
 } from "./lib/workspace-backup";
+import { strFromU8, unzipSync } from "fflate";
 
 type OverlayTextFont =
   | "Arial"
@@ -1539,6 +1540,19 @@ type PreflightCheck = {
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
+};
+
+type AutoClipTemplate = "current" | "story-map" | "vertical";
+type AutoClipApplyMode = "new-project" | "current-scene";
+type AutoClipRunState = {
+  status: "idle" | "running" | "success" | "error";
+  step: "idle" | "validate" | "align" | "build" | "finish";
+  progress: number;
+  message: string;
+  warning?: string;
+  cueCount?: number;
+  imageCount?: number;
+  duration?: number;
 };
 
 const ASSET_LIBRARY_DB = "kito-video-studio-assets";
@@ -4201,10 +4215,29 @@ function Home() {
   const lastSavedProjectSnapshot = useRef("");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showAutoClipWizard, setShowAutoClipWizard] = useState(false);
   const [showPromptGenerator, setShowPromptGenerator] = useState(false);
   const [showLocalRenderer, setShowLocalRenderer] = useState(false);
   const [jsonPreviewCleared, setJsonPreviewCleared] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [autoClipTemplate, setAutoClipTemplate] = useState<AutoClipTemplate>("current");
+  const [autoClipApplyMode, setAutoClipApplyMode] = useState<AutoClipApplyMode>("new-project");
+  const [autoClipTitle, setAutoClipTitle] = useState("");
+  const [autoClipScript, setAutoClipScript] = useState("");
+  const [autoClipScriptFile, setAutoClipScriptFile] = useState<File | null>(null);
+  const [autoClipAudioUrl, setAutoClipAudioUrl] = useState("");
+  const [autoClipAudioFile, setAutoClipAudioFile] = useState<File | null>(null);
+  const [autoClipImageUrls, setAutoClipImageUrls] = useState("");
+  const [autoClipImageFiles, setAutoClipImageFiles] = useState<File[]>([]);
+  const [autoClipRunState, setAutoClipRunState] = useState<AutoClipRunState>({
+    status: "idle",
+    step: "idle",
+    progress: 0,
+    message: "Sẵn sàng nhận 4 đầu vào.",
+  });
+  const autoClipScriptFileInput = useRef<HTMLInputElement | null>(null);
+  const autoClipAudioFileInput = useRef<HTMLInputElement | null>(null);
+  const autoClipImageFileInput = useRef<HTMLInputElement | null>(null);
   const [audioPreview, setAudioPreview] = useState<Record<string, string>>({});
   const [audioFiles, setAudioFiles] = useState<Record<string, File>>({});
   const [subtitleAlignState, setSubtitleAlignState] = useState<{
@@ -10885,6 +10918,400 @@ function Home() {
     }
   };
 
+  const readAutoClipScriptFile = async (file: File) => {
+    if (!/\.docx$/i.test(file.name)) return file.text();
+    const archive = unzipSync(new Uint8Array(await file.arrayBuffer()));
+    const documentXml = archive["word/document.xml"];
+    if (!documentXml) throw new Error("File DOCX không có nội dung văn bản.");
+    const xml = strFromU8(documentXml);
+    const parsed = new DOMParser().parseFromString(xml, "application/xml");
+    const paragraphs = Array.from(parsed.getElementsByTagName("w:p")).map((paragraph) =>
+      Array.from(paragraph.getElementsByTagName("w:t"))
+        .map((text) => text.textContent ?? "")
+        .join(""),
+    ).filter(Boolean);
+    const text = paragraphs.join("\n").trim();
+    if (!text) throw new Error("Không đọc được nội dung chữ trong file DOCX.");
+    return text;
+  };
+
+  const openAutoClipWizard = () => {
+    setAutoClipTemplate("current");
+    setAutoClipApplyMode("new-project");
+    setAutoClipTitle(`${projectTitle} · bản tự động`);
+    setAutoClipScript("");
+    setAutoClipScriptFile(null);
+    setAutoClipAudioUrl("");
+    setAutoClipAudioFile(null);
+    setAutoClipImageUrls("");
+    setAutoClipImageFiles([]);
+    setAutoClipRunState({
+      status: "idle",
+      step: "idle",
+      progress: 0,
+      message: "Sẵn sàng nhận 4 đầu vào.",
+    });
+    setShowAutoClipWizard(true);
+  };
+
+  const closeAutoClipWizard = () => {
+    if (autoClipRunState.status === "running") return;
+    setShowAutoClipWizard(false);
+  };
+
+  const readAutoClipAudioDuration = async (file: File | null, url: string) => {
+    const source = file ? URL.createObjectURL(file) : safeTrim(url);
+    if (!source) return null;
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    return await new Promise<number | null>((resolve) => {
+      let settled = false;
+      const timer = window.setTimeout(() => finish(null), 7000);
+      const finish = (value: number | null) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        audio.removeAttribute("src");
+        audio.load();
+        if (file) URL.revokeObjectURL(source);
+        resolve(value);
+      };
+      audio.onloadedmetadata = () => {
+        const duration = Number(audio.duration);
+        finish(Number.isFinite(duration) && duration > 0 ? duration : null);
+      };
+      audio.onerror = () => finish(null);
+      audio.src = source;
+      audio.load();
+    });
+  };
+
+  const splitAutoClipNarration = (source: string) => {
+    const paragraphs = source
+      .replace(/\r/g, "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const sentences = paragraphs.flatMap((paragraph) => {
+      const matches = paragraph.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g);
+      return (matches?.length ? matches : [paragraph]).map((item) => item.trim()).filter(Boolean);
+    });
+    return sentences.length ? sentences : [source.trim()].filter(Boolean);
+  };
+
+  const createFallbackAutoClipCues = (source: string, duration: number) => {
+    const lines = splitAutoClipNarration(source);
+    const totalWeight = lines.reduce((total, line) => total + Math.max(1, line.split(/\s+/).filter(Boolean).length), 0);
+    const safeDuration = Math.max(1, duration, lines.length * 0.6);
+    let cursor = 0;
+    return lines.map((line, index) => {
+      const weight = Math.max(1, line.split(/\s+/).filter(Boolean).length);
+      const end = index === lines.length - 1
+        ? safeDuration
+        : cursor + safeDuration * weight / totalWeight;
+      const cue = {
+        text: line,
+        start: Number(cursor.toFixed(2)),
+        end: Number(Math.max(cursor + 0.1, end).toFixed(2)),
+      };
+      cursor = cue.end;
+      return cue;
+    });
+  };
+
+  const estimateAutoClipDuration = (source: string) => {
+    const wordCount = source.split(/\s+/).filter(Boolean).length;
+    const sentenceCount = splitAutoClipNarration(source).length;
+    return Math.max(1, wordCount / 2.6, sentenceCount * 0.6);
+  };
+
+  const createAutoClipCues = async (source: string, audioFile: File | null, audioUrl: string) => {
+    const detectedAudioDuration = await readAutoClipAudioDuration(audioFile, audioUrl);
+    const importedCues = parseSubtitleFileText(source);
+    if (importedCues.length) {
+      return {
+        cues: importedCues,
+        audioDuration: detectedAudioDuration,
+        warning: "Đã dùng timestamp có sẵn từ file SRT/VTT.",
+      };
+    }
+
+    const durationHint = Math.max(
+      1,
+      detectedAudioDuration ?? 0,
+      estimateAutoClipDuration(source),
+    );
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 18000);
+      try {
+        const form = new FormData();
+        form.append("text", source);
+        if (detectedAudioDuration) form.append("duration", String(detectedAudioDuration));
+        if (audioFile) form.append("audio", audioFile, audioFile.name);
+        else form.append("audioUrl", safeTrim(audioUrl));
+        const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Không thể tạo timestamp");
+        const cues = Array.isArray(result.cues)
+          ? result.cues
+            .filter(isRecord)
+            .map((cue) => ({
+              text: safeTrim(cue.text),
+              start: Number(cue.start),
+              end: Number(cue.end),
+            }))
+            .filter((cue) => cue.text && Number.isFinite(cue.start) && Number.isFinite(cue.end) && cue.end > cue.start)
+          : [];
+        if (!cues.length) throw new Error("Không nhận được timestamp từ audio");
+        return {
+          cues,
+          audioDuration: Number(result.duration) > 0 ? Number(result.duration) : detectedAudioDuration,
+          warning: result.engine === "whisper"
+            ? undefined
+            : "Bộ máy đang dùng timestamp dự phòng; hãy rà soát lại trong Review.",
+        };
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    } catch {
+      return {
+        cues: createFallbackAutoClipCues(source, durationHint),
+        audioDuration: detectedAudioDuration,
+        warning: "Chưa kết nối được Whisper cục bộ; đã tạo timestamp ước lượng theo độ dài câu để bạn rà soát.",
+      };
+    }
+  };
+
+  const buildAutoClipImageGroups = (
+    cues: Array<{ text: string; start: number; end: number; id?: string }>,
+    sources: string[],
+    sceneId: string,
+    duration: number,
+  ) => {
+    if (!sources.length || !cues.length) return [];
+    const groups: Array<{
+      source: string;
+      start: number;
+      end: number;
+      cueIds: string[];
+    }> = [];
+    cues.forEach((cue, index) => {
+      const sourceIndex = Math.min(
+        sources.length - 1,
+        Math.floor(index * sources.length / cues.length),
+      );
+      const source = sources[sourceIndex];
+      const previous = groups.at(-1);
+      if (previous && previous.source === source) {
+        previous.end = Math.min(duration, Math.max(previous.end, cue.end));
+        if (cue.id) previous.cueIds.push(cue.id);
+        return;
+      }
+      groups.push({
+        source,
+        start: Math.max(0, cue.start),
+        end: Math.min(duration, Math.max(cue.end, cue.start + 0.1)),
+        cueIds: cue.id ? [cue.id] : [],
+      });
+    });
+    return groups.map((group, index) => defaultSceneImage(
+      `${sceneId}-image-${index + 1}`,
+      {
+        name: fileNameOnly(group.source) || `Hình ảnh ${index + 1}`,
+        url: group.source,
+        mediaType: isVideoMedia(group.source) ? "video" : "image",
+        transparent: isTransparentMedia(group.source),
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 100,
+        start: Number(group.start.toFixed(2)),
+        duration: Number(Math.max(0.1, group.end - group.start).toFixed(2)),
+        transition: index === 0 ? "cut" : "crossfade",
+        transitionEnd: Number(Math.min(duration, group.start + 0.45).toFixed(2)),
+        subtitleGenerated: true,
+        subtitleGroupId: `${sceneId}-image-group-${index + 1}`,
+        subtitleCueIds: group.cueIds,
+        subtitleGroupTotalDuration: Number(Math.max(0.1, group.end - group.start).toFixed(2)),
+      },
+    ));
+  };
+
+  const runAutoClipWizard = async () => {
+    if (autoClipRunState.status === "running") return;
+    const script = autoClipScript.trim();
+    const audioUrl = autoClipAudioUrl.trim();
+    const imageUrls = autoClipImageUrls
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter((value) => isRemoteUrl(value));
+    const imageSources = [...new Set([
+      ...autoClipImageFiles.map((file) => file.name),
+      ...imageUrls,
+    ])];
+    if (!script) {
+      setAutoClipRunState((state) => ({ ...state, status: "error", step: "validate", message: "Hãy nhập kịch bản hoặc import file TXT/SRT/VTT." }));
+      return;
+    }
+    if (!autoClipAudioFile && !isRemoteUrl(audioUrl)) {
+      setAutoClipRunState((state) => ({ ...state, status: "error", step: "validate", message: "Hãy chọn file audio hoặc nhập URL audio hợp lệ." }));
+      return;
+    }
+    if (!imageSources.length) {
+      setAutoClipRunState((state) => ({ ...state, status: "error", step: "validate", message: "Hãy chọn ít nhất một hình/video hoặc nhập URL hình hợp lệ." }));
+      return;
+    }
+
+    setAutoClipRunState({ status: "running", step: "validate", progress: 8, message: "Đang kiểm tra 4 đầu vào…" });
+    try {
+      const alignment = await createAutoClipCues(script, autoClipAudioFile, audioUrl);
+      setAutoClipRunState({
+        status: "running",
+        step: "align",
+        progress: 48,
+        message: "Đã tạo timestamp, đang chuẩn bị các cue phụ đề…",
+        warning: alignment.warning,
+      });
+      const rawCueEnd = Math.max(0, ...alignment.cues.map((cue) => Number(cue.end) || 0));
+      const duration = Math.max(
+        1,
+        alignment.audioDuration ?? 0,
+        rawCueEnd,
+      );
+      const autoProjectId = `project-auto-${Date.now().toString(36)}`;
+      const autoSceneId = `${autoProjectId}-scene-01`;
+      const templateScene = scenes.find((item) => item.id === selectedId) ?? scenes[0] ?? initialScenes[0];
+      const subtitles = alignment.cues.map((cue, index) => normalizeSubtitleCue(
+        {
+          id: `${autoSceneId}-subtitle-${index + 1}`,
+          text: cue.text,
+          start: cue.start,
+          end: cue.end,
+          visible: true,
+        },
+        `${autoSceneId}-subtitle-${index + 1}`,
+        duration,
+      ));
+      const audioSource = autoClipAudioFile?.name || audioUrl;
+      const sceneImages = buildAutoClipImageGroups(
+        subtitles,
+        imageSources,
+        autoSceneId,
+        duration,
+      );
+      const autoScene: Scene = {
+        ...createEmptyScene(autoSceneId, 1, 0),
+        sceneName: safeTrim(autoClipTitle) || "Clip tự động",
+        title: subtitles[0]?.text || safeTrim(autoClipTitle) || "Clip tự động",
+        narration: script,
+        voice: audioSource,
+        voiceFile: audioSource,
+        voiceStart: 0,
+        voiceVolume: 95,
+        start: 0,
+        end: Number(duration.toFixed(2)),
+        zoomStart: 0,
+        zoomEnd: Number(duration.toFixed(2)),
+        zoomInDuration: Math.min(0.8, duration),
+        zoomOutDuration: Math.min(0.8, duration),
+        background: autoClipTemplate === "current"
+          ? templateScene.background ?? background
+          : "",
+        backgroundName: autoClipTemplate === "current" ? templateScene.backgroundName ?? "" : "",
+        effects: autoClipTemplate === "current" ? normalizeSceneEffects(templateScene.effects) : defaultSceneEffects(),
+        popupLayout: templateScene.popupLayout ?? "image-top",
+        popupTheme: templateScene.popupTheme ?? "travel",
+        popupIn: templateScene.popupIn ?? "fade-slide-up",
+        popupOut: templateScene.popupOut ?? "fade-slide-down",
+        popupVisible: false,
+        subtitleEnabled: true,
+        subtitleStart: 0,
+        subtitleStyle: autoClipTemplate === "current"
+          ? normalizeSubtitleStyle(templateScene.subtitleStyle)
+          : defaultSubtitleStyle({
+              size: autoClipTemplate === "vertical" ? 23 : 21,
+              animation: "fade",
+            }),
+        subtitles,
+        sceneImages,
+        audioTracks: [defaultSceneAudioTrack(`${autoSceneId}-audio-1`, {
+          name: "Audio tự động",
+          source: audioSource,
+          start: 0,
+          end: Number(duration.toFixed(2)),
+          subtitleCueIds: subtitles.map((cue) => cue.id),
+        })],
+      };
+      const nextProject: ProjectSnapshot = {
+        ...currentProject,
+        id: autoProjectId,
+        title: safeTrim(autoClipTitle) || `${projectTitle} · bản tự động`,
+        projectDuration: Number(duration.toFixed(2)),
+        activeSceneId: autoSceneId,
+        aspectRatio: autoClipTemplate === "vertical" ? "9:16" : autoClipTemplate === "story-map" ? "16:9" : aspectRatio,
+        renderResolution: autoClipTemplate === "vertical" ? "1080x1920" : autoClipTemplate === "story-map" ? "1920x1080" : renderResolution,
+        scenes: [autoScene],
+      };
+      setAutoClipRunState({
+        status: "running",
+        step: "build",
+        progress: 78,
+        message: "Đang tạo hình ảnh, audio và timeline…",
+        warning: alignment.warning,
+        cueCount: subtitles.length,
+        imageCount: sceneImages.length,
+        duration,
+      });
+      const assetFiles = [
+        ...(autoClipAudioFile ? [autoClipAudioFile] : []),
+        ...autoClipImageFiles,
+      ];
+      await addAssetsToLibrary(assetFiles);
+      if (autoClipApplyMode === "new-project") {
+        setProjects((items) => [
+          ...items.filter((item) => item.id !== projectId && item.id !== autoProjectId),
+          currentProject,
+          nextProject,
+        ]);
+        openProject(nextProject);
+      } else {
+        const targetId = selectedId || scenes[0]?.id;
+        const target = scenes.find((item) => item.id === targetId);
+        if (!target) throw new Error("Không tìm thấy cảnh đang chọn để thay nội dung.");
+        const replacement = { ...autoScene, id: target.id, number: target.number };
+        const nextScenes = reflowSceneTimeline(scenes.map((item) => item.id === targetId ? replacement : item));
+        setScenes(nextScenes);
+        setProjectDuration(Math.max(1, ...nextScenes.map((item) => item.end)));
+        setSelectedId(replacement.id);
+        setSelectedSceneIds([replacement.id]);
+        setPlayTime(replacement.start);
+        setPlaying(false);
+      }
+      setActiveStudioTab("compose");
+      const successMessage = `Đã tạo bản dựng tự động · ${subtitles.length} câu · ${sceneImages.length} nhóm hình.`;
+      setAutoClipRunState({
+        status: "success",
+        step: "finish",
+        progress: 100,
+        message: successMessage,
+        warning: alignment.warning,
+        cueCount: subtitles.length,
+        imageCount: sceneImages.length,
+        duration,
+      });
+      setToast(successMessage);
+      window.setTimeout(() => setToast(""), 3600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo clip tự động";
+      setAutoClipRunState({ status: "error", step: "build", progress: 0, message });
+    }
+  };
+
   const applyLocalMediaFile = (file: File, applyValue: (value: string) => void) => {
     applyValue(file.name);
     void addAssetsToLibrary([file]);
@@ -15152,6 +15579,14 @@ function Home() {
             ＋ Clip mới
           </button>
           <button
+            type="button"
+            className="button auto-clip-button"
+            onClick={openAutoClipWizard}
+            title="Tạo bản dựng từ template, kịch bản, audio và thư viện hình ảnh"
+          >
+            ✨ Tạo clip tự động
+          </button>
+          <button
             className="button theme-toggle"
             onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}
             aria-label={theme === "light" ? "Chuyển sang giao diện tối" : "Chuyển sang giao diện sáng"}
@@ -19371,6 +19806,207 @@ function Home() {
             <div className="modal-actions">
               <button className="button ghost" onClick={() => setShowNewProject(false)}>Hủy</button>
               <button className="button primary" onClick={createProject}>Tạo và biên soạn</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showAutoClipWizard && (
+        <div
+          className="modal-backdrop auto-clip-backdrop"
+          onMouseDown={() => {
+            if (autoClipRunState.status !== "running") closeAutoClipWizard();
+          }}
+        >
+          <div
+            className="project-modal auto-clip-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auto-clip-heading"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="auto-clip-heading">
+              <div>
+                <span className="modal-kicker">KITO · TỰ ĐỘNG HÓA</span>
+                <h2 id="auto-clip-heading">Tạo clip tự động</h2>
+                <p>Nhập 4 nguồn dữ liệu. Hệ thống sẽ tạo timestamp, phụ đề, nhóm hình và timeline nháp để bạn rà soát.</p>
+              </div>
+              <button
+                type="button"
+                className="prompt-close"
+                aria-label="Đóng Tạo clip tự động"
+                disabled={autoClipRunState.status === "running"}
+                onClick={closeAutoClipWizard}
+              >×</button>
+            </div>
+
+            <div className="auto-clip-modal-scroll">
+              <div className="auto-clip-input-grid">
+                <label className="field auto-clip-field auto-clip-field-wide">
+                  <span>1. Template dựng clip</span>
+                  <select
+                    value={autoClipTemplate}
+                    disabled={autoClipRunState.status === "running"}
+                    onChange={(event) => setAutoClipTemplate(event.target.value as AutoClipTemplate)}
+                  >
+                    <option value="current">Giữ thiết lập hiện tại · {aspectRatio}</option>
+                    <option value="story-map">Bản đồ kể chuyện · 16:9</option>
+                    <option value="vertical">Video dọc / Shorts · 9:16</option>
+                  </select>
+                  <small>Template áp dụng font, phụ đề, hiệu ứng, tỷ lệ và cấu hình render cho bản dựng mới.</small>
+                </label>
+                <label className="field auto-clip-field">
+                  <span>Tên bản dựng</span>
+                  <input
+                    value={autoClipTitle}
+                    disabled={autoClipRunState.status === "running"}
+                    onChange={(event) => setAutoClipTitle(event.target.value)}
+                    placeholder="Ví dụ: Hành trình Nô ê · bản tự động"
+                  />
+                </label>
+
+                <label className="field auto-clip-field auto-clip-field-wide">
+                  <span>2. Kịch bản / lời thuyết minh</span>
+                  <textarea
+                    value={autoClipScript}
+                    disabled={autoClipRunState.status === "running"}
+                    onChange={(event) => setAutoClipScript(event.target.value)}
+                    placeholder="Dán nội dung lời thuyết minh hoặc nội dung SRT/VTT vào đây…"
+                    rows={5}
+                  />
+                  <div className="auto-clip-file-row">
+                    <button
+                      type="button"
+                      className="button ghost"
+                      disabled={autoClipRunState.status === "running"}
+                      onClick={() => autoClipScriptFileInput.current?.click()}
+                    >
+                      ↑ Nhập TXT / DOCX / SRT / VTT
+                    </button>
+                    <input
+                      ref={autoClipScriptFileInput}
+                      type="file"
+                      accept=".txt,.md,.docx,.srt,.vtt,text/plain,text/vtt"
+                      hidden
+                      onChange={async (event) => {
+                        const file = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (!file) return;
+                        setAutoClipScriptFile(file);
+                        try {
+                          setAutoClipScript(await readAutoClipScriptFile(file));
+                        } catch (error) {
+                          setAutoClipRunState({
+                            status: "error",
+                            step: "validate",
+                            progress: 0,
+                            message: error instanceof Error ? error.message : "Không thể đọc file kịch bản.",
+                          });
+                        }
+                      }}
+                    />
+                    {autoClipScriptFile && <small>{autoClipScriptFile.name}</small>}
+                  </div>
+                </label>
+
+                <label className="field auto-clip-field">
+                  <span>3. Audio thuyết minh</span>
+                  <div className="auto-clip-input-with-action">
+                    <input
+                      value={autoClipAudioUrl}
+                      disabled={Boolean(autoClipAudioFile) || autoClipRunState.status === "running"}
+                      onChange={(event) => {
+                        setAutoClipAudioUrl(event.target.value);
+                        if (event.target.value.trim()) setAutoClipAudioFile(null);
+                      }}
+                      placeholder="URL MP3/WAV hoặc chọn file máy"
+                    />
+                    <button
+                      type="button"
+                      className="button ghost"
+                      disabled={autoClipRunState.status === "running"}
+                      onClick={() => autoClipAudioFileInput.current?.click()}
+                    >Chọn file</button>
+                  </div>
+                  <input
+                    ref={autoClipAudioFileInput}
+                    type="file"
+                    accept="audio/*"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0] ?? null;
+                      event.currentTarget.value = "";
+                      setAutoClipAudioFile(file);
+                      if (file) setAutoClipAudioUrl("");
+                    }}
+                  />
+                  <small>{autoClipAudioFile ? `Đã chọn: ${autoClipAudioFile.name}` : "Whisper sẽ dùng audio để tạo timestamp theo từng câu."}</small>
+                </label>
+
+                <label className="field auto-clip-field">
+                  <span>4. Thư viện hình ảnh / video</span>
+                  <div className="auto-clip-input-with-action">
+                    <input
+                      value={autoClipImageUrls}
+                      disabled={autoClipRunState.status === "running"}
+                      onChange={(event) => setAutoClipImageUrls(event.target.value)}
+                      placeholder="Mỗi URL một dòng"
+                    />
+                    <button
+                      type="button"
+                      className="button ghost"
+                      disabled={autoClipRunState.status === "running"}
+                      onClick={() => autoClipImageFileInput.current?.click()}
+                    >Chọn nhiều file</button>
+                  </div>
+                  <input
+                    ref={autoClipImageFileInput}
+                    type="file"
+                    multiple
+                    accept="image/*,video/*"
+                    hidden
+                    onChange={(event) => {
+                      setAutoClipImageFiles(Array.from(event.currentTarget.files ?? []));
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                  <small>{autoClipImageFiles.length ? `${autoClipImageFiles.length} file đã chọn` : "Các hình sẽ được chia theo nhóm câu phụ đề và xuất hiện trên timeline."}</small>
+                </label>
+              </div>
+
+              <div className="auto-clip-apply-row">
+                <span>Đưa bản dựng vào</span>
+                <label><input type="radio" name="auto-clip-apply-mode" checked={autoClipApplyMode === "new-project"} disabled={autoClipRunState.status === "running"} onChange={() => setAutoClipApplyMode("new-project")} /> Project mới <small>An toàn, không ghi đè clip hiện tại</small></label>
+                <label><input type="radio" name="auto-clip-apply-mode" checked={autoClipApplyMode === "current-scene"} disabled={autoClipRunState.status === "running"} onChange={() => setAutoClipApplyMode("current-scene")} /> Cảnh đang chọn <small>Thay nội dung cảnh hiện tại</small></label>
+              </div>
+
+              {autoClipRunState.status !== "idle" && (
+                <section className={`auto-clip-run-state ${autoClipRunState.status}`} aria-live="polite">
+                  <div className="auto-clip-run-heading">
+                    <div><span>TIẾN TRÌNH TẠO CLIP</span><strong>{autoClipRunState.message}</strong></div>
+                    <b>{Math.round(autoClipRunState.progress)}%</b>
+                  </div>
+                  <div className="auto-clip-progress"><i style={{ width: `${autoClipRunState.progress}%` }} /></div>
+                  <div className="auto-clip-run-steps">
+                    <span className={autoClipRunState.step === "validate" ? "active" : autoClipRunState.progress > 8 ? "done" : ""}>1. Kiểm tra</span>
+                    <span className={autoClipRunState.step === "align" ? "active" : autoClipRunState.progress > 48 ? "done" : ""}>2. Đồng bộ audio</span>
+                    <span className={autoClipRunState.step === "build" ? "active" : autoClipRunState.progress > 78 ? "done" : ""}>3. Dựng timeline</span>
+                    <span className={autoClipRunState.step === "finish" ? "active" : ""}>4. Rà soát</span>
+                  </div>
+                  {autoClipRunState.warning && <p className="auto-clip-warning">! {autoClipRunState.warning}</p>}
+                  {autoClipRunState.status === "success" && <p className="auto-clip-result">{autoClipRunState.cueCount ?? 0} câu phụ đề · {autoClipRunState.imageCount ?? 0} nhóm hình · {formatTime(autoClipRunState.duration ?? 0)}</p>}
+                </section>
+              )}
+            </div>
+
+            <div className="modal-actions auto-clip-actions">
+              <button type="button" className="button ghost" disabled={autoClipRunState.status === "running"} onClick={closeAutoClipWizard}>Đóng</button>
+              {autoClipRunState.status === "success" ? (
+                <button type="button" className="button primary" onClick={closeAutoClipWizard}>Mở bản dựng để rà soát</button>
+              ) : (
+                <button type="button" className="button primary" disabled={autoClipRunState.status === "running"} onClick={() => void runAutoClipWizard()}>
+                  {autoClipRunState.status === "running" ? "Đang tạo bản dựng…" : autoClipRunState.status === "error" ? "Thử lại" : "✨ Bắt đầu tạo clip"}
+                </button>
+              )}
             </div>
           </div>
         </div>
