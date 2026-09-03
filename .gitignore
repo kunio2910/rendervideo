@@ -43,6 +43,11 @@ next-env.d.ts
 /source/
 /.local-renderer/
 /pages-dist/
+/desktop/dist/
+/desktop/runtime/
+/desktop/ffmpeg/
+/desktop/node_modules/
+/desktop/release/
 /.runtime/
 /.npm-cache/
 /node-v*-win-x64.zip

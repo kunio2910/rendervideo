@@ -1,0 +1,64 @@
+{
+  "name": "kito-video-studio-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bản desktop Windows của Kito Video Studio",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "build:ui": "node ../node_modules/vite/bin/vite.js build --config vite.config.ts",
+    "prepare:runtime": "node stage-runtime.mjs",
+    "dev": "npm run build:ui && electron .",
+    "dist:win": "npm run build:ui && npm run prepare:runtime && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "vn.kito.video-studio",
+    "productName": "Kito Video Studio",
+    "directories": {
+      "output": "release"
+    },
+    "disableDefaultIgnoredFiles": true,
+    "files": [
+      "dist/**/*",
+      "main.mjs",
+      "preload.cjs",
+      "static-server.mjs",
+      "package.json",
+      "runtime/**/*"
+    ],
+    "asarUnpack": [
+      "runtime/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "bin/ffmpeg.exe",
+          "bin/ffprobe.exe",
+          "LICENSE",
+          "README.txt"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Kito-Video-Studio-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "allowScripts": {
+    "electron@39.8.10": true
+  }
+}

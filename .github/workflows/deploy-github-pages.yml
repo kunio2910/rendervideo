@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: github-pages
@@ -22,6 +24,9 @@ jobs:
   build-and-publish:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,14 +43,44 @@ jobs:
       - name: Build GitHub Pages export
         run: npm run build:pages
 
+      - name: Prepare Pages artifact
+        run: |
+          cp favicon.svg pages-dist/favicon.svg
+          touch pages-dist/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
       - name: Commit generated Pages files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
           git add index.html assets favicon.svg .nojekyll
           if git diff --cached --quiet; then
             echo "No generated Pages changes to commit."
             exit 0
           fi
+
+          current_head="$(git rev-parse HEAD)"
+          remote_head="$(git rev-parse origin/main)"
+          if [ "$current_head" != "$remote_head" ]; then
+            if git diff --quiet origin/main -- index.html assets favicon.svg .nojekyll; then
+              echo "Generated Pages files are already up to date on origin/main."
+            else
+              echo "origin/main moved while this run was building; skip generated commit to avoid overwriting newer changes."
+            fi
+            exit 0
+          fi
+
           git commit -m "chore: update GitHub Pages build [skip ci]"
-          git push
+          git push origin HEAD:main

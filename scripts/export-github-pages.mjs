@@ -1,4 +1,4 @@
-import { cp, readFile, writeFile } from "node:fs/promises";
+import { access, cp, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = (path) => fileURLToPath(new URL(`../${path}`, import.meta.url));
@@ -18,5 +18,12 @@ if (
 ) {
   throw new Error("GitHub Pages export is incomplete");
 }
+
+const assetUrls = [
+  html.match(/<script[^>]+src="(\/rendervideo\/assets\/[^\"]+\.js)"/)?.[1],
+  html.match(/<link[^>]+href="(\/rendervideo\/assets\/[^\"]+\.css)"/)?.[1],
+].filter(Boolean);
+
+await Promise.all(assetUrls.map((assetUrl) => access(root(assetUrl.replace(/^\/rendervideo\//, "")))));
 
 console.log("GitHub Pages SPA export ready");

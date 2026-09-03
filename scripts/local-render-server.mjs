@@ -1,23 +1,39 @@
 import http from "node:http";
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { alignSubtitles } from "./align-subtitles.mjs";
+import { getResourceCacheSummary, syncProjectResourceCache } from "./render-resource-cache.mjs";
 import { processSpriteSheetBuffer } from "./sprite-sheet.mjs";
 
-const root = process.cwd();
+// `root` is the read-only bundle root in the packaged desktop app.  The
+// writable job/cache area can be redirected independently through
+// KITO_DATA_DIR, which keeps the installer directory read-only.
+const root = process.env.KITO_RENDER_BUNDLE_ROOT || process.cwd();
+const dataRoot = process.env.KITO_DATA_DIR || root;
 const host = "127.0.0.1";
 const port = Number(process.env.LOCAL_RENDER_PORT || 4179);
-const jobsRoot = path.join(root, "work", "local-render-jobs");
+const jobsRoot = path.join(dataRoot, "work", "local-render-jobs");
 const spriteAssetsRoot = path.join(jobsRoot, "sprite-assets");
 const renderCacheRoot = path.join(jobsRoot, "render-cache");
+const renderedClipsRoot = path.join(jobsRoot, "rendered-clips");
+const concatJobsRoot = path.join(jobsRoot, "concat-jobs");
 const spriteProcessVersion = "alpha-v5-auto-grid-local-file";
 const ffmpegPath = process.env.FFMPEG_PATH ||
   path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
+const ffprobePath = process.env.FFPROBE_PATH ||
+  path.join(root, ".local-renderer", "ffmpeg", "bin", "ffprobe.exe");
+const rendererScriptPath = process.env.KITO_RENDERER_SCRIPT ||
+  path.join(root, "scripts", "render-video.mjs");
+const nodeBinary = process.env.KITO_NODE_BINARY || process.execPath;
 const jobs = new Map();
+const concatJobs = new Map();
 let activeJobId = null;
+let activeConcatJobId = null;
 let activeSubtitleAlignment = false;
+let activeCacheSync = false;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,34 +62,357 @@ const ffmpegReady = async () => {
   }
 };
 
+const isStoredClipId = (value) => /^[a-f0-9]{8}-[a-f0-9-]{27,}$/i.test(String(value || ""));
+const clipMetadataPath = (id) => path.join(renderedClipsRoot, `${id}.json`);
+const clipVideoPath = (id) => path.join(renderedClipsRoot, `${id}.mp4`);
+const safeVideoName = (value, fallback = "video") => {
+  const base = safeName(value || fallback).replace(/\.(mp4|mov|mkv|webm)$/i, "").trim() || fallback;
+  return `${base}.mp4`;
+};
+
+const runCommand = (command, args) => new Promise((resolve, reject) => {
+  execFile(command, args, { windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    if (error) {
+      reject(new Error(String(stderr || "").trim() || error.message));
+      return;
+    }
+    resolve(String(stdout || ""));
+  });
+});
+
+const summarizeFfmpegFailure = (log) => {
+  const lines = String(log || "")
+    .replaceAll("\r", "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const meaningful = lines.filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line));
+  return (meaningful.at(-1) || lines.at(-1) || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 360);
+};
+
+const formatRenderClock = (value) => {
+  const seconds = Math.max(0, Number(value) || 0);
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+};
+
+// Keep progress tied to the same visible scenes, duration fallback and FPS
+// rules used by render-video.mjs. A scene count alone is misleading when one
+// scene is much longer than another.
+const getRenderFrameMetrics = (project) => {
+  const requestedFps = Math.max(1, Number(project?.fps ?? 30) || 30);
+  const fps = project?.renderProfile === "fast" ? Math.min(requestedFps, 24) : requestedFps;
+  const scenes = (Array.isArray(project?.scenes) ? project.scenes : [])
+    .filter((scene) => scene?.sceneVisible !== false)
+    .map((scene) => {
+      const sourceDuration = Number(scene?.end ?? 0) - Number(scene?.start ?? 0);
+      const duration = Math.max(0.1, Number.isFinite(sourceDuration) ? sourceDuration : 0.1);
+      return {
+        duration,
+        frames: Math.max(1, Math.round(duration * fps)),
+      };
+    });
+  let frameOffset = 0;
+  const sceneMetrics = scenes.map((scene) => {
+    const metric = { ...scene, frameOffset };
+    frameOffset += scene.frames;
+    return metric;
+  });
+  return {
+    fps,
+    scenes: sceneMetrics,
+    totalDuration: sceneMetrics.reduce((sum, scene) => sum + scene.duration, 0),
+    totalFrames: frameOffset,
+  };
+};
+
+const clampRenderFrame = (value, totalFrames) => Math.min(
+  Math.max(0, Math.round(Number(value) || 0)),
+  Math.max(0, Number(totalFrames) || 0),
+);
+
+const renderProgressFromFrames = (renderedFrames, totalFrames) => {
+  if (!(Number(totalFrames) > 0)) return 8;
+  const ratio = Math.min(1, Math.max(0, Number(renderedFrames) || 0) / totalFrames);
+  return Number((8 + ratio * 80).toFixed(2));
+};
+
+const renderElapsedSeconds = (job) => job.startedAt
+  ? Math.max(0, (Date.now() - job.startedAt) / 1000)
+  : Math.max(0, Number(job.elapsedSeconds) || 0);
+
+const renderEtaSeconds = (job, elapsedSeconds = renderElapsedSeconds(job)) => {
+  if (!job.startedAt || job.status !== "rendering" || job.progress < 8 || elapsedSeconds <= 0) return null;
+  return Math.max(0, Math.round(elapsedSeconds * (100 - job.progress) / job.progress));
+};
+
+const renderJobPayload = (job) => {
+  const elapsedSeconds = renderElapsedSeconds(job);
+  return {
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    stage: job.stage || null,
+    stageLabel: job.stageLabel || null,
+    detail: job.detail || job.message,
+    scene: Number(job.scene) || 0,
+    totalScenes: Number(job.totalScenes) || 0,
+    renderFps: Number(job.renderFps) || 0,
+    renderedFrames: Number(job.renderedFrames) || 0,
+    totalFrames: Number(job.totalFrames) || 0,
+    sceneRenderedFrames: Number(job.sceneRenderedFrames) || 0,
+    sceneTotalFrames: Number(job.sceneTotalFrames) || 0,
+    elapsedSeconds: Math.round(elapsedSeconds),
+    etaSeconds: renderEtaSeconds(job, elapsedSeconds),
+    mediaTimeSeconds: Number(job.mediaTimeSeconds) || 0,
+    mediaDurationSeconds: Number(job.mediaDurationSeconds) || 0,
+    videoEncoder: job.videoEncoder || null,
+    downloadUrl: job.downloadUrl || null,
+    clip: job.clip || null,
+    log: job.status === "failed" ? job.log.slice(-3000) : undefined,
+    logTail: job.log ? job.log.slice(-1800) : "",
+  };
+};
+
+const rationalToNumber = (value) => {
+  const [top, bottom] = String(value || "").split("/").map(Number);
+  if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > 0) return top / bottom;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const makeCompatibilityKey = (profile) => JSON.stringify({
+  video: profile.video ? {
+    codec: profile.video.codec,
+    width: profile.video.width,
+    height: profile.video.height,
+    pixelFormat: profile.video.pixelFormat,
+    fps: profile.video.fps,
+    profile: profile.video.profile,
+  } : null,
+  audio: profile.audio ? {
+    codec: profile.audio.codec,
+    sampleRate: profile.audio.sampleRate,
+    channels: profile.audio.channels,
+    channelLayout: profile.audio.channelLayout,
+  } : null,
+});
+
+const inspectVideo = async (filePath) => {
+  const raw = await runCommand(ffprobePath, [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=codec_name,codec_type,width,height,pix_fmt,r_frame_rate,avg_frame_rate,profile,sample_rate,channels,channel_layout",
+    "-of", "json",
+    filePath,
+  ]);
+  const probe = JSON.parse(raw || "{}");
+  const streams = Array.isArray(probe.streams) ? probe.streams : [];
+  const video = streams.find((stream) => stream.codec_type === "video");
+  const audio = streams.find((stream) => stream.codec_type === "audio");
+  if (!video) throw new Error("Clip không có luồng video để nối");
+  return {
+    duration: Math.max(0, Number(probe.format?.duration) || 0),
+    video: {
+      codec: String(video.codec_name || ""),
+      width: Number(video.width) || 0,
+      height: Number(video.height) || 0,
+      pixelFormat: String(video.pix_fmt || ""),
+      fps: Number((rationalToNumber(video.r_frame_rate) || rationalToNumber(video.avg_frame_rate)).toFixed(3)),
+      profile: String(video.profile || ""),
+    },
+    audio: audio ? {
+      codec: String(audio.codec_name || ""),
+      sampleRate: Number(audio.sample_rate) || 0,
+      channels: Number(audio.channels) || 0,
+      channelLayout: String(audio.channel_layout || ""),
+    } : null,
+  };
+};
+
+const readStoredClip = async (id) => {
+  if (!isStoredClipId(id)) return null;
+  try {
+    const record = JSON.parse(await fs.readFile(clipMetadataPath(id), "utf8"));
+    await fs.access(clipVideoPath(id));
+    return {
+      ...record,
+      id,
+      downloadUrl: `/api/rendered-clips/${id}/download`,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const listStoredClips = async () => {
+  const entries = await fs.readdir(renderedClipsRoot, { withFileTypes: true });
+  const clips = await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => readStoredClip(entry.name.slice(0, -5))));
+  return clips
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+};
+
+const storeRenderedClip = async ({
+  sourcePath,
+  name,
+  scope = "project",
+  sceneName = "",
+  profileOverride = null,
+  compatibilityKeyOverride = "",
+}) => {
+  const id = randomUUID();
+  const destination = clipVideoPath(id);
+  await fs.copyFile(sourcePath, destination);
+  const stat = await fs.stat(destination);
+  let inspectedProfile = null;
+  try {
+    inspectedProfile = await inspectVideo(destination);
+  } catch {
+    // Giữ video tải xuống được, nhưng chặn nối nhanh cho đến khi FFprobe sẵn sàng.
+  }
+  const profile = profileOverride || inspectedProfile;
+  const compatibilityKey = compatibilityKeyOverride || (profile ? makeCompatibilityKey(profile) : "");
+  const record = {
+    id,
+    name: safeVideoName(name),
+    scope,
+    sceneName: String(sceneName || ""),
+    createdAt: new Date().toISOString(),
+    size: stat.size,
+    duration: profile?.duration || 0,
+    profile,
+    compatibilityKey,
+  };
+  await fs.writeFile(clipMetadataPath(id), JSON.stringify(record, null, 2), "utf8");
+  return { ...record, downloadUrl: `/api/rendered-clips/${id}/download` };
+};
+
+const sendVideoDownload = async (response, filePath, name) => {
+  try {
+    const stat = await fs.stat(filePath);
+    const downloadName = safeVideoName(name);
+    const asciiName = downloadName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7e]/g, "-");
+    response.writeHead(200, {
+      ...corsHeaders,
+      "Content-Type": "video/mp4",
+      "Content-Length": stat.size,
+      "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
+    });
+    createReadStream(filePath).pipe(response);
+  } catch {
+    sendJson(response, 404, { error: "Không tìm thấy file video" });
+  }
+};
+
+const runConcatJob = async (job, clips) => {
+  activeConcatJobId = job.id;
+  job.status = "joining";
+  job.message = `Đang nối nhanh ${clips.length} video…`;
+  try {
+    await fs.mkdir(job.outputDir, { recursive: true });
+    const concatLines = clips.map((clip) => `file '${clipVideoPath(clip.id).replace(/\\/g, "/").replace(/'/g, "'\\''")}'`);
+    await fs.writeFile(job.manifestPath, `${concatLines.join("\n")}\n`, "utf8");
+    const child = spawn(ffmpegPath, [
+      "-y", "-f", "concat", "-safe", "0", "-i", job.manifestPath,
+      "-c", "copy", "-movflags", "+faststart", job.outputPath,
+    ], { cwd: root, windowsHide: true });
+    job.child = child;
+    const consume = (chunk) => {
+      const text = chunk.toString();
+      job.log = `${job.log}${text}`.slice(-12000);
+      const time = text.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (!time || !job.totalDuration) return;
+      const elapsed = Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3]);
+      job.progress = Math.min(96, Math.max(1, Math.round((elapsed / job.totalDuration) * 100)));
+    };
+    child.stdout.on("data", consume);
+    child.stderr.on("data", consume);
+    const exitCode = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", resolve);
+    });
+    if (exitCode !== 0) throw new Error(`FFmpeg nối video kết thúc với mã lỗi ${exitCode}`);
+    job.clip = await storeRenderedClip({
+      sourcePath: job.outputPath,
+      name: job.name,
+      scope: "joined",
+      sceneName: clips.map((clip) => clip.sceneName || clip.name).join(" · "),
+      profileOverride: clips[0].profile,
+      compatibilityKeyOverride: clips[0].compatibilityKey,
+    });
+    job.status = "completed";
+    job.progress = 100;
+    job.message = `Đã nối nhanh ${clips.length} video, không mã hóa lại.`;
+    job.downloadUrl = job.clip.downloadUrl;
+  } catch (error) {
+    job.status = "failed";
+    job.message = error instanceof Error ? error.message : "Không thể nối video";
+  } finally {
+    job.child = null;
+    activeConcatJobId = null;
+  }
+};
+
 const runJob = async (job, project, files) => {
   activeJobId = job.id;
   job.status = "preparing";
+  job.stage = "preparing";
+  job.stageLabel = "Chuẩn bị tài nguyên";
+  job.detail = "Đang tạo thư mục làm việc cho phiên render…";
   try {
     await fs.mkdir(job.sourceDir, { recursive: true });
     await fs.mkdir(job.outputDir, { recursive: true });
-    for (const file of files) {
+    for (const [fileIndex, file] of files.entries()) {
       const filename = safeName(file.name);
       await fs.writeFile(path.join(job.sourceDir, filename), Buffer.from(await file.arrayBuffer()));
+      job.progress = Math.min(6, Math.max(1, Math.round(((fileIndex + 1) / Math.max(1, files.length)) * 6)));
+      job.detail = `Đã nhận tài nguyên ${fileIndex + 1}/${files.length}: ${filename}`;
     }
     await fs.writeFile(job.projectPath, JSON.stringify(project, null, 2), "utf8");
+    job.progress = Math.max(job.progress, 7);
+    job.detail = "Đã nhận JSON và tài nguyên; đang khởi động FFmpeg…";
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
       return;
     }
+    const frameMetrics = job.frameMetrics || getRenderFrameMetrics(project);
+    job.frameMetrics = frameMetrics;
+    job.renderFps = frameMetrics.fps;
+    job.totalScenes = frameMetrics.scenes.length;
+    job.totalDuration = frameMetrics.totalDuration;
+    job.totalFrames = frameMetrics.totalFrames;
+    job.renderedFrames = 0;
+    job.sceneRenderedFrames = 0;
+    job.sceneTotalFrames = 0;
+    job.startedAt = Date.now();
     job.status = "rendering";
-    job.message = `Đang dựng 0/${project.scenes?.length || 0} cảnh`;
+    job.stage = "scene";
+    job.stageLabel = "Dựng cảnh";
+    job.scene = 0;
+    job.message = `Đang dựng 0/${job.totalScenes} cảnh`;
+    job.detail = "Đang khởi động bộ dựng cảnh…";
 
     const rendererArgs = [
       ...(process.allowedNodeEnvironmentFlags.has("--use-system-ca") ? ["--use-system-ca"] : []),
-      path.join(root, "scripts", "render-video.mjs"),
+      rendererScriptPath,
       job.projectPath,
       job.outputPath,
     ];
     const child = spawn(
-      process.execPath,
+      nodeBinary,
       rendererArgs,
       {
         cwd: root,
@@ -92,10 +431,127 @@ const runJob = async (job, project, files) => {
     const consume = (chunk) => {
       const text = chunk.toString();
       job.log = `${job.log}${text}`.slice(-12000);
-      const match = text.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/);
-      if (match) {
-        job.progress = Math.round((Number(match[1]) / Number(match[2])) * 90);
-        job.message = `Đang dựng cảnh ${match[1]}/${match[2]}: ${match[3].trim()}`;
+      job.elapsedSeconds = renderElapsedSeconds(job);
+      const lines = text.split(/\r?\n|\r/).map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        const encoderMatch = line.match(/^Video encoder:\s*(.+)$/i);
+        if (encoderMatch) {
+          job.videoEncoder = encoderMatch[1].trim();
+          job.detail = `Encoder: ${job.videoEncoder}`;
+          job.message = job.detail;
+          continue;
+        }
+        const sceneMatch = line.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/i);
+        if (sceneMatch) {
+          const scene = Number(sceneMatch[1]);
+          const totalScenes = Number(sceneMatch[2]);
+          const sceneName = sceneMatch[3].trim();
+          job.stage = "scene";
+          job.stageLabel = "Dựng cảnh";
+          job.scene = scene;
+          job.totalScenes = totalScenes;
+          job.sceneName = sceneName;
+          const sceneMetric = job.frameMetrics?.scenes?.[scene - 1];
+          job.sceneDuration = sceneMetric?.duration || 0;
+          job.sceneRenderedFrames = 0;
+          job.sceneTotalFrames = sceneMetric?.frames || 0;
+          job.renderedFrames = sceneMetric?.frameOffset || 0;
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.sceneDuration;
+          const frameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(sceneMetric?.frameOffset || 0, job.totalFrames)
+            : Number((8 + ((scene - 1) / Math.max(1, totalScenes)) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, frameRatio);
+          job.detail = `Cảnh ${scene}/${totalScenes}: ${sceneName}`;
+          job.message = job.detail;
+          continue;
+        }
+
+        const sceneComplete = line.match(/Scene complete\s+(\d+)\/(\d+)/i);
+        if (sceneComplete) {
+          const scene = Number(sceneComplete[1]);
+          const totalScenes = Number(sceneComplete[2]);
+          job.scene = scene;
+          job.totalScenes = totalScenes;
+          const sceneMetric = job.frameMetrics?.scenes?.[scene - 1];
+          if (sceneMetric) {
+            job.sceneRenderedFrames = sceneMetric.frames;
+            job.sceneTotalFrames = sceneMetric.frames;
+            job.renderedFrames = sceneMetric.frameOffset + sceneMetric.frames;
+          }
+          const frameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(job.renderedFrames, job.totalFrames)
+            : Number((8 + (scene / Math.max(1, totalScenes)) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, frameRatio);
+          job.detail = `Đã dựng xong cảnh ${scene}/${totalScenes}; đang chuyển sang bước tiếp theo…`;
+          job.message = job.detail;
+          continue;
+        }
+
+        const joining = line.match(/Render stage:\s*joining\s+(\d+)\s+rendered scenes/i);
+        if (joining) {
+          job.stage = "joining";
+          job.stageLabel = "Nối các cảnh";
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.totalDuration || 0;
+          job.progress = Math.max(job.progress, 90);
+          job.detail = `Đang nối ${joining[1]} cảnh thành một video…`;
+          job.message = job.detail;
+          continue;
+        }
+
+        if (/Render stage:\s*mixing background music/i.test(line)) {
+          job.stage = "mixing";
+          job.stageLabel = "Trộn âm thanh";
+          job.mediaTimeSeconds = 0;
+          job.mediaDurationSeconds = job.totalDuration || 0;
+          job.progress = Math.max(job.progress, 95);
+          job.detail = "Đang trộn nhạc nền với phần thuyết minh…";
+          job.message = job.detail;
+          continue;
+        }
+
+        if (/Render stage:\s*finalizing output/i.test(line)) {
+          job.stage = "finalizing";
+          job.stageLabel = "Hoàn tất video";
+          job.progress = Math.max(job.progress, 99);
+          job.detail = "Đang đóng gói video và tối ưu file MP4…";
+          job.message = job.detail;
+          continue;
+        }
+
+        const frameMatch = line.match(/(?:^|\s)frame=\s*(\d+)/i);
+        const time = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+        if (!frameMatch && !time) continue;
+        const mediaTime = time
+          ? Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3])
+          : job.mediaTimeSeconds;
+        job.mediaTimeSeconds = mediaTime;
+        if (job.stage === "scene" && job.sceneDuration > 0 && job.totalScenes > 0) {
+          const sceneMetric = job.frameMetrics?.scenes?.[job.scene - 1];
+          const renderedSceneFrames = frameMatch
+            ? clampRenderFrame(frameMatch[1], sceneMetric?.frames || job.sceneTotalFrames)
+            : clampRenderFrame(mediaTime * job.renderFps, sceneMetric?.frames || job.sceneTotalFrames);
+          const sceneProgress = sceneMetric?.frames > 0
+            ? renderedSceneFrames / sceneMetric.frames
+            : Math.min(1, mediaTime / job.sceneDuration);
+          job.sceneRenderedFrames = renderedSceneFrames;
+          job.sceneTotalFrames = sceneMetric?.frames || job.sceneTotalFrames;
+          job.renderedFrames = (sceneMetric?.frameOffset || 0) + renderedSceneFrames;
+          const overallFrameRatio = job.totalFrames > 0
+            ? renderProgressFromFrames(job.renderedFrames, job.totalFrames)
+            : Number((8 + ((job.scene - 1 + sceneProgress) / job.totalScenes) * 80).toFixed(2));
+          job.progress = Math.max(job.progress, Math.min(88, overallFrameRatio));
+          job.detail = `Cảnh ${job.scene}/${job.totalScenes}: ${job.sceneName || "đang mã hóa"} · ${renderedSceneFrames}/${job.sceneTotalFrames} frame · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.sceneDuration)}`;
+          job.message = job.detail;
+        } else if ((job.stage === "joining" || job.stage === "mixing") && job.mediaDurationSeconds > 0) {
+          const start = job.stage === "joining" ? 90 : 95;
+          const span = job.stage === "joining" ? 5 : 4;
+          const ratio = Math.min(1, mediaTime / job.mediaDurationSeconds);
+          job.progress = Math.max(job.progress, Math.min(start + span - 1, Math.round(start + ratio * span)));
+          job.detail = `${job.stage === "joining" ? "Đang nối các cảnh" : "Đang trộn âm thanh"} · FFmpeg ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.mediaDurationSeconds)}`;
+          job.message = job.detail;
+        }
       }
     };
     child.stdout.on("data", consume);
@@ -108,21 +564,49 @@ const runJob = async (job, project, files) => {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
       return;
     }
-    if (exitCode !== 0) throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}`);
+    if (exitCode !== 0) {
+      const detail = summarizeFfmpegFailure(job.log);
+      throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}${detail ? `: ${detail}` : ""}`);
+    }
+    job.stage = "finalizing";
+    job.stageLabel = "Hoàn tất video";
+    job.progress = Math.max(job.progress, 99);
+    job.detail = "Đang lưu video vào thư viện render…";
+    job.message = job.detail;
+    job.clip = await storeRenderedClip({
+      sourcePath: job.outputPath,
+      name: project.title || "video",
+      scope: project.renderScope === "scene" ? "scene" : "project",
+      sceneName: project.renderedSceneName || "",
+    });
     job.status = "completed";
     job.progress = 100;
     job.message = "Render hoàn tất";
-    job.downloadUrl = `/api/render/${job.id}/download`;
+    job.stage = "completed";
+    job.stageLabel = "Hoàn tất";
+    job.detail = "Video đã được lưu vào thư viện render.";
+    job.mediaTimeSeconds = job.totalDuration || job.mediaTimeSeconds;
+    job.mediaDurationSeconds = job.totalDuration || job.mediaDurationSeconds;
+    job.downloadUrl = job.clip.downloadUrl;
   } catch (error) {
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.progress = 0;
       job.message = "Đã dừng render";
+      job.stage = "cancelled";
+      job.stageLabel = "Đã dừng";
+      job.detail = job.message;
     } else {
       job.status = "failed";
       job.message = error instanceof Error ? error.message : "Không thể render video";
+      job.stage = "failed";
+      job.stageLabel = "Render lỗi";
+      job.detail = job.message;
     }
   } finally {
     job.child = null;
@@ -133,6 +617,8 @@ const runJob = async (job, project, files) => {
 await fs.mkdir(jobsRoot, { recursive: true });
 await fs.mkdir(spriteAssetsRoot, { recursive: true });
 await fs.mkdir(renderCacheRoot, { recursive: true });
+await fs.mkdir(renderedClipsRoot, { recursive: true });
+await fs.mkdir(concatJobsRoot, { recursive: true });
 
 const server = http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
@@ -144,14 +630,62 @@ const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${host}:${port}`);
   if (request.method === "GET" && url.pathname === "/api/health") {
     const ready = await ffmpegReady();
+    const busy = Boolean(activeJobId || activeCacheSync || activeConcatJobId);
     sendJson(response, ready ? 200 : 503, {
       ready,
-      busy: Boolean(activeJobId),
+      busy,
       ffmpegPath,
       message: ready
-        ? "Dịch vụ render cục bộ đã sẵn sàng"
+        ? activeCacheSync
+          ? "Dịch vụ đang tải trước tài nguyên URL"
+          : activeConcatJobId
+            ? "Dịch vụ đang nối nhanh video"
+          : "Dịch vụ render cục bộ đã sẵn sàng"
         : "Chưa tìm thấy FFmpeg. Hãy chạy npm run render:setup",
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/cache") {
+    try {
+      sendJson(response, 200, await getResourceCacheSummary(renderCacheRoot));
+    } catch (error) {
+      sendJson(response, 500, { error: error instanceof Error ? error.message : "Không thể đọc thư viện cache" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/cache/sync") {
+    if (activeJobId || activeConcatJobId) {
+      sendJson(response, 409, { error: activeConcatJobId
+        ? "Đang nối video. Hãy chờ hoàn tất trước khi tải trước tài nguyên."
+        : "Đang render video. Hãy chờ render hoàn tất trước khi tải trước tài nguyên." });
+      return;
+    }
+    if (activeCacheSync) {
+      sendJson(response, 409, { error: "Đang có một lượt tải trước tài nguyên URL." });
+      return;
+    }
+    activeCacheSync = true;
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const body = await webRequest.json();
+      const project = body?.project;
+      if (!project || typeof project !== "object" || !Array.isArray(project.scenes)) {
+        throw new Error("Thiếu JSON dự án để quét URL tài nguyên");
+      }
+      const report = await syncProjectResourceCache(project, renderCacheRoot);
+      sendJson(response, 200, report);
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Không thể tải trước tài nguyên URL" });
+    } finally {
+      activeCacheSync = false;
+    }
     return;
   }
 
@@ -317,9 +851,110 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/rendered-clips") {
+    try {
+      sendJson(response, 200, { clips: await listStoredClips() });
+    } catch (error) {
+      sendJson(response, 500, { error: error instanceof Error ? error.message : "Không thể đọc thư viện video đã render" });
+    }
+    return;
+  }
+
+  const renderedClipDownloadMatch = url.pathname.match(/^\/api\/rendered-clips\/([a-f0-9-]+)\/download$/i);
+  if (request.method === "GET" && renderedClipDownloadMatch) {
+    const clip = await readStoredClip(renderedClipDownloadMatch[1]);
+    if (!clip) {
+      sendJson(response, 404, { error: "Không tìm thấy video đã render" });
+      return;
+    }
+    await sendVideoDownload(response, clipVideoPath(clip.id), clip.name);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/concat") {
+    if (activeJobId || activeCacheSync || activeConcatJobId) {
+      sendJson(response, 409, { error: activeJobId
+        ? "Đang render video. Hãy chờ render hoàn tất trước khi nối."
+        : activeCacheSync
+          ? "Đang tải trước tài nguyên URL. Hãy chờ hoàn tất trước khi nối."
+          : "Đang có một lượt nối video khác." });
+      return;
+    }
+    if (!(await ffmpegReady())) {
+      sendJson(response, 503, { error: "Chưa tìm thấy FFmpeg. Hãy chạy npm run render:setup." });
+      return;
+    }
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const body = await webRequest.json();
+      const clipIds = Array.isArray(body?.clipIds) ? body.clipIds.map(String) : [];
+      if (clipIds.length < 2) throw new Error("Hãy chọn ít nhất 2 video để nối");
+      if (new Set(clipIds).size !== clipIds.length || clipIds.some((id) => !isStoredClipId(id))) {
+        throw new Error("Danh sách video cần nối không hợp lệ");
+      }
+      const clips = await Promise.all(clipIds.map((id) => readStoredClip(id)));
+      if (clips.some((clip) => !clip)) throw new Error("Một hoặc nhiều video đã render không còn trong thư viện");
+      if (clips.some((clip) => clip.scope === "joined")) {
+        throw new Error("Nối nhanh chỉ nhận clip render gốc. Hãy chọn các cảnh hoặc clip gốc để tránh lỗi timestamp khi nối lồng nhiều lần.");
+      }
+      const compatibleKey = clips[0].compatibilityKey;
+      if (!compatibleKey || clips.some((clip) => clip.compatibilityKey !== compatibleKey)) {
+        throw new Error("Các video chưa cùng codec, kích thước, FPS hoặc âm thanh nên không thể nối nhanh an toàn");
+      }
+      const id = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+      const jobRoot = path.join(concatJobsRoot, id);
+      const job = {
+        id,
+        status: "queued",
+        progress: 0,
+        message: "Đang chuẩn bị nối video",
+        log: "",
+        name: safeVideoName(body?.name || "video-noi"),
+        outputDir: path.join(jobRoot, "output"),
+        manifestPath: path.join(jobRoot, "clips.txt"),
+        outputPath: path.join(jobRoot, "output", safeVideoName(body?.name || "video-noi")),
+        totalDuration: clips.reduce((total, clip) => total + (Number(clip.duration) || 0), 0),
+      };
+      concatJobs.set(id, job);
+      void runConcatJob(job, clips);
+      sendJson(response, 202, { jobId: id });
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Không thể nối video" });
+    }
+    return;
+  }
+
+  const concatStatusMatch = url.pathname.match(/^\/api\/concat\/([^/]+)$/);
+  if (request.method === "GET" && concatStatusMatch) {
+    const job = concatJobs.get(concatStatusMatch[1]);
+    if (!job) {
+      sendJson(response, 404, { error: "Không tìm thấy phiên nối video" });
+      return;
+    }
+    sendJson(response, 200, {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      message: job.message,
+      downloadUrl: job.downloadUrl || null,
+      clip: job.clip || null,
+      log: job.status === "failed" ? job.log.slice(-3000) : undefined,
+    });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/render") {
-    if (activeJobId) {
-      sendJson(response, 409, { error: "Đang có một video được render. Vui lòng chờ hoàn tất." });
+    if (activeJobId || activeCacheSync || activeConcatJobId) {
+      sendJson(response, 409, { error: activeCacheSync
+        ? "Đang tải trước tài nguyên URL. Vui lòng chờ hoàn tất."
+        : activeConcatJobId
+          ? "Đang nối video. Vui lòng chờ hoàn tất."
+          : "Đang có một video được render. Vui lòng chờ hoàn tất." });
       return;
     }
     if (!(await ffmpegReady())) {
@@ -340,6 +975,7 @@ const server = http.createServer(async (request, response) => {
       if (!Array.isArray(project.scenes) || project.scenes.length === 0) {
         throw new Error("Dự án chưa có cảnh để render");
       }
+      const frameMetrics = getRenderFrameMetrics(project);
       const files = form.getAll("media").filter(
         (item) => typeof item !== "string" && typeof item.arrayBuffer === "function",
       );
@@ -351,12 +987,29 @@ const server = http.createServer(async (request, response) => {
         cancelRequested: false,
         progress: 0,
         message: "Đang chuẩn bị tài nguyên",
+        stage: "queued",
+        stageLabel: "Đang xếp hàng",
+        detail: "Đang chờ phiên render được khởi động…",
+        scene: 0,
+        totalScenes: frameMetrics.scenes.length,
+        frameMetrics,
+        renderFps: frameMetrics.fps,
+        renderedFrames: 0,
+        totalFrames: frameMetrics.totalFrames,
+        sceneRenderedFrames: 0,
+        sceneTotalFrames: 0,
+        mediaTimeSeconds: 0,
+        mediaDurationSeconds: 0,
+        elapsedSeconds: 0,
+        startedAt: null,
         log: "",
         sourceDir: path.join(jobRoot, "source"),
         renderDir: path.join(jobRoot, "render"),
         outputDir: path.join(jobRoot, "output"),
         projectPath: path.join(jobRoot, "project.json"),
         outputPath: path.join(jobRoot, "output", `${safeName(project.title || "video")}.mp4`),
+        scope: project.renderScope === "scene" ? "scene" : "project",
+        sceneName: String(project.renderedSceneName || ""),
       };
       jobs.set(id, job);
       void runJob(job, project, files);
@@ -375,7 +1028,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (["completed", "failed", "cancelled"].includes(job.status)) {
-      sendJson(response, 200, { id: job.id, status: job.status });
+      sendJson(response, 200, renderJobPayload(job));
       return;
     }
     job.cancelRequested = true;
@@ -399,14 +1052,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 404, { error: "Không tìm thấy phiên render" });
       return;
     }
-    sendJson(response, 200, {
-      id: job.id,
-      status: job.status,
-      progress: job.progress,
-      message: job.message,
-      downloadUrl: job.downloadUrl || null,
-      log: job.status === "failed" ? job.log.slice(-3000) : undefined,
-    });
+    sendJson(response, 200, renderJobPayload(job));
     return;
   }
 
@@ -417,24 +1063,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 404, { error: "Video chưa sẵn sàng" });
       return;
     }
-    try {
-      const stat = await fs.stat(job.outputPath);
-      const downloadName = safeName(path.basename(job.outputPath));
-      const asciiName = downloadName
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\x20-\x7e]/g, "-");
-      response.writeHead(200, {
-        ...corsHeaders,
-        "Content-Type": "video/mp4",
-        "Content-Length": stat.size,
-        "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
-      });
-      const file = await import("node:fs");
-      file.createReadStream(job.outputPath).pipe(response);
-    } catch {
-      sendJson(response, 404, { error: "Không tìm thấy file video" });
-    }
+    await sendVideoDownload(response, job.outputPath, path.basename(job.outputPath));
     return;
   }
 

@@ -6,7 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "vite --config vite.dev.config.ts --host localhost --port 3000",
+    "dev:vinext": "vinext dev",
     "build": "vinext build",
     "build:pages": "vite build --config vite.pages.config.ts && node scripts/export-github-pages.mjs",
     "render:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-local-renderer.ps1",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "fflate": "^0.8.3",
     "firebase": "^12.17.1",
     "next": "16.2.6",
     "react": "19.2.6",
