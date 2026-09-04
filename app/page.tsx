@@ -2024,7 +2024,28 @@ type SceneImageTimingCheckView = SceneImageTimingCheck & {
   sceneName: string;
 };
 
+type SceneImageTimingMinimapPoint = {
+  time: number;
+  state: "empty" | "gap" | "image" | "overlap" | "transition";
+  imageId?: string;
+  segment?: number;
+};
+
+type SceneImageTimingMinimapBoundary = {
+  imageId: string;
+  time: number;
+  type: "start" | "end";
+  segment: number;
+};
+
+type SceneImageTimingMinimap = {
+  pixelCount: number;
+  points: SceneImageTimingMinimapPoint[];
+  boundaries: SceneImageTimingMinimapBoundary[];
+};
+
 const SCENE_IMAGE_TIMING_EPSILON = 0.05;
+const SCENE_IMAGE_TIMING_MINIMAP_PIXEL_COUNT = 160;
 
 const buildSceneImageTimingCheck = (
   images: SceneImage[],
@@ -2176,6 +2197,62 @@ const buildSceneImageTimingCheck = (
     rows,
     issues,
   };
+};
+
+const buildSceneImageTimingMinimap = (
+  check: SceneImageTimingCheckView,
+): SceneImageTimingMinimap => {
+  const pixelCount = Math.max(32, SCENE_IMAGE_TIMING_MINIMAP_PIXEL_COUNT);
+  const issueById = new Map(check.issues.map((issue) => [issue.id, issue]));
+  const overlapImageIds = new Set(
+    check.issues
+      .filter((issue) => issue.kind === "overlap" && issue.severity === "error")
+      .flatMap((issue) => [issue.imageId, issue.relatedImageId].filter(Boolean) as string[]),
+  );
+  const gapIntervals = check.issues
+    .filter((issue) => issue.kind === "gap")
+    .map((issue) => ({ start: issue.focusTime, end: issue.focusTime + issue.amount }));
+  const points = Array.from({ length: pixelCount }, (_, index) => {
+    const time = index === pixelCount - 1
+      ? check.sceneDuration
+      : (index * check.sceneDuration) / (pixelCount - 1);
+    const activeRows = check.rows.filter((row) => (
+      Number.isFinite(row.start)
+      && Number.isFinite(row.end)
+      && time >= row.start - SCENE_IMAGE_TIMING_EPSILON
+      && time <= row.end + SCENE_IMAGE_TIMING_EPSILON
+    ));
+    const activeRow = activeRows.at(-1);
+    const hasOverlapError = activeRows.some((row) => overlapImageIds.has(row.imageId));
+    const hasAllowedTransition = activeRows.length > 1 && activeRows.some((row) => (
+      sceneImageTransitionNeedsOverlap(row.transition)
+      && !row.issueIds.some((issueId) => issueById.get(issueId)?.kind === "overlap")
+    ));
+    const inGap = gapIntervals.some((interval) => time >= interval.start && time <= interval.end);
+    return {
+      time,
+      state: hasOverlapError
+        ? "overlap"
+        : activeRows.length > 1 && hasAllowedTransition
+          ? "transition"
+          : activeRow
+            ? "image"
+            : inGap
+              ? "gap"
+              : "empty",
+      imageId: activeRow?.imageId,
+      segment: activeRow ? activeRow.index % 4 : undefined,
+    } satisfies SceneImageTimingMinimapPoint;
+  });
+  const boundaries = check.rows.flatMap((row) => (
+    Number.isFinite(row.start) && Number.isFinite(row.end)
+      ? [
+          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 4 },
+          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 4 },
+        ]
+      : []
+  ));
+  return { pixelCount, points, boundaries };
 };
 
 const mapDecorationDefaultName = (type: MapDecorationType) => ({
@@ -4829,6 +4906,7 @@ function Home() {
   const [sceneStructureImageSyncPreviewOpen, setSceneStructureImageSyncPreviewOpen] = useState(false);
   const [imageTimingCheckOpen, setImageTimingCheckOpen] = useState(false);
   const [imageTimingCheckResult, setImageTimingCheckResult] = useState<SceneImageTimingCheckView | null>(null);
+  const [imageTimingCheckSelectedImageId, setImageTimingCheckSelectedImageId] = useState("");
   const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
@@ -5666,6 +5744,7 @@ function Home() {
       sceneNumber: targetScene.number,
       sceneName: safeTrim(targetScene.sceneName) || `Cảnh ${targetScene.number}`,
     });
+    setImageTimingCheckSelectedImageId(result.rows[0]?.imageId ?? "");
     setImageTimingCheckOpen(true);
   };
   const focusSceneImageTimingIssue = (issue: SceneImageTimingIssue) => {
@@ -5685,6 +5764,19 @@ function Home() {
     setSceneStructureOpen(false);
     setImageTimingCheckOpen(false);
     window.setTimeout(() => focusEditorSection("images"), 60);
+  };
+  const imageTimingMinimap = imageTimingCheckResult
+    ? buildSceneImageTimingMinimap(imageTimingCheckResult)
+    : null;
+  const imageTimingSelectedRow = imageTimingCheckResult?.rows.find(
+    (row) => row.imageId === imageTimingCheckSelectedImageId,
+  ) ?? imageTimingCheckResult?.rows[0];
+  const imageTimingSelectedIssues = imageTimingSelectedRow && imageTimingCheckResult
+    ? imageTimingCheckResult.issues.filter((issue) => imageTimingSelectedRow.issueIds.includes(issue.id))
+    : [];
+  const imageTimingMinimapPercent = (time: number) => {
+    if (!imageTimingCheckResult) return "0%";
+    return `${Math.min(100, Math.max(0, (time / imageTimingCheckResult.sceneDuration) * 100))}%`;
   };
   const sceneStructureLockForToken = (token: string): Required<SceneStructureLockState> => {
     const locks = normalizeSceneStructureLockState(sceneStructureScene.sceneStructureLocks?.[token]);
@@ -22003,6 +22095,79 @@ function Home() {
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
               </button>
             </header>
+
+            {imageTimingMinimap && imageTimingCheckResult.imageCount > 0 && (
+              <div className="image-timing-minimap-section">
+                <div className="image-timing-check-section-heading">
+                  <strong>Minimap mốc thời gian</strong>
+                  <span>{imageTimingMinimap.pixelCount} điểm pixel · bấm vòng tròn để xem ảnh</span>
+                </div>
+                <div className="image-timing-minimap" role="group" aria-label="Minimap thời gian hình ảnh">
+                  <div className="image-timing-minimap-axis" aria-hidden="true">
+                    {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+                      <span key={`image-timing-axis-${ratio}`} style={{ left: `${ratio * 100}%` }}>
+                        {formatPreciseTime(imageTimingCheckResult.sceneDuration * ratio)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="image-timing-minimap-track">
+                    {imageTimingMinimap.points.map((point, index) => (
+                      <i
+                        key={`image-timing-minimap-pixel-${index}`}
+                        className={`image-timing-minimap-pixel state-${point.state} segment-${point.segment ?? 0}`}
+                        style={{ left: imageTimingMinimapPercent(point.time) }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                    {imageTimingMinimap.boundaries.map((boundary) => {
+                      const boundaryRow = imageTimingCheckResult.rows.find((row) => row.imageId === boundary.imageId);
+                      if (!boundaryRow) return null;
+                      const isSelected = imageTimingSelectedRow?.imageId === boundary.imageId;
+                      const boundaryTypeLabel = boundary.type === "start" ? "Mốc bắt đầu" : "Mốc kết thúc";
+                      return (
+                        <button
+                          type="button"
+                          key={`image-timing-minimap-boundary-${boundary.imageId}-${boundary.type}`}
+                          className={`image-timing-minimap-boundary ${boundary.type === "end" ? "is-end" : "is-start"} segment-${boundary.segment} ${isSelected ? "is-selected" : ""}`}
+                          style={{ left: imageTimingMinimapPercent(boundary.time) }}
+                          aria-label={`${boundaryTypeLabel} ${boundaryRow.name} tại ${formatPreciseTime(boundary.time)}`}
+                          title={`${boundaryRow.name} · ${boundaryTypeLabel} · ${formatPreciseTime(boundary.time)}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setImageTimingCheckSelectedImageId(boundary.imageId);
+                          }}
+                        >
+                          <span aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="image-timing-minimap-legend" aria-label="Chú giải minimap">
+                    <span><i className="state-image" /> Hình ảnh</span>
+                    <span><i className="state-transition" /> Chuyển hình</span>
+                    <span><i className="state-gap" /> Khoảng trống</span>
+                    <span><i className="state-overlap" /> Chồng lấn</span>
+                  </div>
+                </div>
+                {imageTimingSelectedRow && (
+                  <div
+                    className={`image-timing-minimap-selection ${imageTimingSelectedIssues.some((issue) => issue.severity === "error") ? "has-error" : imageTimingSelectedIssues.length ? "has-warning" : "is-valid"}`}
+                    aria-live="polite"
+                  >
+                    <b className="image-timing-minimap-selection-number">{String(imageTimingSelectedRow.index + 1).padStart(2, "0")}</b>
+                    <span className="image-timing-minimap-selection-copy">
+                      <strong>{imageTimingSelectedRow.name}</strong>
+                      <span>{Number.isFinite(imageTimingSelectedRow.start) ? formatPreciseTime(imageTimingSelectedRow.start) : "—"} → {Number.isFinite(imageTimingSelectedRow.end) ? formatPreciseTime(imageTimingSelectedRow.end) : "—"} · {Number.isFinite(imageTimingSelectedRow.duration) ? imageTimingSelectedRow.duration.toFixed(2) : "—"} giây</span>
+                      <small>{imageTimingSelectedRow.visible ? "Đang hiện" : "Đang ẩn"} · {imageTimingSelectedRow.transitionLabel}</small>
+                      {imageTimingSelectedIssues[0] && <em>{imageTimingSelectedIssues[0].message}</em>}
+                    </span>
+                    <span className="image-timing-minimap-selection-status">
+                      {imageTimingSelectedIssues.some((issue) => issue.severity === "error") ? "Cần chỉnh" : imageTimingSelectedIssues.length ? "Cảnh báo" : "Khớp"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className={`image-timing-check-summary is-${imageTimingCheckResult.status}`}>
               <span className="image-timing-check-status-icon" aria-hidden="true">
