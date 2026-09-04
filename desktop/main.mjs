@@ -149,6 +149,12 @@ const createMainWindow = async (uiUrl) => {
 
   // Firebase signInWithPopup needs the OAuth window to remain inside the
   // Electron session so the result can be returned to the renderer.
+  // The shared web UI uses `beforeunload` to warn about unsaved edits. In an
+  // Electron window that browser-only guard would also block the native X
+  // button, so explicitly allow the desktop window to finish closing.
+  mainWindow.webContents.on("will-prevent-unload", (event) => {
+    event.preventDefault();
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
   mainWindow.on("closed", () => { mainWindow = null; });
   await mainWindow.loadURL(uiUrl);

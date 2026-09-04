@@ -2379,10 +2379,16 @@ const sceneAudioSubtitles = (
   track: SceneAudioTrack,
   subtitles: SubtitleCue[],
   trackIndex = 0,
+  allTracks: SceneAudioTrack[] = [],
 ) => {
+  // Legacy scenes with one unassigned track treated every subtitle as
+  // belonging to the first track. Once any track has explicit cue IDs, that
+  // fallback must stop; otherwise importing subtitles into track 2 also
+  // makes them appear on track 1 and applies the wrong audio offset.
+  const hasExplicitAssignments = allTracks.some((item) => Array.isArray(item.subtitleCueIds));
   const subtitleIds = Array.isArray(track.subtitleCueIds)
     ? new Set(track.subtitleCueIds)
-    : trackIndex === 0
+    : trackIndex === 0 && !hasExplicitAssignments
       ? new Set(subtitles.map((subtitle) => subtitle.id))
       : new Set<string>();
   return subtitles.filter((subtitle) => subtitleIds.has(subtitle.id));
@@ -2396,11 +2402,15 @@ type SubtitleTimingScene = {
 const subtitleAudioTrackForCue = (
   scene: SubtitleTimingScene,
   subtitleId: string,
-) => (scene.audioTracks ?? []).find((track, trackIndex) => (
-  Array.isArray(track.subtitleCueIds)
-    ? track.subtitleCueIds.includes(subtitleId)
-    : trackIndex === 0
-));
+) => {
+  const audioTracks = scene.audioTracks ?? [];
+  const hasExplicitAssignments = audioTracks.some((track) => Array.isArray(track.subtitleCueIds));
+  return audioTracks.find((track, trackIndex) => (
+    Array.isArray(track.subtitleCueIds)
+      ? track.subtitleCueIds.includes(subtitleId)
+      : trackIndex === 0 && !hasExplicitAssignments
+  ));
+};
 
 const subtitleTimingForScene = (
   scene: SubtitleTimingScene,
@@ -3320,6 +3330,212 @@ function LocalFileButton({ accept, onPick, label = "Chọn file máy" }: LocalFi
   );
 }
 
+type CloudinaryMediaLibraryAsset = {
+  secure_url?: unknown;
+  url?: unknown;
+  resource_type?: unknown;
+  format?: unknown;
+  public_id?: unknown;
+  display_name?: unknown;
+};
+
+type CloudinaryMediaLibrarySelection = {
+  url: string;
+  resourceType: "image" | "video";
+  name: string;
+  format: string;
+};
+
+type CloudinaryMediaLibraryInsertData = {
+  assets?: CloudinaryMediaLibraryAsset[];
+};
+
+type CloudinaryMediaLibraryWidget = {
+  show: () => void;
+  destroy?: () => void | Promise<void>;
+};
+
+type CloudinaryMediaLibraryApi = {
+  createMediaLibrary: (
+    options: {
+      cloud_name: string;
+      multiple: boolean;
+      max_files: number;
+      insert_caption: string;
+      z_index: number;
+      search?: { expression: string };
+    },
+    callbacks: {
+      insertHandler: (data: CloudinaryMediaLibraryInsertData) => void;
+    },
+  ) => CloudinaryMediaLibraryWidget;
+};
+
+const CLOUDINARY_MEDIA_LIBRARY_SCRIPT = "https://media-library.cloudinary.com/global/all.js";
+const CLOUDINARY_DEFAULT_CLOUD_NAME = "letran";
+let cloudinaryMediaLibraryLoader: Promise<CloudinaryMediaLibraryApi> | null = null;
+
+const cloudinaryApiFromWindow = () =>
+  (window as Window & { cloudinary?: CloudinaryMediaLibraryApi }).cloudinary;
+
+const cloudinaryCloudNameFromValue = (value: unknown) => {
+  try {
+    const parsed = new URL(safeTrim(value));
+    if (parsed.hostname.toLowerCase() === "res.cloudinary.com") {
+      return parsed.pathname.split("/").filter(Boolean)[0] || CLOUDINARY_DEFAULT_CLOUD_NAME;
+    }
+  } catch {
+    // Use the app's configured Cloudinary environment for an empty or local value.
+  }
+  return CLOUDINARY_DEFAULT_CLOUD_NAME;
+};
+
+const loadCloudinaryMediaLibrary = () => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return Promise.reject(new Error("Cloudinary chỉ có thể mở trong trình duyệt."));
+  }
+  const currentApi = cloudinaryApiFromWindow();
+  if (currentApi?.createMediaLibrary) return Promise.resolve(currentApi);
+  if (cloudinaryMediaLibraryLoader) return cloudinaryMediaLibraryLoader;
+
+  cloudinaryMediaLibraryLoader = new Promise<CloudinaryMediaLibraryApi>((resolve, reject) => {
+    const existingScript = Array.from(document.scripts).find(
+      (script) => script.src === CLOUDINARY_MEDIA_LIBRARY_SCRIPT,
+    ) ?? null;
+    const script = existingScript ?? document.createElement("script");
+    const finish = () => {
+      const api = cloudinaryApiFromWindow();
+      if (api?.createMediaLibrary) {
+        resolve(api);
+      } else {
+        reject(new Error("Cloudinary chưa khởi tạo được Media Library."));
+      }
+    };
+    const fail = () => reject(new Error("Không thể tải công cụ Media Library của Cloudinary."));
+
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener("error", fail, { once: true });
+    if (!existingScript) {
+      script.src = CLOUDINARY_MEDIA_LIBRARY_SCRIPT;
+      script.async = true;
+      script.dataset.kitoCloudinaryMediaLibrary = "true";
+      document.head.appendChild(script);
+    } else {
+      window.setTimeout(finish, 0);
+    }
+  });
+  cloudinaryMediaLibraryLoader.catch(() => {
+    cloudinaryMediaLibraryLoader = null;
+  });
+  return cloudinaryMediaLibraryLoader;
+};
+
+type CloudinaryMediaPickerButtonProps = {
+  value?: string;
+  mediaKind?: "image" | "image-video";
+  disabled?: boolean;
+  onSelect: (selection: CloudinaryMediaLibrarySelection) => void;
+};
+
+function CloudinaryMediaPickerButton({
+  value = "",
+  mediaKind = "image-video",
+  disabled = false,
+  onSelect,
+}: CloudinaryMediaPickerButtonProps) {
+  const widgetRef = useRef<CloudinaryMediaLibraryWidget | null>(null);
+  const widgetCloudNameRef = useRef("");
+  const onSelectRef = useRef(onSelect);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => () => {
+    const widget = widgetRef.current;
+    widgetRef.current = null;
+    widgetCloudNameRef.current = "";
+    if (widget?.destroy) void widget.destroy();
+  }, []);
+
+  const openMediaLibrary = async () => {
+    if (disabled || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const cloudinary = await loadCloudinaryMediaLibrary();
+      const cloudName = cloudinaryCloudNameFromValue(value);
+      if (widgetRef.current && widgetCloudNameRef.current !== cloudName) {
+        const previousWidget = widgetRef.current;
+        widgetRef.current = null;
+        widgetCloudNameRef.current = "";
+        if (previousWidget.destroy) await previousWidget.destroy();
+      }
+      if (!widgetRef.current) {
+        widgetRef.current = cloudinary.createMediaLibrary(
+          {
+            cloud_name: cloudName,
+            multiple: false,
+            max_files: 1,
+            insert_caption: "Chọn tài nguyên",
+            z_index: 100000,
+            ...(mediaKind === "image" ? { search: { expression: "resource_type:image" } } : {}),
+          },
+          {
+            insertHandler: (data) => {
+              const asset = Array.isArray(data?.assets) ? data.assets[0] : null;
+              if (!asset) return;
+              const resourceType = safeTrim(asset.resource_type).toLowerCase();
+              if (resourceType !== "image" && resourceType !== "video") {
+                setError("Chỉ hỗ trợ hình ảnh hoặc video.");
+                return;
+              }
+              if (mediaKind === "image" && resourceType !== "image") {
+                setError("Vui lòng chọn một hình ảnh.");
+                return;
+              }
+              const url = safeTrim(asset.secure_url || asset.url);
+              if (!url) {
+                setError("Cloudinary không trả về được URL tài nguyên.");
+                return;
+              }
+              onSelectRef.current({
+                url,
+                resourceType: resourceType === "video" ? "video" : "image",
+                name: safeTrim(asset.display_name || asset.public_id),
+                format: safeTrim(asset.format),
+              });
+            },
+          },
+        );
+        widgetCloudNameRef.current = cloudName;
+      }
+      widgetRef.current.show();
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message
+        ? caught.message
+        : "Không thể mở Media Library Cloudinary.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`file-picker local-file-picker cloudinary-picker ${error ? "has-error" : ""}`}
+      disabled={disabled || busy}
+      onClick={() => void openMediaLibrary()}
+      title={error || "Chọn hình ảnh/video từ Cloudinary"}
+      aria-label="Chọn từ Cloudinary"
+    >
+      {busy ? "Đang mở…" : error ? "Thử lại" : "☁ Cloudinary"}
+    </button>
+  );
+}
+
 function SettingsResourcePanel() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -3469,14 +3685,22 @@ function SettingsResourcePanel() {
       <div className="settings-resource-form">
         <label className="field settings-resource-url-field">
           <span>URL hình ảnh</span>
-          <input
-            type="url"
-            inputMode="url"
-            value={sourceUrl}
-            placeholder="https://.../sprite.png"
-            disabled={isProcessing}
-            onChange={(event) => updateSourceUrl(event.target.value)}
-          />
+          <div className="settings-resource-url-control">
+            <input
+              type="url"
+              inputMode="url"
+              value={sourceUrl}
+              placeholder="https://.../sprite.png"
+              disabled={isProcessing}
+              onChange={(event) => updateSourceUrl(event.target.value)}
+            />
+            <CloudinaryMediaPickerButton
+              value={sourceUrl}
+              mediaKind="image"
+              disabled={isProcessing}
+              onSelect={(selection) => updateSourceUrl(selection.url)}
+            />
+          </div>
         </label>
         <label className="field settings-resource-file-field">
           <span>Hoặc chọn file sprite từ máy</span>
@@ -5279,7 +5503,10 @@ function Home() {
       if (!run.length) return;
       const first = run[0];
       const last = run[run.length - 1];
-      const totalDuration = run.reduce((total, entry) => total + Math.max(0.1, entry.end - entry.start), 0);
+       // A generated image represents the whole subtitle run, not only the
+       // sum of cue durations. Using the span from the first cue to the last
+       // cue keeps the Timeline aligned when there is a pause between cues.
+       const totalDuration = Math.max(0.1, last.end - first.start);
       const groupIndex = groups.length;
       const cueIds = run.map(({ cue }) => cue.id);
       groups.push({
@@ -5520,7 +5747,7 @@ function Home() {
         });
       }
       if (sceneStructureScene.subtitleEnabled !== false) {
-        const trackSubtitles = sceneAudioSubtitles(track, allStructureSubtitles, index);
+        const trackSubtitles = sceneAudioSubtitles(track, allStructureSubtitles, index, sceneStructureAudioTracks);
         const visibleTrackSubtitles = trackSubtitles.filter((subtitle) => subtitle.visible !== false);
         visibleTrackSubtitles.forEach((subtitle) => structureSubtitleIds.add(subtitle.id));
         if (visibleTrackSubtitles.length) {
@@ -7491,6 +7718,12 @@ function Home() {
             <FieldLabel hint={definition.type === "star-twinkle" ? "Ảnh thay thế hạt tròn mặc định. Nên dùng PNG hoặc WebP có nền trong suốt để mỗi hạt giữ đúng hình ảnh và alpha." : "Ảnh PNG/WebP có nền trong suốt sẽ thay thế quầng gradient mặc định và vẫn nhấp nháy theo hiệu ứng."}>{customImageLabel}</FieldLabel>
             <div className="scene-weather-media-row">
               <input type="url" value={effect.customImage ?? ""} placeholder="https://.../spark.png" disabled={controlDisabled} onChange={(event) => onChange({ customImage: event.target.value })} />
+              <CloudinaryMediaPickerButton
+                value={effect.customImage ?? ""}
+                mediaKind="image"
+                disabled={controlDisabled}
+                onSelect={(selection) => onChange({ customImage: selection.url })}
+              />
               <LocalFileButton accept="image/png,image/webp,image/gif,image/apng" label="Chọn ảnh" onPick={(file) => applyLocalMediaFile(file, (value) => onChange({ customImage: value }))} />
               {safeTrim(effect.customImage) ? <button type="button" className="scene-weather-clear-image" disabled={controlDisabled} onClick={() => onChange({ customImage: "" })} aria-label={`Bỏ ${customImageLabel.toLowerCase()}`} title={definition.type === "star-twinkle" ? "Dùng lại hạt tròn mặc định" : "Dùng lại quầng sáng mặc định"}>×</button> : null}
             </div>
@@ -8964,7 +9197,7 @@ function Home() {
     const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
     const targetTrack = sceneAudioTracks[targetTrackIndex];
     if (!targetTrack || targetTrackIndex < 0) return;
-    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex);
+    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex, sceneAudioTracks);
     if (existingCues.length > 0
       && !window.confirm(`Import SRT/VTT sẽ thay thế ${existingCues.length} phụ đề của “${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}”. Tiếp tục?`)) {
       return;
@@ -9193,7 +9426,7 @@ function Home() {
     const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
     if (targetTrackIndex < 0) return;
     const otherTrackHasCue = sceneAudioTracks.some((track, index) => index !== targetTrackIndex
-      && sceneAudioSubtitles(track, currentSubtitles, index).some((subtitle) => subtitle.id === subtitleId));
+      && sceneAudioSubtitles(track, currentSubtitles, index, sceneAudioTracks).some((subtitle) => subtitle.id === subtitleId));
     setScenes((items) => items.map((item) => {
       if (item.id !== scene.id) return item;
       const nextSubtitles = otherTrackHasCue
@@ -13102,13 +13335,18 @@ function Home() {
       const findExistingImage = (group: SceneStructureSubtitleImageGroup) => {
         let bestMatch: SceneImage | null = null;
         let bestScore = 0;
+        const groupCueIds = new Set(group.cueIds);
         for (const image of existingGeneratedImages) {
           if (usedExistingIds.has(image.id)) continue;
-          const cueIds = new Set(image.subtitleCueIds ?? []);
-          const overlapCount = group.cueIds.filter((cueId) => cueIds.has(cueId)).length;
-          const sameGroup = image.subtitleGroupId === group.groupId;
+            const cueIds = new Set(image.subtitleCueIds ?? []);
+            const sameCueSet = cueIds.size === groupCueIds.size
+            && groupCueIds.size > 0
+            && [...groupCueIds].every((cueId) => cueIds.has(cueId));
+          // groupId contains the array index and changes when groups are
+          // inserted or removed. Match by the actual cue IDs first so an old
+          // generated image cannot be reused for a different time range.
           const sameSource = safeTrim(image.url) === safeTrim(group.imageUrl);
-          const score = (sameGroup ? 10000 : 0) + overlapCount * 100 + (sameSource ? 10 : 0);
+          const score = sameCueSet ? 10000 + (sameSource ? 100 : 0) : 0;
           if (score > bestScore) {
             bestMatch = image;
             bestScore = score;
@@ -13126,9 +13364,10 @@ function Home() {
           Math.max(0, segment.start),
           Math.max(0, sceneStructureDuration - 0.1),
         );
+        const segmentDuration = Math.max(0.1, segment.end - segment.start);
         const duration = Number(Math.max(0.1, Math.min(
           Math.max(0.1, sceneStructureDuration - start),
-          Math.max(0.1, group.totalDuration),
+          segmentDuration,
         )).toFixed(2));
         const transitionDuration = transition === "cut"
           ? 0
@@ -13153,22 +13392,25 @@ function Home() {
           subtitleCueIds: segment.cueIds,
           subtitleGroupTotalDuration: group.totalDuration,
         } satisfies Partial<SceneImage>;
-        if (existingImage) {
-          // Keep the existing Timeline values (ID, start, duration and layer
-          // position). Only synchronize source/style fields from the subtitle
-          // editor, so a second update does not rebuild old cards.
-          return {
-            ...existingImage,
-            ...syncedFields,
-          } satisfies SceneImage;
-        }
-        return defaultSceneImage(imageId, {
-          ...syncedFields,
+        const synchronizedTiming = {
           start,
           duration,
           transitionEnd: transition === "cut"
             ? start
             : Number(Math.min(sceneStructureDuration, start + transitionDuration).toFixed(2)),
+        };
+        if (existingImage) {
+          // Keep the existing ID and layer position, but always refresh its
+          // timing from the current subtitle cue range.
+          return {
+            ...existingImage,
+            ...syncedFields,
+            ...synchronizedTiming,
+          } satisfies SceneImage;
+        }
+        return defaultSceneImage(imageId, {
+          ...syncedFields,
+          ...synchronizedTiming,
         });
       }));
     };
@@ -14081,6 +14323,13 @@ function Home() {
                   background: event.target.value,
                 }))}
               />
+              <CloudinaryMediaPickerButton
+                value={quickScene.background ?? ""}
+                onSelect={(selection) => updateSceneStructureQuickScene((currentScene) => ({
+                  ...currentScene,
+                  background: selection.url,
+                }))}
+              />
               <LocalFileButton
                 accept="image/*,video/*"
                 onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickScene((currentScene) => ({
@@ -14129,6 +14378,14 @@ function Home() {
                     transparent: isTransparentMedia(url),
                   });
                 }}
+              />
+              <CloudinaryMediaPickerButton
+                value={image.url}
+                onSelect={(selection) => updateSceneStructureQuickImage(image.id, {
+                  url: selection.url,
+                  mediaType: selection.resourceType,
+                  transparent: isTransparentMedia(selection.url),
+                })}
               />
               <LocalFileButton
                 accept="image/*,video/*"
@@ -14185,6 +14442,14 @@ function Home() {
                   transparentMedia: isTransparentMedia(value),
                 });
               }} />
+              <CloudinaryMediaPickerButton
+                value={safeTrim(popup.video) || popup.image}
+                onSelect={(selection) => updateSceneStructureQuickPopup(popup.id, {
+                  image: selection.resourceType === "video" ? "" : selection.url,
+                  video: selection.resourceType === "video" ? selection.url : "",
+                  transparentMedia: isTransparentMedia(selection.url),
+                })}
+              />
               <LocalFileButton
                 accept="image/*,video/*"
                 onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickPopup(popup.id, {
@@ -14270,9 +14535,19 @@ function Home() {
             <div className="scene-structure-quick-field">
               <span>URL tài nguyên</span>
               <div className="scene-structure-quick-media-row">
-                <input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} />
-                <LocalFileButton
-                  accept={decoration.type === "animated-sticker" ? "image/*,video/webm" : "image/*"}
+              <input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} />
+              <CloudinaryMediaPickerButton
+                value={decoration.asset}
+                mediaKind={decoration.type === "sticker" ? "image" : "image-video"}
+                onSelect={(selection) => updateSceneStructureQuickDecoration(decoration.id, {
+                  asset: selection.url,
+                  ...(decoration.type === "animated-sticker"
+                    ? { assetType: animatedAssetTypeFromValue(selection.url, selection.resourceType === "video" ? "webm" : "gif") }
+                    : {}),
+                })}
+              />
+              <LocalFileButton
+                accept={decoration.type === "animated-sticker" ? "image/*,video/webm" : "image/*"}
                   onPick={(file) => applyLocalMediaFile(file, (value) => {
                     updateSceneStructureQuickDecoration(decoration.id, { asset: value });
                     if (decoration.type === "animated-sticker") {
@@ -15026,7 +15301,13 @@ function Home() {
                   transition: draft.transition,
                   transparent: draft.transparent,
                 };
-            const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+           const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+            const timing = subtitleTimingForScene(sceneStructureScene, cue);
+            const timelineStart = Math.min(sceneStructureDuration, Math.max(0, timing.start));
+            const timelineEnd = Math.min(
+              sceneStructureDuration,
+              Math.max(timelineStart + 0.1, timing.end),
+            );
             const previewSource = assetPreviewSource(imageDraft.imageUrl);
             return (
               <article key={cue.id} className={`scene-structure-subtitle-row ${cue.visible === false ? "is-hidden" : ""}`} data-scene-structure-subtitle-cue={cue.id}>
@@ -15034,7 +15315,7 @@ function Home() {
                   <span className="scene-structure-subtitle-number">{String(index + 1).padStart(2, "0")}</span>
                   <div>
                     <strong>{formatPreciseTime(cue.start)} → {formatPreciseTime(cue.end)}</strong>
-                    <small>{cue.visible === false ? "Đang ẩn" : group ? `${group.cueIds.length} câu dùng chung ảnh · Tổng ${group.totalDuration.toFixed(2)} giây` : "Chưa gán ảnh"}</small>
+                    <small>{cue.visible === false ? "Đang ẩn" : `Timeline: ${formatPreciseTime(timelineStart)} → ${formatPreciseTime(timelineEnd)} · ${group ? `${group.cueIds.length} câu dùng chung ảnh · Tổng ${group.totalDuration.toFixed(2)} giây` : "Chưa gán ảnh"}`}</small>
                   </div>
                   <div className="scene-structure-subtitle-row-actions">
                     <button type="button" className="scene-structure-subtitle-copy" disabled={!safeTrim(imageDraft.imageUrl)} onClick={() => copySceneStructureSubtitleImage(cue.id)}>Sao chép</button>
@@ -15053,6 +15334,11 @@ function Home() {
                       <span>URL hình ảnh</span>
                       <div className="scene-structure-subtitle-media-row">
                         <input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." />
+                        <CloudinaryMediaPickerButton
+                          value={imageDraft.imageUrl}
+                          mediaKind="image"
+                          onSelect={(selection) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: selection.url, imageName: selection.name || imageDraft.imageName })}
+                        />
                         <LocalFileButton
                           accept="image/*"
                           onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: value, imageName: file.name }))}
@@ -17045,6 +17331,10 @@ function Home() {
                   value={scene.background ?? ""}
                   onChange={(event) => updateScene("background", event.target.value)}
                 />
+                <CloudinaryMediaPickerButton
+                  value={scene.background ?? ""}
+                  onSelect={(selection) => updateScene("background", selection.url)}
+                />
                 <LocalFileButton
                   accept="image/*,video/*"
                   onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("background", value))}
@@ -17103,10 +17393,15 @@ function Home() {
                     placeholder="https://example.com/avatar.jpg"
                     value={scene.avatar ?? ""}
                     onChange={(event) => updateScene("avatar", event.target.value)}
-                  />
-                  <LocalFileButton
-                    accept="image/*"
-                    onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("avatar", value))}
+                />
+                <CloudinaryMediaPickerButton
+                  value={scene.avatar ?? ""}
+                  mediaKind="image"
+                  onSelect={(selection) => updateScene("avatar", selection.url)}
+                />
+                <LocalFileButton
+                  accept="image/*"
+                  onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("avatar", value))}
                   />
                 </div>
                 {sceneAvatarPreviewSource && (
@@ -17222,6 +17517,10 @@ function Home() {
                           <FieldLabel hint="Có thể nhập URL hoặc tên file đã có trong thư viện tài nguyên.">URL hình ảnh hoặc video</FieldLabel>
                           <div className="media-input-row">
                             <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                            <CloudinaryMediaPickerButton
+                              value={activeSceneImage.url}
+                              onSelect={(selection) => updateSceneImageUrl(selection.url)}
+                            />
                             <LocalFileButton
                               accept="image/*,video/*"
                               onPick={(file) => applyLocalMediaFile(file, updateSceneImageUrl)}
@@ -17940,6 +18239,11 @@ function Home() {
                           <span>URL hoặc tên file sticker</span>
                           <div className="media-input-row">
                             <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
+                            <CloudinaryMediaPickerButton
+                              value={activeDecoration.asset}
+                              mediaKind="image"
+                              onSelect={(selection) => updateMapDecoration("asset", selection.url)}
+                            />
                             <LocalFileButton
                               accept="image/*"
                               onPick={(file) => applyLocalMediaFile(file, (value) => updateMapDecoration("asset", value))}
@@ -17962,6 +18266,13 @@ function Home() {
                                   const value = event.target.value;
                                   updateMapDecoration("asset", value);
                                   updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
+                                }}
+                              />
+                              <CloudinaryMediaPickerButton
+                                value={activeDecoration.asset}
+                                onSelect={(selection) => {
+                                  updateMapDecoration("asset", selection.url);
+                                  updateMapDecoration("assetType", animatedAssetTypeFromValue(selection.url, selection.resourceType === "video" ? "webm" : "gif"));
                                 }}
                               />
                               <LocalFileButton
@@ -18150,7 +18461,7 @@ function Home() {
                   {sceneAudioTracks.map((track, index) => {
                     const inputKey = sceneAudioTrackKey(scene.id, track.id);
                     const previewSource = audioTrackPreviewSource(track, index);
-                    const trackSubtitles = sceneAudioSubtitles(track, scene.subtitles ?? [], index);
+                    const trackSubtitles = sceneAudioSubtitles(track, scene.subtitles ?? [], index, sceneAudioTracks);
                     const subtitleInputId = `audio-subtitle-file-${scene.id}-${track.id}`;
                     return (
                       <article key={track.id} className={`scene-audio-item ${track.visible === false ? "is-hidden" : ""}`}>
@@ -19183,6 +19494,10 @@ function Home() {
                     placeholder="https://example.com/image.jpg hoặc https://example.com/video.mp4"
                     value={activePopupMediaValue}
                     onChange={(event) => updatePopupMedia(event.target.value)}
+                  />
+                  <CloudinaryMediaPickerButton
+                    value={activePopupMediaValue}
+                    onSelect={(selection) => updatePopupMedia(selection.url)}
                   />
                   <LocalFileButton
                     accept="image/*,video/*"
