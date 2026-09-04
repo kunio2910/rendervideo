@@ -5771,6 +5771,15 @@ function Home() {
   const imageTimingSelectedRow = imageTimingCheckResult?.rows.find(
     (row) => row.imageId === imageTimingCheckSelectedImageId,
   ) ?? imageTimingCheckResult?.rows[0];
+  const imageTimingSelectedImage = imageTimingCheckResult && imageTimingSelectedRow
+    ? scenes.find((item) => item.id === imageTimingCheckResult.sceneId)?.sceneImages?.find((image) => image.id === imageTimingSelectedRow.imageId)
+    : undefined;
+  const imageTimingSelectedImageSource = imageTimingSelectedImage
+    ? sceneImageSpritePreviewUrls[imageTimingSelectedImage.id] || assetPreviewSource(imageTimingSelectedImage.url)
+    : "";
+  const imageTimingSelectedImageIsVideo = Boolean(imageTimingSelectedImage && (
+    imageTimingSelectedImage.mediaType === "video" || isVideoMedia(imageTimingSelectedImage.url)
+  ));
   const imageTimingSelectedIssues = imageTimingSelectedRow && imageTimingCheckResult
     ? imageTimingCheckResult.issues.filter((issue) => imageTimingSelectedRow.issueIds.includes(issue.id))
     : [];
@@ -22154,6 +22163,13 @@ function Home() {
                     className={`image-timing-minimap-selection ${imageTimingSelectedIssues.some((issue) => issue.severity === "error") ? "has-error" : imageTimingSelectedIssues.length ? "has-warning" : "is-valid"}`}
                     aria-live="polite"
                   >
+                    <div className="image-timing-minimap-selection-thumbnail">
+                      {imageTimingSelectedImageSource
+                        ? imageTimingSelectedImageIsVideo
+                          ? <video src={imageTimingSelectedImageSource} muted autoPlay loop playsInline preload="metadata" aria-label={`Xem nhanh ${imageTimingSelectedRow.name}`} />
+                          : <img src={imageTimingSelectedImageSource} alt={`Xem nhanh ${imageTimingSelectedRow.name}`} />
+                        : <span aria-hidden="true">IMG</span>}
+                    </div>
                     <b className="image-timing-minimap-selection-number">{String(imageTimingSelectedRow.index + 1).padStart(2, "0")}</b>
                     <span className="image-timing-minimap-selection-copy">
                       <strong>{imageTimingSelectedRow.name}</strong>
