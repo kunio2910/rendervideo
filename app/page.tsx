@@ -4750,6 +4750,27 @@ function Home() {
       [section]: false,
     }));
   };
+  const scrollEditorTargetIntoView = (
+    target: HTMLElement,
+    block: "start" | "center" = "center",
+  ) => {
+    const editorScroll = editorScrollRef.current;
+    if (!(editorScroll instanceof HTMLElement)) return;
+
+    const editorRect = editorScroll.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetTop = editorScroll.scrollTop + targetRect.top - editorRect.top;
+    const targetHeight = Math.min(targetRect.height, editorScroll.clientHeight);
+    const desiredTop = block === "start"
+      ? targetTop
+      : targetTop - (editorScroll.clientHeight - targetHeight) / 2;
+    const maxScrollTop = Math.max(0, editorScroll.scrollHeight - editorScroll.clientHeight);
+
+    editorScroll.scrollTo({
+      top: Math.max(0, Math.min(maxScrollTop, desiredTop)),
+      behavior: "smooth",
+    });
+  };
   const focusEditorSection = (section: EditorSectionKey) => {
     setEditorSectionOpen(section, true);
     window.setTimeout(() => {
@@ -4757,7 +4778,7 @@ function Home() {
         `details[data-editor-section="${section}"]`,
       );
       if (!(target instanceof HTMLElement)) return;
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollEditorTargetIntoView(target, "start");
       target.classList.add("timeline-focus");
       window.setTimeout(() => {
         target.classList.remove("timeline-focus");
@@ -5838,10 +5859,10 @@ function Home() {
       if (!run.length) return;
       const first = run[0];
       const last = run[run.length - 1];
-       // A generated image represents the whole subtitle run, not only the
-       // sum of cue durations. Using the span from the first cue to the last
-       // cue keeps the Timeline aligned when there is a pause between cues.
-       const totalDuration = Math.max(0.1, last.end - first.start);
+      // A generated image represents the whole subtitle run, not only the
+      // sum of cue durations. Using the span from the first cue to the last
+      // cue keeps the Timeline aligned when there is a pause between cues.
+      const totalDuration = Math.max(0.1, last.end - first.start);
       const groupIndex = groups.length;
       const cueIds = run.map(({ cue }) => cue.id);
       groups.push({
@@ -7223,10 +7244,7 @@ function Home() {
         ?? (targetId === "editor-effects" ? document.querySelector('[data-editor-section="effects"]') : null);
       const group = target?.closest("details");
       if (group instanceof HTMLDetailsElement) group.open = true;
-      target?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      if (target instanceof HTMLElement) scrollEditorTargetIntoView(target, "center");
       target?.classList.add("timeline-focus");
       window.setTimeout(
         () => document.getElementById(targetId)?.classList.remove("timeline-focus"),
@@ -7245,7 +7263,7 @@ function Home() {
       const group = target?.closest("details");
       if (group instanceof HTMLDetailsElement) group.open = true;
       if (!(target instanceof HTMLElement)) return;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollEditorTargetIntoView(target, "center");
       target.focus({ preventScroll: true });
       target.classList.add("timeline-focus");
       window.setTimeout(() => {
@@ -13679,8 +13697,8 @@ function Home() {
         const groupCueIds = new Set(group.cueIds);
         for (const image of existingGeneratedImages) {
           if (usedExistingIds.has(image.id)) continue;
-            const cueIds = new Set(image.subtitleCueIds ?? []);
-            const sameCueSet = cueIds.size === groupCueIds.size
+          const cueIds = new Set(image.subtitleCueIds ?? []);
+          const sameCueSet = cueIds.size === groupCueIds.size
             && groupCueIds.size > 0
             && [...groupCueIds].every((cueId) => cueIds.has(cueId));
           // groupId contains the array index and changes when groups are
@@ -14502,6 +14520,10 @@ function Home() {
   }, [sceneStructureOpen, sceneStructurePreviewMode, sceneStructureQuickEditToken, selectedSceneStructureItem?.token]);
 
   const openSceneStructureItemInEditor = (item: SceneStructureItem) => {
+    const restoreComposeViewport = () => {
+      window.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    };
+
     setPlaying(false);
     setSceneStructurePreviewMode(false);
     setPreviewPlaybackMode(false);
@@ -14527,6 +14549,8 @@ function Home() {
     setPreviewLayerSelectionAnchor("");
     setSceneStructureOpen(false);
     setActiveStudioTab("compose");
+    restoreComposeViewport();
+    window.requestAnimationFrame(restoreComposeViewport);
     setSelectedId(sceneStructureScene.id);
     setSelectedSceneIds([sceneStructureScene.id]);
     setPlayTime(Number((sceneStructureScene.start + item.start).toFixed(2)));
@@ -15642,7 +15666,7 @@ function Home() {
                   transition: draft.transition,
                   transparent: draft.transparent,
                 };
-           const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
+            const group = sceneStructureSubtitleImageGroups.find((item) => item.cueIds.includes(cue.id));
             const timing = subtitleTimingForScene(sceneStructureScene, cue);
             const timelineStart = Math.min(sceneStructureDuration, Math.max(0, timing.start));
             const timelineEnd = Math.min(
