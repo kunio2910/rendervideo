@@ -16825,6 +16825,21 @@ function Home() {
               <button
                 type="button"
                 className="preview-tool-sidebar-button"
+                aria-label="Mở Cấu trúc cảnh"
+                title="Cấu trúc cảnh"
+                onClick={openSceneStructure}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="6" height="5" rx="1" />
+                  <rect x="15" y="4" width="6" height="5" rx="1" />
+                  <rect x="9" y="15" width="6" height="5" rx="1" />
+                  <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
+                </svg>
+                <span>Cấu trúc</span>
+              </button>
+              <button
+                type="button"
+                className="preview-tool-sidebar-button"
                 aria-label="Mở Review tổng quan"
                 title="Review tổng quan các cảnh đang hiện"
                 onClick={() => {
