@@ -1977,6 +1977,284 @@ const sceneImageTransitionDuration = (image: Pick<SceneImage, "transition" | "st
 const sceneImageTransitionNeedsOverlap = (transition: SceneImageTransition) =>
   transition === "crossfade" || transition === "slide-left" || transition === "slide-right";
 
+type SceneImageTimingIssueKind = "invalid" | "out-of-bounds" | "gap" | "overlap";
+type SceneImageTimingIssueSeverity = "error" | "warning";
+
+type SceneImageTimingIssue = {
+  id: string;
+  kind: SceneImageTimingIssueKind;
+  severity: SceneImageTimingIssueSeverity;
+  imageId: string;
+  relatedImageId?: string;
+  focusTime: number;
+  amount: number;
+  message: string;
+};
+
+type SceneImageTimingRow = {
+  imageId: string;
+  index: number;
+  name: string;
+  start: number;
+  end: number;
+  duration: number;
+  transition: SceneImageTransition;
+  transitionLabel: string;
+  visible: boolean;
+  issueIds: string[];
+};
+
+type SceneImageTimingCheck = {
+  sceneDuration: number;
+  imageCount: number;
+  validCount: number;
+  warningCount: number;
+  errorCount: number;
+  gapCount: number;
+  overlapCount: number;
+  transitionCount: number;
+  status: "empty" | "valid" | "warning" | "error";
+  rows: SceneImageTimingRow[];
+  issues: SceneImageTimingIssue[];
+};
+
+type SceneImageTimingCheckView = SceneImageTimingCheck & {
+  sceneId: string;
+  sceneNumber: number;
+  sceneName: string;
+};
+
+type SceneImageTimingMinimapPoint = {
+  time: number;
+  state: "empty" | "gap" | "image" | "overlap" | "transition";
+  imageId?: string;
+  segment?: number;
+};
+
+type SceneImageTimingMinimapBoundary = {
+  imageId: string;
+  time: number;
+  type: "start" | "end";
+  segment: number;
+};
+
+type SceneImageTimingMinimap = {
+  pixelCount: number;
+  points: SceneImageTimingMinimapPoint[];
+  boundaries: SceneImageTimingMinimapBoundary[];
+};
+
+const SCENE_IMAGE_TIMING_EPSILON = 0.05;
+const SCENE_IMAGE_TIMING_MINIMAP_PIXEL_COUNT = 160;
+
+const buildSceneImageTimingCheck = (
+  images: SceneImage[],
+  sceneDuration: number,
+): SceneImageTimingCheck => {
+  const duration = Math.max(0.1, Number(sceneDuration) || 0.1);
+  const sortedImages = images
+    .map((image, index) => ({ image, index }))
+    .sort((a, b) => {
+      const startA = Number(a.image.start);
+      const startB = Number(b.image.start);
+      if (Number.isFinite(startA) && Number.isFinite(startB) && startA !== startB) return startA - startB;
+      return a.index - b.index;
+    });
+  const rows: SceneImageTimingRow[] = sortedImages.map(({ image, index }) => {
+    const start = Number(image.start);
+    const imageDuration = Number(image.duration);
+    return {
+      imageId: image.id,
+      index,
+      name: safeTrim(image.name) || `Hình ${index + 1}`,
+      start,
+      end: start + imageDuration,
+      duration: imageDuration,
+      transition: normalizeSceneImageTransition(image.transition),
+      transitionLabel: sceneImageTransitionOptions.find((option) => option.value === normalizeSceneImageTransition(image.transition))?.label ?? "Cắt trực tiếp",
+      visible: image.visible !== false,
+      issueIds: [],
+    };
+  });
+  const issues: SceneImageTimingIssue[] = [];
+  const addIssue = (
+    issue: Omit<SceneImageTimingIssue, "id">,
+  ) => {
+    const id = `image-timing-${issues.length + 1}`;
+    issues.push({ ...issue, id });
+    const row = rows.find((item) => item.imageId === issue.imageId);
+    if (row) row.issueIds.push(id);
+    if (issue.relatedImageId) {
+      const relatedRow = rows.find((item) => item.imageId === issue.relatedImageId);
+      if (relatedRow && !relatedRow.issueIds.includes(id)) relatedRow.issueIds.push(id);
+    }
+  };
+
+  rows.forEach((row) => {
+    const validNumbers = Number.isFinite(row.start) && Number.isFinite(row.duration) && Number.isFinite(row.end);
+    if (!validNumbers || row.duration <= 0) {
+      addIssue({
+        kind: "invalid",
+        severity: "error",
+        imageId: row.imageId,
+        focusTime: Math.max(0, Number.isFinite(row.start) ? row.start : 0),
+        amount: 0,
+        message: `${row.name} có mốc bắt đầu hoặc thời lượng không hợp lệ.`,
+      });
+      return;
+    }
+    if (row.start < -SCENE_IMAGE_TIMING_EPSILON || row.end > duration + SCENE_IMAGE_TIMING_EPSILON) {
+      const outsideStart = Math.max(0, -row.start);
+      const outsideEnd = Math.max(0, row.end - duration);
+      const amount = Math.max(outsideStart, outsideEnd);
+      addIssue({
+        kind: "out-of-bounds",
+        severity: "error",
+        imageId: row.imageId,
+        focusTime: row.start < 0 ? 0 : Math.min(duration, row.end),
+        amount,
+        message: `${row.name} nằm ngoài thời lượng cảnh (${formatPreciseTime(row.start)} → ${formatPreciseTime(row.end)}).`,
+      });
+    }
+  });
+
+  if (rows.length) {
+    const first = rows[0];
+    if (Number.isFinite(first.start) && first.start > SCENE_IMAGE_TIMING_EPSILON) {
+      addIssue({
+        kind: "gap",
+        severity: "warning",
+        imageId: first.imageId,
+        focusTime: first.start,
+        amount: first.start,
+        message: `Cảnh bị trống từ 00:00.00 đến ${formatPreciseTime(first.start)} trước ${first.name}.`,
+      });
+    }
+    const last = rows.at(-1);
+    if (last && Number.isFinite(last.end) && last.end < duration - SCENE_IMAGE_TIMING_EPSILON) {
+      addIssue({
+        kind: "gap",
+        severity: "warning",
+        imageId: last.imageId,
+        focusTime: last.end,
+        amount: duration - last.end,
+        message: `Cảnh bị trống từ ${formatPreciseTime(last.end)} đến ${formatPreciseTime(duration)} sau ${last.name}.`,
+      });
+    }
+  }
+
+  for (let index = 1; index < rows.length; index += 1) {
+    const previous = rows[index - 1];
+    const current = rows[index];
+    if (![previous.start, previous.end, current.start, current.end].every(Number.isFinite)) continue;
+    const delta = current.start - previous.end;
+    if (Math.abs(delta) <= SCENE_IMAGE_TIMING_EPSILON) continue;
+    if (delta > 0) {
+      addIssue({
+        kind: "gap",
+        severity: "warning",
+        imageId: current.imageId,
+        relatedImageId: previous.imageId,
+        focusTime: previous.end,
+        amount: delta,
+        message: `Có khoảng trống ${delta.toFixed(2)}s giữa ${previous.name} và ${current.name}.`,
+      });
+      continue;
+    }
+    const overlap = Math.abs(delta);
+    const currentImage = images.find((image) => image.id === current.imageId);
+    const allowedTransitionOverlap = sceneImageTransitionNeedsOverlap(current.transition) && currentImage
+      ? sceneImageTransitionDuration(currentImage)
+      : 0;
+    if (allowedTransitionOverlap > SCENE_IMAGE_TIMING_EPSILON && overlap <= allowedTransitionOverlap + SCENE_IMAGE_TIMING_EPSILON) continue;
+    addIssue({
+      kind: "overlap",
+      severity: "error",
+      imageId: current.imageId,
+      relatedImageId: previous.imageId,
+      focusTime: current.start,
+      amount: overlap,
+      message: `${current.name} chồng lên ${previous.name} trong ${overlap.toFixed(2)}s, vượt quá vùng chuyển hình cho phép.`,
+    });
+  }
+
+  const issueRowIds = new Set(issues.flatMap((issue) => [issue.imageId, issue.relatedImageId].filter(Boolean) as string[]));
+  const warningCount = issues.filter((issue) => issue.severity === "warning").length;
+  const errorCount = issues.filter((issue) => issue.severity === "error").length;
+  const gapCount = issues.filter((issue) => issue.kind === "gap").length;
+  const overlapCount = issues.filter((issue) => issue.kind === "overlap").length;
+  const transitionCount = Math.max(0, rows.length - 1 - gapCount - overlapCount);
+  return {
+    sceneDuration: duration,
+    imageCount: rows.length,
+    validCount: rows.filter((row) => !issueRowIds.has(row.imageId)).length,
+    warningCount,
+    errorCount,
+    gapCount,
+    overlapCount,
+    transitionCount,
+    status: rows.length === 0 ? "empty" : errorCount > 0 ? "error" : issues.length ? "warning" : "valid",
+    rows,
+    issues,
+  };
+};
+
+const buildSceneImageTimingMinimap = (
+  check: SceneImageTimingCheckView,
+): SceneImageTimingMinimap => {
+  const pixelCount = Math.max(32, SCENE_IMAGE_TIMING_MINIMAP_PIXEL_COUNT);
+  const issueById = new Map(check.issues.map((issue) => [issue.id, issue]));
+  const overlapImageIds = new Set(
+    check.issues
+      .filter((issue) => issue.kind === "overlap" && issue.severity === "error")
+      .flatMap((issue) => [issue.imageId, issue.relatedImageId].filter(Boolean) as string[]),
+  );
+  const gapIntervals = check.issues
+    .filter((issue) => issue.kind === "gap")
+    .map((issue) => ({ start: issue.focusTime, end: issue.focusTime + issue.amount }));
+  const points = Array.from({ length: pixelCount }, (_, index) => {
+    const time = index === pixelCount - 1
+      ? check.sceneDuration
+      : (index * check.sceneDuration) / (pixelCount - 1);
+    const activeRows = check.rows.filter((row) => (
+      Number.isFinite(row.start)
+      && Number.isFinite(row.end)
+      && time >= row.start - SCENE_IMAGE_TIMING_EPSILON
+      && time <= row.end + SCENE_IMAGE_TIMING_EPSILON
+    ));
+    const activeRow = activeRows.at(-1);
+    const hasOverlapError = activeRows.some((row) => overlapImageIds.has(row.imageId));
+    const hasAllowedTransition = activeRows.length > 1 && activeRows.some((row) => (
+      sceneImageTransitionNeedsOverlap(row.transition)
+      && !row.issueIds.some((issueId) => issueById.get(issueId)?.kind === "overlap")
+    ));
+    const inGap = gapIntervals.some((interval) => time >= interval.start && time <= interval.end);
+    return {
+      time,
+      state: hasOverlapError
+        ? "overlap"
+        : activeRows.length > 1 && hasAllowedTransition
+          ? "transition"
+          : activeRow
+            ? "image"
+            : inGap
+              ? "gap"
+              : "empty",
+      imageId: activeRow?.imageId,
+      segment: activeRow ? activeRow.index % 4 : undefined,
+    } satisfies SceneImageTimingMinimapPoint;
+  });
+  const boundaries = check.rows.flatMap((row) => (
+    Number.isFinite(row.start) && Number.isFinite(row.end)
+      ? [
+          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 4 },
+          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 4 },
+        ]
+      : []
+  ));
+  return { pixelCount, points, boundaries };
+};
+
 const mapDecorationDefaultName = (type: MapDecorationType) => ({
   "animated-sticker": "Hiệu ứng động",
   "text-3d": "Chữ 3D",
@@ -3330,6 +3608,212 @@ function LocalFileButton({ accept, onPick, label = "Chọn file máy" }: LocalFi
   );
 }
 
+type CloudinaryMediaLibraryAsset = {
+  secure_url?: unknown;
+  url?: unknown;
+  resource_type?: unknown;
+  format?: unknown;
+  public_id?: unknown;
+  display_name?: unknown;
+};
+
+type CloudinaryMediaLibrarySelection = {
+  url: string;
+  resourceType: "image" | "video";
+  name: string;
+  format: string;
+};
+
+type CloudinaryMediaLibraryInsertData = {
+  assets?: CloudinaryMediaLibraryAsset[];
+};
+
+type CloudinaryMediaLibraryWidget = {
+  show: () => void;
+  destroy?: () => void | Promise<void>;
+};
+
+type CloudinaryMediaLibraryApi = {
+  createMediaLibrary: (
+    options: {
+      cloud_name: string;
+      multiple: boolean;
+      max_files: number;
+      insert_caption: string;
+      z_index: number;
+      search?: { expression: string };
+    },
+    callbacks: {
+      insertHandler: (data: CloudinaryMediaLibraryInsertData) => void;
+    },
+  ) => CloudinaryMediaLibraryWidget;
+};
+
+const CLOUDINARY_MEDIA_LIBRARY_SCRIPT = "https://media-library.cloudinary.com/global/all.js";
+const CLOUDINARY_DEFAULT_CLOUD_NAME = "letran";
+let cloudinaryMediaLibraryLoader: Promise<CloudinaryMediaLibraryApi> | null = null;
+
+const cloudinaryApiFromWindow = () =>
+  (window as Window & { cloudinary?: CloudinaryMediaLibraryApi }).cloudinary;
+
+const cloudinaryCloudNameFromValue = (value: unknown) => {
+  try {
+    const parsed = new URL(safeTrim(value));
+    if (parsed.hostname.toLowerCase() === "res.cloudinary.com") {
+      return parsed.pathname.split("/").filter(Boolean)[0] || CLOUDINARY_DEFAULT_CLOUD_NAME;
+    }
+  } catch {
+    // Use the app's configured Cloudinary environment for an empty or local value.
+  }
+  return CLOUDINARY_DEFAULT_CLOUD_NAME;
+};
+
+const loadCloudinaryMediaLibrary = () => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return Promise.reject(new Error("Cloudinary chỉ có thể mở trong trình duyệt."));
+  }
+  const currentApi = cloudinaryApiFromWindow();
+  if (currentApi?.createMediaLibrary) return Promise.resolve(currentApi);
+  if (cloudinaryMediaLibraryLoader) return cloudinaryMediaLibraryLoader;
+
+  cloudinaryMediaLibraryLoader = new Promise<CloudinaryMediaLibraryApi>((resolve, reject) => {
+    const existingScript = Array.from(document.scripts).find(
+      (script) => script.src === CLOUDINARY_MEDIA_LIBRARY_SCRIPT,
+    ) ?? null;
+    const script = existingScript ?? document.createElement("script");
+    const finish = () => {
+      const api = cloudinaryApiFromWindow();
+      if (api?.createMediaLibrary) {
+        resolve(api);
+      } else {
+        reject(new Error("Cloudinary chưa khởi tạo được Media Library."));
+      }
+    };
+    const fail = () => reject(new Error("Không thể tải công cụ Media Library của Cloudinary."));
+
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener("error", fail, { once: true });
+    if (!existingScript) {
+      script.src = CLOUDINARY_MEDIA_LIBRARY_SCRIPT;
+      script.async = true;
+      script.dataset.kitoCloudinaryMediaLibrary = "true";
+      document.head.appendChild(script);
+    } else {
+      window.setTimeout(finish, 0);
+    }
+  });
+  cloudinaryMediaLibraryLoader.catch(() => {
+    cloudinaryMediaLibraryLoader = null;
+  });
+  return cloudinaryMediaLibraryLoader;
+};
+
+type CloudinaryMediaPickerButtonProps = {
+  value?: string;
+  mediaKind?: "image" | "image-video";
+  disabled?: boolean;
+  onSelect: (selection: CloudinaryMediaLibrarySelection) => void;
+};
+
+function CloudinaryMediaPickerButton({
+  value = "",
+  mediaKind = "image-video",
+  disabled = false,
+  onSelect,
+}: CloudinaryMediaPickerButtonProps) {
+  const widgetRef = useRef<CloudinaryMediaLibraryWidget | null>(null);
+  const widgetCloudNameRef = useRef("");
+  const onSelectRef = useRef(onSelect);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => () => {
+    const widget = widgetRef.current;
+    widgetRef.current = null;
+    widgetCloudNameRef.current = "";
+    if (widget?.destroy) void widget.destroy();
+  }, []);
+
+  const openMediaLibrary = async () => {
+    if (disabled || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const cloudinary = await loadCloudinaryMediaLibrary();
+      const cloudName = cloudinaryCloudNameFromValue(value);
+      if (widgetRef.current && widgetCloudNameRef.current !== cloudName) {
+        const previousWidget = widgetRef.current;
+        widgetRef.current = null;
+        widgetCloudNameRef.current = "";
+        if (previousWidget.destroy) await previousWidget.destroy();
+      }
+      if (!widgetRef.current) {
+        widgetRef.current = cloudinary.createMediaLibrary(
+          {
+            cloud_name: cloudName,
+            multiple: false,
+            max_files: 1,
+            insert_caption: "Chọn tài nguyên",
+            z_index: 100000,
+            ...(mediaKind === "image" ? { search: { expression: "resource_type:image" } } : {}),
+          },
+          {
+            insertHandler: (data) => {
+              const asset = Array.isArray(data?.assets) ? data.assets[0] : null;
+              if (!asset) return;
+              const resourceType = safeTrim(asset.resource_type).toLowerCase();
+              if (resourceType !== "image" && resourceType !== "video") {
+                setError("Chỉ hỗ trợ hình ảnh hoặc video.");
+                return;
+              }
+              if (mediaKind === "image" && resourceType !== "image") {
+                setError("Vui lòng chọn một hình ảnh.");
+                return;
+              }
+              const url = safeTrim(asset.secure_url || asset.url);
+              if (!url) {
+                setError("Cloudinary không trả về được URL tài nguyên.");
+                return;
+              }
+              onSelectRef.current({
+                url,
+                resourceType: resourceType === "video" ? "video" : "image",
+                name: safeTrim(asset.display_name || asset.public_id),
+                format: safeTrim(asset.format),
+              });
+            },
+          },
+        );
+        widgetCloudNameRef.current = cloudName;
+      }
+      widgetRef.current.show();
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message
+        ? caught.message
+        : "Không thể mở Media Library Cloudinary.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`file-picker local-file-picker cloudinary-picker ${error ? "has-error" : ""}`}
+      disabled={disabled || busy}
+      onClick={() => void openMediaLibrary()}
+      title={error || "Chọn hình ảnh/video từ Cloudinary"}
+      aria-label="Chọn từ Cloudinary"
+    >
+      {busy ? "Đang mở…" : error ? "Thử lại" : "☁ Cloudinary"}
+    </button>
+  );
+}
+
 function SettingsResourcePanel() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -3479,14 +3963,22 @@ function SettingsResourcePanel() {
       <div className="settings-resource-form">
         <label className="field settings-resource-url-field">
           <span>URL hình ảnh</span>
-          <input
-            type="url"
-            inputMode="url"
-            value={sourceUrl}
-            placeholder="https://.../sprite.png"
-            disabled={isProcessing}
-            onChange={(event) => updateSourceUrl(event.target.value)}
-          />
+          <div className="settings-resource-url-control">
+            <input
+              type="url"
+              inputMode="url"
+              value={sourceUrl}
+              placeholder="https://.../sprite.png"
+              disabled={isProcessing}
+              onChange={(event) => updateSourceUrl(event.target.value)}
+            />
+            <CloudinaryMediaPickerButton
+              value={sourceUrl}
+              mediaKind="image"
+              disabled={isProcessing}
+              onSelect={(selection) => updateSourceUrl(selection.url)}
+            />
+          </div>
         </label>
         <label className="field settings-resource-file-field">
           <span>Hoặc chọn file sprite từ máy</span>
@@ -4412,6 +4904,9 @@ function Home() {
   const [sceneStructureImageSyncIncludeHidden, setSceneStructureImageSyncIncludeHidden] = useState(readSceneImageSyncIncludeHiddenPreference);
   const [sceneStructureImageSyncNotice, setSceneStructureImageSyncNotice] = useState("");
   const [sceneStructureImageSyncPreviewOpen, setSceneStructureImageSyncPreviewOpen] = useState(false);
+  const [imageTimingCheckOpen, setImageTimingCheckOpen] = useState(false);
+  const [imageTimingCheckResult, setImageTimingCheckResult] = useState<SceneImageTimingCheckView | null>(null);
+  const [imageTimingCheckSelectedImageId, setImageTimingCheckSelectedImageId] = useState("");
   const [sceneStructureQuickTimingDrafts, setSceneStructureQuickTimingDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [sceneStructureStartDraft, setSceneStructureStartDraft] = useState("");
   const [sceneStructureEndDraft, setSceneStructureEndDraft] = useState("");
@@ -5238,6 +5733,60 @@ function Home() {
   const sceneStructureEffects = normalizeSceneEffects(sceneStructureScene.effects);
   const sceneStructureBackgroundValue = safeTrim(sceneStructureScene.background) || legacyBackgroundPreview;
   const sceneStructureBackgroundSource = assetPreviewSource(sceneStructureBackgroundValue);
+  const openSceneImageTimingCheck = (targetScene: Scene) => {
+    const result = buildSceneImageTimingCheck(
+      targetScene.sceneImages ?? [],
+      Math.max(0.1, targetScene.end - targetScene.start),
+    );
+    setImageTimingCheckResult({
+      ...result,
+      sceneId: targetScene.id,
+      sceneNumber: targetScene.number,
+      sceneName: safeTrim(targetScene.sceneName) || `Cảnh ${targetScene.number}`,
+    });
+    setImageTimingCheckSelectedImageId(result.rows[0]?.imageId ?? "");
+    setImageTimingCheckOpen(true);
+  };
+  const focusSceneImageTimingIssue = (issue: SceneImageTimingIssue) => {
+    if (!imageTimingCheckResult) return;
+    const targetScene = scenes.find((item) => item.id === imageTimingCheckResult.sceneId);
+    if (!targetScene) return;
+    setSelectedId(targetScene.id);
+    setSelectedSceneIds([targetScene.id]);
+    setSelectedPopupId("");
+    setSelectedTextOverlayId("");
+    setSelectedDecorationId("");
+    setSelectedSceneImageId(issue.imageId);
+    setPlayTime(targetScene.start + Math.max(0, issue.focusTime));
+    setPlaying(false);
+    setPreviewPlaybackMode(false);
+    setSceneStructurePreviewMode(false);
+    setSceneStructureOpen(false);
+    setImageTimingCheckOpen(false);
+    window.setTimeout(() => focusEditorSection("images"), 60);
+  };
+  const imageTimingMinimap = imageTimingCheckResult
+    ? buildSceneImageTimingMinimap(imageTimingCheckResult)
+    : null;
+  const imageTimingSelectedRow = imageTimingCheckResult?.rows.find(
+    (row) => row.imageId === imageTimingCheckSelectedImageId,
+  ) ?? imageTimingCheckResult?.rows[0];
+  const imageTimingSelectedImage = imageTimingCheckResult && imageTimingSelectedRow
+    ? scenes.find((item) => item.id === imageTimingCheckResult.sceneId)?.sceneImages?.find((image) => image.id === imageTimingSelectedRow.imageId)
+    : undefined;
+  const imageTimingSelectedImageSource = imageTimingSelectedImage
+    ? sceneImageSpritePreviewUrls[imageTimingSelectedImage.id] || assetPreviewSource(imageTimingSelectedImage.url)
+    : "";
+  const imageTimingSelectedImageIsVideo = Boolean(imageTimingSelectedImage && (
+    imageTimingSelectedImage.mediaType === "video" || isVideoMedia(imageTimingSelectedImage.url)
+  ));
+  const imageTimingSelectedIssues = imageTimingSelectedRow && imageTimingCheckResult
+    ? imageTimingCheckResult.issues.filter((issue) => imageTimingSelectedRow.issueIds.includes(issue.id))
+    : [];
+  const imageTimingMinimapPercent = (time: number) => {
+    if (!imageTimingCheckResult) return "0%";
+    return `${Math.min(100, Math.max(0, (time / imageTimingCheckResult.sceneDuration) * 100))}%`;
+  };
   const sceneStructureLockForToken = (token: string): Required<SceneStructureLockState> => {
     const locks = normalizeSceneStructureLockState(sceneStructureScene.sceneStructureLocks?.[token]);
     return {
@@ -6216,10 +6765,11 @@ function Home() {
   }, [previewFullscreen, rulerEnabled]);
 
   useEffect(() => {
-    if (!previewFullscreen && !reviewOpen) return;
+    if (!previewFullscreen && !reviewOpen && !imageTimingCheckOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (reviewOpen) setReviewOpen(false);
+      if (imageTimingCheckOpen) setImageTimingCheckOpen(false);
+      else if (reviewOpen) setReviewOpen(false);
       else setPreviewFullscreen(false);
     };
     const previousOverflow = document.body.style.overflow;
@@ -6229,7 +6779,7 @@ function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [previewFullscreen, reviewOpen]);
+  }, [imageTimingCheckOpen, previewFullscreen, reviewOpen]);
 
   useEffect(() => {
     if (!layerFullscreen) return;
@@ -6249,6 +6799,11 @@ function Home() {
     if (!sceneStructureOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (imageTimingCheckOpen) {
+        event.preventDefault();
+        setImageTimingCheckOpen(false);
+        return;
+      }
       if (sceneStructureQuickEditToken) {
         event.preventDefault();
         setSceneStructureQuickEditToken("");
@@ -6273,7 +6828,7 @@ function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [sceneStructureOpen, sceneStructureQuickEditToken]);
+  }, [imageTimingCheckOpen, sceneStructureOpen, sceneStructureQuickEditToken]);
 
   useEffect(() => {
     if (!sceneStructureOpen || sceneStructurePreviewMode) return;
@@ -7504,6 +8059,12 @@ function Home() {
             <FieldLabel hint={definition.type === "star-twinkle" ? "Ảnh thay thế hạt tròn mặc định. Nên dùng PNG hoặc WebP có nền trong suốt để mỗi hạt giữ đúng hình ảnh và alpha." : "Ảnh PNG/WebP có nền trong suốt sẽ thay thế quầng gradient mặc định và vẫn nhấp nháy theo hiệu ứng."}>{customImageLabel}</FieldLabel>
             <div className="scene-weather-media-row">
               <input type="url" value={effect.customImage ?? ""} placeholder="https://.../spark.png" disabled={controlDisabled} onChange={(event) => onChange({ customImage: event.target.value })} />
+              <CloudinaryMediaPickerButton
+                value={effect.customImage ?? ""}
+                mediaKind="image"
+                disabled={controlDisabled}
+                onSelect={(selection) => onChange({ customImage: selection.url })}
+              />
               <LocalFileButton accept="image/png,image/webp,image/gif,image/apng" label="Chọn ảnh" onPick={(file) => applyLocalMediaFile(file, (value) => onChange({ customImage: value }))} />
               {safeTrim(effect.customImage) ? <button type="button" className="scene-weather-clear-image" disabled={controlDisabled} onClick={() => onChange({ customImage: "" })} aria-label={`Bỏ ${customImageLabel.toLowerCase()}`} title={definition.type === "star-twinkle" ? "Dùng lại hạt tròn mặc định" : "Dùng lại quầng sáng mặc định"}>×</button> : null}
             </div>
@@ -14103,6 +14664,13 @@ function Home() {
                   background: event.target.value,
                 }))}
               />
+              <CloudinaryMediaPickerButton
+                value={quickScene.background ?? ""}
+                onSelect={(selection) => updateSceneStructureQuickScene((currentScene) => ({
+                  ...currentScene,
+                  background: selection.url,
+                }))}
+              />
               <LocalFileButton
                 accept="image/*,video/*"
                 onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickScene((currentScene) => ({
@@ -14151,6 +14719,14 @@ function Home() {
                     transparent: isTransparentMedia(url),
                   });
                 }}
+              />
+              <CloudinaryMediaPickerButton
+                value={image.url}
+                onSelect={(selection) => updateSceneStructureQuickImage(image.id, {
+                  url: selection.url,
+                  mediaType: selection.resourceType,
+                  transparent: isTransparentMedia(selection.url),
+                })}
               />
               <LocalFileButton
                 accept="image/*,video/*"
@@ -14207,6 +14783,14 @@ function Home() {
                   transparentMedia: isTransparentMedia(value),
                 });
               }} />
+              <CloudinaryMediaPickerButton
+                value={safeTrim(popup.video) || popup.image}
+                onSelect={(selection) => updateSceneStructureQuickPopup(popup.id, {
+                  image: selection.resourceType === "video" ? "" : selection.url,
+                  video: selection.resourceType === "video" ? selection.url : "",
+                  transparentMedia: isTransparentMedia(selection.url),
+                })}
+              />
               <LocalFileButton
                 accept="image/*,video/*"
                 onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureQuickPopup(popup.id, {
@@ -14292,9 +14876,19 @@ function Home() {
             <div className="scene-structure-quick-field">
               <span>URL tài nguyên</span>
               <div className="scene-structure-quick-media-row">
-                <input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} />
-                <LocalFileButton
-                  accept={decoration.type === "animated-sticker" ? "image/*,video/webm" : "image/*"}
+              <input type="url" value={decoration.asset} placeholder="https://..." onChange={(event) => updateSceneStructureQuickDecoration(decoration.id, { asset: event.target.value })} />
+              <CloudinaryMediaPickerButton
+                value={decoration.asset}
+                mediaKind={decoration.type === "sticker" ? "image" : "image-video"}
+                onSelect={(selection) => updateSceneStructureQuickDecoration(decoration.id, {
+                  asset: selection.url,
+                  ...(decoration.type === "animated-sticker"
+                    ? { assetType: animatedAssetTypeFromValue(selection.url, selection.resourceType === "video" ? "webm" : "gif") }
+                    : {}),
+                })}
+              />
+              <LocalFileButton
+                accept={decoration.type === "animated-sticker" ? "image/*,video/webm" : "image/*"}
                   onPick={(file) => applyLocalMediaFile(file, (value) => {
                     updateSceneStructureQuickDecoration(decoration.id, { asset: value });
                     if (decoration.type === "animated-sticker") {
@@ -15081,6 +15675,11 @@ function Home() {
                       <span>URL hình ảnh</span>
                       <div className="scene-structure-subtitle-media-row">
                         <input type="url" value={imageDraft.imageUrl} onChange={(event) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: event.target.value })} placeholder="https://..." />
+                        <CloudinaryMediaPickerButton
+                          value={imageDraft.imageUrl}
+                          mediaKind="image"
+                          onSelect={(selection) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: selection.url, imageName: selection.name || imageDraft.imageName })}
+                        />
                         <LocalFileButton
                           accept="image/*"
                           onPick={(file) => applyLocalMediaFile(file, (value) => updateSceneStructureSubtitleImageDraft(cue.id, { imageUrl: value, imageName: file.name }))}
@@ -16136,6 +16735,19 @@ function Home() {
                   <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
                   <circle cx="12" cy="12" r="2.2" />
                   {!subtitleGuideVisible && <path d="m4 4 16 16" />}
+                  </svg>
+              </button>
+              <button
+                type="button"
+                className={`preview-image-timing-check-toggle ${imageTimingCheckResult?.status === "error" ? "has-errors" : imageTimingCheckResult?.status === "warning" ? "has-warnings" : ""}`}
+                aria-label="Kiểm tra thời gian hình ảnh"
+                title="Kiểm tra ảnh có nối tiếp, khớp thời gian trong cảnh không"
+                onClick={() => openSceneImageTimingCheck(scene)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h10M4 12h6M4 18h5" />
+                  <circle cx="17" cy="16" r="4" />
+                  <path d="m15.3 16 1.1 1.1 2.3-2.5" />
                 </svg>
               </button>
               <button
@@ -17069,6 +17681,10 @@ function Home() {
                   value={scene.background ?? ""}
                   onChange={(event) => updateScene("background", event.target.value)}
                 />
+                <CloudinaryMediaPickerButton
+                  value={scene.background ?? ""}
+                  onSelect={(selection) => updateScene("background", selection.url)}
+                />
                 <LocalFileButton
                   accept="image/*,video/*"
                   onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("background", value))}
@@ -17127,10 +17743,15 @@ function Home() {
                     placeholder="https://example.com/avatar.jpg"
                     value={scene.avatar ?? ""}
                     onChange={(event) => updateScene("avatar", event.target.value)}
-                  />
-                  <LocalFileButton
-                    accept="image/*"
-                    onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("avatar", value))}
+                />
+                <CloudinaryMediaPickerButton
+                  value={scene.avatar ?? ""}
+                  mediaKind="image"
+                  onSelect={(selection) => updateScene("avatar", selection.url)}
+                />
+                <LocalFileButton
+                  accept="image/*"
+                  onPick={(file) => applyLocalMediaFile(file, (value) => updateScene("avatar", value))}
                   />
                 </div>
                 {sceneAvatarPreviewSource && (
@@ -17246,6 +17867,10 @@ function Home() {
                           <FieldLabel hint="Có thể nhập URL hoặc tên file đã có trong thư viện tài nguyên.">URL hình ảnh hoặc video</FieldLabel>
                           <div className="media-input-row">
                             <input type="text" inputMode="url" value={activeSceneImage.url} placeholder="https://.../overlay.png hoặc overlay.webm" onChange={(event) => updateSceneImageUrl(event.target.value)} />
+                            <CloudinaryMediaPickerButton
+                              value={activeSceneImage.url}
+                              onSelect={(selection) => updateSceneImageUrl(selection.url)}
+                            />
                             <LocalFileButton
                               accept="image/*,video/*"
                               onPick={(file) => applyLocalMediaFile(file, updateSceneImageUrl)}
@@ -17964,6 +18589,11 @@ function Home() {
                           <span>URL hoặc tên file sticker</span>
                           <div className="media-input-row">
                             <input type="text" inputMode="url" value={activeDecoration.asset} placeholder="https://.../sticker.png" onChange={(event) => updateMapDecoration("asset", event.target.value)} />
+                            <CloudinaryMediaPickerButton
+                              value={activeDecoration.asset}
+                              mediaKind="image"
+                              onSelect={(selection) => updateMapDecoration("asset", selection.url)}
+                            />
                             <LocalFileButton
                               accept="image/*"
                               onPick={(file) => applyLocalMediaFile(file, (value) => updateMapDecoration("asset", value))}
@@ -17986,6 +18616,13 @@ function Home() {
                                   const value = event.target.value;
                                   updateMapDecoration("asset", value);
                                   updateMapDecoration("assetType", animatedAssetTypeFromValue(value, activeDecoration.assetType === "webm" ? "webm" : "gif"));
+                                }}
+                              />
+                              <CloudinaryMediaPickerButton
+                                value={activeDecoration.asset}
+                                onSelect={(selection) => {
+                                  updateMapDecoration("asset", selection.url);
+                                  updateMapDecoration("assetType", animatedAssetTypeFromValue(selection.url, selection.resourceType === "video" ? "webm" : "gif"));
                                 }}
                               />
                               <LocalFileButton
@@ -19207,6 +19844,10 @@ function Home() {
                     placeholder="https://example.com/image.jpg hoặc https://example.com/video.mp4"
                     value={activePopupMediaValue}
                     onChange={(event) => updatePopupMedia(event.target.value)}
+                  />
+                  <CloudinaryMediaPickerButton
+                    value={activePopupMediaValue}
+                    onSelect={(selection) => updatePopupMedia(selection.url)}
                   />
                   <LocalFileButton
                     accept="image/*,video/*"
@@ -20598,6 +21239,19 @@ function Home() {
               </div>
               <div className="scene-structure-top-actions">
                 <span className="scene-structure-sync-state"><i /> Đồng bộ với Biên soạn</span>
+                <button
+                  type="button"
+                  className={`scene-structure-image-timing-check-button ${imageTimingCheckResult?.status === "error" ? "has-errors" : imageTimingCheckResult?.status === "warning" ? "has-warnings" : ""}`}
+                  onClick={() => openSceneImageTimingCheck(sceneStructureScene)}
+                  title="Kiểm tra ảnh có nối tiếp, khớp thời gian trong cảnh không"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 6h10M4 12h6M4 18h5" />
+                    <circle cx="17" cy="16" r="4" />
+                    <path d="m15.3 16 1.1 1.1 2.3-2.5" />
+                  </svg>
+                  Kiểm tra ảnh
+                </button>
                 {selectedSceneStructureTokenSet.size > 1 && (
                   <span className="scene-structure-selection-status">{selectedSceneStructureTokenSet.size} thẻ đã chọn · Kéo hoặc ←/→ để di chuyển cùng lúc</span>
                 )}
@@ -21414,6 +22068,231 @@ function Home() {
           </section>
           {renderSceneStructureHoverPreview()}
           {renderSceneStructureQuickEditor()}
+        </div>
+      )}
+      {imageTimingCheckOpen && imageTimingCheckResult && (
+        <div
+          className="image-timing-check-modal"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setImageTimingCheckOpen(false);
+          }}
+        >
+          <section
+            className="image-timing-check-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="image-timing-check-title"
+          >
+            <header className="image-timing-check-header">
+              <div>
+                <span className="image-timing-check-kicker">KIỂM TRA CẢNH {String(imageTimingCheckResult.sceneNumber).padStart(2, "0")}</span>
+                <h2 id="image-timing-check-title">Liên tiếp thời gian hình ảnh</h2>
+                <p>{imageTimingCheckResult.sceneName} · {imageTimingCheckResult.imageCount} hình ảnh · {formatPreciseTime(imageTimingCheckResult.sceneDuration)}</p>
+              </div>
+              <button
+                type="button"
+                className="image-timing-check-close"
+                aria-label="Đóng kiểm tra thời gian hình ảnh"
+                title="Đóng (Esc)"
+                onClick={() => setImageTimingCheckOpen(false)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+
+            {imageTimingMinimap && imageTimingCheckResult.imageCount > 0 && (
+              <div className="image-timing-minimap-section">
+                <div className="image-timing-check-section-heading">
+                  <strong>Minimap mốc thời gian</strong>
+                  <span>{imageTimingMinimap.pixelCount} điểm pixel · bấm vòng tròn để xem ảnh</span>
+                </div>
+                <div className="image-timing-minimap" role="group" aria-label="Minimap thời gian hình ảnh">
+                  <div className="image-timing-minimap-axis" aria-hidden="true">
+                    {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+                      <span key={`image-timing-axis-${ratio}`} style={{ left: `${ratio * 100}%` }}>
+                        {formatPreciseTime(imageTimingCheckResult.sceneDuration * ratio)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="image-timing-minimap-track">
+                    {imageTimingMinimap.points.map((point, index) => (
+                      <i
+                        key={`image-timing-minimap-pixel-${index}`}
+                        className={`image-timing-minimap-pixel state-${point.state} segment-${point.segment ?? 0}`}
+                        style={{ left: imageTimingMinimapPercent(point.time) }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                    {imageTimingMinimap.boundaries.map((boundary) => {
+                      const boundaryRow = imageTimingCheckResult.rows.find((row) => row.imageId === boundary.imageId);
+                      if (!boundaryRow) return null;
+                      const isSelected = imageTimingSelectedRow?.imageId === boundary.imageId;
+                      const boundaryTypeLabel = boundary.type === "start" ? "Mốc bắt đầu" : "Mốc kết thúc";
+                      return (
+                        <button
+                          type="button"
+                          key={`image-timing-minimap-boundary-${boundary.imageId}-${boundary.type}`}
+                          className={`image-timing-minimap-boundary ${boundary.type === "end" ? "is-end" : "is-start"} segment-${boundary.segment} ${isSelected ? "is-selected" : ""}`}
+                          style={{ left: imageTimingMinimapPercent(boundary.time) }}
+                          aria-label={`${boundaryTypeLabel} ${boundaryRow.name} tại ${formatPreciseTime(boundary.time)}`}
+                          title={`${boundaryRow.name} · ${boundaryTypeLabel} · ${formatPreciseTime(boundary.time)}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setImageTimingCheckSelectedImageId(boundary.imageId);
+                          }}
+                        >
+                          <span aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="image-timing-minimap-legend" aria-label="Chú giải minimap">
+                    <span><i className="state-image" /> Hình ảnh</span>
+                    <span><i className="state-transition" /> Chuyển hình</span>
+                    <span><i className="state-gap" /> Khoảng trống</span>
+                    <span><i className="state-overlap" /> Chồng lấn</span>
+                  </div>
+                </div>
+                {imageTimingSelectedRow && (
+                  <div
+                    className={`image-timing-minimap-selection ${imageTimingSelectedIssues.some((issue) => issue.severity === "error") ? "has-error" : imageTimingSelectedIssues.length ? "has-warning" : "is-valid"}`}
+                    aria-live="polite"
+                  >
+                    <div className="image-timing-minimap-selection-thumbnail">
+                      {imageTimingSelectedImageSource
+                        ? imageTimingSelectedImageIsVideo
+                          ? <video src={imageTimingSelectedImageSource} muted autoPlay loop playsInline preload="metadata" aria-label={`Xem nhanh ${imageTimingSelectedRow.name}`} />
+                          : <img src={imageTimingSelectedImageSource} alt={`Xem nhanh ${imageTimingSelectedRow.name}`} />
+                        : <span aria-hidden="true">IMG</span>}
+                    </div>
+                    <b className="image-timing-minimap-selection-number">{String(imageTimingSelectedRow.index + 1).padStart(2, "0")}</b>
+                    <span className="image-timing-minimap-selection-copy">
+                      <strong>{imageTimingSelectedRow.name}</strong>
+                      <span>{Number.isFinite(imageTimingSelectedRow.start) ? formatPreciseTime(imageTimingSelectedRow.start) : "—"} → {Number.isFinite(imageTimingSelectedRow.end) ? formatPreciseTime(imageTimingSelectedRow.end) : "—"} · {Number.isFinite(imageTimingSelectedRow.duration) ? imageTimingSelectedRow.duration.toFixed(2) : "—"} giây</span>
+                      <small>{imageTimingSelectedRow.visible ? "Đang hiện" : "Đang ẩn"} · {imageTimingSelectedRow.transitionLabel}</small>
+                      {imageTimingSelectedIssues[0] && <em>{imageTimingSelectedIssues[0].message}</em>}
+                    </span>
+                    <span className="image-timing-minimap-selection-status">
+                      {imageTimingSelectedIssues.some((issue) => issue.severity === "error") ? "Cần chỉnh" : imageTimingSelectedIssues.length ? "Cảnh báo" : "Khớp"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className={`image-timing-check-summary is-${imageTimingCheckResult.status}`}>
+              <span className="image-timing-check-status-icon" aria-hidden="true">
+                {imageTimingCheckResult.status === "valid" ? "✓" : imageTimingCheckResult.status === "empty" ? "i" : "!"}
+              </span>
+              <div>
+                <strong>
+                  {imageTimingCheckResult.status === "valid"
+                    ? "Thời gian hình ảnh đang khớp"
+                    : imageTimingCheckResult.status === "empty"
+                      ? "Cảnh chưa có hình ảnh để kiểm tra"
+                      : imageTimingCheckResult.status === "error"
+                        ? "Có điểm cần chỉnh trước khi render"
+                        : "Có khoảng trống cần xem lại"}
+                </strong>
+                <span>
+                  {imageTimingCheckResult.status === "valid"
+                    ? "Các mốc bắt đầu và kết thúc nối tiếp nhau trong thời lượng cảnh."
+                    : imageTimingCheckResult.status === "empty"
+                      ? "Hãy thêm hình ảnh trong mục Hình ảnh của Biên soạn."
+                      : "Bấm vào một dòng hoặc cảnh báo để mở đúng hình ảnh trong Biên soạn."}
+                </span>
+              </div>
+              <div className="image-timing-check-summary-counts" aria-label="Tóm tắt kết quả kiểm tra">
+                <span><b>{imageTimingCheckResult.validCount}</b> hợp lệ</span>
+                <span><b>{imageTimingCheckResult.warningCount}</b> cảnh báo</span>
+                <span><b>{imageTimingCheckResult.errorCount}</b> lỗi</span>
+              </div>
+            </div>
+
+            {imageTimingCheckResult.imageCount > 0 ? (
+              <div className="image-timing-check-content">
+                <div className="image-timing-check-section-heading">
+                  <strong>Timeline hình ảnh</strong>
+                  <span>Đường chồng chỉ được chấp nhận khi là vùng chuyển hình hợp lệ.</span>
+                </div>
+                <div className="image-timing-check-table" role="table" aria-label="Bảng kiểm tra thời gian hình ảnh">
+                  <div className="image-timing-check-table-head" role="row">
+                    <span>Hình ảnh</span>
+                    <span>Mốc hiển thị</span>
+                    <span>Trạng thái</span>
+                  </div>
+                  {imageTimingCheckResult.rows.map((row) => {
+                    const rowIssues = imageTimingCheckResult.issues.filter((issue) => row.issueIds.includes(issue.id));
+                    const rowHasError = rowIssues.some((issue) => issue.severity === "error");
+                    const safeStart = Number.isFinite(row.start) ? row.start : 0;
+                    const safeEnd = Number.isFinite(row.end) ? row.end : safeStart;
+                    const trackLeft = Math.min(100, Math.max(0, (safeStart / imageTimingCheckResult.sceneDuration) * 100));
+                    const trackWidth = Math.min(100 - trackLeft, Math.max(1, ((safeEnd - safeStart) / imageTimingCheckResult.sceneDuration) * 100));
+                    return (
+                      <button
+                        type="button"
+                        className={`image-timing-check-row ${rowIssues.length ? rowHasError ? "has-error" : "has-warning" : "is-valid"}`}
+                        key={row.imageId}
+                        onClick={() => {
+                          if (rowIssues[0]) focusSceneImageTimingIssue(rowIssues[0]);
+                        }}
+                        title={rowIssues.length ? "Mở hình ảnh này trong Biên soạn" : "Hình ảnh đang khớp thời gian"}
+                      >
+                        <span className="image-timing-check-row-name">
+                          <b>{String(row.index + 1).padStart(2, "0")}</b>
+                          <span>
+                            <strong>{row.name}</strong>
+                            <small>{row.visible ? "Đang hiện" : "Đang ẩn"} · {row.transitionLabel}</small>
+                          </span>
+                        </span>
+                        <span className="image-timing-check-row-time">
+                          <span className="image-timing-check-track" aria-hidden="true"><i style={{ left: `${trackLeft}%`, width: `${trackWidth}%` }} /></span>
+                          <em>{Number.isFinite(row.start) ? formatPreciseTime(row.start) : "—"} → {Number.isFinite(row.end) ? formatPreciseTime(row.end) : "—"}</em>
+                        </span>
+                        <span className="image-timing-check-row-status">
+                          <b>{rowIssues.length ? rowHasError ? "Lỗi" : "Cảnh báo" : "Khớp"}</b>
+                          {rowIssues.length > 0 && <small>{rowIssues[0].message}</small>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {imageTimingCheckResult.issues.length > 0 && (
+                  <div className="image-timing-check-issues">
+                    <div className="image-timing-check-section-heading">
+                      <strong>Điểm cần xử lý</strong>
+                      <span>{imageTimingCheckResult.gapCount} khoảng trống · {imageTimingCheckResult.overlapCount} vùng chồng không hợp lệ</span>
+                    </div>
+                    {imageTimingCheckResult.issues.map((issue) => (
+                      <button
+                        type="button"
+                        className={`image-timing-check-issue ${issue.severity === "error" ? "has-error" : "has-warning"}`}
+                        key={issue.id}
+                        onClick={() => focusSceneImageTimingIssue(issue)}
+                      >
+                        <span aria-hidden="true">{issue.severity === "error" ? "!" : "i"}</span>
+                        <span>{issue.message}</span>
+                        <b>Mở</b>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="image-timing-check-empty">
+                <span aria-hidden="true">IMG</span>
+                <strong>Chưa có hình ảnh trong cảnh này</strong>
+                <p>Bạn có thể thêm ảnh từ mục Hình ảnh ở khu vực Biên soạn.</p>
+              </div>
+            )}
+
+            <footer className="image-timing-check-footer">
+              <span>Chỉ kiểm tra, không tự thay đổi dữ liệu.</span>
+              <button type="button" className="button secondary" onClick={() => setImageTimingCheckOpen(false)}>Đóng</button>
+            </footer>
+          </section>
         </div>
       )}
       {reviewOpen && (
