@@ -16763,19 +16763,6 @@ function Home() {
               </button>
               <button
                 type="button"
-                className={`preview-image-timing-check-toggle ${imageTimingCheckResult?.status === "error" ? "has-errors" : imageTimingCheckResult?.status === "warning" ? "has-warnings" : ""}`}
-                aria-label="Kiểm tra thời gian hình ảnh"
-                title="Kiểm tra ảnh có nối tiếp, khớp thời gian trong cảnh không"
-                onClick={() => openSceneImageTimingCheck(scene)}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 6h10M4 12h6M4 18h5" />
-                  <circle cx="17" cy="16" r="4" />
-                  <path d="m15.3 16 1.1 1.1 2.3-2.5" />
-                </svg>
-              </button>
-              <button
-                type="button"
                 className="preview-review-toggle"
                 aria-label="Mở Review tổng quan"
                 title="Review tổng quan các cảnh đang hiện"
@@ -16860,6 +16847,20 @@ function Home() {
                   <path d="M9 6.5h6M6 9v3h6v3M18 9v3h-6" />
                 </svg>
                 <span>Cấu trúc</span>
+              </button>
+              <button
+                type="button"
+                className={`preview-tool-sidebar-button preview-image-timing-check-sidebar-toggle ${imageTimingCheckResult?.status === "error" ? "has-errors" : imageTimingCheckResult?.status === "warning" ? "has-warnings" : ""}`}
+                aria-label="Kiểm tra thời gian hình ảnh"
+                title="Kiểm tra ảnh có nối tiếp, khớp thời gian trong cảnh không"
+                onClick={() => openSceneImageTimingCheck(scene)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h10M4 12h6M4 18h5" />
+                  <circle cx="17" cy="16" r="4" />
+                  <path d="m15.3 16 1.1 1.1 2.3-2.5" />
+                </svg>
+                <span>Kiểm tra ảnh</span>
               </button>
               <button
                 type="button"
