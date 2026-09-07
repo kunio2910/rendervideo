@@ -192,6 +192,7 @@ type SceneImage = {
   url: string;
   mediaType: "image" | "video";
   previewVideo: boolean;
+  previewVideoLoop: boolean;
   spriteSheet: boolean;
   spriteDelay: number;
   transparent: boolean;
@@ -529,6 +530,9 @@ type EditorFieldGroupProps = {
   advanced?: boolean;
   className?: string;
   action?: ReactNode;
+  collapsible?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
 };
 
 const EditorFieldGroup = ({
@@ -538,6 +542,9 @@ const EditorFieldGroup = ({
   advanced = false,
   className = "",
   action,
+  collapsible = false,
+  open = true,
+  onToggle,
 }: EditorFieldGroupProps) => {
   const heading = (
     <div className="editor-field-group-heading">
@@ -548,6 +555,20 @@ const EditorFieldGroup = ({
       </span>
       {action && <span className="editor-field-group-action">{action}</span>}
       {advanced && <b>Nâng cao</b>}
+      {collapsible && (
+        <button
+          type="button"
+          className="editor-field-group-toggle"
+          aria-expanded={open}
+          aria-label={open ? `Thu gọn ${title}` : `Mở rộng ${title}`}
+          title={open ? `Thu gọn ${title}` : `Mở rộng ${title}`}
+          onClick={onToggle}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d={open ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} />
+          </svg>
+        </button>
+      )}
     </div>
   );
   if (advanced) {
@@ -561,7 +582,7 @@ const EditorFieldGroup = ({
   return (
     <section className={`editor-field-group ${className}`.trim()}>
       {heading}
-      <div className="editor-field-group-content">{children}</div>
+      {(!collapsible || open) && <div className="editor-field-group-content">{children}</div>}
     </section>
   );
 };
@@ -1436,6 +1457,41 @@ const isVideoMedia = (value: unknown) => {
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
+const holdPreviewVideoLastFrame = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+  const video = event.currentTarget;
+  if (video.loop || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  video.pause();
+  // Seek a fraction before duration so browsers keep the final decoded frame
+  // visible instead of replacing an ended video with a black rectangle.
+  const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+  if (Math.abs(video.currentTime - finalFrameTime) > 0.01) {
+    video.currentTime = finalFrameTime;
+  }
+};
+
+const syncPreviewVideoToTimeline = (
+  video: HTMLVideoElement,
+  imageStart: number,
+  localTime: number,
+  shouldPlay: boolean,
+) => {
+  if (!Number.isFinite(video.duration) || video.duration <= 0) {
+    if (!shouldPlay) video.pause();
+    return;
+  }
+  const elapsed = Math.max(0, localTime - imageStart);
+  const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+  const targetTime = Math.min(elapsed, finalFrameTime);
+  if (Math.abs(video.currentTime - targetTime) > 0.05 || video.ended) {
+    video.currentTime = targetTime;
+  }
+  if (shouldPlay && elapsed < video.duration) {
+    void video.play().catch(() => undefined);
+  } else {
+    video.pause();
+  }
+};
+
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
   return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
@@ -2281,6 +2337,7 @@ const defaultSceneImage = (
   url: "",
   mediaType: "image",
   previewVideo: false,
+  previewVideoLoop: false,
   spriteSheet: false,
   spriteDelay: 180,
   transparent: false,
@@ -2337,6 +2394,7 @@ const normalizeSceneImage = (
     url,
     mediaType,
     previewVideo: raw.previewVideo === true,
+    previewVideoLoop: raw.previewVideoLoop === true,
     spriteSheet: raw.spriteSheet === true,
     spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
@@ -4726,6 +4784,7 @@ function Home() {
     DEFAULT_EDITOR_SECTIONS,
   );
   const [effectPanelCollapsed, setEffectPanelCollapsed] = useState<Record<string, boolean>>({});
+  const [subtitleFormatExpanded, setSubtitleFormatExpanded] = useState(true);
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const activeEditorSectionRef = useRef<EditorSectionKey | null>(
     (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
@@ -4966,6 +5025,8 @@ function Home() {
   const workspaceBackupFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const sceneAudioPlayers = useRef<Array<{ audio: HTMLAudioElement; startTimer?: number; stopTimer?: number }>>([]);
+  const previewImageVideos = useRef<Record<string, HTMLVideoElement | null>>({});
+  const sceneStructureImageVideos = useRef<Record<string, HTMLVideoElement | null>>({});
   const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -5221,6 +5282,10 @@ function Home() {
     sceneDuration,
     Math.max(0, Math.min(sceneTimelineDuration, playTime) - scene.start),
   );
+  const holdsFinalPreviewFrame = previewPlaybackMode
+    && !playing
+    && playTime >= sceneTimelineDuration
+    && scene.id === visibleScenes.at(-1)?.id;
   const weatherEffectsAtTime = (type: SceneWeatherEffectType) => {
     if (!previewEffectsVisible) return [];
     // In edit mode, and after pausing a preview, keep every enabled effect
@@ -5344,7 +5409,10 @@ function Home() {
   useEffect(() => {
     const video = backgroundVideoRef.current;
     if (playing || !video || !backgroundVideoPreviewSource) return;
-    if (Number.isFinite(video.duration)) video.currentTime = sceneLocalTime;
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+      video.currentTime = Math.min(sceneLocalTime, finalFrameTime);
+    }
     video.pause();
   }, [backgroundVideoPreviewSource, playing, scene.id, sceneLocalTime]);
   useEffect(() => {
@@ -5361,7 +5429,10 @@ function Home() {
     ? Math.min(1, Math.max(0, playTime / sceneTimelineDuration))
     : 0;
   const sceneIsVisibleInPlayback = sceneStructurePreviewMode || !previewPlaybackMode || visibleScenes.some((item) =>
-    item.id === scene.id && playTime >= item.start && playTime < item.end,
+    item.id === scene.id && (
+      (playTime >= item.start && playTime < item.end)
+      || (holdsFinalPreviewFrame && item.id === visibleScenes.at(-1)?.id)
+    ),
   );
   const textOverlayTiming = (overlay: TextOverlay) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(overlay.start) || 0));
@@ -5466,7 +5537,7 @@ function Home() {
           return image.visible !== false
             && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
-            && sceneLocalTime < end;
+            && (sceneLocalTime < end || (holdsFinalPreviewFrame && end >= sceneDuration && sceneLocalTime <= end));
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
@@ -5503,6 +5574,15 @@ function Home() {
           && sceneLocalTime < end;
       })
     : null;
+  // While a preview is paused, keep the subtitle cue at the current frame
+  // visible. In edit mode, use the first real cue as the layout preview so
+  // the editor never falls back to sample text when the scene has subtitles.
+  const editorSubtitleCue = !playing && !previewPlaybackMode && subtitleGuideVisible
+    ? (scene.subtitles ?? []).find((subtitle) =>
+        subtitle.visible !== false && scene.subtitleEnabled !== false && safeTrim(subtitle.text),
+      ) ?? null
+    : null;
+  const subtitleDisplayCue = previewPlaybackMode ? activeSubtitle : editorSubtitleCue;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
     const storedLayerTokens = new Set(
       Array.isArray(scene.layerOrder)
@@ -7037,13 +7117,15 @@ function Home() {
           setPlaying(false);
           return;
         }
-        const firstScene = visibleScenes[0];
-        setPlayTime(firstScene?.start ?? 0);
+        const lastScene = visibleScenes.at(-1);
+        setPlayTime(sceneTimelineDuration);
         setPlaying(false);
-        setPreviewPlaybackMode(false);
-        if (firstScene) {
-          setSelectedId(firstScene.id);
-          setSelectedSceneIds([firstScene.id]);
+        // Keep preview mode active at the end so media elements remain mounted
+        // and can display their final decoded frame instead of resetting to 0.
+        setPreviewPlaybackMode(true);
+        if (lastScene) {
+          setSelectedId(lastScene.id);
+          setSelectedSceneIds([lastScene.id]);
         }
         setSelectedPopupId("");
         setSelectedTextOverlayId("");
@@ -7088,6 +7170,39 @@ function Home() {
     scenes,
     visibleScenes,
   ]);
+
+  useEffect(() => {
+    const imageById = new Map(sceneImages.map((image) => [image.id, image]));
+    Object.entries(previewImageVideos.current).forEach(([imageId, video]) => {
+      if (!video) {
+        delete previewImageVideos.current[imageId];
+        return;
+      }
+      const image = imageById.get(imageId);
+      if (!image || image.previewVideo !== true || !previewPlaybackMode) {
+        video.pause();
+        return;
+      }
+      syncPreviewVideoToTimeline(video, image.start, sceneLocalTime, playing);
+    });
+  }, [playing, playbackRestartToken, previewPlaybackMode, scene.id]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    const imageById = new Map(sceneStructureImages.map((image) => [image.id, image]));
+    Object.entries(sceneStructureImageVideos.current).forEach(([imageId, video]) => {
+      if (!video) {
+        delete sceneStructureImageVideos.current[imageId];
+        return;
+      }
+      const image = imageById.get(imageId);
+      if (!image || image.previewVideo !== true || !sceneStructurePreviewMode) {
+        video.pause();
+        return;
+      }
+      syncPreviewVideoToTimeline(video, image.start, sceneStructureLocalTime, playing);
+    });
+  }, [sceneStructureOpen, sceneStructurePreviewMode, playing, playbackRestartToken, sceneStructureScene.id]);
 
   useEffect(() => {
     sceneAudioPlayers.current.forEach(({ audio, startTimer, stopTimer }) => {
@@ -15758,6 +15873,9 @@ function Home() {
   ) => {
     const staticFrame = options.staticFrame === true;
     const previewIsPlaying = !staticFrame && playing;
+    const holdsSceneStructureFinalFrame = sceneStructurePreviewMode
+      && !previewIsPlaying
+      && localTime >= sceneStructureDuration;
     const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
     const liveSubtitle = sceneStructureSubtitleAtTime(localTime);
     const liveSubtitleStart = liveSubtitle
@@ -15779,7 +15897,9 @@ function Home() {
           .filter((image) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
             const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
-            return localTime >= start && localTime < end;
+            return localTime >= start
+              && (localTime < end
+                || (holdsSceneStructureFinalFrame && end >= sceneStructureDuration && localTime <= end));
           })
           .map((image) => image.id)
         : [],
@@ -15802,7 +15922,7 @@ function Home() {
         {previewImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
-              key={`${sceneStructureBackgroundSource}-${previewIsPlaying ? "playing" : "paused"}`}
+              key={sceneStructureBackgroundSource}
               className="project-background"
               src={sceneStructureBackgroundSource}
               muted
@@ -15917,7 +16037,7 @@ function Home() {
               : undefined;
             return (
               <div
-                key={`live-image-${image.id}-${image.previewVideo === true ? "video" : "still"}-${previewIsPlaying ? playbackRestartToken : "paused"}`}
+                key={`live-image-${image.id}-${image.previewVideo === true ? "video" : "still"}`}
                 className={`scene-image-overlay scene-structure-live-layer scene-image-shape-${image.shape}`}
                 style={{
                   left: `${image.x}%`,
@@ -15935,7 +16055,21 @@ function Home() {
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop muted playsInline preload="metadata" />
+                  ? <video
+                      ref={(video) => {
+                        sceneStructureImageVideos.current[image.id] = video;
+                      }}
+                      src={imageSource}
+                      autoPlay={image.previewVideo === true && previewIsPlaying}
+                      loop={image.previewVideoLoop === true}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={(event) => {
+                        syncPreviewVideoToTimeline(event.currentTarget, image.start, localTime, previewIsPlaying);
+                      }}
+                      onEnded={holdPreviewVideoLastFrame}
+                    />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -16753,9 +16887,9 @@ function Home() {
               <button
                 type="button"
                 className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
-                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-label={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 aria-pressed={subtitleGuideVisible}
-                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                title={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 onClick={() => setSubtitleGuideVisible((visible) => !visible)}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -16972,9 +17106,9 @@ function Home() {
               <button
                 type="button"
                 className={`preview-tool-sidebar-button ${!subtitleGuideVisible ? "active" : ""}`}
-                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-label={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 aria-pressed={!subtitleGuideVisible}
-                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                title={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 onClick={() => setSubtitleGuideVisible((visible) => !visible)}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17248,13 +17382,19 @@ function Home() {
                 >
                 {imageSource && imageIsVideo
                   ? <video
-                      key={`${image.id}-${image.previewVideo === true && playing ? "playing" : "still"}`}
+                      ref={(video) => {
+                        previewImageVideos.current[image.id] = video;
+                      }}
                       src={imageSource}
                       autoPlay={image.previewVideo === true && playing}
-                      loop
+                      loop={image.previewVideoLoop === true}
                       muted
                       playsInline
                       preload="metadata"
+                      onLoadedMetadata={(event) => {
+                        syncPreviewVideoToTimeline(event.currentTarget, image.start, sceneLocalTime, playing);
+                      }}
+                      onEnded={holdPreviewVideoLastFrame}
                     />
                     : imageSource
                       ? <img src={imageSource} alt="" draggable={false} />
@@ -17310,7 +17450,7 @@ function Home() {
                 </div>
               );
             })}
-            {playing && activeSubtitle && (
+            {subtitleDisplayCue && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
                 role="button"
@@ -17351,10 +17491,20 @@ function Home() {
                   transform: `translate(-50%, -50%) scale(${subtitleAnimationScale})`,
                 }}
               >
-                {activeSubtitle.text}
+                {subtitleDisplayCue.text}
+                {!previewPlaybackMode && (
+                  <button
+                    type="button"
+                    className="subtitle-resize-handle"
+                    aria-label="Kéo để thay đổi kích thước phụ đề"
+                    title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
+                    onPointerDown={startSubtitleResize}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                )}
               </div>
             )}
-            {subtitleGuideVisible && !playing && (
+            {subtitleGuideVisible && !playing && !previewPlaybackMode && !subtitleDisplayCue && (
               <div
                 className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""}`}
                 style={{
@@ -17945,6 +18095,18 @@ function Home() {
                             <span />
                             Chạy video khi xem thử
                             <small>Chỉ áp dụng cho Preview/Review, không ảnh hưởng render.</small>
+                          </label>
+                        )}
+                        {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle scene-image-preview-video-toggle">
+                            <input
+                              type="checkbox"
+                              checked={activeSceneImage.previewVideoLoop === true}
+                              onChange={(event) => updateSceneImage("previewVideoLoop", event.target.checked)}
+                            />
+                            <span />
+                            Lặp video khi xem thử
+                            <small>Video sẽ tự dừng ở cuối nếu không bật tùy chọn này.</small>
                           </label>
                         )}
                       </EditorFieldGroup>
@@ -18862,6 +19024,114 @@ function Home() {
               />
               <small>Nội dung này được dùng để Whisper/fallback tạo timestamp phụ đề. Có thể khác với lời thuyết minh ghi chú trong Popup.</small>
             </label>
+            <EditorFieldGroup
+              title="Định dạng phụ đề"
+              description="Áp dụng cho toàn bộ phụ đề của cảnh; nội dung và thời gian chỉnh ở từng câu bên dưới."
+              collapsible
+              open={subtitleFormatExpanded}
+              onToggle={() => setSubtitleFormatExpanded((expanded) => !expanded)}
+            >
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Kích thước chữ phụ đề trong khung xem trước và video render.">Cỡ chữ</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={8} max={120} step={1} value={subtitleStyle.size} onCommit={(value) => updateSubtitleStyle("size", value)} /><b>px</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Font chữ áp dụng cho toàn bộ phụ đề của cảnh.">Font chữ</FieldLabel>
+                  <select value={subtitleStyle.font} onChange={(event) => updateSubtitleStyle("font", event.target.value as OverlayTextFont)}>
+                    {OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Chọn chữ thường, đậm, nghiêng hoặc kết hợp.">Kiểu chữ</FieldLabel>
+                  <select value={subtitleStyle.style} onChange={(event) => updateSubtitleStyle("style", event.target.value as SubtitleStyle["style"])}>
+                    <option value="normal">Bình thường</option>
+                    <option value="bold">Đậm</option>
+                    <option value="italic">Nghiêng</option>
+                    <option value="bold-italic">Đậm nghiêng</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Hiệu ứng khi mỗi câu phụ đề xuất hiện.">Hiệu ứng phụ đề</FieldLabel>
+                  <select value={subtitleStyle.animation} onChange={(event) => updateSubtitleStyle("animation", event.target.value as SubtitleAnimation)}>
+                    <option value="none">Không</option>
+                    <option value="fade">Fade</option>
+                    <option value="pop">Pop</option>
+                    <option value="slide-up">Trượt lên</option>
+                    <option value="typewriter">Gõ chữ</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Vị trí ngang của tâm hộp phụ đề theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSubtitleStyle("x", clampPercent(value, subtitleStyle.x))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Vị trí dọc của tâm hộp phụ đề theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSubtitleStyle("y", clampPercent(value, subtitleStyle.y))} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Chiều rộng hộp chứa phụ đề theo phần trăm khung bản đồ.">Độ rộng hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={40} max={100} step={1} value={subtitleStyle.boxWidth} onCommit={(value) => updateSubtitleStyle("boxWidth", value)} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Để trống để hộp tự tính chiều cao theo nội dung.">Chiều cao hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSubtitleStyle("boxHeight", value)} onCommitEmpty={() => updateSubtitleStyle("boxHeight", undefined)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field color-field">
+                  <FieldLabel hint="Màu hiển thị của chữ phụ đề.">Màu chữ</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.color, "#ffffff")} onChange={(event) => updateSubtitleStyle("color", event.target.value)} />
+                </label>
+                <label className="field">
+                  <FieldLabel hint="100% là chữ rõ hoàn toàn; 0% là trong suốt.">Độ mờ chữ</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={subtitleStyle.opacity} onCommit={(value) => updateSubtitleStyle("opacity", value)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Độ dày viền sáng/tối bao quanh nét chữ phụ đề.">Độ dày Stroke</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.strokeWidth} onCommit={(value) => updateSubtitleStyle("strokeWidth", value)} /><b>px</b></div>
+                </label>
+                <label className="field color-field">
+                  <FieldLabel hint="Màu viền bao quanh nét chữ phụ đề.">Màu Stroke</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.strokeColor, "#000000")} onChange={(event) => updateSubtitleStyle("strokeColor", event.target.value)} />
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Độ dày đường viền của hộp phụ đề; đặt 0 để tắt.">Độ dày Border</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSubtitleStyle("borderWidth", value)} /><b>px</b></div>
+                </label>
+                <label className="field color-field">
+                  <FieldLabel hint="Màu đường viền quanh hộp phụ đề.">Màu Border</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSubtitleStyle("borderColor", event.target.value)} />
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field color-field">
+                  <FieldLabel hint="Màu nền bên trong hộp phụ đề.">Màu nền hộp</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#0b1220")} onChange={(event) => updateSubtitleStyle("borderFill", event.target.value)} />
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Độ trong suốt của nền hộp; 0% là trong suốt hoàn toàn.">Độ mờ nền hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSubtitleStyle("borderOpacity", value)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <TimeFieldLabel hint="Thời lượng chạy hiệu ứng ở mỗi lần phụ đề xuất hiện.">Thời lượng hiệu ứng</TimeFieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSubtitleStyle("animationDuration", value)} /><b>s</b></div>
+                </label>
+              </div>
+              <small>Thay đổi được áp dụng ngay cho Xem trước và bản render. Kéo trực tiếp khung phụ đề trên bản đồ để chỉnh nhanh vị trí và kích thước.</small>
+            </EditorFieldGroup>
             <div className="scene-audio-editor" id="editor-audio">
               <div className="scene-audio-list-heading">
                 <div>
