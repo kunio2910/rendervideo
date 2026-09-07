@@ -18803,6 +18803,111 @@ function Home() {
               />
               <small>Nội dung này được dùng để Whisper/fallback tạo timestamp phụ đề. Có thể khác với lời thuyết minh ghi chú trong Popup.</small>
             </label>
+            <EditorFieldGroup
+              title="Định dạng phụ đề"
+              description="Áp dụng cho toàn bộ phụ đề của cảnh; nội dung và thời gian chỉnh ở từng câu bên dưới."
+            >
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Kích thước chữ phụ đề trong khung xem trước và video render.">Cỡ chữ</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={8} max={120} step={1} value={subtitleStyle.size} onCommit={(value) => updateSubtitleStyle("size", value)} /><b>px</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Font chữ áp dụng cho toàn bộ phụ đề của cảnh.">Font chữ</FieldLabel>
+                  <select value={subtitleStyle.font} onChange={(event) => updateSubtitleStyle("font", event.target.value as OverlayTextFont)}>
+                    {OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Chọn chữ thường, đậm, nghiêng hoặc kết hợp.">Kiểu chữ</FieldLabel>
+                  <select value={subtitleStyle.style} onChange={(event) => updateSubtitleStyle("style", event.target.value as SubtitleStyle["style"])}>
+                    <option value="normal">Bình thường</option>
+                    <option value="bold">Đậm</option>
+                    <option value="italic">Nghiêng</option>
+                    <option value="bold-italic">Đậm nghiêng</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Hiệu ứng khi mỗi câu phụ đề xuất hiện.">Hiệu ứng phụ đề</FieldLabel>
+                  <select value={subtitleStyle.animation} onChange={(event) => updateSubtitleStyle("animation", event.target.value as SubtitleAnimation)}>
+                    <option value="none">Không</option>
+                    <option value="fade">Fade</option>
+                    <option value="pop">Pop</option>
+                    <option value="slide-up">Trượt lên</option>
+                    <option value="typewriter">Gõ chữ</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Vị trí ngang của tâm hộp phụ đề theo phần trăm chiều rộng bản đồ.">Vị trí X</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.x} onCommit={(value) => updateSubtitleStyle("x", clampPercent(value, subtitleStyle.x))} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Vị trí dọc của tâm hộp phụ đề theo phần trăm chiều cao bản đồ.">Vị trí Y</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={0.1} value={subtitleStyle.y} onCommit={(value) => updateSubtitleStyle("y", clampPercent(value, subtitleStyle.y))} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Chiều rộng hộp chứa phụ đề theo phần trăm khung bản đồ.">Độ rộng hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={40} max={100} step={1} value={subtitleStyle.boxWidth} onCommit={(value) => updateSubtitleStyle("boxWidth", value)} /><b>%</b></div>
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Để trống để hộp tự tính chiều cao theo nội dung.">Chiều cao hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSubtitleStyle("boxHeight", value)} onCommitEmpty={() => updateSubtitleStyle("boxHeight", undefined)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field color-field">
+                  <FieldLabel hint="Màu hiển thị của chữ phụ đề.">Màu chữ</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.color, "#ffffff")} onChange={(event) => updateSubtitleStyle("color", event.target.value)} />
+                </label>
+                <label className="field">
+                  <FieldLabel hint="100% là chữ rõ hoàn toàn; 0% là trong suốt.">Độ mờ chữ</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={1} value={subtitleStyle.opacity} onCommit={(value) => updateSubtitleStyle("opacity", value)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Độ dày viền sáng/tối bao quanh nét chữ phụ đề.">Độ dày Stroke</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.strokeWidth} onCommit={(value) => updateSubtitleStyle("strokeWidth", value)} /><b>px</b></div>
+                </label>
+                <label className="field color-field">
+                  <FieldLabel hint="Màu viền bao quanh nét chữ phụ đề.">Màu Stroke</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.strokeColor, "#000000")} onChange={(event) => updateSubtitleStyle("strokeColor", event.target.value)} />
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <FieldLabel hint="Độ dày đường viền của hộp phụ đề; đặt 0 để tắt.">Độ dày Border</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSubtitleStyle("borderWidth", value)} /><b>px</b></div>
+                </label>
+                <label className="field color-field">
+                  <FieldLabel hint="Màu đường viền quanh hộp phụ đề.">Màu Border</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSubtitleStyle("borderColor", event.target.value)} />
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field color-field">
+                  <FieldLabel hint="Màu nền bên trong hộp phụ đề.">Màu nền hộp</FieldLabel>
+                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#0b1220")} onChange={(event) => updateSubtitleStyle("borderFill", event.target.value)} />
+                </label>
+                <label className="field">
+                  <FieldLabel hint="Độ trong suốt của nền hộp; 0% là trong suốt hoàn toàn.">Độ mờ nền hộp</FieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSubtitleStyle("borderOpacity", value)} /><b>%</b></div>
+                </label>
+              </div>
+              <div className="field-row">
+                <label className="field">
+                  <TimeFieldLabel hint="Thời lượng chạy hiệu ứng ở mỗi lần phụ đề xuất hiện.">Thời lượng hiệu ứng</TimeFieldLabel>
+                  <div className="number-with-unit"><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSubtitleStyle("animationDuration", value)} /><b>s</b></div>
+                </label>
+              </div>
+              <small>Thay đổi được áp dụng ngay cho Xem trước và bản render. Kéo trực tiếp khung phụ đề trên bản đồ để chỉnh nhanh vị trí và kích thước.</small>
+            </EditorFieldGroup>
             <div className="scene-audio-editor" id="editor-audio">
               <div className="scene-audio-list-heading">
                 <div>
