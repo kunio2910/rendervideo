@@ -191,6 +191,7 @@ type SceneImage = {
   name: string;
   url: string;
   mediaType: "image" | "video";
+  previewVideo: boolean;
   spriteSheet: boolean;
   spriteDelay: number;
   transparent: boolean;
@@ -2279,6 +2280,7 @@ const defaultSceneImage = (
   name: "Hình ảnh",
   url: "",
   mediaType: "image",
+  previewVideo: false,
   spriteSheet: false,
   spriteDelay: 180,
   transparent: false,
@@ -2334,6 +2336,7 @@ const normalizeSceneImage = (
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
+    previewVideo: raw.previewVideo === true,
     spriteSheet: raw.spriteSheet === true,
     spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
@@ -15914,7 +15917,7 @@ function Home() {
               : undefined;
             return (
               <div
-                key={`live-image-${image.id}`}
+                key={`live-image-${image.id}-${image.previewVideo === true ? "video" : "still"}-${previewIsPlaying ? playbackRestartToken : "paused"}`}
                 className={`scene-image-overlay scene-structure-live-layer scene-image-shape-${image.shape}`}
                 style={{
                   left: `${image.x}%`,
@@ -15932,7 +15935,7 @@ function Home() {
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={previewIsPlaying} loop muted playsInline preload="metadata" />
+                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop muted playsInline preload="metadata" />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -17243,8 +17246,16 @@ function Home() {
                   aria-label="Hình ảnh trên bản đồ. Kéo để di chuyển."
                   onPointerDown={(event) => startSceneImageDrag(event, image.id)}
                 >
-                  {imageSource && imageIsVideo
-                    ? <video src={imageSource} autoPlay loop muted playsInline preload="metadata" />
+                {imageSource && imageIsVideo
+                  ? <video
+                      key={`${image.id}-${image.previewVideo === true && playing ? "playing" : "still"}`}
+                      src={imageSource}
+                      autoPlay={image.previewVideo === true && playing}
+                      loop
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
                     : imageSource
                       ? <img src={imageSource} alt="" draggable={false} />
                       : <span>Chưa có media</span>}
@@ -17922,6 +17933,18 @@ function Home() {
                             <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
                             <span />
                             Giữ nền trong suốt cho lớp media
+                          </label>
+                        )}
+                        {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle scene-image-preview-video-toggle">
+                            <input
+                              type="checkbox"
+                              checked={activeSceneImage.previewVideo === true}
+                              onChange={(event) => updateSceneImage("previewVideo", event.target.checked)}
+                            />
+                            <span />
+                            Chạy video khi xem thử
+                            <small>Chỉ áp dụng cho Preview/Review, không ảnh hưởng render.</small>
                           </label>
                         )}
                       </EditorFieldGroup>
