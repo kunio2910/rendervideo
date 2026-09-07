@@ -1457,6 +1457,15 @@ const isVideoMedia = (value: unknown) => {
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
+const holdPreviewVideoLastFrame = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+  const video = event.currentTarget;
+  if (video.loop || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  video.pause();
+  // Seek a fraction before duration so browsers keep the final decoded frame
+  // visible instead of replacing an ended video with a black rectangle.
+  video.currentTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+};
+
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
   return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
@@ -15968,7 +15977,7 @@ function Home() {
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop={image.previewVideoLoop === true} muted playsInline preload="metadata" />
+                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop={image.previewVideoLoop === true} muted playsInline preload="metadata" onEnded={holdPreviewVideoLastFrame} />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -17288,6 +17297,7 @@ function Home() {
                       muted
                       playsInline
                       preload="metadata"
+                      onEnded={holdPreviewVideoLastFrame}
                     />
                     : imageSource
                       ? <img src={imageSource} alt="" draggable={false} />
