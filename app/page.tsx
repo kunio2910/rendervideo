@@ -192,6 +192,7 @@ type SceneImage = {
   url: string;
   mediaType: "image" | "video";
   previewVideo: boolean;
+  previewVideoLoop: boolean;
   spriteSheet: boolean;
   spriteDelay: number;
   transparent: boolean;
@@ -2301,6 +2302,7 @@ const defaultSceneImage = (
   url: "",
   mediaType: "image",
   previewVideo: false,
+  previewVideoLoop: false,
   spriteSheet: false,
   spriteDelay: 180,
   transparent: false,
@@ -2357,6 +2359,7 @@ const normalizeSceneImage = (
     url,
     mediaType,
     previewVideo: raw.previewVideo === true,
+    previewVideoLoop: raw.previewVideoLoop === true,
     spriteSheet: raw.spriteSheet === true,
     spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
@@ -15965,7 +15968,7 @@ function Home() {
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop muted playsInline preload="metadata" />
+                  ? <video src={imageSource} autoPlay={image.previewVideo === true && previewIsPlaying} loop={image.previewVideoLoop === true} muted playsInline preload="metadata" />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -17281,7 +17284,7 @@ function Home() {
                       key={`${image.id}-${image.previewVideo === true && playing ? "playing" : "still"}`}
                       src={imageSource}
                       autoPlay={image.previewVideo === true && playing}
-                      loop
+                      loop={image.previewVideoLoop === true}
                       muted
                       playsInline
                       preload="metadata"
@@ -17985,6 +17988,18 @@ function Home() {
                             <span />
                             Chạy video khi xem thử
                             <small>Chỉ áp dụng cho Preview/Review, không ảnh hưởng render.</small>
+                          </label>
+                        )}
+                        {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle scene-image-preview-video-toggle">
+                            <input
+                              type="checkbox"
+                              checked={activeSceneImage.previewVideoLoop === true}
+                              onChange={(event) => updateSceneImage("previewVideoLoop", event.target.checked)}
+                            />
+                            <span />
+                            Lặp video khi xem thử
+                            <small>Video sẽ tự dừng ở cuối nếu không bật tùy chọn này.</small>
                           </label>
                         )}
                       </EditorFieldGroup>
