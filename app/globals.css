@@ -2571,6 +2571,36 @@ body {
   font: 650 9px/1.45 var(--font-mono);
 }
 .editor-field-group-action { justify-self: end; }
+.editor-field-group-toggle {
+  display: grid;
+  grid-column: 4;
+  place-items: center;
+  justify-self: end;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--studio-muted);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+.editor-field-group-toggle:hover,
+.editor-field-group-toggle:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+.editor-field-group-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
 .editor-reset-button {
   min-height: 25px;
   padding: 4px 7px;
@@ -2606,6 +2636,7 @@ body {
   .editor-field-group-heading { grid-template-columns: 20px minmax(0, 1fr) auto; }
   .editor-field-group-heading > b { display: none; }
   .editor-field-group-action { grid-column: 3; }
+  .editor-field-group-toggle { grid-column: 3; }
   .editor-field-group .field-row { grid-template-columns: 1fr; }
 }
 .editor-heading-actions {
