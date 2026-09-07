@@ -528,6 +528,9 @@ type EditorFieldGroupProps = {
   advanced?: boolean;
   className?: string;
   action?: ReactNode;
+  collapsible?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
 };
 
 const EditorFieldGroup = ({
@@ -537,6 +540,9 @@ const EditorFieldGroup = ({
   advanced = false,
   className = "",
   action,
+  collapsible = false,
+  open = true,
+  onToggle,
 }: EditorFieldGroupProps) => {
   const heading = (
     <div className="editor-field-group-heading">
@@ -547,6 +553,20 @@ const EditorFieldGroup = ({
       </span>
       {action && <span className="editor-field-group-action">{action}</span>}
       {advanced && <b>Nâng cao</b>}
+      {collapsible && (
+        <button
+          type="button"
+          className="editor-field-group-toggle"
+          aria-expanded={open}
+          aria-label={open ? `Thu gọn ${title}` : `Mở rộng ${title}`}
+          title={open ? `Thu gọn ${title}` : `Mở rộng ${title}`}
+          onClick={onToggle}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d={open ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} />
+          </svg>
+        </button>
+      )}
     </div>
   );
   if (advanced) {
@@ -560,7 +580,7 @@ const EditorFieldGroup = ({
   return (
     <section className={`editor-field-group ${className}`.trim()}>
       {heading}
-      <div className="editor-field-group-content">{children}</div>
+      {(!collapsible || open) && <div className="editor-field-group-content">{children}</div>}
     </section>
   );
 };
@@ -4723,6 +4743,7 @@ function Home() {
     DEFAULT_EDITOR_SECTIONS,
   );
   const [effectPanelCollapsed, setEffectPanelCollapsed] = useState<Record<string, boolean>>({});
+  const [subtitleFormatExpanded, setSubtitleFormatExpanded] = useState(true);
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const activeEditorSectionRef = useRef<EditorSectionKey | null>(
     (Object.keys(DEFAULT_EDITOR_SECTIONS) as EditorSectionKey[])
@@ -5500,6 +5521,15 @@ function Home() {
           && sceneLocalTime < end;
       })
     : null;
+  // While a preview is paused, keep the subtitle cue at the current frame
+  // visible. In edit mode, use the first real cue as the layout preview so
+  // the editor never falls back to sample text when the scene has subtitles.
+  const editorSubtitleCue = !playing && !previewPlaybackMode && subtitleGuideVisible
+    ? (scene.subtitles ?? []).find((subtitle) =>
+        subtitle.visible !== false && scene.subtitleEnabled !== false && safeTrim(subtitle.text),
+      ) ?? null
+    : null;
+  const subtitleDisplayCue = previewPlaybackMode ? activeSubtitle : editorSubtitleCue;
   const previewLayerItems = useMemo<PreviewLayerItem[]>(() => {
     const storedLayerTokens = new Set(
       Array.isArray(scene.layerOrder)
@@ -16750,9 +16780,9 @@ function Home() {
               <button
                 type="button"
                 className={`preview-subtitle-guide-toggle ${subtitleGuideVisible ? "active" : ""}`}
-                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-label={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 aria-pressed={subtitleGuideVisible}
-                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                title={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 onClick={() => setSubtitleGuideVisible((visible) => !visible)}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -16969,9 +16999,9 @@ function Home() {
               <button
                 type="button"
                 className={`preview-tool-sidebar-button ${!subtitleGuideVisible ? "active" : ""}`}
-                aria-label={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                aria-label={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 aria-pressed={!subtitleGuideVisible}
-                title={subtitleGuideVisible ? "Ẩn khung phụ đề mẫu" : "Hiện khung phụ đề mẫu"}
+                title={subtitleGuideVisible ? "Ẩn phụ đề trên khung xem trước" : "Hiện phụ đề trên khung xem trước"}
                 onClick={() => setSubtitleGuideVisible((visible) => !visible)}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17299,7 +17329,7 @@ function Home() {
                 </div>
               );
             })}
-            {playing && activeSubtitle && (
+            {subtitleDisplayCue && (
               <div
                 className={`subtitle-overlay subtitle-animation-${subtitleStyle.animation} ${draggingSubtitle ? "is-dragging" : ""} ${playing ? "is-playing" : ""}`}
                 role="button"
@@ -17340,10 +17370,20 @@ function Home() {
                   transform: `translate(-50%, -50%) scale(${subtitleAnimationScale})`,
                 }}
               >
-                {activeSubtitle.text}
+                {subtitleDisplayCue.text}
+                {!previewPlaybackMode && (
+                  <button
+                    type="button"
+                    className="subtitle-resize-handle"
+                    aria-label="Kéo để thay đổi kích thước phụ đề"
+                    title="Kéo để thay đổi chiều rộng và chiều cao phụ đề"
+                    onPointerDown={startSubtitleResize}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                )}
               </div>
             )}
-            {subtitleGuideVisible && !playing && (
+            {subtitleGuideVisible && !playing && !previewPlaybackMode && !subtitleDisplayCue && (
               <div
                 className={`subtitle-layout-guide ${draggingSubtitle || draggingSubtitleResize ? "is-dragging" : ""}`}
                 style={{
@@ -18842,6 +18882,9 @@ function Home() {
             <EditorFieldGroup
               title="Định dạng phụ đề"
               description="Áp dụng cho toàn bộ phụ đề của cảnh; nội dung và thời gian chỉnh ở từng câu bên dưới."
+              collapsible
+              open={subtitleFormatExpanded}
+              onToggle={() => setSubtitleFormatExpanded((expanded) => !expanded)}
             >
               <div className="field-row">
                 <label className="field">
