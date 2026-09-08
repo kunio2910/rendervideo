@@ -4914,6 +4914,7 @@ function Home() {
     progress?: number;
   }>({ status: "idle", sceneId: "", message: "", progress: 0 });
   const [subtitleImportBusy, setSubtitleImportBusy] = useState(false);
+  const [subtitleGenerationTrackId, setSubtitleGenerationTrackId] = useState("");
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
@@ -9742,6 +9743,113 @@ function Home() {
       window.setTimeout(() => setToast(""), 3200);
     } finally {
       setSubtitleImportBusy(false);
+    }
+  };
+
+  const generateSubtitlesForAudioTrack = async (trackId: string) => {
+    if (!scene || !hydrated || subtitleImportBusy || subtitleAlignState.status === "running") return;
+    const targetSceneId = scene.id;
+    const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
+    const targetTrack = sceneAudioTracks[targetTrackIndex];
+    if (!targetTrack || targetTrackIndex < 0) return;
+    const source = safeTrim(targetTrack.source);
+    const selectedAudio = audioFiles[sceneAudioTrackKey(targetSceneId, trackId)]
+      ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(source));
+    if (!selectedAudio && !isRemoteUrl(source)) {
+      const message = "Hãy chọn file audio hoặc nhập URL audio hợp lệ cho âm thanh này trước khi tạo phụ đề";
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+      return;
+    }
+    const trackDuration = Math.max(0.1, Number(targetTrack.end) - Number(targetTrack.start));
+    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex, sceneAudioTracks);
+    if (existingCues.length > 0
+      && !window.confirm(`Tạo phụ đề tự động sẽ thay thế ${existingCues.length} phụ đề của “${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}”. Tiếp tục?`)) {
+      return;
+    }
+    setSubtitleGenerationTrackId(trackId);
+    setSubtitleAlignState({
+      status: "running",
+      sceneId: targetSceneId,
+      message: `Đang nghe ${safeTrim(targetTrack.name) || `âm thanh ${targetTrackIndex + 1}`} và tạo timestamp…`,
+      progress: 5,
+    });
+    let progressTimer: number | null = null;
+    try {
+      const form = new FormData();
+      form.append("duration", String(trackDuration));
+      if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
+      else form.append("audioUrl", source);
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 12 }
+        : current);
+      progressTimer = window.setInterval(() => {
+        setSubtitleAlignState((current) => {
+          if (current.status !== "running" || current.sceneId !== targetSceneId) return current;
+          return { ...current, progress: Math.min(92, (current.progress ?? 0) + 2) };
+        });
+      }, 500);
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể tạo phụ đề từ audio");
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 96 }
+        : current);
+      const generated = Array.isArray(result.cues) ? result.cues : [];
+      if (!generated.length) throw new Error("Không nhận được cue phụ đề từ audio");
+      const autoPrefix = `${targetSceneId}-${trackId}-subtitle-auto-${Date.now().toString(36)}`;
+      const generatedCues = generated.map((cue: Partial<SubtitleCue>, index: number) => normalizeSubtitleCue(
+        {
+          ...cue,
+          id: `${autoPrefix}-${index + 1}`,
+        },
+        `${autoPrefix}-${index + 1}`,
+        trackDuration,
+      ));
+      const oldCueIds = new Set(existingCues.map((cue) => cue.id));
+      const legacyCueIds = !sceneAudioTracks.some((track) => Array.isArray(track.subtitleCueIds))
+        && targetTrackIndex > 0
+        ? (scene.subtitles ?? []).map((cue) => cue.id)
+        : [];
+      setScenes((items) => items.map((item) => {
+        if (item.id !== targetSceneId) return item;
+        const itemTracks = Array.isArray(item.audioTracks) ? item.audioTracks : [];
+        const nextTracks = itemTracks.map((track, index) => {
+          if (track.id === trackId) return { ...track, subtitleCueIds: generatedCues.map((cue) => cue.id) };
+          if (index === 0 && legacyCueIds.length > 0 && !Array.isArray(track.subtitleCueIds)) {
+            return { ...track, subtitleCueIds: legacyCueIds };
+          }
+          return track;
+        });
+        return syncLegacyVoiceFields({
+          ...item,
+          subtitleEnabled: true,
+          subtitles: [
+            ...(item.subtitles ?? []).filter((cue) => !oldCueIds.has(cue.id)),
+            ...generatedCues,
+          ],
+        }, nextTracks);
+      }));
+      const engineMessage = result.engine === "whisper"
+        ? "Whisper đã nhận dạng audio"
+        : "đã tạo timestamp theo nhịp audio dự phòng";
+      const message = `Đã tạo ${generatedCues.length} cue cho ${safeTrim(targetTrack.name) || `âm thanh ${targetTrackIndex + 1}`}; ${engineMessage}.`;
+      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message, progress: 100 });
+      setPlayTime(Number((scene.start + targetTrack.start + generatedCues[0].start).toFixed(2)));
+      setPlaying(false);
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo phụ đề từ audio";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
+      setSubtitleGenerationTrackId("");
     }
   };
 
@@ -19276,6 +19384,16 @@ function Home() {
                                 aria-label={isAudioSubtitlePanelExpanded(track.id) ? "Thu gọn phụ đề của âm thanh" : "Xổ phụ đề của âm thanh"}
                               >
                                 {isAudioSubtitlePanelExpanded(track.id) ? "−" : "+"}
+                              </button>
+                              <button
+                                type="button"
+                                className="button subtitle-add-button subtitle-auto-button"
+                                onClick={() => void generateSubtitlesForAudioTrack(track.id)}
+                                disabled={subtitleImportBusy || subtitleAlignState.status === "running" || !safeTrim(track.source)}
+                                title={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
+                                aria-label={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
+                              >
+                                {subtitleGenerationTrackId === track.id ? "Đang tạo…" : "✨ Tạo phụ đề"}
                               </button>
                               <button
                                 type="button"

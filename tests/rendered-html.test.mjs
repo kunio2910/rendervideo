@@ -412,13 +412,14 @@ test("keeps editor safety and render checks in the source", async () => {
 });
 
 test("keeps preview and FFmpeg render settings aligned", async () => {
-  const [page, css, renderer, localServer, resourceCache, desktopRuntime] = await Promise.all([
+  const [page, css, renderer, localServer, resourceCache, desktopRuntime, subtitleAligner] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../scripts/render-video.mjs", import.meta.url), "utf8"),
     readFile(new URL("../scripts/local-render-server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../scripts/render-resource-cache.mjs", import.meta.url), "utf8"),
     readFile(new URL("../desktop/stage-runtime.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/align-subtitles.mjs", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /assetPreviewUrls/);
@@ -812,6 +813,12 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(localServer, /--use-system-ca/);
   assert.match(localServer, /\/api\/align-subtitles/);
   assert.match(localServer, /alignSubtitles/);
+  assert.match(page, /const generateSubtitlesForAudioTrack = async/);
+  assert.match(page, /audioFiles\[sceneAudioTrackKey\(targetSceneId, trackId\)\]/);
+  assert.match(page, /form\.append\("audioUrl", source\)/);
+  assert.match(page, /subtitleGenerationTrackId/);
+  assert.doesNotMatch(localServer, /if \(!text\) throw new Error\("Thiếu Lời thuyết minh/);
+  assert.match(subtitleAligner, /if \(!String\(text \?\? ""\)\.trim\(\)\)/);
   assert.match(page, /fileToDataUrl/);
   assert.match(page, /sourceData/);
   assert.match(page, /tự nhận diện/);
