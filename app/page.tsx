@@ -1800,6 +1800,7 @@ type StoredProject = {
   editorSections?: EditorSectionState;
   effectPanelCollapsed?: Record<string, boolean>;
   expandedAudioSubtitleTracks?: Record<string, boolean>;
+  subtitleFormatExpanded?: boolean;
   sceneStructureLibraryCollapsed?: boolean;
   sceneStructureInspectorCollapsed?: boolean;
   previewZoom?: number;
@@ -6523,6 +6524,7 @@ function Home() {
       editorSections,
       effectPanelCollapsed,
       expandedAudioSubtitleTracks,
+      subtitleFormatExpanded,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom: clampPreviewZoom(previewZoom),
@@ -6554,6 +6556,7 @@ function Home() {
       editorSections,
       effectPanelCollapsed,
       expandedAudioSubtitleTracks,
+      subtitleFormatExpanded,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom,
@@ -6628,6 +6631,7 @@ function Home() {
     setExpandedAudioSubtitleTracks(
       normalizeExpandedAudioSubtitleTracks(project.expandedAudioSubtitleTracks),
     );
+    setSubtitleFormatExpanded(project.subtitleFormatExpanded !== false);
     setScenes(restoredScenes);
     const preferredSelectedId = preserveHistory ? preservedSelectedId : safeTrim(project.activeSceneId);
     const restoredSelectedScene = restoredScenes.find((item) => item.id === preferredSelectedId)
@@ -6677,6 +6681,7 @@ function Home() {
         renderEncoder: normalizeRenderEncoder(project.renderEncoder),
         editorSections: normalizeEditorSections(project.editorSections),
         effectPanelCollapsed: normalizeEffectPanelCollapsed(project.effectPanelCollapsed),
+        subtitleFormatExpanded: project.subtitleFormatExpanded !== false,
         previewZoom: clampPreviewZoom(project.previewZoom),
         previewEffectsVisible: project.previewEffectsVisible !== false,
         previewTikTokSettings: normalizePreviewTikTokSettings(project.previewTikTokSettings),
@@ -6717,6 +6722,7 @@ function Home() {
         previewTikTokSettings: normalizePreviewTikTokSettings(data.previewTikTokSettings),
         editorSections: normalizeEditorSections(data.editorSections),
         effectPanelCollapsed: normalizeEffectPanelCollapsed(data.effectPanelCollapsed),
+        subtitleFormatExpanded: data.subtitleFormatExpanded !== false,
         scenes: ensureUniqueSceneIds(data.scenes),
       };
       setProjects([migrated]);
@@ -19254,6 +19260,17 @@ function Home() {
                   <small>Track đầu tiên được dùng để tạo phụ đề; tất cả track đang hiện sẽ được phát và render.</small>
                 </div>
               </div>
+              {subtitleAlignState.sceneId === scene.id && subtitleAlignState.status === "running" && (
+                <div className="subtitle-align-progress" role="status" aria-live="polite">
+                  <div className="subtitle-align-progress-heading">
+                    <span>{subtitleAlignState.message || "Đang tạo phụ đề…"}</span>
+                    <b>{Math.round(Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0)))}%</b>
+                  </div>
+                  <div className="subtitle-align-progress-track" aria-hidden="true">
+                    <i style={{ width: `${Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0))}%` }} />
+                  </div>
+                </div>
+              )}
               {sceneAudioTracks.length ? (
                 <div className="scene-audio-list">
                   {sceneAudioTracks.map((track, index) => {
@@ -19396,7 +19413,9 @@ function Home() {
                                 title={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
                                 aria-label={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
                               >
-                                {subtitleGenerationTrackId === track.id ? "Đang tạo…" : "✨ Tạo phụ đề"}
+                                {subtitleGenerationTrackId === track.id
+                                  ? `Đang tạo ${Math.round(Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0)))}%`
+                                  : "✨ Tạo phụ đề"}
                               </button>
                               <button
                                 type="button"

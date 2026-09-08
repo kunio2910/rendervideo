@@ -311,6 +311,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /startSubtitleDrag/);
   assert.match(page, /scene-audio-subtitle-panel/);
   assert.match(page, /Phụ đề của âm thanh này/);
+  assert.match(page, /subtitle-align-progress/);
+  assert.match(page, /subtitleFormatExpanded/);
+  assert.match(page, /subtitleFormatExpanded: project\.subtitleFormatExpanded !== false/);
   assert.match(css, /\.subtitle-track/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
