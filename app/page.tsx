@@ -191,6 +191,8 @@ type SceneImage = {
   name: string;
   url: string;
   mediaType: "image" | "video";
+  previewVideo: boolean;
+  previewVideoLoop: boolean;
   spriteSheet: boolean;
   spriteDelay: number;
   transparent: boolean;
@@ -1455,6 +1457,41 @@ const isVideoMedia = (value: unknown) => {
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
+const holdPreviewVideoLastFrame = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+  const video = event.currentTarget;
+  if (video.loop || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  video.pause();
+  // Seek a fraction before duration so browsers keep the final decoded frame
+  // visible instead of replacing an ended video with a black rectangle.
+  const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+  if (Math.abs(video.currentTime - finalFrameTime) > 0.01) {
+    video.currentTime = finalFrameTime;
+  }
+};
+
+const syncPreviewVideoToTimeline = (
+  video: HTMLVideoElement,
+  imageStart: number,
+  localTime: number,
+  shouldPlay: boolean,
+) => {
+  if (!Number.isFinite(video.duration) || video.duration <= 0) {
+    if (!shouldPlay) video.pause();
+    return;
+  }
+  const elapsed = Math.max(0, localTime - imageStart);
+  const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+  const targetTime = Math.min(elapsed, finalFrameTime);
+  if (Math.abs(video.currentTime - targetTime) > 0.05 || video.ended) {
+    video.currentTime = targetTime;
+  }
+  if (shouldPlay && elapsed < video.duration) {
+    void video.play().catch(() => undefined);
+  } else {
+    video.pause();
+  }
+};
+
 const isTransparentMedia = (value: unknown) => {
   const normalized = safeTrim(value).toLowerCase();
   return /\.(png|apng|gif|webp|webm)(?:[?#].*)?$/.test(normalized)
@@ -2299,6 +2336,8 @@ const defaultSceneImage = (
   name: "Hình ảnh",
   url: "",
   mediaType: "image",
+  previewVideo: false,
+  previewVideoLoop: false,
   spriteSheet: false,
   spriteDelay: 180,
   transparent: false,
@@ -2354,6 +2393,10 @@ const normalizeSceneImage = (
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
+    // Video URLs should be previewed by default, while an explicitly saved
+    // false value still respects the user's choice to keep the video paused.
+    previewVideo: typeof raw.previewVideo === "boolean" ? raw.previewVideo : mediaType === "video",
+    previewVideoLoop: raw.previewVideoLoop === true,
     spriteSheet: raw.spriteSheet === true,
     spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
     transparent: typeof raw.transparent === "boolean"
@@ -4984,6 +5027,8 @@ function Home() {
   const workspaceBackupFileInput = useRef<HTMLInputElement | null>(null);
   const narrationAudio = useRef<HTMLAudioElement | null>(null);
   const sceneAudioPlayers = useRef<Array<{ audio: HTMLAudioElement; startTimer?: number; stopTimer?: number }>>([]);
+  const previewImageVideos = useRef<Record<string, HTMLVideoElement | null>>({});
+  const sceneStructureImageVideos = useRef<Record<string, HTMLVideoElement | null>>({});
   const playTimeRef = useRef(playTime);
   const backgroundMusicAudio = useRef<HTMLAudioElement | null>(null);
   const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -5239,6 +5284,10 @@ function Home() {
     sceneDuration,
     Math.max(0, Math.min(sceneTimelineDuration, playTime) - scene.start),
   );
+  const holdsFinalPreviewFrame = previewPlaybackMode
+    && !playing
+    && playTime >= sceneTimelineDuration
+    && scene.id === visibleScenes.at(-1)?.id;
   const weatherEffectsAtTime = (type: SceneWeatherEffectType) => {
     if (!previewEffectsVisible) return [];
     // In edit mode, and after pausing a preview, keep every enabled effect
@@ -5362,7 +5411,10 @@ function Home() {
   useEffect(() => {
     const video = backgroundVideoRef.current;
     if (playing || !video || !backgroundVideoPreviewSource) return;
-    if (Number.isFinite(video.duration)) video.currentTime = sceneLocalTime;
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      const finalFrameTime = Math.max(0, video.duration - Math.min(0.05, video.duration / 2));
+      video.currentTime = Math.min(sceneLocalTime, finalFrameTime);
+    }
     video.pause();
   }, [backgroundVideoPreviewSource, playing, scene.id, sceneLocalTime]);
   useEffect(() => {
@@ -5379,7 +5431,10 @@ function Home() {
     ? Math.min(1, Math.max(0, playTime / sceneTimelineDuration))
     : 0;
   const sceneIsVisibleInPlayback = sceneStructurePreviewMode || !previewPlaybackMode || visibleScenes.some((item) =>
-    item.id === scene.id && playTime >= item.start && playTime < item.end,
+    item.id === scene.id && (
+      (playTime >= item.start && playTime < item.end)
+      || (holdsFinalPreviewFrame && item.id === visibleScenes.at(-1)?.id)
+    ),
   );
   const textOverlayTiming = (overlay: TextOverlay) => {
     const start = Math.min(sceneDuration, Math.max(0, Number(overlay.start) || 0));
@@ -5484,7 +5539,7 @@ function Home() {
           return image.visible !== false
             && Boolean(safeTrim(image.url))
             && sceneLocalTime >= start
-            && sceneLocalTime < end;
+            && (sceneLocalTime < end || (holdsFinalPreviewFrame && end >= sceneDuration && sceneLocalTime <= end));
         })
       : sceneImages.filter((image) => image.editorVisible !== false && image.visible !== false && Boolean(safeTrim(image.url)))
     : [];
@@ -7064,13 +7119,15 @@ function Home() {
           setPlaying(false);
           return;
         }
-        const firstScene = visibleScenes[0];
-        setPlayTime(firstScene?.start ?? 0);
+        const lastScene = visibleScenes.at(-1);
+        setPlayTime(sceneTimelineDuration);
         setPlaying(false);
-        setPreviewPlaybackMode(false);
-        if (firstScene) {
-          setSelectedId(firstScene.id);
-          setSelectedSceneIds([firstScene.id]);
+        // Keep preview mode active at the end so media elements remain mounted
+        // and can display their final decoded frame instead of resetting to 0.
+        setPreviewPlaybackMode(true);
+        if (lastScene) {
+          setSelectedId(lastScene.id);
+          setSelectedSceneIds([lastScene.id]);
         }
         setSelectedPopupId("");
         setSelectedTextOverlayId("");
@@ -7115,6 +7172,39 @@ function Home() {
     scenes,
     visibleScenes,
   ]);
+
+  useEffect(() => {
+    const imageById = new Map(sceneImages.map((image) => [image.id, image]));
+    Object.entries(previewImageVideos.current).forEach(([imageId, video]) => {
+      if (!video) {
+        delete previewImageVideos.current[imageId];
+        return;
+      }
+      const image = imageById.get(imageId);
+      if (!image || image.previewVideo !== true || !previewPlaybackMode) {
+        video.pause();
+        return;
+      }
+      syncPreviewVideoToTimeline(video, image.start, sceneLocalTime, playing);
+    });
+  }, [playing, playbackRestartToken, previewPlaybackMode, scene.id]);
+
+  useEffect(() => {
+    if (!sceneStructureOpen) return;
+    const imageById = new Map(sceneStructureImages.map((image) => [image.id, image]));
+    Object.entries(sceneStructureImageVideos.current).forEach(([imageId, video]) => {
+      if (!video) {
+        delete sceneStructureImageVideos.current[imageId];
+        return;
+      }
+      const image = imageById.get(imageId);
+      if (!image || image.previewVideo !== true || !sceneStructurePreviewMode) {
+        video.pause();
+        return;
+      }
+      syncPreviewVideoToTimeline(video, image.start, sceneStructureLocalTime, playing);
+    });
+  }, [sceneStructureOpen, sceneStructurePreviewMode, playing, playbackRestartToken, sceneStructureScene.id]);
 
   useEffect(() => {
     sceneAudioPlayers.current.forEach(({ audio, startTimer, stopTimer }) => {
@@ -10129,6 +10219,7 @@ function Home() {
 
   const updateSceneImageUrl = (url: string) => {
     const imageId = activeSceneImage?.id;
+    const nextIsVideo = isVideoMedia(url);
     if (imageId) {
       setSceneImageSpriteDelayDrafts((items) => {
         if (!(imageId in items)) return items;
@@ -10145,7 +10236,8 @@ function Home() {
       setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
     }
     updateSceneImage("url", url);
-    updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("mediaType", nextIsVideo ? "video" : "image");
+    updateSceneImage("previewVideo", nextIsVideo);
     updateSceneImage("spriteSheet", false);
     updateSceneImage("transparent", isTransparentMedia(url));
   };
@@ -15785,6 +15877,9 @@ function Home() {
   ) => {
     const staticFrame = options.staticFrame === true;
     const previewIsPlaying = !staticFrame && playing;
+    const holdsSceneStructureFinalFrame = sceneStructurePreviewMode
+      && !previewIsPlaying
+      && localTime >= sceneStructureDuration;
     const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
     const liveSubtitle = sceneStructureSubtitleAtTime(localTime);
     const liveSubtitleStart = liveSubtitle
@@ -15806,7 +15901,9 @@ function Home() {
           .filter((image) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
             const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
-            return localTime >= start && localTime < end;
+            return localTime >= start
+              && (localTime < end
+                || (holdsSceneStructureFinalFrame && end >= sceneStructureDuration && localTime <= end));
           })
           .map((image) => image.id)
         : [],
@@ -15829,7 +15926,7 @@ function Home() {
         {previewImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
-              key={`${sceneStructureBackgroundSource}-${previewIsPlaying ? "playing" : "paused"}`}
+              key={sceneStructureBackgroundSource}
               className="project-background"
               src={sceneStructureBackgroundSource}
               muted
@@ -15944,7 +16041,7 @@ function Home() {
               : undefined;
             return (
               <div
-                key={`live-image-${image.id}`}
+                key={`live-image-${image.id}-${image.previewVideo === true ? "video" : "still"}`}
                 className={`scene-image-overlay scene-structure-live-layer scene-image-shape-${image.shape}`}
                 style={{
                   left: `${image.x}%`,
@@ -15962,7 +16059,21 @@ function Home() {
                 }}
               >
                 {imageSource && imageIsVideo
-                  ? <video src={imageSource} autoPlay={previewIsPlaying} loop muted playsInline preload="metadata" />
+                  ? <video
+                      ref={(video) => {
+                        sceneStructureImageVideos.current[image.id] = video;
+                      }}
+                      src={imageSource}
+                      autoPlay={image.previewVideo === true && previewIsPlaying}
+                      loop={image.previewVideoLoop === true}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={(event) => {
+                        syncPreviewVideoToTimeline(event.currentTarget, image.start, localTime, previewIsPlaying);
+                      }}
+                      onEnded={holdPreviewVideoLastFrame}
+                    />
                   : imageSource
                     ? <img src={imageSource} alt="" draggable={false} />
                     : <span>Chưa có media</span>}
@@ -17273,8 +17384,22 @@ function Home() {
                   aria-label="Hình ảnh trên bản đồ. Kéo để di chuyển."
                   onPointerDown={(event) => startSceneImageDrag(event, image.id)}
                 >
-                  {imageSource && imageIsVideo
-                    ? <video src={imageSource} autoPlay loop muted playsInline preload="metadata" />
+                {imageSource && imageIsVideo
+                  ? <video
+                      ref={(video) => {
+                        previewImageVideos.current[image.id] = video;
+                      }}
+                      src={imageSource}
+                      autoPlay={image.previewVideo === true && playing}
+                      loop={image.previewVideoLoop === true}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={(event) => {
+                        syncPreviewVideoToTimeline(event.currentTarget, image.start, sceneLocalTime, playing);
+                      }}
+                      onEnded={holdPreviewVideoLastFrame}
+                    />
                     : imageSource
                       ? <img src={imageSource} alt="" draggable={false} />
                       : <span>Chưa có media</span>}
@@ -17962,6 +18087,30 @@ function Home() {
                             <input type="checkbox" checked={activeSceneImage.transparent} onChange={(event) => updateSceneImage("transparent", event.target.checked)} />
                             <span />
                             Giữ nền trong suốt cho lớp media
+                          </label>
+                        )}
+                        {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle scene-image-preview-video-toggle">
+                            <input
+                              type="checkbox"
+                              checked={activeSceneImage.previewVideo === true}
+                              onChange={(event) => updateSceneImage("previewVideo", event.target.checked)}
+                            />
+                            <span />
+                            Chạy video khi xem thử
+                            <small>Mặc định bật khi URL là video; chỉ áp dụng cho Xem thử/Review.</small>
+                          </label>
+                        )}
+                        {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
+                          <label className="popup-transparent-toggle scene-image-preview-video-toggle">
+                            <input
+                              type="checkbox"
+                              checked={activeSceneImage.previewVideoLoop === true}
+                              onChange={(event) => updateSceneImage("previewVideoLoop", event.target.checked)}
+                            />
+                            <span />
+                            Lặp video khi xem thử và render
+                            <small>Video sẽ tự dừng ở frame cuối trong xem thử và render nếu không bật tùy chọn này.</small>
                           </label>
                         )}
                       </EditorFieldGroup>

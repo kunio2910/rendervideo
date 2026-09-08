@@ -2505,7 +2505,10 @@ for (let index = 0; index < scenes.length; index += 1) {
       filter += `[${imageLayerLabel}]${imageTransitionFilter}format=rgba[${transitionedLabel}];`;
       imageLayerLabel = transitionedLabel;
     }
-    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':enable='gte(t,${imageStart})*lt(t,${imageEnd})'[sceneImageComposed${imageIndex}];`;
+    // Match the browser preview for video layers: when looping is disabled,
+    // let the source reach EOF and explicitly repeat its last decoded frame
+    // until the layer's configured end instead of replaying from frame 0.
+    filter += `${composedLabel}[${imageLayerLabel}]overlay=x='${imageOverlayX}':y='main_h*${imageY}-overlay_h/2':eof_action=repeat:repeatlast=1:enable='gte(t,${imageStart})*lt(t,${imageEnd})'[sceneImageComposed${imageIndex}];`;
     composedLabel = `[sceneImageComposed${imageIndex}]`;
   };
   const appendDecorationLayer = (decorationIndex) => {
@@ -2829,10 +2832,14 @@ for (let index = 0; index < scenes.length; index += 1) {
       addInputForDuration(decorationInputDuration, "-loop", "1", "-i", decoration.path);
     }
   });
-  sceneImageRenders.forEach(({ rendered: image }, imageIndex) => {
+  sceneImageRenders.forEach(({ scene: sceneImage, rendered: image }, imageIndex) => {
     if (image.animated) {
       if (image.frameSequence) {
         addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", image.path);
+      } else if (image.video && sceneImage.previewVideoLoop !== true) {
+        // A non-looping video must be allowed to end naturally. The overlay
+        // filter keeps the last frame visible for the rest of the layer.
+        addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-i", image.path);
       } else {
         addInputForDuration(sceneImageInputDurations[imageIndex] ?? duration, "-stream_loop", "-1", "-i", image.path);
       }

@@ -201,6 +201,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /<NumericInput min=\{1\} max=\{200\} step=\{1\} value=\{activeSceneImage\.height\}/);
   assert.match(page, /event\.currentTarget\.select\(\)/);
   assert.match(page, /isVideoMedia/);
+  assert.match(page, /previewVideo: typeof raw\.previewVideo === "boolean" \? raw\.previewVideo : mediaType === "video"/);
+  assert.match(page, /updateSceneImage\("previewVideo", nextIsVideo\)/);
   assert.match(page, /backgroundVideoPreviewSource/);
   assert.match(page, /background-media-preview/);
   assert.match(page, /startPopupDrag/);
@@ -269,7 +271,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /selectAdjacentScene/);
   assert.match(page, /preview-navigation/);
   assert.match(page, /preview-zoom-control/);
-  assert.match(page, /style=\{\{ zoom: sceneStructurePreviewMode \? 1 : previewZoom \/ 100 \}\}/);
+  assert.match(page, /transform: sceneStructurePreviewMode \? "none" : `scale\(\$\{previewZoom \/ 100\}\)`/);
   assert.match(page, /value: "info", label: "Thông tin"/);
   assert.match(page, /const sceneStructureItemNameValue/);
   assert.match(page, /const updateSceneStructureItemName/);
@@ -287,7 +289,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneStructurePreviewMode && sceneStructureLocalTime >= item\.start/);
   assert.match(page, /backgroundName/);
   assert.match(page, /zoomName/);
-  assert.match(page, /replayPlayback/);
+  assert.match(page, /holdPreviewVideoLastFrame/);
   assert.match(page, /preview-replay-button/);
   assert.match(page, /type SubtitleCue/);
   assert.match(page, /const subtitleAudioTrackForCue/);
@@ -456,7 +458,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /sceneStructureLibraryCollapsed/);
   assert.match(page, /sceneStructureInspectorCollapsed/);
   assert.match(page, /data-editor-section="layer"/);
-  assert.match(page, /<span>08<\/span><strong>Layer<\/strong>/);
+  assert.match(page, /<span>01<\/span><strong>Layer<\/strong>/);
   assert.match(page, /renderPreviewLayerPanel/);
   assert.doesNotMatch(page, /<aside className="preview-layer-panel"/);
   assert.match(page, /const storedLayerTokens = new Set/);
@@ -576,9 +578,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /availableContentWidth/);
   assert.match(renderer, /popupImageHeight/);
   assert.match(renderer, /popupContentHeight/);
-  assert.match(renderer, /textBlurSharpSource/);
-  assert.match(renderer, /alpha\(X,Y\)\*\(1-\(/);
-  assert.match(renderer, /alpha\(X,Y\)\*\(/);
+  assert.match(renderer, /textBlurSource/);
+  assert.match(renderer, /blend=/);
+  assert.match(renderer, /all_expr='A\*\(1-\(/);
   assert.match(renderer, /const animatedStickerSize = Math\.max\(1, Math\.round\(previewPx\(220\)\)\)/);
   assert.match(renderer, /const ffmpegMediaFit = \(width, height, fit = "cover"\)/);
   assert.match(renderer, /force_original_aspect_ratio=decrease,pad=\$\{width\}:\$\{height\}/);
@@ -631,7 +633,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /renderSceneWeatherAppearanceControls/);
   assert.match(page, /movementMode/);
   assert.match(page, /Mật độ hạt/);
-  assert.match(page, /max=\{500\}/);
+  assert.match(page, /max=\{1000\}/);
   assert.match(page, /weatherAnimationStyle/);
   assert.match(page, /startWeatherEffectMove/);
   assert.match(page, /startWeatherEffectRotate/);
@@ -647,7 +649,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /effect\.opacity/);
   assert.match(renderer, /effect\.movementAngle/);
   assert.match(renderer, /effect\.density/);
-  assert.match(renderer, /clamp\(numberOr\(candidate\.density, definition\.density\), 10, 500\)/);
+  assert.match(renderer, /clamp\(numberOr\(candidate\.density, definition\.density\), 10, 1000\)/);
   assert.match(renderer, /weatherEffectCycle/);
   assert.match(renderer, /effect\.offsetX/);
   assert.match(renderer, /effect\.offsetY/);
@@ -665,7 +667,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /overlay=/);
   assert.match(renderer, /overlayPhase = weatherEffectPhase/);
   assert.match(renderer, /label: `lightFlicker\$\{effectIndex\}`/);
-  assert.match(renderer, /filter \+= `\$\{composedLabel\}copy\[composed\]`/);
+  assert.match(renderer, /lightFlickerRegion/);
   assert.match(renderer, /backgroundMusicVolume/);
   assert.match(renderer, /scene\.voiceVolume/);
   assert.doesNotMatch(renderer, /createZoomMarker|markerEffects|zoomMarker/);
@@ -768,7 +770,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /subtitleOffset/);
   assert.match(renderer, /const subtitleAudioStartForRender/);
   assert.match(renderer, /subtitleCueIds: Array\.isArray\(track\.subtitleCueIds\)/);
-  assert.match(renderer, /enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
+  assert.match(renderer, /eof_action=repeat:repeatlast=1:enable='gte\(t,\$\{imageStart\}\)\*lt\(t,\$\{imageEnd\}\)'/);
+  assert.match(renderer, /image\.video && sceneImage\.previewVideoLoop !== true/);
   assert.match(css, /grid-template-columns: minmax\(190px, 253px\)/);
   assert.match(css, /preview-layer-search/);
   assert.match(renderer, /requestedBoxWidth/);
@@ -797,7 +800,7 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /const writeAnimatedImageFrameSequence/);
   assert.match(renderer, /animatedImage = await writeAnimatedImageFrameSequence/);
   assert.match(renderer, /const writeAnimatedWebpFrameSequence/);
-  assert.match(renderer, /addInput\("-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
+  assert.match(renderer, /addInputForDuration\(popupInputDuration, "-stream_loop", "-1", "-f", "concat", "-safe", "0", "-i", popup\.video\)/);
   assert.match(renderer, /scene\.popupLayout/);
   assert.match(renderer, /scene\.popupX/);
   assert.match(renderer, /scene\.popupY/);
