@@ -815,6 +815,8 @@ const server = http.createServer(async (request, response) => {
       });
       const form = await webRequest.formData();
       const text = String(form.get("text") || "").trim();
+      const mode = String(form.get("mode") || "").trim();
+      if (!text && mode !== "audio") throw new Error("Thiếu Lời thuyết minh để tạo phụ đề");
       const audioValue = form.get("audio");
       const audioUrl = String(form.get("audioUrl") || "").trim();
       if (typeof audioValue === "string" && !audioUrl) throw new Error("File audio không hợp lệ");

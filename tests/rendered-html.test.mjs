@@ -815,9 +815,10 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(localServer, /alignSubtitles/);
   assert.match(page, /const generateSubtitlesForAudioTrack = async/);
   assert.match(page, /audioFiles\[sceneAudioTrackKey\(targetSceneId, trackId\)\]/);
+  assert.match(page, /form\.append\("mode", "audio"\)/);
   assert.match(page, /form\.append\("audioUrl", source\)/);
   assert.match(page, /subtitleGenerationTrackId/);
-  assert.doesNotMatch(localServer, /if \(!text\) throw new Error\("Thiếu Lời thuyết minh/);
+  assert.match(localServer, /if \(!text && mode !== "audio"\) throw new Error\("Thiếu Lời thuyết minh/);
   assert.match(subtitleAligner, /if \(!String\(text \?\? ""\)\.trim\(\)\)/);
   assert.match(page, /fileToDataUrl/);
   assert.match(page, /sourceData/);

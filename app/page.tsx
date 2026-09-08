@@ -9753,8 +9753,10 @@ function Home() {
     const targetTrack = sceneAudioTracks[targetTrackIndex];
     if (!targetTrack || targetTrackIndex < 0) return;
     const source = safeTrim(targetTrack.source);
-    const selectedAudio = audioFiles[sceneAudioTrackKey(targetSceneId, trackId)]
-      ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(source));
+    const selectedAudio = isRemoteUrl(source)
+      ? undefined
+      : audioFiles[sceneAudioTrackKey(targetSceneId, trackId)]
+        ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(source));
     if (!selectedAudio && !isRemoteUrl(source)) {
       const message = "Hãy chọn file audio hoặc nhập URL audio hợp lệ cho âm thanh này trước khi tạo phụ đề";
       setToast(message);
@@ -9777,6 +9779,7 @@ function Home() {
     let progressTimer: number | null = null;
     try {
       const form = new FormData();
+      form.append("mode", "audio");
       form.append("duration", String(trackDuration));
       if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
       else form.append("audioUrl", source);
