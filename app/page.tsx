@@ -1800,6 +1800,7 @@ type StoredProject = {
   editorSections?: EditorSectionState;
   effectPanelCollapsed?: Record<string, boolean>;
   expandedAudioSubtitleTracks?: Record<string, boolean>;
+  subtitleFormatExpanded?: boolean;
   sceneStructureLibraryCollapsed?: boolean;
   sceneStructureInspectorCollapsed?: boolean;
   previewZoom?: number;
@@ -2393,7 +2394,9 @@ const normalizeSceneImage = (
     name: String(raw.name ?? base.name).trim() || base.name,
     url,
     mediaType,
-    previewVideo: raw.previewVideo === true,
+    // Video URLs should be previewed by default, while an explicitly saved
+    // false value still respects the user's choice to keep the video paused.
+    previewVideo: typeof raw.previewVideo === "boolean" ? raw.previewVideo : mediaType === "video",
     previewVideoLoop: raw.previewVideoLoop === true,
     spriteSheet: raw.spriteSheet === true,
     spriteDelay: Math.min(1000, Math.max(60, positiveNumber(raw.spriteDelay, base.spriteDelay, 60))),
@@ -4912,6 +4915,7 @@ function Home() {
     progress?: number;
   }>({ status: "idle", sceneId: "", message: "", progress: 0 });
   const [subtitleImportBusy, setSubtitleImportBusy] = useState(false);
+  const [subtitleGenerationTrackId, setSubtitleGenerationTrackId] = useState("");
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
@@ -6520,6 +6524,7 @@ function Home() {
       editorSections,
       effectPanelCollapsed,
       expandedAudioSubtitleTracks,
+      subtitleFormatExpanded,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom: clampPreviewZoom(previewZoom),
@@ -6551,6 +6556,7 @@ function Home() {
       editorSections,
       effectPanelCollapsed,
       expandedAudioSubtitleTracks,
+      subtitleFormatExpanded,
       sceneStructureLibraryCollapsed,
       sceneStructureInspectorCollapsed,
       previewZoom,
@@ -6625,6 +6631,7 @@ function Home() {
     setExpandedAudioSubtitleTracks(
       normalizeExpandedAudioSubtitleTracks(project.expandedAudioSubtitleTracks),
     );
+    setSubtitleFormatExpanded(project.subtitleFormatExpanded !== false);
     setScenes(restoredScenes);
     const preferredSelectedId = preserveHistory ? preservedSelectedId : safeTrim(project.activeSceneId);
     const restoredSelectedScene = restoredScenes.find((item) => item.id === preferredSelectedId)
@@ -6674,6 +6681,7 @@ function Home() {
         renderEncoder: normalizeRenderEncoder(project.renderEncoder),
         editorSections: normalizeEditorSections(project.editorSections),
         effectPanelCollapsed: normalizeEffectPanelCollapsed(project.effectPanelCollapsed),
+        subtitleFormatExpanded: project.subtitleFormatExpanded !== false,
         previewZoom: clampPreviewZoom(project.previewZoom),
         previewEffectsVisible: project.previewEffectsVisible !== false,
         previewTikTokSettings: normalizePreviewTikTokSettings(project.previewTikTokSettings),
@@ -6714,6 +6722,7 @@ function Home() {
         previewTikTokSettings: normalizePreviewTikTokSettings(data.previewTikTokSettings),
         editorSections: normalizeEditorSections(data.editorSections),
         effectPanelCollapsed: normalizeEffectPanelCollapsed(data.effectPanelCollapsed),
+        subtitleFormatExpanded: data.subtitleFormatExpanded !== false,
         scenes: ensureUniqueSceneIds(data.scenes),
       };
       setProjects([migrated]);
@@ -9743,6 +9752,116 @@ function Home() {
     }
   };
 
+  const generateSubtitlesForAudioTrack = async (trackId: string) => {
+    if (!scene || !hydrated || subtitleImportBusy || subtitleAlignState.status === "running") return;
+    const targetSceneId = scene.id;
+    const targetTrackIndex = sceneAudioTracks.findIndex((track) => track.id === trackId);
+    const targetTrack = sceneAudioTracks[targetTrackIndex];
+    if (!targetTrack || targetTrackIndex < 0) return;
+    const source = safeTrim(targetTrack.source);
+    const selectedAudio = isRemoteUrl(source)
+      ? undefined
+      : audioFiles[sceneAudioTrackKey(targetSceneId, trackId)]
+        ?? localRenderFiles.find((file) => fileNameOnly(file.name) === fileNameOnly(source));
+    if (!selectedAudio && !isRemoteUrl(source)) {
+      const message = "Hãy chọn file audio hoặc nhập URL audio hợp lệ cho âm thanh này trước khi tạo phụ đề";
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3200);
+      return;
+    }
+    const trackDuration = Math.max(0.1, Number(targetTrack.end) - Number(targetTrack.start));
+    const existingCues = sceneAudioSubtitles(targetTrack, scene.subtitles ?? [], targetTrackIndex, sceneAudioTracks);
+    if (existingCues.length > 0
+      && !window.confirm(`Tạo phụ đề tự động sẽ thay thế ${existingCues.length} phụ đề của “${safeTrim(targetTrack.name) || `Âm thanh ${targetTrackIndex + 1}`}”. Tiếp tục?`)) {
+      return;
+    }
+    setSubtitleGenerationTrackId(trackId);
+    setSubtitleAlignState({
+      status: "running",
+      sceneId: targetSceneId,
+      message: `Đang nghe ${safeTrim(targetTrack.name) || `âm thanh ${targetTrackIndex + 1}`} và tạo timestamp…`,
+      progress: 5,
+    });
+    let progressTimer: number | null = null;
+    try {
+      const form = new FormData();
+      form.append("mode", "audio");
+      form.append("duration", String(trackDuration));
+      if (selectedAudio) form.append("audio", selectedAudio, selectedAudio.name);
+      else form.append("audioUrl", source);
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 12 }
+        : current);
+      progressTimer = window.setInterval(() => {
+        setSubtitleAlignState((current) => {
+          if (current.status !== "running" || current.sceneId !== targetSceneId) return current;
+          return { ...current, progress: Math.min(92, (current.progress ?? 0) + 2) };
+        });
+      }, 500);
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/align-subtitles`, {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Không thể tạo phụ đề từ audio");
+      setSubtitleAlignState((current) => current.sceneId === targetSceneId
+        ? { ...current, progress: 96 }
+        : current);
+      const generated = Array.isArray(result.cues) ? result.cues : [];
+      if (!generated.length) throw new Error("Không nhận được cue phụ đề từ audio");
+      const autoPrefix = `${targetSceneId}-${trackId}-subtitle-auto-${Date.now().toString(36)}`;
+      const generatedCues = generated.map((cue: Partial<SubtitleCue>, index: number) => normalizeSubtitleCue(
+        {
+          ...cue,
+          id: `${autoPrefix}-${index + 1}`,
+        },
+        `${autoPrefix}-${index + 1}`,
+        trackDuration,
+      ));
+      const oldCueIds = new Set(existingCues.map((cue) => cue.id));
+      const legacyCueIds = !sceneAudioTracks.some((track) => Array.isArray(track.subtitleCueIds))
+        && targetTrackIndex > 0
+        ? (scene.subtitles ?? []).map((cue) => cue.id)
+        : [];
+      setScenes((items) => items.map((item) => {
+        if (item.id !== targetSceneId) return item;
+        const itemTracks = Array.isArray(item.audioTracks) ? item.audioTracks : [];
+        const nextTracks = itemTracks.map((track, index) => {
+          if (track.id === trackId) return { ...track, subtitleCueIds: generatedCues.map((cue) => cue.id) };
+          if (index === 0 && legacyCueIds.length > 0 && !Array.isArray(track.subtitleCueIds)) {
+            return { ...track, subtitleCueIds: legacyCueIds };
+          }
+          return track;
+        });
+        return syncLegacyVoiceFields({
+          ...item,
+          subtitleEnabled: true,
+          subtitles: [
+            ...(item.subtitles ?? []).filter((cue) => !oldCueIds.has(cue.id)),
+            ...generatedCues,
+          ],
+        }, nextTracks);
+      }));
+      const engineMessage = result.engine === "whisper"
+        ? "Whisper đã nhận dạng audio"
+        : "đã tạo timestamp theo nhịp audio dự phòng";
+      const message = `Đã tạo ${generatedCues.length} cue cho ${safeTrim(targetTrack.name) || `âm thanh ${targetTrackIndex + 1}`}; ${engineMessage}.`;
+      setSubtitleAlignState({ status: "success", sceneId: targetSceneId, message, progress: 100 });
+      setPlayTime(Number((scene.start + targetTrack.start + generatedCues[0].start).toFixed(2)));
+      setPlaying(false);
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo phụ đề từ audio";
+      setSubtitleAlignState({ status: "error", sceneId: targetSceneId, message, progress: 0 });
+      setToast(message);
+      window.setTimeout(() => setToast(""), 3600);
+    } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
+      setSubtitleGenerationTrackId("");
+    }
+  };
+
   const updateSubtitleStyle = <K extends keyof SubtitleStyle>(
     key: K,
     value: SubtitleStyle[K],
@@ -10217,6 +10336,7 @@ function Home() {
 
   const updateSceneImageUrl = (url: string) => {
     const imageId = activeSceneImage?.id;
+    const nextIsVideo = isVideoMedia(url);
     if (imageId) {
       setSceneImageSpriteDelayDrafts((items) => {
         if (!(imageId in items)) return items;
@@ -10233,7 +10353,8 @@ function Home() {
       setSceneImageSpriteNotice({ imageId, status: "idle", message: "" });
     }
     updateSceneImage("url", url);
-    updateSceneImage("mediaType", isVideoMedia(url) ? "video" : "image");
+    updateSceneImage("mediaType", nextIsVideo ? "video" : "image");
+    updateSceneImage("previewVideo", nextIsVideo);
     updateSceneImage("spriteSheet", false);
     updateSceneImage("transparent", isTransparentMedia(url));
   };
@@ -18094,7 +18215,7 @@ function Home() {
                             />
                             <span />
                             Chạy video khi xem thử
-                            <small>Chỉ áp dụng cho Preview/Review, không ảnh hưởng render.</small>
+                            <small>Mặc định bật khi URL là video; chỉ áp dụng cho Xem thử/Review.</small>
                           </label>
                         )}
                         {(activeSceneImage.mediaType === "video" || isVideoMedia(activeSceneImage.url)) && (
@@ -18105,8 +18226,8 @@ function Home() {
                               onChange={(event) => updateSceneImage("previewVideoLoop", event.target.checked)}
                             />
                             <span />
-                            Lặp video khi xem thử
-                            <small>Video sẽ tự dừng ở cuối nếu không bật tùy chọn này.</small>
+                            Lặp video khi xem thử và render
+                            <small>Video sẽ tự dừng ở frame cuối trong xem thử và render nếu không bật tùy chọn này.</small>
                           </label>
                         )}
                       </EditorFieldGroup>
@@ -19139,6 +19260,17 @@ function Home() {
                   <small>Track đầu tiên được dùng để tạo phụ đề; tất cả track đang hiện sẽ được phát và render.</small>
                 </div>
               </div>
+              {subtitleAlignState.sceneId === scene.id && subtitleAlignState.status === "running" && (
+                <div className="subtitle-align-progress" role="status" aria-live="polite">
+                  <div className="subtitle-align-progress-heading">
+                    <span>{subtitleAlignState.message || "Đang tạo phụ đề…"}</span>
+                    <b>{Math.round(Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0)))}%</b>
+                  </div>
+                  <div className="subtitle-align-progress-track" aria-hidden="true">
+                    <i style={{ width: `${Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0))}%` }} />
+                  </div>
+                </div>
+              )}
               {sceneAudioTracks.length ? (
                 <div className="scene-audio-list">
                   {sceneAudioTracks.map((track, index) => {
@@ -19272,6 +19404,18 @@ function Home() {
                                 aria-label={isAudioSubtitlePanelExpanded(track.id) ? "Thu gọn phụ đề của âm thanh" : "Xổ phụ đề của âm thanh"}
                               >
                                 {isAudioSubtitlePanelExpanded(track.id) ? "−" : "+"}
+                              </button>
+                              <button
+                                type="button"
+                                className="button subtitle-add-button subtitle-auto-button"
+                                onClick={() => void generateSubtitlesForAudioTrack(track.id)}
+                                disabled={subtitleImportBusy || subtitleAlignState.status === "running" || !safeTrim(track.source)}
+                                title={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
+                                aria-label={`Tạo phụ đề tự động từ ${safeTrim(track.name) || `âm thanh ${index + 1}`}`}
+                              >
+                                {subtitleGenerationTrackId === track.id
+                                  ? `Đang tạo ${Math.round(Math.min(100, Math.max(0, subtitleAlignState.progress ?? 0)))}%`
+                                  : "✨ Tạo phụ đề"}
                               </button>
                               <button
                                 type="button"

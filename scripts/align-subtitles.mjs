@@ -167,6 +167,9 @@ export const alignSubtitles = async ({ text, audioPath, workDir, requestedDurati
       warning: "Whisper đã tạo timestamp; hãy rà soát lại từng cue trước khi render.",
     };
   } catch (error) {
+    if (!String(text ?? "").trim()) {
+      throw new Error(`Whisper chưa sẵn sàng để nhận dạng trực tiếp audio (${error instanceof Error ? error.message : "lỗi không xác định"})`);
+    }
     const fallback = fallbackCues(text, targetDuration, detected.windows.map(([start, end]) => [start * targetDuration / audioDuration, end * targetDuration / audioDuration]));
     return {
       cues: fallback,

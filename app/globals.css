@@ -12947,7 +12947,7 @@ body {
 .scene-audio-subtitle-heading > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .scene-audio-subtitle-heading strong { color: #6e3f21; font-size: 10px; }
 .scene-audio-subtitle-heading small { color: #9b7b5c; font-size: 8px; line-height: 1.35; }
-.scene-audio-subtitle-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.scene-audio-subtitle-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
 .scene-audio-subtitle-toggle { width: 26px; height: 26px; padding: 0; border: 1px solid #d7b27d; border-radius: 6px; background: #fffaf1; color: #6e3f21; cursor: pointer; font: 700 18px/1 var(--font-mono); }
 .scene-audio-subtitle-toggle:hover, .scene-audio-subtitle-toggle:focus-visible { border-color: #b8792e; background: #fff1d6; }
 .scene-audio-subtitle-panel.is-collapsed { gap: 0; }
