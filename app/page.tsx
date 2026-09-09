@@ -16062,7 +16062,7 @@ function Home() {
                       src={imageSource}
                       autoPlay={image.previewVideo === true && previewIsPlaying}
                       loop={image.previewVideoLoop === true}
-                      muted
+                      muted={previewAudioMuted}
                       playsInline
                       preload="metadata"
                       onLoadedMetadata={(event) => {
@@ -16845,7 +16845,7 @@ function Home() {
                 className={`preview-audio-toggle ${previewAudioMuted ? "muted" : ""}`}
                 aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
                 aria-pressed={previewAudioMuted}
-                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh, video và nhạc nền" : "Tắt âm thanh của tất cả cảnh, video và nhạc nền"}
                 onClick={togglePreviewAudio}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17090,7 +17090,7 @@ function Home() {
                 className={`preview-tool-sidebar-button ${previewAudioMuted ? "active" : ""}`}
                 aria-label={previewAudioMuted ? "Bật âm thanh xem trước" : "Tắt âm thanh xem trước"}
                 aria-pressed={previewAudioMuted}
-                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh và nhạc nền" : "Tắt âm thanh của tất cả cảnh và nhạc nền"}
+                title={previewAudioMuted ? "Bật âm thanh của tất cả cảnh, video và nhạc nền" : "Tắt âm thanh của tất cả cảnh, video và nhạc nền"}
                 onClick={togglePreviewAudio}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17388,7 +17388,7 @@ function Home() {
                       src={imageSource}
                       autoPlay={image.previewVideo === true && playing}
                       loop={image.previewVideoLoop === true}
-                      muted
+                      muted={previewAudioMuted}
                       playsInline
                       preload="metadata"
                       onLoadedMetadata={(event) => {

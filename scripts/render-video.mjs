@@ -34,6 +34,12 @@ const frameSequenceCacheDir = path.join(renderCacheDir, "frame-sequences");
 const generatedPngCacheDir = path.join(renderCacheDir, "generated-png");
 const bundledFfmpeg = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffmpeg.exe");
 const ffmpeg = process.env.FFMPEG_PATH || bundledFfmpeg;
+const bundledFfprobe = path.join(root, ".local-renderer", "ffmpeg", "bin", "ffprobe.exe");
+const ffprobe = process.env.FFPROBE_PATH
+  || (process.env.FFMPEG_PATH
+    ? path.join(path.dirname(ffmpeg), process.platform === "win32" ? "ffprobe.exe" : "ffprobe")
+    : bundledFfprobe);
+const mediaAudioProbeCache = new Map();
 
 const renderEncoderModes = ["auto", "cpu", "intel-qsv", "amd-amf", "nvidia-nvenc"];
 const encoderCandidates = {
@@ -71,6 +77,25 @@ const captureProcess = (command, args) => new Promise((resolve) => {
   child.once("error", () => finish(-1));
   child.once("exit", finish);
 });
+
+const mediaHasAudio = async (mediaPath) => {
+  const rawPath = String(mediaPath ?? "").trim();
+  if (!rawPath) return false;
+  const normalizedPath = path.resolve(rawPath);
+  if (!mediaAudioProbeCache.has(normalizedPath)) {
+    mediaAudioProbeCache.set(normalizedPath, (async () => {
+      const result = await captureProcess(ffprobe, [
+        "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        normalizedPath,
+      ]);
+      return result.code === 0 && Boolean(result.output.trim());
+    })());
+  }
+  return mediaAudioProbeCache.get(normalizedPath);
+};
 
 const readAvailableEncoders = async () => {
   const result = await captureProcess(ffmpeg, ["-hide_banner", "-encoders"]);
@@ -1499,7 +1524,17 @@ const createSceneImage = async (image, index) => {
         },
       }).composite([{ input: borderSvg }]).png().toFile(borderPath);
     }
-    return { path: animatedMedia, animated: true, video: mediaType === "video", maskPath, fillPath, borderPath, width, height };
+    return {
+      path: animatedMedia,
+      animated: true,
+      video: mediaType === "video",
+      audio: mediaType === "video" ? await mediaHasAudio(animatedMedia) : false,
+      maskPath,
+      fillPath,
+      borderPath,
+      width,
+      height,
+    };
   }
   const source = await resolveImage(url, `scene-image-${index + 1}`);
   if (!source) return null;
@@ -2865,19 +2900,46 @@ for (let index = 0; index < scenes.length; index += 1) {
       addInput("-f", "lavfi", "-i", specification);
     }
   });
+  // A scene image video is already an FFmpeg input for the visual layer. If
+  // that same input contains an audio stream, reuse it here so the audio is
+  // mixed into the scene without downloading or opening the video twice.
+  const sceneImageAudioSources = sceneImageRenders.flatMap(({ scene: image, rendered: imageRender }, imageIndex) => {
+    if (!imageRender.video || !imageRender.audio) return [];
+    const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
+    const imageEnd = sceneImagePlaybackEnd(imageIndex);
+    return [{
+      inputIndex: sceneImageInputIndices[imageIndex],
+      start: imageStart,
+      end: Math.min(duration, Math.max(imageStart + 0.1, imageEnd)),
+      volume: audioVolume(image.audioVolume, 100),
+    }];
+  });
   const audioInputIndex = subtitleInputStartIndex + subtitleRenders.length + weatherInputSpecs.length;
   if (resolvedSceneAudioTracks.length) {
     resolvedSceneAudioTracks.forEach((track) => addInput("-i", track.path));
-  } else {
+  } else if (!sceneImageAudioSources.length) {
     addInput("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   }
   const voiceDelayFilter = voice && voiceStart > 0
     ? `adelay=${Math.round(voiceStart * 1000)}:all=1,`
     : "";
   let audioMapArgs;
-  if (resolvedSceneAudioTracks.length) {
-    const audioLabels = [];
-    const audioChains = resolvedSceneAudioTracks.map((track, trackIndex) => {
+  const audioLabels = [];
+  const audioChains = [];
+  sceneImageAudioSources.forEach((source, imageIndex) => {
+    const label = `sceneImageAudio${imageIndex}`;
+    const clipDuration = Math.max(0.1, source.end - source.start);
+    const delayFilter = source.start > 0
+      ? `adelay=${Math.round(source.start * 1000)}:all=1,`
+      : "";
+    audioLabels.push(`[${label}]`);
+    audioChains.push(
+      `[${source.inputIndex}:a:0]atrim=start=0:end=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+      `${delayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,` +
+      `volume=${source.volume.toFixed(3)}[${label}]`,
+    );
+  });
+  resolvedSceneAudioTracks.forEach((track, trackIndex) => {
       const inputIndex = audioInputIndex + trackIndex;
       const label = `sceneAudio${trackIndex}`;
       const clipDuration = Math.max(0.1, track.end - track.start);
@@ -2890,9 +2952,12 @@ for (let index = 0; index < scenes.length; index += 1) {
         ? `volume=${voiceVolume.toFixed(3)}`
         : `volume=${track.volume.toFixed(3)}`;
       audioLabels.push(`[${label}]`);
-      return `[${inputIndex}:a:0]atrim=start=0:end=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
-        `${delayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,${volumeFilter}[${label}]`;
+      audioChains.push(
+        `[${inputIndex}:a:0]atrim=start=0:end=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `${delayFilter}aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,${volumeFilter}[${label}]`,
+      );
     });
+  if (audioLabels.length) {
     filter += `;${audioChains.join(";")};${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=duration=${duration}[sceneAudioMixed]`;
     audioMapArgs = ["-map", "[sceneAudioMixed]"];
   } else {
