@@ -331,6 +331,10 @@ type SceneStructureLockState = {
   time?: boolean;
 };
 
+type SceneStructureLinkState = Record<string, boolean>;
+
+const sceneStructureLinkKey = (previousToken: string, nextToken: string) => `${previousToken}→${nextToken}`;
+
 type SceneStructureItem = {
   token: string;
   kind: SceneStructureKind;
@@ -679,6 +683,7 @@ type Scene = {
   sceneImages: SceneImage[];
   layerOrder?: string[];
   sceneStructureLocks?: Record<string, SceneStructureLockState>;
+  sceneStructureLinks?: SceneStructureLinkState;
   subtitleEnabled: boolean;
   subtitleStart: number;
   subtitleStyle: SubtitleStyle;
@@ -14478,6 +14483,31 @@ function Home() {
     setSceneStructureLock(item.token, item.label, kind);
   };
 
+  const isSceneStructureLinkEnabled = (previousItem: SceneStructureItem, nextItem: SceneStructureItem) => (
+    previousItem.timingMode !== "none"
+    && nextItem.timingMode !== "none"
+    && sceneStructureScene.sceneStructureLinks?.[sceneStructureLinkKey(previousItem.token, nextItem.token)] === true
+  );
+
+  const toggleSceneStructureLink = (previousItem: SceneStructureItem, nextItem: SceneStructureItem) => {
+    if (previousItem.timingMode === "none" || nextItem.timingMode === "none") return;
+    const key = sceneStructureLinkKey(previousItem.token, nextItem.token);
+    const nextEnabled = sceneStructureScene.sceneStructureLinks?.[key] !== true;
+    setScenes((items) => items.map((currentScene) => currentScene.id === sceneStructureScene.id
+      ? {
+          ...currentScene,
+          sceneStructureLinks: {
+            ...(currentScene.sceneStructureLinks ?? {}),
+            [key]: nextEnabled,
+          },
+        }
+      : currentScene));
+    setToast(nextEnabled
+      ? `Đã liên kết ${previousItem.label} → ${nextItem.label}`
+      : `Đã hủy liên kết ${previousItem.label} → ${nextItem.label}`);
+    window.setTimeout(() => setToast(""), 2400);
+  };
+
   const updateSceneStructureTimings = (
     updates: Array<{ item: SceneStructureItem; nextStartValue: number; nextEndValue: number }>,
   ) => {
@@ -14505,7 +14535,7 @@ function Home() {
 
     setScenes((items) => items.map((currentScene) => {
       if (currentScene.id !== sceneStructureScene.id) return currentScene;
-      return normalizedUpdates.reduce(
+      const updatedScene = normalizedUpdates.reduce(
         (nextScene, update) => applySceneStructureTimingUpdate(
           nextScene,
           update.item,
@@ -14515,6 +14545,25 @@ function Home() {
         ),
         currentScene,
       );
+      const updatedEndByToken = new Map(normalizedUpdates.map((update) => [update.item.token, update.roundedEnd]));
+      return sceneStructureItems.reduce((nextScene, previousItem, index) => {
+        const nextItem = sceneStructureItems[index + 1];
+        if (!nextItem || !isSceneStructureLinkEnabled(previousItem, nextItem)) return nextScene;
+        const previousEnd = updatedEndByToken.get(previousItem.token);
+        if (previousEnd === undefined) return nextScene;
+        if (sceneStructureLockForToken(nextItem.token).time) return nextScene;
+        const nextDuration = Math.max(0.1, nextItem.end - nextItem.start);
+        const nextStart = Math.min(duration - 0.1, Math.max(0, previousEnd));
+        const nextEnd = Math.min(duration, Math.max(nextStart + 0.1, nextStart + nextDuration));
+        updatedEndByToken.set(nextItem.token, Number(nextEnd.toFixed(2)));
+        return applySceneStructureTimingUpdate(
+          nextScene,
+          nextItem,
+          Number(nextStart.toFixed(2)),
+          Number(nextEnd.toFixed(2)),
+          duration,
+        );
+      }, updatedScene);
     }));
     const primary = normalizedUpdates.find(({ item }) => item.token === selectedSceneStructureItemToken)
       ?? normalizedUpdates[0];
@@ -15053,6 +15102,20 @@ function Home() {
       content = image ? (
         <div className="scene-structure-quick-stack">
           {timingFields}
+          <button
+            type="button"
+            className="button secondary scene-structure-quick-duration-button"
+            disabled={!isVideoMedia(image.url)}
+            title={isVideoMedia(image.url) ? "Lấy độ dài video và cập nhật thời gian kết thúc" : "Ảnh tĩnh không có độ dài nội tại"}
+            onClick={() => {
+              setSceneStructureQuickTimingDrafts((items) => {
+                const next = { ...items };
+                delete next[item.token];
+                return next;
+              });
+              void setSceneImageDurationFromMedia(image);
+            }}
+          >⏱ Lấy độ dài</button>
           <label className="scene-structure-quick-field">
             <span>Tên hình</span>
             <input value={image.name} onChange={(event) => updateSceneStructureQuickImage(image.id, { name: event.target.value })} />
@@ -15277,6 +15340,21 @@ function Home() {
       content = track ? (
         <div className="scene-structure-quick-stack">
           {timingFields}
+          <button
+            type="button"
+            className="button secondary scene-structure-quick-duration-button"
+            disabled={!safeTrim(track.source) || track.timingLinked === true}
+            title={track.timingLinked === true ? "Tắt liên kết thời gian trước khi lấy độ dài" : "Lấy độ dài âm thanh và cập nhật thời gian kết thúc"}
+            onClick={() => {
+              setSceneStructureQuickTimingDrafts((items) => {
+                const next = { ...items };
+                delete next[item.token];
+                return next;
+              });
+              const trackIndex = (quickScene.audioTracks ?? []).findIndex((entry) => entry.id === track.id);
+              void setAudioTrackEndFromMedia(track, Math.max(0, trackIndex));
+            }}
+          >⏱ Lấy độ dài</button>
           <label className="scene-structure-quick-field"><span>Tên âm thanh</span><input value={track.name} onChange={(event) => updateSceneStructureQuickAudio(track.id, { name: event.target.value })} /></label>
           <div className="scene-structure-quick-field">
             <span>File / URL âm thanh</span>
@@ -22103,6 +22181,8 @@ function Home() {
                     </div>
 
                     {sceneStructureItems.length ? sceneStructureItems.map((item, index) => {
+                      const previousItem = sceneStructureItems[index - 1];
+                      const linkEnabled = previousItem ? isSceneStructureLinkEnabled(previousItem, item) : false;
                       const leftPercent = Math.min(98, Math.max(0, item.start / sceneStructureDuration * 100));
                       const rawWidth = Math.max(8, (item.end - item.start) / sceneStructureDuration * 100);
                       const widthPercent = Math.min(100 - leftPercent, rawWidth);
@@ -22113,8 +22193,23 @@ function Home() {
                         <div
                           className="scene-structure-flow-row"
                           key={item.token}
-                          style={{ top: `${112 + index * 76}px` }}
+                        style={{ top: `${112 + index * 76}px` }}
                         >
+                          {previousItem && previousItem.timingMode !== "none" && item.timingMode !== "none" && (
+                            <button
+                              type="button"
+                              className={`scene-structure-link-control ${linkEnabled ? "is-enabled" : ""}`}
+                              style={{ left: `${leftPercent}%` }}
+                              aria-pressed={linkEnabled}
+                              aria-label={`${linkEnabled ? "Tắt" : "Bật"} liên kết thời gian giữa ${previousItem.label} và ${item.label}`}
+                              title={`${linkEnabled ? "Tắt" : "Bật"} liên kết thời gian · Thẻ sau sẽ bắt đầu khi thẻ trước kết thúc`}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                toggleSceneStructureLink(previousItem, item);
+                              }}
+                            >↗</button>
+                          )}
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
                             type="button"

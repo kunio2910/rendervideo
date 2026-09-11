@@ -319,7 +319,13 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /setAudioTrackEndFromMedia/);
   assert.match(page, /Lấy độ dài video/);
   assert.match(page, /loadedmetadata/);
+  assert.match(page, /sceneStructureLinks/);
+  assert.match(page, /toggleSceneStructureLink/);
+  assert.match(page, /scene-structure-link-control/);
+  assert.match(page, /Thẻ sau sẽ bắt đầu khi thẻ trước kết thúc/);
   assert.match(css, /\.subtitle-track/);
+  assert.match(css, /\.scene-structure-link-control/);
+  assert.match(css, /repeat\(6, 27px\)/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
