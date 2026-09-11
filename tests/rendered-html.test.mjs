@@ -460,9 +460,17 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /cameraPanEnabled/);
   assert.match(page, /playbackCameraTransform/);
   assert.match(page, /Bật camera di chuyển qua lại/);
+  assert.match(page, /Kiểu chuyển động/);
+  assert.match(page, /Tuyến tính/);
+  assert.match(page, /Mềm dần/);
+  assert.match(page, /Mềm vào–ra/);
+  assert.match(page, /cameraZoomLoopEnabled/);
+  assert.match(page, /Bật hiệu ứng zoom ra ↔ vào/);
   assert.match(css, /\.camera-pan-settings/);
   assert.match(renderer, /cameraPanEnabled/);
-  assert.match(renderer, /panPhase/);
+  assert.match(renderer, /cameraPanPhase/);
+  assert.match(renderer, /cameraZoomLoopEnabled/);
+  assert.match(renderer, /cameraZoomExpression/);
   assert.match(page, /transformOrigin: `\$\{scene\.centerX\}% \$\{scene\.centerY\}%`/);
   assert.match(page, /transitionDuration: previewPlaybackMode \? "0ms"/);
   assert.match(css, /transform-origin: center bottom/);
@@ -813,7 +821,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /textOverlayRenders/);
   assert.match(renderer, /backgroundIsVideo/);
   assert.match(renderer, /\[0:v\]scale=\$\{outputWidth\}:\$\{outputHeight\}:force_original_aspect_ratio=increase,crop=\$\{outputWidth\}:\$\{outputHeight\}/);
-  assert.match(renderer, /cameraPanEnabled\s*\n\s*\? `\[0:v\]scale=\$\{Math\.round\(outputWidth \* cameraPanZoom\)\}:\$\{Math\.round\(outputHeight \* cameraPanZoom\)\}/);
+  assert.match(renderer, /cameraPanEnabled \|\| cameraZoomLoopEnabled/);
+  assert.match(renderer, /cameraVideoBaseZoom/);
   assert.doesNotMatch(renderer, /backgroundIsVideo\s*\n\s*\? `\[0:v\]scale=\$\{outputWidth \* 2\}:\$\{outputHeight \* 2\}/);
   assert.match(renderer, /-stream_loop/);
   assert.match(renderer, /d=1,trim=duration/);

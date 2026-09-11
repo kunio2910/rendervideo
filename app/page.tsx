@@ -668,6 +668,11 @@ type Scene = {
   cameraPanDirection?: "horizontal" | "vertical" | "diagonal";
   cameraPanAmount?: number;
   cameraPanSpeed?: number;
+  cameraPanMotion?: "linear" | "ease-out" | "ease-in-out";
+  cameraZoomLoopEnabled?: boolean;
+  cameraZoomLoopAmount?: number;
+  cameraZoomLoopSpeed?: number;
+  cameraZoomLoopMotion?: "linear" | "ease-out" | "ease-in-out";
   effects: SceneEffects;
   overlayText: string;
   overlayTextSize: number;
@@ -1219,6 +1224,11 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   cameraPanDirection: "horizontal",
   cameraPanAmount: 6,
   cameraPanSpeed: 1,
+  cameraPanMotion: "ease-in-out",
+  cameraZoomLoopEnabled: false,
+  cameraZoomLoopAmount: 8,
+  cameraZoomLoopSpeed: 1,
+  cameraZoomLoopMotion: "ease-in-out",
   effects: defaultSceneEffects(),
   overlayText: "",
   overlayTextSize: 24,
@@ -1975,6 +1985,13 @@ const normalizePreviewTikTokSettings = (value: unknown): PreviewTikTokSettings =
 const clampPercent = (value: unknown, fallback = 50) => {
   const numeric = value === null || value === undefined ? Number.NaN : Number(value);
   return Math.min(100, Math.max(0, Number.isFinite(numeric) ? numeric : fallback));
+};
+
+const motionProgress = (phase: number, motion: Scene["cameraPanMotion"] = "ease-in-out") => {
+  const normalized = Math.min(1, Math.max(0, phase));
+  if (motion === "linear") return normalized;
+  if (motion === "ease-out") return 1 - ((1 - normalized) ** 2);
+  return normalized * normalized * (3 - 2 * normalized);
 };
 
 const normalizeTimelineHeight = (value: unknown, fallback = 245) => {
@@ -3511,6 +3528,15 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
         : "horizontal",
       cameraPanAmount: Math.min(30, Math.max(0, positiveNumber(item.cameraPanAmount, 6))),
       cameraPanSpeed: Math.min(3, Math.max(0.1, positiveNumber(item.cameraPanSpeed, 1, 0.1))),
+      cameraPanMotion: ["linear", "ease-out", "ease-in-out"].includes(String(item.cameraPanMotion))
+        ? item.cameraPanMotion as Scene["cameraPanMotion"]
+        : "ease-in-out",
+      cameraZoomLoopEnabled: item.cameraZoomLoopEnabled === true,
+      cameraZoomLoopAmount: Math.min(25, Math.max(0, positiveNumber(item.cameraZoomLoopAmount, 8))),
+      cameraZoomLoopSpeed: Math.min(3, Math.max(0.1, positiveNumber(item.cameraZoomLoopSpeed, 1, 0.1))),
+      cameraZoomLoopMotion: ["linear", "ease-out", "ease-in-out"].includes(String(item.cameraZoomLoopMotion))
+        ? item.cameraZoomLoopMotion as Scene["cameraZoomLoopMotion"]
+        : "ease-in-out",
       effects: normalizeSceneEffects(item.effects),
       overlayText: firstTextOverlay.text,
       overlayTextSize: firstTextOverlay.size,
@@ -6554,16 +6580,27 @@ function Home() {
   const cameraPanDirection = scene.cameraPanDirection ?? "horizontal";
   const cameraPanAmount = Math.min(30, Math.max(0, Number(scene.cameraPanAmount ?? 6) || 0));
   const cameraPanSpeed = Math.min(3, Math.max(0.1, Number(scene.cameraPanSpeed ?? 1) || 1));
+  const cameraPanMotion = scene.cameraPanMotion ?? "ease-in-out";
+  const cameraPanCycle = ((sceneLocalTime / Math.max(0.1, sceneDuration)) * cameraPanSpeed) % 1;
+  const cameraPanTravel = cameraPanCycle <= 0.5 ? cameraPanCycle * 2 : 2 - cameraPanCycle * 2;
   const cameraPanPhase = cameraPanEnabled && previewPlaybackMode
-    ? Math.sin((sceneLocalTime / Math.max(0.1, sceneDuration)) * Math.PI * 2 * cameraPanSpeed)
+    ? motionProgress(cameraPanTravel, cameraPanMotion)
     : 0;
   const cameraPanX = cameraPanDirection === "vertical" ? 0 : cameraPanPhase * cameraPanAmount;
   const cameraPanY = cameraPanDirection === "horizontal" ? 0 : cameraPanPhase * cameraPanAmount * 0.65;
-  const playbackCameraScale = cameraPanEnabled
-    ? Math.max(1.08, playbackMapScale)
-    : playbackMapScale;
+  const cameraZoomLoopEnabled = scene.cameraZoomLoopEnabled === true;
+  const cameraZoomLoopAmount = Math.min(25, Math.max(0, Number(scene.cameraZoomLoopAmount ?? 8) || 0));
+  const cameraZoomLoopSpeed = Math.min(3, Math.max(0.1, Number(scene.cameraZoomLoopSpeed ?? 1) || 1));
+  const cameraZoomLoopMotion = scene.cameraZoomLoopMotion ?? "ease-in-out";
+  const cameraZoomLoopCycle = ((sceneLocalTime / Math.max(0.1, sceneDuration)) * cameraZoomLoopSpeed) % 1;
+  const cameraZoomLoopTravel = cameraZoomLoopCycle <= 0.5 ? cameraZoomLoopCycle * 2 : 2 - cameraZoomLoopCycle * 2;
+  const cameraZoomLoopPhase = cameraZoomLoopEnabled && previewPlaybackMode
+    ? motionProgress(cameraZoomLoopTravel, cameraZoomLoopMotion)
+    : 0;
+  const playbackCameraScale = playbackMapScale * (1 + cameraZoomLoopPhase * cameraZoomLoopAmount / 100);
+  const cameraNeedsOverscan = cameraPanEnabled || cameraZoomLoopEnabled;
   const playbackCameraTransform = previewPlaybackMode
-    ? `translate(${cameraPanX.toFixed(2)}%, ${cameraPanY.toFixed(2)}%) scale(${playbackCameraScale})`
+    ? `translate(${cameraPanX.toFixed(2)}%, ${cameraPanY.toFixed(2)}%) scale(${Math.max(cameraNeedsOverscan ? 1.08 : 1, playbackCameraScale)})`
     : undefined;
 
   const currentProject = useMemo<ProjectSnapshot>(
@@ -19843,40 +19880,82 @@ function Home() {
                       </div>
                     </label>
                   </div>
-                  <div className="camera-pan-settings">
-                    <label className="zoom-effect-toggle">
-                      <input
-                        type="checkbox"
-                        checked={cameraPanEnabled}
-                        disabled={!hydrated}
-                        onChange={(event) => updateScene("cameraPanEnabled", event.target.checked)}
-                      />
-                      <span aria-hidden="true" />
-                      <span>Bật camera di chuyển qua lại</span>
-                    </label>
-                    {cameraPanEnabled && (
-                      <div className="field-row zoom-settings-fields camera-pan-fields">
-                        <label className="field">
-                          <FieldLabel hint="Hướng camera di chuyển chậm qua lại trong toàn cảnh.">Hướng di chuyển</FieldLabel>
-                          <select value={cameraPanDirection} onChange={(event) => updateScene("cameraPanDirection", event.target.value as Scene["cameraPanDirection"])}>
-                            <option value="horizontal">Trái ↔ phải</option>
-                            <option value="vertical">Trên ↔ dưới</option>
-                            <option value="diagonal">Chéo ↔ chéo</option>
-                          </select>
-                        </label>
-                        <label className="field">
-                          <FieldLabel hint="Khoảng cách camera di chuyển tính theo phần trăm khung bản đồ.">Biên độ</FieldLabel>
-                          <div className="number-with-unit"><NumericInput min={0} max={30} step={0.5} value={cameraPanAmount} onCommit={(value) => updateScene("cameraPanAmount", Math.min(30, Math.max(0, value)))} /><b>%</b></div>
-                        </label>
-                        <label className="field">
-                          <FieldLabel hint="Số chu kỳ qua lại trong một cảnh; giá trị nhỏ sẽ chuyển động chậm hơn.">Tốc độ</FieldLabel>
-                          <div className="number-with-unit"><NumericInput min={0.1} max={3} step={0.1} value={cameraPanSpeed} onCommit={(value) => updateScene("cameraPanSpeed", Math.min(3, Math.max(0.1, value)))} /><b>×/cảnh</b></div>
-                        </label>
-                      </div>
-                    )}
-                  </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
                     </>
+                  )}
+                </div>
+                <div className="zoom-settings-card camera-motion-settings-card" aria-label="Hiệu ứng camera di chuyển qua lại">
+                  <div className="motion-settings-title scene-visual-effect-heading scene-effect-panel-heading">
+                    <div>
+                      <strong>Camera di chuyển qua lại</strong>
+                      <span>Di chuyển toàn cảnh chậm từ vị trí này sang vị trí đối diện.</span>
+                    </div>
+                  </div>
+                  <label className="zoom-effect-toggle">
+                    <input type="checkbox" checked={cameraPanEnabled} disabled={!hydrated} onChange={(event) => updateScene("cameraPanEnabled", event.target.checked)} />
+                    <span aria-hidden="true" />
+                    <span>Bật camera di chuyển qua lại</span>
+                  </label>
+                  {cameraPanEnabled && (
+                    <div className="field-row zoom-settings-fields camera-pan-fields">
+                      <label className="field">
+                        <FieldLabel hint="Hướng camera di chuyển trong toàn cảnh.">Hướng di chuyển</FieldLabel>
+                        <select value={cameraPanDirection} onChange={(event) => updateScene("cameraPanDirection", event.target.value as Scene["cameraPanDirection"])}>
+                          <option value="horizontal">Trái ↔ phải</option>
+                          <option value="vertical">Trên ↔ dưới</option>
+                          <option value="diagonal">Chéo ↔ chéo</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <FieldLabel hint="Cách camera tăng tốc và giảm tốc khi đi qua lại.">Kiểu chuyển động</FieldLabel>
+                        <select value={cameraPanMotion} onChange={(event) => updateScene("cameraPanMotion", event.target.value as Scene["cameraPanMotion"])}>
+                          <option value="linear">Tuyến tính</option>
+                          <option value="ease-out">Mềm dần</option>
+                          <option value="ease-in-out">Mềm vào–ra</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <FieldLabel hint="Khoảng cách camera di chuyển tính theo phần trăm khung bản đồ.">Biên độ</FieldLabel>
+                        <div className="number-with-unit"><NumericInput min={0} max={30} step={0.5} value={cameraPanAmount} onCommit={(value) => updateScene("cameraPanAmount", Math.min(30, Math.max(0, value)))} /><b>%</b></div>
+                      </label>
+                      <label className="field">
+                        <FieldLabel hint="Số chu kỳ qua lại trong một cảnh.">Tốc độ</FieldLabel>
+                        <div className="number-with-unit"><NumericInput min={0.1} max={3} step={0.1} value={cameraPanSpeed} onCommit={(value) => updateScene("cameraPanSpeed", Math.min(3, Math.max(0.1, value)))} /><b>×/cảnh</b></div>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <div className="zoom-settings-card camera-motion-settings-card" aria-label="Hiệu ứng zoom ra vào">
+                  <div className="motion-settings-title scene-visual-effect-heading scene-effect-panel-heading">
+                    <div>
+                      <strong>Zoom ra ↔ vào</strong>
+                      <span>Phóng to và thu nhỏ toàn cảnh lặp lại nhẹ nhàng.</span>
+                    </div>
+                  </div>
+                  <label className="zoom-effect-toggle">
+                    <input type="checkbox" checked={cameraZoomLoopEnabled} disabled={!hydrated} onChange={(event) => updateScene("cameraZoomLoopEnabled", event.target.checked)} />
+                    <span aria-hidden="true" />
+                    <span>Bật hiệu ứng zoom ra ↔ vào</span>
+                  </label>
+                  {cameraZoomLoopEnabled && (
+                    <div className="field-row zoom-settings-fields camera-pan-fields">
+                      <label className="field">
+                        <FieldLabel hint="Cách camera tăng tốc và giảm tốc khi zoom ra vào.">Kiểu chuyển động</FieldLabel>
+                        <select value={cameraZoomLoopMotion} onChange={(event) => updateScene("cameraZoomLoopMotion", event.target.value as Scene["cameraZoomLoopMotion"])}>
+                          <option value="linear">Tuyến tính</option>
+                          <option value="ease-out">Mềm dần</option>
+                          <option value="ease-in-out">Mềm vào–ra</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <FieldLabel hint="Mức phóng đại thêm so với kích thước khung hiện tại.">Biên độ zoom</FieldLabel>
+                        <div className="number-with-unit"><NumericInput min={0} max={25} step={0.5} value={cameraZoomLoopAmount} onCommit={(value) => updateScene("cameraZoomLoopAmount", Math.min(25, Math.max(0, value)))} /><b>%</b></div>
+                      </label>
+                      <label className="field">
+                        <FieldLabel hint="Số lần zoom ra vào trong một cảnh.">Tốc độ</FieldLabel>
+                        <div className="number-with-unit"><NumericInput min={0.1} max={3} step={0.1} value={cameraZoomLoopSpeed} onCommit={(value) => updateScene("cameraZoomLoopSpeed", Math.min(3, Math.max(0.1, value)))} /><b>×/cảnh</b></div>
+                      </label>
+                    </div>
                   )}
                 </div>
                 <EditorFieldGroup title="Hiệu ứng môi trường" description="Tối viền, thời tiết và ánh sáng phụ trợ cho cảnh." advanced>

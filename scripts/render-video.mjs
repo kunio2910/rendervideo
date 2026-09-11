@@ -260,6 +260,11 @@ const ffmpegMediaFit = (width, height, fit = "cover") => fit === "contain"
   ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
   : `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+const motionProgressExpression = (phase, motion = "ease-in-out") => {
+  if (motion === "linear") return phase;
+  if (motion === "ease-out") return `(1-(1-${phase})*(1-${phase}))`;
+  return `(${phase})*(${phase})*(3-2*(${phase}))`;
+};
 const normalizeHexColor = (value, fallback) => {
   const color = String(value ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
@@ -1933,7 +1938,27 @@ for (let index = 0; index < scenes.length; index += 1) {
     : "horizontal";
   const cameraPanAmount = clamp(Number(scene.cameraPanAmount ?? 6) || 0, 0, 30);
   const cameraPanSpeed = clamp(Number(scene.cameraPanSpeed ?? 1) || 1, 0.1, 3);
+  const cameraPanMotion = ["linear", "ease-out", "ease-in-out"].includes(String(scene.cameraPanMotion))
+    ? String(scene.cameraPanMotion) : "ease-in-out";
+  const cameraZoomLoopEnabled = scene.cameraZoomLoopEnabled === true;
+  const cameraZoomLoopAmount = clamp(Number(scene.cameraZoomLoopAmount ?? 8) || 0, 0, 25);
+  const cameraZoomLoopSpeed = clamp(Number(scene.cameraZoomLoopSpeed ?? 1) || 1, 0.1, 3);
+  const cameraZoomLoopMotion = ["linear", "ease-out", "ease-in-out"].includes(String(scene.cameraZoomLoopMotion))
+    ? String(scene.cameraZoomLoopMotion) : "ease-in-out";
+  const cameraMotionPhase = `(sin(on*2*PI*${cameraPanSpeed}/${Math.max(1, frames)})+1)/2`;
+  const cameraPanPhase = motionProgressExpression(cameraMotionPhase, cameraPanMotion);
+  const cameraZoomPhase = motionProgressExpression(
+    `(sin(on*2*PI*${cameraZoomLoopSpeed}/${Math.max(1, frames)})+1)/2`,
+    cameraZoomLoopMotion,
+  );
   const cameraPanZoom = cameraPanEnabled ? Math.max(1.08, targetZoom) : targetZoom;
+  const cameraZoomExpression = cameraZoomLoopEnabled
+    ? `1+(${cameraZoomLoopAmount}/100)*${cameraZoomPhase}`
+    : "1";
+  const cameraZoomVideoExpression = cameraZoomExpression.replaceAll("on", "n");
+  const cameraVideoBaseZoom = cameraPanEnabled || cameraZoomLoopEnabled
+    ? Math.max(1.08, cameraPanZoom)
+    : 1;
   const centerX = Math.min(100, Math.max(0, Number(scene.centerX ?? 50))) / 100;
   const centerY = Math.min(100, Math.max(0, Number(scene.centerY ?? 50))) / 100;
   const baseZoomExpression =
@@ -1946,9 +1971,10 @@ for (let index = 0; index < scenes.length; index += 1) {
     : baseZoomExpression;
   const cameraPanX = cameraPanDirection === "vertical" ? 0 : cameraPanAmount / 100;
   const cameraPanY = cameraPanDirection === "horizontal" ? 0 : cameraPanAmount * 0.65 / 100;
-  const panPhase = `(sin(on*2*PI*${cameraPanSpeed}/${Math.max(1, frames)})+1)/2`;
-  const panXExpression = `${cameraPanX}*${panPhase}`;
-  const panYExpression = `${cameraPanY}*${panPhase}`;
+  const panXExpression = `${cameraPanX}*${cameraPanPhase}`;
+  const panYExpression = `${cameraPanY}*${cameraPanPhase}`;
+  const panXVideoExpression = panXExpression.replaceAll("on", "n");
+  const panYVideoExpression = panYExpression.replaceAll("on", "n");
   const legacyText = String(scene.overlayText ?? "").trim();
   const textOverlays = Array.isArray(scene.textOverlays) && scene.textOverlays.length > 0
     ? scene.textOverlays
@@ -2007,13 +2033,13 @@ for (let index = 0; index < scenes.length; index += 1) {
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
   const backgroundFilter = backgroundIsVideo
-    ? cameraPanEnabled
-      ? `[0:v]scale=${Math.round(outputWidth * cameraPanZoom)}:${Math.round(outputHeight * cameraPanZoom)}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight}:x='(iw-${outputWidth})*${panXExpression}':y='(ih-${outputHeight})*${panYExpression}',fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
+    ? cameraPanEnabled || cameraZoomLoopEnabled
+      ? `[0:v]scale=${Math.round(outputWidth * cameraVideoBaseZoom)}:${Math.round(outputHeight * cameraVideoBaseZoom)}:force_original_aspect_ratio=increase,scale=w='iw*${cameraZoomVideoExpression}':h='ih*${cameraZoomVideoExpression}':eval=frame,crop=${outputWidth}:${outputHeight}:x='(iw-${outputWidth})*${panXVideoExpression}':y='(ih-${outputHeight})*${panYVideoExpression}',fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
       : `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
-    : targetZoom <= 1 && !cameraPanEnabled
+    : targetZoom <= 1 && !cameraPanEnabled && !cameraZoomLoopEnabled
       ? `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
       : `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
-      `zoompan=z='${zoomExpression}':` +
+      `zoompan=z='${zoomExpression}*${cameraZoomExpression}':` +
       `x='iw*(${centerX}+${panXExpression})*(1-1/zoom)':` +
       `y='ih*(${centerY}+${panYExpression})*(1-1/zoom)':` +
       `s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`;
