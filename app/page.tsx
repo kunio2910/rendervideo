@@ -22208,7 +22208,7 @@ function Home() {
                                 event.stopPropagation();
                                 toggleSceneStructureLink(previousItem, item);
                               }}
-                            >↗</button>
+                            >🔗</button>
                           )}
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
