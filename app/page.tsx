@@ -1457,6 +1457,39 @@ const isVideoMedia = (value: unknown) => {
     || /[?&](?:format|fm)=(?:mp4|webm|mov|m4v)/.test(normalized);
 };
 
+const readMediaDuration = (source: string, mediaKind: "audio" | "video") => new Promise<number>((resolve, reject) => {
+  const media = document.createElement(mediaKind);
+  let settled = false;
+  const timeoutId = window.setTimeout(() => finish(new Error("Không đọc được độ dài media trong thời gian cho phép.")), 15000);
+  const cleanup = () => {
+    window.clearTimeout(timeoutId);
+    media.onloadedmetadata = null;
+    media.onerror = null;
+    media.removeAttribute("src");
+    media.load();
+  };
+  const finish = (error?: Error) => {
+    if (settled) return;
+    settled = true;
+    const duration = media.duration;
+    cleanup();
+    if (error) {
+      reject(error);
+      return;
+    }
+    if (!Number.isFinite(duration) || duration <= 0) {
+      reject(new Error("Media không cung cấp độ dài hợp lệ."));
+      return;
+    }
+    resolve(duration);
+  };
+  media.preload = "metadata";
+  media.onloadedmetadata = () => finish();
+  media.onerror = () => finish(new Error("Không thể tải media để đọc độ dài."));
+  media.src = source;
+  media.load();
+});
+
 const holdPreviewVideoLastFrame = (event: React.SyntheticEvent<HTMLVideoElement>) => {
   const video = event.currentTarget;
   if (video.loop || !Number.isFinite(video.duration) || video.duration <= 0) return;
@@ -9383,6 +9416,31 @@ function Home() {
     }));
   };
 
+  const setAudioTrackEndFromMedia = async (track: SceneAudioTrack, index: number) => {
+    if (!scene || track.timingLinked === true) return;
+    const source = audioTrackPreviewSource(track, index);
+    if (!source) {
+      setToast("Hãy nhập URL hoặc chọn file âm thanh trước");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+    try {
+      const mediaDuration = await readMediaDuration(source, "audio");
+      const start = Math.min(Math.max(0, track.start), Math.max(0, sceneDuration - 0.1));
+      const requestedEnd = start + mediaDuration;
+      const end = Math.min(sceneDuration, Math.max(start + 0.1, requestedEnd));
+      updateSceneAudioTrack(track.id, "end", end);
+      setToast(requestedEnd > sceneDuration
+        ? `Đã lấy ${mediaDuration.toFixed(2)} giây · đã giới hạn theo thời lượng cảnh`
+        : `Đã lấy độ dài âm thanh: ${mediaDuration.toFixed(2)} giây`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Không thể đọc độ dài âm thanh";
+      setToast(reason);
+    } finally {
+      window.setTimeout(() => setToast(""), 3200);
+    }
+  };
+
   const togglePreviewLayerVisibility = (layer: PreviewLayerItem) => {
     if (!scene || layer.canToggleVisibility === false) return;
     const nextVisible = layer.visible === false;
@@ -10308,6 +10366,38 @@ function Home() {
       Math.max(minimumEnd, Number.isFinite(numericValue) ? numericValue : minimumEnd),
     );
     updateSceneImage("duration", Number((nextEnd - activeSceneImage.start).toFixed(2)));
+  };
+
+  const setSceneImageDurationFromMedia = async (image: SceneImage) => {
+    if (!scene || !isVideoMedia(image.url)) return;
+    const source = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
+    if (!source) {
+      setToast("Hãy nhập URL video hoặc chọn file video trước");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+    try {
+      const mediaDuration = await readMediaDuration(source, "video");
+      const start = Math.min(Math.max(0, image.start), Math.max(0, sceneDuration - 0.1));
+      const requestedEnd = start + mediaDuration;
+      const end = Math.min(sceneDuration, Math.max(start + 0.1, requestedEnd));
+      setScenes((items) => items.map((item) => item.id === scene.id
+        ? {
+            ...item,
+            sceneImages: (item.sceneImages ?? []).map((entry) => entry.id === image.id
+              ? { ...entry, duration: Number((end - start).toFixed(2)) }
+              : entry),
+          }
+        : item));
+      setToast(requestedEnd > sceneDuration
+        ? `Đã lấy ${mediaDuration.toFixed(2)} giây · đã giới hạn theo thời lượng cảnh`
+        : `Đã lấy độ dài video: ${mediaDuration.toFixed(2)} giây`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Không thể đọc độ dài video";
+      setToast(reason);
+    } finally {
+      window.setTimeout(() => setToast(""), 3200);
+    }
   };
 
   const updateSceneImageTransitionEndInput = (value: string) => {
@@ -18174,6 +18264,14 @@ function Home() {
                           >
                             {editorVisibilityIcon(image.editorVisible === false)}
                           </button>
+                          <button
+                            type="button"
+                            className="scene-image-action"
+                            disabled={!isVideoMedia(image.url)}
+                            title={isVideoMedia(image.url) ? "Lấy độ dài video" : "Ảnh tĩnh không có độ dài nội tại"}
+                            aria-label={`Lấy độ dài cho ${sceneImageLabel(image, index)}`}
+                            onClick={() => void setSceneImageDurationFromMedia(image)}
+                          >⏱</button>
                           <button type="button" className="scene-image-action" title="Nhân bản" onClick={() => duplicateSceneImage(image)}>⧉</button>
                           <button type="button" className="scene-image-action danger" title="Xóa" onClick={() => deleteSceneImage(image.id)}>×</button>
                         </div>
@@ -19308,6 +19406,13 @@ function Home() {
                           </div>
                           <div className="scene-audio-item-actions">
                             <button type="button" onClick={() => startSceneAudioTrackRename(track, index)} title="Đổi tên âm thanh" aria-label="Đổi tên âm thanh">✎</button>
+                            <button
+                              type="button"
+                              disabled={!safeTrim(track.source) || track.timingLinked === true}
+                              onClick={() => void setAudioTrackEndFromMedia(track, index)}
+                              title={track.timingLinked === true ? "Tắt liên kết thời gian trước khi lấy độ dài" : "Lấy độ dài âm thanh và điền thời gian kết thúc"}
+                              aria-label="Lấy độ dài âm thanh"
+                            >⏱</button>
                             <button
                               type="button"
                               className={track.visible === false ? "is-off" : ""}

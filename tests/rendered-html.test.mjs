@@ -314,6 +314,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /subtitle-align-progress/);
   assert.match(page, /subtitleFormatExpanded/);
   assert.match(page, /subtitleFormatExpanded: project\.subtitleFormatExpanded !== false/);
+  assert.match(page, /const readMediaDuration/);
+  assert.match(page, /setSceneImageDurationFromMedia/);
+  assert.match(page, /setAudioTrackEndFromMedia/);
+  assert.match(page, /Lấy độ dài video/);
+  assert.match(page, /loadedmetadata/);
   assert.match(css, /\.subtitle-track/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
