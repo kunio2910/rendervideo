@@ -664,6 +664,10 @@ type Scene = {
   centerX: number;
   centerY: number;
   zoomEnabled: boolean;
+  cameraPanEnabled?: boolean;
+  cameraPanDirection?: "horizontal" | "vertical" | "diagonal";
+  cameraPanAmount?: number;
+  cameraPanSpeed?: number;
   effects: SceneEffects;
   overlayText: string;
   overlayTextSize: number;
@@ -1211,6 +1215,10 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   centerX: 50,
   centerY: 50,
   zoomEnabled: true,
+  cameraPanEnabled: false,
+  cameraPanDirection: "horizontal",
+  cameraPanAmount: 6,
+  cameraPanSpeed: 1,
   effects: defaultSceneEffects(),
   overlayText: "",
   overlayTextSize: 24,
@@ -3497,6 +3505,12 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
       zoomEnabled: item.zoomEnabled !== false,
+      cameraPanEnabled: item.cameraPanEnabled === true,
+      cameraPanDirection: ["horizontal", "vertical", "diagonal"].includes(String(item.cameraPanDirection))
+        ? item.cameraPanDirection as Scene["cameraPanDirection"]
+        : "horizontal",
+      cameraPanAmount: Math.min(30, Math.max(0, positiveNumber(item.cameraPanAmount, 6))),
+      cameraPanSpeed: Math.min(3, Math.max(0.1, positiveNumber(item.cameraPanSpeed, 1, 0.1))),
       effects: normalizeSceneEffects(item.effects),
       overlayText: firstTextOverlay.text,
       overlayTextSize: firstTextOverlay.size,
@@ -6536,6 +6550,21 @@ function Home() {
     }
     return sceneLocalTime < zoomEndTime ? scene.zoom : 1;
   })();
+  const cameraPanEnabled = scene.cameraPanEnabled === true;
+  const cameraPanDirection = scene.cameraPanDirection ?? "horizontal";
+  const cameraPanAmount = Math.min(30, Math.max(0, Number(scene.cameraPanAmount ?? 6) || 0));
+  const cameraPanSpeed = Math.min(3, Math.max(0.1, Number(scene.cameraPanSpeed ?? 1) || 1));
+  const cameraPanPhase = cameraPanEnabled && previewPlaybackMode
+    ? Math.sin((sceneLocalTime / Math.max(0.1, sceneDuration)) * Math.PI * 2 * cameraPanSpeed)
+    : 0;
+  const cameraPanX = cameraPanDirection === "vertical" ? 0 : cameraPanPhase * cameraPanAmount;
+  const cameraPanY = cameraPanDirection === "horizontal" ? 0 : cameraPanPhase * cameraPanAmount * 0.65;
+  const playbackCameraScale = cameraPanEnabled
+    ? Math.max(1.08, playbackMapScale)
+    : playbackMapScale;
+  const playbackCameraTransform = previewPlaybackMode
+    ? `translate(${cameraPanX.toFixed(2)}%, ${cameraPanY.toFixed(2)}%) scale(${playbackCameraScale})`
+    : undefined;
 
   const currentProject = useMemo<ProjectSnapshot>(
     () => ({
@@ -17463,6 +17492,11 @@ function Home() {
               data-scene-id={scene.id}
               data-scene-local-time={sceneLocalTime.toFixed(3)}
               className="scene-render-container"
+              style={{
+                transform: playbackCameraTransform,
+                transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
+                transitionDuration: previewPlaybackMode ? "0ms" : "180ms",
+              }}
             >
             {previewImagesVisible && sceneIsVisibleInPlayback && scene.backgroundVisible !== false && backgroundPreviewSource && (
               backgroundIsVideo ? (
@@ -17483,9 +17517,7 @@ function Home() {
                     }
                   }}
                   style={{
-                    transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                    transform: `scale(${previewPlaybackMode ? playbackMapScale : 1})`,
-                    transitionDuration: previewPlaybackMode ? "0ms" : "180ms",
+                    transform: "none",
                   }}
                 />
               ) : (
@@ -17495,9 +17527,7 @@ function Home() {
                   alt=""
                   aria-hidden="true"
                   style={{
-                    transformOrigin: `${scene.centerX}% ${scene.centerY}%`,
-                    transform: `scale(${previewPlaybackMode ? playbackMapScale : 1})`,
-                    transitionDuration: previewPlaybackMode ? "0ms" : "180ms",
+                    transform: "none",
                   }}
                 />
               )
@@ -19812,6 +19842,38 @@ function Home() {
                         <b>giây</b>
                       </div>
                     </label>
+                  </div>
+                  <div className="camera-pan-settings">
+                    <label className="zoom-effect-toggle">
+                      <input
+                        type="checkbox"
+                        checked={cameraPanEnabled}
+                        disabled={!hydrated}
+                        onChange={(event) => updateScene("cameraPanEnabled", event.target.checked)}
+                      />
+                      <span aria-hidden="true" />
+                      <span>Bật camera di chuyển qua lại</span>
+                    </label>
+                    {cameraPanEnabled && (
+                      <div className="field-row zoom-settings-fields camera-pan-fields">
+                        <label className="field">
+                          <FieldLabel hint="Hướng camera di chuyển chậm qua lại trong toàn cảnh.">Hướng di chuyển</FieldLabel>
+                          <select value={cameraPanDirection} onChange={(event) => updateScene("cameraPanDirection", event.target.value as Scene["cameraPanDirection"])}>
+                            <option value="horizontal">Trái ↔ phải</option>
+                            <option value="vertical">Trên ↔ dưới</option>
+                            <option value="diagonal">Chéo ↔ chéo</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <FieldLabel hint="Khoảng cách camera di chuyển tính theo phần trăm khung bản đồ.">Biên độ</FieldLabel>
+                          <div className="number-with-unit"><NumericInput min={0} max={30} step={0.5} value={cameraPanAmount} onCommit={(value) => updateScene("cameraPanAmount", Math.min(30, Math.max(0, value)))} /><b>%</b></div>
+                        </label>
+                        <label className="field">
+                          <FieldLabel hint="Số chu kỳ qua lại trong một cảnh; giá trị nhỏ sẽ chuyển động chậm hơn.">Tốc độ</FieldLabel>
+                          <div className="number-with-unit"><NumericInput min={0.1} max={3} step={0.1} value={cameraPanSpeed} onCommit={(value) => updateScene("cameraPanSpeed", Math.min(3, Math.max(0.1, value)))} /><b>×/cảnh</b></div>
+                        </label>
+                      </div>
+                    )}
                   </div>
                   <small className="zoom-settings-help">Vòng tròn màu vàng trên bản đồ chỉ là tay nắm chọn vị trí, không xuất hiện trong video.</small>
                     </>

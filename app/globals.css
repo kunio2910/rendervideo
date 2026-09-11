@@ -3837,6 +3837,8 @@ body {
   font-size: 9px;
   line-height: 1.45;
 }
+.camera-pan-settings { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--studio-line); }
+.camera-pan-fields { margin: 0; }
 .zoom-effect-toggle {
   display: flex;
   align-items: center;
