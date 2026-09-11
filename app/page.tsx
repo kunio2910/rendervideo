@@ -9434,7 +9434,9 @@ function Home() {
       const start = Math.min(Math.max(0, track.start), Math.max(0, sceneDuration - 0.1));
       const requestedEnd = start + mediaDuration;
       const end = Math.min(sceneDuration, Math.max(start + 0.1, requestedEnd));
-      updateSceneAudioTrack(track.id, "end", end);
+      const structureItem = sceneStructureItems.find((item) => item.token === `audio:${track.id}`);
+      if (structureItem) updateSceneStructureTiming(structureItem, start, end);
+      else updateSceneAudioTrack(track.id, "end", end);
       setToast(requestedEnd > sceneDuration
         ? `Đã lấy ${mediaDuration.toFixed(2)} giây · đã giới hạn theo thời lượng cảnh`
         : `Đã lấy độ dài âm thanh: ${mediaDuration.toFixed(2)} giây`);
@@ -10386,14 +10388,19 @@ function Home() {
       const start = Math.min(Math.max(0, image.start), Math.max(0, sceneDuration - 0.1));
       const requestedEnd = start + mediaDuration;
       const end = Math.min(sceneDuration, Math.max(start + 0.1, requestedEnd));
-      setScenes((items) => items.map((item) => item.id === scene.id
-        ? {
-            ...item,
-            sceneImages: (item.sceneImages ?? []).map((entry) => entry.id === image.id
-              ? { ...entry, duration: Number((end - start).toFixed(2)) }
-              : entry),
-          }
-        : item));
+      const structureItem = sceneStructureItems.find((item) => item.token === `image:${image.id}`);
+      if (structureItem) {
+        updateSceneStructureTiming(structureItem, start, end);
+      } else {
+        setScenes((items) => items.map((item) => item.id === scene.id
+          ? {
+              ...item,
+              sceneImages: (item.sceneImages ?? []).map((entry) => entry.id === image.id
+                ? { ...entry, start, duration: Number((end - start).toFixed(2)) }
+                : entry),
+            }
+          : item));
+      }
       setToast(requestedEnd > sceneDuration
         ? `Đã lấy ${mediaDuration.toFixed(2)} giây · đã giới hạn theo thời lượng cảnh`
         : `Đã lấy độ dài video: ${mediaDuration.toFixed(2)} giây`);

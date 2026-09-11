@@ -323,6 +323,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /toggleSceneStructureLink/);
   assert.match(page, /scene-structure-link-control/);
   assert.match(page, /Thẻ sau sẽ bắt đầu khi thẻ trước kết thúc/);
+  assert.match(page, /const structureItem = sceneStructureItems\.find/);
+  assert.match(page, /updateSceneStructureTiming\(structureItem, start, end\)/);
   assert.match(css, /\.subtitle-track/);
   assert.match(css, /\.scene-structure-link-control/);
   assert.match(css, /repeat\(6, 27px\)/);
