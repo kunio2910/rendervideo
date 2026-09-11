@@ -14491,13 +14491,13 @@ function Home() {
   };
 
   const isSceneStructureLinkEnabled = (previousItem: SceneStructureItem, nextItem: SceneStructureItem) => (
-    previousItem.timingMode !== "none"
-    && nextItem.timingMode !== "none"
+    previousItem.kind === "image"
+    && nextItem.kind === "image"
     && sceneStructureScene.sceneStructureLinks?.[sceneStructureLinkKey(previousItem.token, nextItem.token)] === true
   );
 
   const toggleSceneStructureLink = (previousItem: SceneStructureItem, nextItem: SceneStructureItem) => {
-    if (previousItem.timingMode === "none" || nextItem.timingMode === "none") return;
+    if (previousItem.kind !== "image" || nextItem.kind !== "image") return;
     const key = sceneStructureLinkKey(previousItem.token, nextItem.token);
     const nextEnabled = sceneStructureScene.sceneStructureLinks?.[key] !== true;
     setScenes((items) => items.map((currentScene) => currentScene.id === sceneStructureScene.id
@@ -22202,7 +22202,7 @@ function Home() {
                           key={item.token}
                         style={{ top: `${112 + index * 76}px` }}
                         >
-                          {previousItem && previousItem.timingMode !== "none" && item.timingMode !== "none" && (
+                          {previousItem && previousItem.kind === "image" && item.kind === "image" && (
                             <button
                               type="button"
                               className={`scene-structure-link-control ${linkEnabled ? "is-enabled" : ""}`}

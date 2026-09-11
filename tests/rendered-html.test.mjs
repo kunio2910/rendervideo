@@ -322,6 +322,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneStructureLinks/);
   assert.match(page, /toggleSceneStructureLink/);
   assert.match(page, /scene-structure-link-control/);
+  assert.match(page, /previousItem\.kind === "image"/);
+  assert.match(page, /item\.kind === "image"/);
   assert.match(page, /Thẻ sau sẽ bắt đầu khi thẻ trước kết thúc/);
   assert.match(page, /const structureItem = sceneStructureItems\.find/);
   assert.match(page, /updateSceneStructureTiming\(structureItem, start, end\)/);
