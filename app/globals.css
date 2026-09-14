@@ -1029,7 +1029,7 @@ button { color: inherit; }
 .field-checkbox-control b { color: var(--studio-ink); font-size: 10px; font-weight: 650; }
 .text-effect-reverse-toggle { align-content: end; }
 .text-effect-inline-note { display: block; margin-top: 8px; color: var(--studio-muted); font-size: 10px; line-height: 1.45; }
-.text-effect-editor-backdrop { z-index: 1600; }
+.modal-backdrop.text-effect-editor-backdrop { z-index: 1600; }
 .text-effect-editor-modal { width: min(900px, calc(100vw - 28px)); max-height: min(820px, calc(100vh - 28px)); overflow: auto; padding: 22px; border: 1px solid var(--studio-line); border-radius: 14px; background: var(--panel-bg); box-shadow: 0 24px 70px rgba(17, 28, 43, .28); color: var(--studio-ink); }
 .text-effect-editor-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .text-effect-editor-header h2 { margin: 4px 0 0; font-size: 22px; }
