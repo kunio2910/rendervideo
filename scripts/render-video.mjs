@@ -302,6 +302,12 @@ const textOverlayEffectValues = [
 const normalizeTextOverlayEffect = (value) => textOverlayEffectValues.includes(String(value))
   ? String(value)
   : "none";
+const textEffectMotionProgressExpression = (progress, motion) => {
+  if (motion === "linear") return progress;
+  if (motion === "ease-out") return `(1-(1-${progress})*(1-${progress}))`;
+  if (motion === "ease-in") return `(${progress})*(${progress})`;
+  return `(${progress})*(${progress})*(3-2*(${progress}))`;
+};
 const nonNegativeDarkEffectNumber = (value, fallback) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
@@ -2423,6 +2429,15 @@ for (let index = 0; index < scenes.length; index += 1) {
       0.05,
       reverse ? textSpan / 2 : textSpan,
     );
+    const fadeInStart = clamp(Number(overlay.fadeInStart ?? 0) || 0, 0, Math.max(0, textSpan - 0.05));
+    const fadeInEnd = clamp(Number(overlay.fadeInEnd ?? Math.min(0.8, textSpan)) || Math.min(0.8, textSpan), fadeInStart + 0.05, textSpan);
+    const fadeOutEnd = clamp(Number(overlay.fadeOutEnd ?? textSpan) || textSpan, fadeInEnd + 0.05, textSpan);
+    const fadeOutStart = clamp(Number(overlay.fadeOutStart ?? Math.max(fadeInEnd, textSpan - 0.8)) || Math.max(fadeInEnd, textSpan - 0.8), fadeInEnd, Math.max(fadeInEnd, fadeOutEnd - 0.05));
+    const fadeInProgress = `min(1,max(0,(t-${textStart + fadeInStart})/${Math.max(0.05, fadeInEnd - fadeInStart)}))`;
+    const fadeOutProgress = `min(1,max(0,(t-${textStart + fadeOutStart})/${Math.max(0.05, fadeOutEnd - fadeOutStart)}))`;
+    const fadeInAlpha = textEffectMotionProgressExpression(fadeInProgress, overlay.fadeInMotion);
+    const fadeOutAlpha = textEffectMotionProgressExpression(fadeOutProgress, overlay.fadeOutMotion);
+    const fadeAlpha = `if(lt(t,${textStart + fadeInStart}),0,if(lt(t,${textStart + fadeInEnd}),${fadeInAlpha},if(lt(t,${textStart + fadeOutStart}),1,if(lt(t,${textStart + fadeOutEnd}),1-(${fadeOutAlpha}),0))))`;
     const reverseStart = textEnd - effectDuration;
     const forwardProgress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
     const forwardGeqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
@@ -2467,8 +2482,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     } else {
       let inputFilter = `[${inputIndex}:v]setpts=PTS-STARTPTS+${textStart}/TB,format=rgba`;
       if (effect === "fade") {
-        const fadeOutStart = Math.max(textStart, textEnd - effectDuration);
-        inputFilter += `,fade=t=in:st=${textStart}:d=${effectDuration}:alpha=1,fade=t=out:st=${fadeOutStart}:d=${effectDuration}:alpha=1`;
+        inputFilter += `,${geqRgba({ alpha: `alpha(X,Y)*(${fadeAlpha})` })}`;
       } else if (effect === "typewriter" || effect === "stroke-draw") {
         inputFilter += `,${geqRgba({ alpha: `if(lt(X/W,${geqProgress}),alpha(X,Y),0)` })}`;
       } else if (effect === "word-by-word") {

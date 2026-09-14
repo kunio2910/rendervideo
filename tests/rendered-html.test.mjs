@@ -193,6 +193,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /finishTextOverlayRename/);
   assert.match(page, /className="scene-image-action scene-image-edit"/);
   assert.match(page, /className="text-overlay-edit"/);
+  assert.match(page, /text-overlay-effect-button/);
+  assert.match(page, /textEffectEditorOverlayId/);
+  assert.match(page, /text-effect-timeline/);
+  assert.match(page, /fadeInStart/);
+  assert.match(page, /fadeOutStart/);
+  assert.match(page, /Liên kết hai hiệu ứng/);
   assert.match(page, /className="map-decoration-edit"/);
   assert.match(page, /layer-name-input/);
   assert.match(css, /Compose layer lists need their labels to remain legible/);

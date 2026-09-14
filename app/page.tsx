@@ -129,6 +129,13 @@ type TextOverlay = {
   textEffect: TextOverlayEffect;
   textEffectDuration: number;
   textEffectReverse: boolean;
+  fadeInStart?: number;
+  fadeInEnd?: number;
+  fadeOutStart?: number;
+  fadeOutEnd?: number;
+  fadeInMotion?: "linear" | "ease-out" | "ease-in-out";
+  fadeOutMotion?: "linear" | "ease-in" | "ease-in-out";
+  fadeTimingsLinked?: boolean;
   timingLinked?: boolean;
   start: number;
   end: number;
@@ -329,6 +336,14 @@ type SceneStructureLockState = {
   layer?: boolean;
   position?: boolean;
   time?: boolean;
+};
+
+const textEffectMotionProgress = (value: number, motion: string | undefined) => {
+  const progress = Math.min(1, Math.max(0, value));
+  if (motion === "linear") return progress;
+  if (motion === "ease-out") return 1 - ((1 - progress) ** 2);
+  if (motion === "ease-in") return progress ** 2;
+  return progress * progress * (3 - 2 * progress);
 };
 
 type SceneStructureLinkState = Record<string, boolean>;
@@ -2525,6 +2540,13 @@ const defaultTextOverlay = (
   textEffect: "none",
   textEffectDuration: 0.6,
   textEffectReverse: false,
+  fadeInStart: 0,
+  fadeInEnd: 0.8,
+  fadeOutStart: 2.2,
+  fadeOutEnd: 3,
+  fadeInMotion: "ease-in-out",
+  fadeOutMotion: "ease-in-out",
+  fadeTimingsLinked: false,
   timingLinked: false,
   start: 0,
   end: 3600,
@@ -2699,6 +2721,13 @@ const normalizeTextOverlay = (
   const base = defaultTextOverlay(id, fallback);
   const style = String(raw.style ?? raw.overlayTextStyle ?? base.style);
   const font = String(raw.font ?? raw.overlayTextFont ?? base.font);
+  const normalizedStart = Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start)));
+  const normalizedEnd = Math.min(3600, Math.max(normalizedStart + 0.1, positiveNumber(raw.end ?? raw.overlayTextEnd, base.end, 0.1)));
+  const overlaySpan = Math.max(0.1, normalizedEnd - normalizedStart);
+  const fadeInStart = Math.min(overlaySpan - 0.05, Math.max(0, positiveNumber(raw.fadeInStart, 0)));
+  const fadeInEnd = Math.min(overlaySpan, Math.max(fadeInStart + 0.05, positiveNumber(raw.fadeInEnd, Math.min(0.8, overlaySpan))));
+  const fadeOutEnd = Math.min(overlaySpan, Math.max(fadeInEnd + 0.05, positiveNumber(raw.fadeOutEnd, overlaySpan)));
+  const fadeOutStart = Math.min(fadeOutEnd - 0.05, Math.max(fadeInEnd, positiveNumber(raw.fadeOutStart, Math.max(fadeInEnd, overlaySpan - 0.8))));
   return {
     ...base,
     id: String(raw.id ?? base.id),
@@ -2724,12 +2753,18 @@ const normalizeTextOverlay = (
     textEffectReverse: typeof (raw.textEffectReverse ?? raw.overlayTextEffectReverse) === "boolean"
       ? (raw.textEffectReverse ?? raw.overlayTextEffectReverse)
       : base.textEffectReverse,
+    fadeInStart,
+    fadeInEnd,
+    fadeOutStart,
+    fadeOutEnd,
+    fadeInMotion: ["linear", "ease-out", "ease-in-out"].includes(String(raw.fadeInMotion))
+      ? raw.fadeInMotion as TextOverlay["fadeInMotion"] : "ease-in-out",
+    fadeOutMotion: ["linear", "ease-in", "ease-in-out"].includes(String(raw.fadeOutMotion))
+      ? raw.fadeOutMotion as TextOverlay["fadeOutMotion"] : "ease-in-out",
+    fadeTimingsLinked: raw.fadeTimingsLinked === true,
     timingLinked: raw.timingLinked === true,
-    start: Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))),
-    end: Math.min(3600, Math.max(
-      Math.min(3599.9, Math.max(0, positiveNumber(raw.start ?? raw.overlayTextStart, base.start))) + 0.1,
-      positiveNumber(raw.end ?? raw.overlayTextEnd, base.end, 0.1),
-    )),
+    start: normalizedStart,
+    end: normalizedEnd,
     x: clampPercent(raw.x ?? raw.overlayTextX, base.x),
     y: clampPercent(raw.y ?? raw.overlayTextY, base.y),
     ...(Number.isFinite(Number(raw.width ?? fallback.width))
@@ -4830,6 +4865,7 @@ function Home() {
   const [selectedId, setSelectedId] = useState(initialScenes[0].id);
   const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
+  const [textEffectEditorOverlayId, setTextEffectEditorOverlayId] = useState("");
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
   const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
@@ -5265,6 +5301,15 @@ function Home() {
   const sceneTextOverlays = scene.textOverlays ?? [];
   const activeTextOverlay = sceneTextOverlays.find((item) => item.id === selectedTextOverlayId)
     ?? sceneTextOverlays[0];
+  const textEffectEditorOverlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
+  const textEffectTiming = (overlay: TextOverlay) => {
+    const span = Math.max(0.1, Number(overlay.end ?? 0) - Number(overlay.start ?? 0));
+    const fadeInStart = Math.min(span - 0.05, Math.max(0, Number(overlay.fadeInStart ?? 0) || 0));
+    const fadeInEnd = Math.min(span, Math.max(fadeInStart + 0.05, Number(overlay.fadeInEnd ?? Math.min(0.8, span)) || Math.min(0.8, span)));
+    const fadeOutEnd = Math.min(span, Math.max(fadeInEnd + 0.05, Number(overlay.fadeOutEnd ?? span) || span));
+    const fadeOutStart = Math.min(fadeOutEnd - 0.05, Math.max(fadeInEnd, Number(overlay.fadeOutStart ?? Math.max(fadeInEnd, span - 0.8)) || Math.max(fadeInEnd, span - 0.8)));
+    return { span, fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd };
+  };
   const sceneDecorations = scene.mapDecorations ?? [];
   const sceneImages = scene.sceneImages ?? [];
   const animatedEffectAssets = useMemo(
@@ -5529,6 +5574,27 @@ function Home() {
     const configuredDuration = Math.max(0.05, Number(overlay.textEffectDuration ?? 0.6) || 0.6);
     const availablePhase = overlay.textEffectReverse ? visibleSpan / 2 : visibleSpan;
     return Math.max(0.05, Math.min(configuredDuration, availablePhase));
+  };
+  const textOverlayFadePlaybackStyle = (
+    overlay: TextOverlay,
+    start: number,
+    end: number,
+    localTime: number,
+    playbackActive: boolean,
+  ): React.CSSProperties => {
+    if (!playbackActive || normalizeTextOverlayEffect(overlay.textEffect) !== "fade") return {};
+    const span = Math.max(0.1, end - start);
+    const fadeInStart = Math.min(span - 0.05, Math.max(0, Number(overlay.fadeInStart ?? 0) || 0));
+    const fadeInEnd = Math.min(span, Math.max(fadeInStart + 0.05, Number(overlay.fadeInEnd ?? Math.min(0.8, span)) || Math.min(0.8, span)));
+    const fadeOutEnd = Math.min(span, Math.max(fadeInEnd + 0.05, Number(overlay.fadeOutEnd ?? span) || span));
+    const fadeOutStart = Math.min(fadeOutEnd - 0.05, Math.max(fadeInEnd, Number(overlay.fadeOutStart ?? Math.max(fadeInEnd, span - 0.8)) || Math.max(fadeInEnd, span - 0.8)));
+    const localTimeInOverlay = localTime - start;
+    let opacity = 1;
+    if (localTimeInOverlay < fadeInStart) opacity = 0;
+    else if (localTimeInOverlay < fadeInEnd) opacity = textEffectMotionProgress((localTimeInOverlay - fadeInStart) / Math.max(0.05, fadeInEnd - fadeInStart), overlay.fadeInMotion);
+    else if (localTimeInOverlay >= fadeOutStart && localTimeInOverlay < fadeOutEnd) opacity = 1 - textEffectMotionProgress((localTimeInOverlay - fadeOutStart) / Math.max(0.05, fadeOutEnd - fadeOutStart), overlay.fadeOutMotion);
+    else if (localTimeInOverlay >= fadeOutEnd) opacity = 0;
+    return { opacity: Number(opacity.toFixed(3)), animation: "none", willChange: "opacity" };
   };
   const textOverlayPlaybackStyle = (
     overlay: TextOverlay,
@@ -8793,6 +8859,77 @@ function Home() {
         ...(overlayIndex === 0 ? textOverlaySceneFields(nextOverlay) : {}),
       };
     }));
+  };
+
+  const openTextEffectEditor = (overlay: TextOverlay) => {
+    setSelectedTextOverlayId(overlay.id);
+    setTextEffectEditorOverlayId(overlay.id);
+  };
+
+  type TextEffectTimingField = "fadeInStart" | "fadeInEnd" | "fadeOutStart" | "fadeOutEnd";
+  const updateTextEffectTiming = (field: TextEffectTimingField, value: number) => {
+    const overlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
+    if (!overlay) return;
+    const current = textEffectTiming(overlay);
+    const next = { ...current, [field]: Math.max(0, Math.min(current.span, value)) };
+    next.fadeInEnd = Math.max(next.fadeInStart + 0.05, Math.min(current.span, next.fadeInEnd));
+    next.fadeOutStart = Math.max(next.fadeInEnd, Math.min(next.fadeOutEnd - 0.05, next.fadeOutStart));
+    if (overlay.fadeTimingsLinked === true && (field === "fadeInStart" || field === "fadeInEnd")) {
+      const fadeInDuration = Math.max(0.05, next.fadeInEnd - next.fadeInStart);
+      next.fadeOutEnd = current.span;
+      next.fadeOutStart = Math.max(next.fadeInEnd, current.span - fadeInDuration);
+    }
+    updateTextOverlay("fadeInStart", next.fadeInStart);
+    updateTextOverlay("fadeInEnd", next.fadeInEnd);
+    updateTextOverlay("fadeOutStart", next.fadeOutStart);
+    updateTextOverlay("fadeOutEnd", next.fadeOutEnd);
+  };
+
+  const textEffectTimeInput = (value: string, fallback: number) =>
+    Math.max(0, parsePreciseTime(value, fallback));
+
+  const updateTextEffectDuration = (side: "in" | "out", value: number) => {
+    const overlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
+    if (!overlay) return;
+    const current = textEffectTiming(overlay);
+    const duration = Math.max(0.05, Math.min(current.span, value));
+    if (side === "in") {
+      updateTextEffectTiming("fadeInEnd", current.fadeInStart + duration);
+    } else {
+      updateTextEffectTiming("fadeOutEnd", current.fadeOutStart + duration);
+    }
+  };
+
+  const applyTextEffectPreset = (preset: "quick" | "smooth" | "long" | "none") => {
+    const overlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
+    if (!overlay) return;
+    if (preset === "none") {
+      updateTextOverlay("textEffect", "none");
+      return;
+    }
+    const current = textEffectTiming(overlay);
+    const duration = Math.min(current.span / 2, preset === "quick" ? 0.35 : preset === "long" ? 1.4 : 0.8);
+    updateTextOverlay("textEffect", "fade");
+    updateTextEffectTiming("fadeInStart", 0);
+    updateTextEffectTiming("fadeInEnd", duration);
+    updateTextEffectTiming("fadeOutStart", Math.max(duration, current.span - duration));
+    updateTextEffectTiming("fadeOutEnd", current.span);
+  };
+
+  const playTextEffectSegment = (start: number, end: number) => {
+    const localStart = Math.max(0, Math.min(sceneDuration, start));
+    setSelectedId(scene.id);
+    setSelectedSceneIds([scene.id]);
+    setRulerEnabled(false);
+    setAlignmentGuides(EMPTY_ALIGNMENT_GUIDES);
+    setPlayTime(scene.start + localStart);
+    textOverlayPlaybackOriginRef.current = scene.start + localStart;
+    setPlaybackRestartToken((value) => value + 1);
+    setPreviewPlaybackMode(true);
+    setPlaying(true);
+    window.setTimeout(() => {
+      if (scene.start + end <= scene.end) setPlayTime(scene.start + end);
+    }, Math.max(100, (end - localStart) * 1000));
   };
 
   const resetActiveTextOverlayGeometry = () => {
@@ -16352,6 +16489,7 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   ...blurPlaybackStyle,
+                  ...textOverlayFadePlaybackStyle(overlay, start, end, localTime, sceneStructurePreviewMode),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
@@ -17665,6 +17803,7 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   ...blurPlaybackStyle,
+                  ...textOverlayFadePlaybackStyle(overlay, start, end, sceneLocalTime, previewPlaybackMode),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
@@ -18725,6 +18864,16 @@ function Home() {
                             )}
                             <button
                               type="button"
+                              className="text-overlay-effect-button"
+                              aria-label={`Mở hiệu ứng cho ${textOverlayLabel(overlay, index)}`}
+                              title="Chỉnh hiệu ứng chữ"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTextEffectEditor(overlay);
+                              }}
+                            >✦ Hiệu ứng</button>
+                            <button
+                              type="button"
                               className="text-overlay-edit"
                               title="Đổi tên"
                               aria-label={`Đổi tên ${textOverlayLabel(overlay, index)}`}
@@ -18797,42 +18946,7 @@ function Home() {
                  </label>
                  </div>
                 </EditorFieldGroup>
-                <EditorFieldGroup title="Hiệu ứng chữ" description="Chuyển động khi chữ xuất hiện; bỏ qua nếu chọn Không hiệu ứng." advanced>
-                <div className="field-row text-effect-controls">
-                  <label className="field">
-                    <FieldLabel hint="Hiệu ứng được đồng bộ giữa xem trước và video render.">Hiệu ứng chữ</FieldLabel>
-                    <select
-                      value={activeTextOverlay?.textEffect ?? "none"}
-                      onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}
-                    >
-                      {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {activeTextOverlay?.textEffect !== "none" && (
-                    <>
-                      <label className="field">
-                        <TimeFieldLabel hint="Độ dài tương đối của hiệu ứng chữ, tính từ lúc hiệu ứng bắt đầu.">Thời lượng hiệu ứng</TimeFieldLabel>
-                        <div className="number-with-unit"><NumericInput min={0.05} max={8} step={0.05} value={activeTextOverlay?.textEffectDuration ?? 0.6} disabled={!activeTextOverlay} onCommit={(value) => updateTextOverlay("textEffectDuration", value)} /><b>s</b></div>
-                      </label>
-                      <label className="field text-effect-reverse-toggle">
-                        <span>Reverse</span>
-                        <span className="field-checkbox-control">
-                          <input
-                            type="checkbox"
-                            checked={activeTextOverlay?.textEffectReverse === true}
-                            disabled={!activeTextOverlay}
-                            onChange={(event) => updateTextOverlay("textEffectReverse", event.target.checked)}
-                          />
-                          <b>Đảo chiều ở cuối</b>
-                        </span>
-                      </label>
-                    </>
-                  )}
-                </div>
-                <small>Hiệu ứng được đồng bộ khi xem thử và khi render. Bật Reverse để chạy ngược hiệu ứng ở cuối thời gian hiển thị, sau đó chữ sẽ biến mất. Với “Glow pulse”, “Rung”, “Glitch” và “Kinetic”, chuyển động sẽ lặp nếu không bật Reverse.</small>
-                </EditorFieldGroup>
+                <small className="text-effect-inline-note">Chọn nút <strong>Hiệu ứng</strong> trên từng item chữ để mở bảng chọn hiệu ứng và timeline Fade In/Out riêng cho item đó.</small>
                 <EditorFieldGroup title="Thời gian hiển thị" description="Mốc bắt đầu và kết thúc tuyệt đối tính từ đầu cảnh.">
                 <div className="field-row text-overlay-timing-fields">
                   <label className="field">
@@ -21449,6 +21563,99 @@ function Home() {
           )}
         </div>
       </div>
+      {textEffectEditorOverlay && (
+        <div className="modal-backdrop text-effect-editor-backdrop" onMouseDown={() => setTextEffectEditorOverlayId("")}>
+          <section
+            className="text-effect-editor-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="text-effect-editor-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {(() => {
+              const overlay = textEffectEditorOverlay;
+              const timing = textEffectTiming(overlay);
+              const fadeInDuration = timing.fadeInEnd - timing.fadeInStart;
+              const fadeOutDuration = timing.fadeOutEnd - timing.fadeOutStart;
+              const fadeOverlap = timing.fadeInEnd > timing.fadeOutStart;
+              const percent = (value: number) => `${Math.min(100, Math.max(0, value / timing.span * 100))}%`;
+              return (
+                <>
+                  <header className="text-effect-editor-header">
+                    <div>
+                      <span className="modal-kicker">CHỮ VIẾT · {textOverlayLabel(overlay, sceneTextOverlays.indexOf(overlay))}</span>
+                      <h2 id="text-effect-editor-title">Hiệu ứng chữ</h2>
+                    </div>
+                    <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng" onClick={() => setTextEffectEditorOverlayId("")}>×</button>
+                  </header>
+                  <label className="field text-effect-modal-selector">
+                    <FieldLabel hint="Hiệu ứng chỉ áp dụng cho item chữ viết đang chỉnh sửa.">Chọn hiệu ứng</FieldLabel>
+                    <select value={overlay.textEffect ?? "none"} onChange={(event) => updateTextOverlay("textEffect", normalizeTextOverlayEffect(event.target.value))}>
+                      {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <div className="text-effect-presets" aria-label="Preset hiệu ứng chữ">
+                    <span>Preset</span>
+                    <button type="button" onClick={() => applyTextEffectPreset("quick")}>Nhanh</button>
+                    <button type="button" onClick={() => applyTextEffectPreset("smooth")}>Mượt</button>
+                    <button type="button" onClick={() => applyTextEffectPreset("long")}>Dài</button>
+                    <button type="button" onClick={() => applyTextEffectPreset("none")}>Không hiệu ứng</button>
+                  </div>
+                  {overlay.textEffect === "fade" ? (
+                    <>
+                      <div className="text-effect-timeline-card">
+                        <div className="text-effect-timeline-ruler">
+                          {[0, 0.25, 0.5, 0.75, 1].map((mark) => <span key={mark} style={{ left: `${mark * 100}%` }}>{formatPreciseTime(mark * timing.span)}</span>)}
+                        </div>
+                        <div className="text-effect-timeline" style={{ ["--fade-in-width" as string]: percent(fadeInDuration), ["--fade-out-start" as string]: percent(timing.fadeOutStart), ["--fade-out-width" as string]: percent(fadeOutDuration) }}>
+                          <div className="text-effect-zone fade-in-zone" style={{ left: percent(timing.fadeInStart), width: percent(fadeInDuration) }}>Fade In</div>
+                          <div className="text-effect-zone normal-zone" style={{ left: percent(timing.fadeInEnd), width: percent(Math.max(0, timing.fadeOutStart - timing.fadeInEnd)) }}>Hiển thị bình thường</div>
+                          <div className="text-effect-zone fade-out-zone" style={{ left: percent(timing.fadeOutStart), width: percent(fadeOutDuration) }}>Fade Out</div>
+                          <span className="text-effect-timeline-marker start-marker" style={{ left: percent(0) }} />
+                          <span className="text-effect-timeline-marker fade-in-marker" style={{ left: percent(timing.fadeInEnd) }} title={`Fade In: ${formatPreciseTime(timing.fadeInStart)} → ${formatPreciseTime(timing.fadeInEnd)}`} />
+                          <span className="text-effect-timeline-marker fade-out-marker" style={{ left: percent(timing.fadeOutStart) }} title={`Fade Out: ${formatPreciseTime(timing.fadeOutStart)} → ${formatPreciseTime(timing.fadeOutEnd)}`} />
+                          <span className="text-effect-timeline-marker end-marker" style={{ left: percent(timing.fadeOutEnd) }} />
+                          <input className="text-effect-range text-effect-range-in" aria-label="Tay kéo kết thúc Fade In" type="range" min={0.05} max={timing.span} step={0.1} value={timing.fadeInEnd} onChange={(event) => updateTextEffectTiming("fadeInEnd", Number(event.target.value))} />
+                          <input className="text-effect-range text-effect-range-out" aria-label="Tay kéo bắt đầu Fade Out" type="range" min={0.05} max={timing.span - 0.05} step={0.1} value={timing.fadeOutStart} onChange={(event) => updateTextEffectTiming("fadeOutStart", Number(event.target.value))} />
+                        </div>
+                        <div className="text-effect-timeline-caption"><span>Bắt đầu chữ · {formatPreciseTime(0)}</span><span>Kết thúc chữ · {formatPreciseTime(timing.span)}</span></div>
+                      </div>
+                      <div className="text-effect-detail-grid">
+                        <section className="text-effect-detail-card fade-in-detail">
+                          <div className="text-effect-detail-heading"><strong>Fade In</strong><button type="button" onClick={() => playTextEffectSegment(overlay.start + timing.fadeInStart, overlay.start + timing.fadeInEnd)}>▶ Phát thử</button></div>
+                          <div className="field-row">
+                            <label className="field"><FieldLabel hint="Mốc bắt đầu tương đối trong đoạn chữ.">Bắt đầu</FieldLabel><div className="number-with-unit"><input type="text" value={formatPreciseTime(timing.fadeInStart)} onChange={(event) => updateTextEffectTiming("fadeInStart", textEffectTimeInput(event.target.value, timing.fadeInStart))} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Mốc kết thúc Fade In; thời lượng được tính tự động.">Kết thúc</FieldLabel><div className="number-with-unit"><input type="text" value={formatPreciseTime(timing.fadeInEnd)} onChange={(event) => updateTextEffectTiming("fadeInEnd", textEffectTimeInput(event.target.value, timing.fadeInEnd))} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Thay đổi thời lượng sẽ tự cập nhật mốc kết thúc.">Thời lượng</FieldLabel><div className="number-with-unit"><NumericInput min={0.05} max={timing.span} step={0.1} value={fadeInDuration} onCommit={(value) => updateTextEffectDuration("in", value)} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Tốc độ thay đổi độ mờ khi chữ xuất hiện.">Kiểu chuyển động</FieldLabel><select value={overlay.fadeInMotion ?? "ease-in-out"} onChange={(event) => updateTextOverlay("fadeInMotion", event.target.value as TextOverlay["fadeInMotion"])}><option value="ease-in-out">Smooth</option><option value="linear">Linear</option><option value="ease-out">Ease Out</option></select></label>
+                          </div>
+                        </section>
+                        <section className="text-effect-detail-card fade-out-detail">
+                          <div className="text-effect-detail-heading"><strong>Fade Out</strong><button type="button" onClick={() => playTextEffectSegment(overlay.start + timing.fadeOutStart, overlay.start + timing.fadeOutEnd)}>▶ Phát thử</button></div>
+                          <div className="field-row">
+                            <label className="field"><FieldLabel hint="Mốc bắt đầu tương đối trong đoạn chữ.">Bắt đầu</FieldLabel><div className="number-with-unit"><input type="text" value={formatPreciseTime(timing.fadeOutStart)} onChange={(event) => updateTextEffectTiming("fadeOutStart", textEffectTimeInput(event.target.value, timing.fadeOutStart))} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Mốc kết thúc Fade Out; thường trùng với kết thúc chữ.">Kết thúc</FieldLabel><div className="number-with-unit"><input type="text" value={formatPreciseTime(timing.fadeOutEnd)} onChange={(event) => updateTextEffectTiming("fadeOutEnd", textEffectTimeInput(event.target.value, timing.fadeOutEnd))} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Thay đổi thời lượng sẽ tự cập nhật mốc kết thúc.">Thời lượng</FieldLabel><div className="number-with-unit"><NumericInput min={0.05} max={timing.span} step={0.1} value={fadeOutDuration} onCommit={(value) => updateTextEffectDuration("out", value)} /><b>giây</b></div></label>
+                            <label className="field"><FieldLabel hint="Tốc độ thay đổi độ mờ khi chữ biến mất.">Kiểu chuyển động</FieldLabel><select value={overlay.fadeOutMotion ?? "ease-in-out"} onChange={(event) => updateTextOverlay("fadeOutMotion", event.target.value as TextOverlay["fadeOutMotion"])}><option value="ease-in-out">Smooth</option><option value="linear">Linear</option><option value="ease-in">Ease In</option></select></label>
+                          </div>
+                        </section>
+                      </div>
+                      <label className="text-effect-link-toggle"><input type="checkbox" checked={overlay.fadeTimingsLinked === true} onChange={(event) => updateTextOverlay("fadeTimingsLinked", event.target.checked)} /><span>Liên kết hai hiệu ứng để dùng cùng thời lượng</span></label>
+                      {fadeOverlap && <div className="text-effect-overlap-warning">⚠ Fade In và Fade Out đang chồng lên nhau. Hãy kéo lại tay cầm nếu muốn có khoảng hiển thị bình thường.</div>}
+                    </>
+                  ) : overlay.textEffect !== "none" ? (
+                    <div className="text-effect-generic-controls">
+                      <label className="field"><TimeFieldLabel hint="Độ dài hiệu ứng của item chữ.">Thời lượng hiệu ứng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={0.05} max={8} step={0.05} value={overlay.textEffectDuration} onCommit={(value) => updateTextOverlay("textEffectDuration", value)} /><b>s</b></div></label>
+                      <label className="field-checkbox-control"><input type="checkbox" checked={overlay.textEffectReverse === true} onChange={(event) => updateTextOverlay("textEffectReverse", event.target.checked)} /><b>Reverse ở cuối</b></label>
+                    </div>
+                  ) : <div className="text-effect-empty-state">Chưa bật hiệu ứng. Chọn một hiệu ứng hoặc preset để bắt đầu.</div>}
+                  <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={() => setTextEffectEditorOverlayId("")}>Hoàn tất</button></footer>
+                </>
+              );
+            })()}
+          </section>
+        </div>
+      )}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
       {showNewProject && (
         <div className="modal-backdrop" onMouseDown={() => setShowNewProject(false)}>
