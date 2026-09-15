@@ -8936,6 +8936,16 @@ function Home() {
     setSceneImageEffectEditorId("");
   };
 
+  const completeTextEffectEditor = async () => {
+    await saveProjectNow();
+    closeTextEffectEditor();
+  };
+
+  const completeSceneImageEffectEditor = async () => {
+    await saveProjectNow();
+    closeSceneImageEffectEditor();
+  };
+
   const resetTextEffectPreview = () => {
     textEffectPreviewTimeRef.current = 0;
     setTextEffectPreviewTime(0);
@@ -21734,7 +21744,11 @@ function Home() {
               {sceneImageEffectPreviewTransition !== "cut" && <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.max(0.1, sceneImageEffectEditorImage.start + 0.1)} max={sceneDuration} step={0.1} value={sceneImageEffectEditorImage.transitionEnd} onCommit={(value) => { updateSceneImage("transitionEnd", value); resetSceneImageEffectPreview(); }} /><b>s</b></div></label>}
             </div>
             <div className="scene-image-effect-presets" aria-label="Preset hiệu ứng chuyển hình"><span>Preset</span><button type="button" onClick={() => applySceneImageEffectPreset("quick")}>Nhanh</button><button type="button" onClick={() => applySceneImageEffectPreset("smooth")}>Mượt</button><button type="button" onClick={() => applySceneImageEffectPreset("long")}>Dài</button><button type="button" onClick={() => applySceneImageEffectPreset("none")}>Không hiệu ứng</button></div>
-            <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={closeSceneImageEffectEditor}>Hoàn tất</button></footer>
+            <div className="scene-image-effect-timeline" aria-label="Timeline hiệu ứng chuyển hình">
+              <div className="scene-image-effect-timeline-head"><span>{formatPreciseTime(sceneImageEffectEditorImage.start)}</span><strong>Hiệu ứng chuyển hình · {formatPreciseTime(sceneImageEffectEditorImage.transitionEnd)}</strong><span>{formatPreciseTime(sceneImageEffectPreviewTime)} / {formatPreciseTime(sceneImageEffectPreviewDuration)}</span></div>
+              <div className="scene-image-effect-timeline-track"><span className="scene-image-effect-timeline-range" style={{ width: `${sceneImageEffectPreviewProgress * 100}%` }} /><span className="scene-image-effect-timeline-playhead" style={{ left: `${sceneImageEffectPreviewProgress * 100}%` }} /></div>
+            </div>
+            <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={() => void completeSceneImageEffectEditor()}>Hoàn tất &amp; lưu</button></footer>
           </section>
         </div>
       )}
@@ -21935,7 +21949,7 @@ function Home() {
                       <label className="field-checkbox-control"><input type="checkbox" checked={overlay.textEffectReverse === true} onChange={(event) => updateTextOverlay("textEffectReverse", event.target.checked)} /><b>Reverse ở cuối</b></label>
                     </div>
                   ) : <div className="text-effect-empty-state">Chưa bật hiệu ứng. Chọn một hiệu ứng hoặc preset để bắt đầu.</div>}
-                  <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={closeTextEffectEditor}>Hoàn tất</button></footer>
+                  <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={() => void completeTextEffectEditor()}>Hoàn tất &amp; lưu</button></footer>
                 </>
               );
             })()}
