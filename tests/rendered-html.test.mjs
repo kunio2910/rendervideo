@@ -431,6 +431,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /scene-structure-image-sync-preview-modal/);
   assert.match(css, /scene-structure-image-sync-preview-dialog/);
   assert.match(css, /scene-structure-info-row\.is-selected/);
+  assert.match(page, /image-timing-minimap-legend[\s\S]*state-gap[\s\S]*Khoảng trống[\s\S]*state-overlap[\s\S]*Chồng lấn/);
+  assert.match(css, /image-timing-minimap-pixel\.segment-7/);
+  assert.match(css, /image-timing-minimap-pixel\.state-gap \{ background: #9aa1aa/);
+  assert.match(page, /activeRow \? activeRow\.index % 8/);
   assert.match(notes, /không tự động ghi/);
   assert.match(notes, /Ctrl\/Cmd \+ Z/);
 });

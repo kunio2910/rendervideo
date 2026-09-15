@@ -2377,14 +2377,14 @@ const buildSceneImageTimingMinimap = (
               ? "gap"
               : "empty",
       imageId: activeRow?.imageId,
-      segment: activeRow ? activeRow.index % 4 : undefined,
+      segment: activeRow ? activeRow.index % 8 : undefined,
     } satisfies SceneImageTimingMinimapPoint;
   });
   const boundaries = check.rows.flatMap((row) => (
     Number.isFinite(row.start) && Number.isFinite(row.end)
       ? [
-          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 4 },
-          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 4 },
+          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 8 },
+          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 8 },
         ]
       : []
   ));
@@ -23180,8 +23180,6 @@ function Home() {
                     })}
                   </div>
                   <div className="image-timing-minimap-legend" aria-label="Chú giải minimap">
-                    <span><i className="state-image" /> Hình ảnh</span>
-                    <span><i className="state-transition" /> Chuyển hình</span>
                     <span><i className="state-gap" /> Khoảng trống</span>
                     <span><i className="state-overlap" /> Chồng lấn</span>
                   </div>
