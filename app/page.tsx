@@ -4872,6 +4872,7 @@ function Home() {
   const textEffectPreviewTimeRef = useRef(0);
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
+  const [sceneImageEffectEditorId, setSceneImageEffectEditorId] = useState("");
   const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
   const [renamingTextOverlayName, setRenamingTextOverlayName] = useState("");
   const [renamingDecorationId, setRenamingDecorationId] = useState("");
@@ -5337,6 +5338,7 @@ function Home() {
   ]);
   const sceneDecorations = scene.mapDecorations ?? [];
   const sceneImages = scene.sceneImages ?? [];
+  const sceneImageEffectEditorImage = sceneImages.find((image) => image.id === sceneImageEffectEditorId);
   const animatedEffectAssets = useMemo(
     () => assetLibrary.filter((item) => isAnimatedEffectFile(item.file)),
     [assetLibrary],
@@ -8891,6 +8893,10 @@ function Home() {
     setTextEffectEditorOverlayId("");
   };
 
+  const closeSceneImageEffectEditor = () => {
+    setSceneImageEffectEditorId("");
+  };
+
   const resetTextEffectPreview = () => {
     textEffectPreviewTimeRef.current = 0;
     setTextEffectPreviewTime(0);
@@ -8915,7 +8921,6 @@ function Home() {
     setSelectedPopupId("");
     setSelectedDecorationId("");
     setSelectedSceneImageId("");
-    setSceneStructureQuickEditToken("");
     setSelectedTextOverlayId(overlay.id);
     setPlayTime(sceneStructureScene.start + Math.max(0, Number(overlay.start) || 0));
     resetTextEffectPreview();
@@ -8924,11 +8929,7 @@ function Home() {
 
   const openSceneImageEffectEditor = (image: SceneImage) => {
     setSelectedSceneImageId(image.id);
-    focusEditorSection("images");
-    window.setTimeout(() => {
-      const target = document.getElementById(`editor-image-effects-${image.id}`);
-      if (target instanceof HTMLElement) scrollEditorTargetIntoView(target, "center");
-    }, 120);
+    setSceneImageEffectEditorId(image.id);
   };
 
   type TextEffectTimingField = "fadeInStart" | "fadeInEnd" | "fadeOutStart" | "fadeOutEnd";
@@ -21644,6 +21645,34 @@ function Home() {
           )}
         </div>
       </div>
+      {sceneImageEffectEditorImage && (
+        <div className="modal-backdrop scene-image-effect-editor-backdrop" onMouseDown={closeSceneImageEffectEditor}>
+          <section className="scene-image-effect-editor-modal" role="dialog" aria-modal="true" aria-labelledby="scene-image-effect-editor-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="text-effect-editor-header">
+              <div>
+                <span className="modal-kicker">HÌNH ẢNH · {sceneImageEffectEditorImage.name || "Layer hình ảnh"}</span>
+                <h2 id="scene-image-effect-editor-title">Hiệu ứng hình ảnh</h2>
+              </div>
+              <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng hình ảnh" onClick={closeSceneImageEffectEditor}>×</button>
+            </header>
+            <div className="scene-image-effect-editor-preview" aria-label="Xem trước hiệu ứng chuyển hình">
+              <div className={`scene-image-effect-review scene-image-effect-review-${normalizeSceneImageTransition(sceneImageEffectEditorImage.transition)}`}>
+                {assetPreviewSource(sceneImageEffectEditorImage.url) && (
+                  sceneImageEffectEditorImage.mediaType === "video" || isVideoMedia(sceneImageEffectEditorImage.url)
+                    ? <video src={assetPreviewSource(sceneImageEffectEditorImage.url)} muted autoPlay loop playsInline />
+                    : <img src={assetPreviewSource(sceneImageEffectEditorImage.url)} alt="Xem trước hình ảnh" />
+                )}
+                <span>Review tại 65% tiến độ hiệu ứng</span>
+              </div>
+            </div>
+            <div className="scene-image-effect-editor-controls">
+              <label className="field"><FieldLabel hint="Chọn cách layer hình ảnh đi vào cảnh.">Hiệu ứng chuyển hình</FieldLabel><select value={normalizeSceneImageTransition(sceneImageEffectEditorImage.transition)} onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>{sceneImageTransitionOptions.find((option) => option.value === normalizeSceneImageTransition(sceneImageEffectEditorImage.transition))?.hint}</small></label>
+              {normalizeSceneImageTransition(sceneImageEffectEditorImage.transition) !== "cut" && <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.max(0.1, sceneImageEffectEditorImage.start + 0.1)} max={sceneDuration} step={0.1} value={sceneImageEffectEditorImage.transitionEnd} onCommit={(value) => updateSceneImage("transitionEnd", value)} /><b>s</b></div></label>}
+            </div>
+            <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={closeSceneImageEffectEditor}>Hoàn tất</button></footer>
+          </section>
+        </div>
+      )}
       {textEffectEditorOverlay && (
         <div className="modal-backdrop text-effect-editor-backdrop" onMouseDown={closeTextEffectEditor}>
           <section

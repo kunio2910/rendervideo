@@ -12392,6 +12392,20 @@ body {
 .scene-structure-quick-duration-button { justify-self: start; min-height: 34px; padding-inline: 12px; }
 .scene-structure-quick-effect-button { justify-self: start; min-height: 34px; padding-inline: 12px; color: var(--blue-deep, var(--blue)); }
 .scene-image-effect-anchor { display: block; height: 0; scroll-margin-top: 18px; }
+.scene-image-effect-editor-modal { width: min(720px, calc(100vw - 32px)); max-height: min(90vh, 760px); overflow: auto; padding: 22px; border: 1px solid rgba(35, 137, 255, .28); border-radius: 18px; background: var(--surface, #fffdf9); box-shadow: 0 24px 80px rgba(8, 30, 52, .28); }
+.scene-image-effect-editor-preview { display: grid; place-items: center; min-height: 240px; margin: 18px 0; padding: 18px; border: 1px solid var(--line, #d8d2c8); border-radius: 14px; background: linear-gradient(135deg, #eef5fb, #f7efe4); overflow: hidden; }
+.scene-image-effect-review { position: relative; display: grid; place-items: center; width: min(100%, 460px); height: 220px; overflow: hidden; border-radius: 12px; background: #182532; }
+.scene-image-effect-review img, .scene-image-effect-review video { width: 100%; height: 100%; object-fit: contain; transition: transform .35s ease, filter .35s ease, opacity .35s ease; }
+.scene-image-effect-review span { position: absolute; right: 10px; bottom: 10px; padding: 5px 8px; border-radius: 6px; background: rgba(15, 28, 40, .78); color: #fff; font-size: 11px; }
+.scene-image-effect-review-crossfade img, .scene-image-effect-review-crossfade video { opacity: .65; }
+.scene-image-effect-review-fade-black img, .scene-image-effect-review-fade-black video { opacity: .55; filter: brightness(.45); }
+.scene-image-effect-review-slide-left img, .scene-image-effect-review-slide-left video { transform: translateX(-10%); }
+.scene-image-effect-review-slide-right img, .scene-image-effect-review-slide-right video { transform: translateX(10%); }
+.scene-image-effect-review-zoom img, .scene-image-effect-review-zoom video { transform: scale(1.07); }
+.scene-image-effect-review-blur img, .scene-image-effect-review-blur video { filter: blur(4px); }
+.scene-image-effect-editor-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.scene-image-effect-editor-controls .field:first-child { grid-column: 1 / -1; }
+@media (max-width: 620px) { .scene-image-effect-editor-controls { grid-template-columns: 1fr; } .scene-image-effect-editor-controls .field:first-child { grid-column: auto; } }
 .scene-structure-quick-grid { display: grid; gap: 10px; }
 .scene-structure-quick-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .scene-structure-quick-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
