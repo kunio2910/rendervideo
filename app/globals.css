@@ -12404,6 +12404,12 @@ body {
 .scene-image-effect-review-slide-right img, .scene-image-effect-review-slide-right video { transform: translateX(10%); }
 .scene-image-effect-review-zoom img, .scene-image-effect-review-zoom video { transform: scale(1.07); }
 .scene-image-effect-review-blur img, .scene-image-effect-review-blur video { filter: blur(4px); }
+.scene-image-effect-preview-controls { display: flex; align-items: center; gap: 8px; margin: -8px 0 16px; }
+.scene-image-effect-preview-controls button { min-height: 32px; }
+.scene-image-effect-preview-controls > span { margin-left: auto; color: var(--studio-muted); font: 700 11px var(--font-mono); }
+.scene-image-effect-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 16px; color: var(--studio-muted); font-size: 11px; }
+.scene-image-effect-presets button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--studio-line); border-radius: 6px; background: var(--panel-soft); color: var(--studio-ink); cursor: pointer; }
+.scene-image-effect-presets button:hover { border-color: var(--blue); color: var(--blue); }
 .scene-image-effect-editor-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .scene-image-effect-editor-controls .field:first-child { grid-column: 1 / -1; }
 @media (max-width: 620px) { .scene-image-effect-editor-controls { grid-template-columns: 1fr; } .scene-image-effect-editor-controls .field:first-child { grid-column: auto; } }

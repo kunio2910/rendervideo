@@ -6,6 +6,7 @@ import {
   type ErrorInfo,
   type InputHTMLAttributes,
   type PointerEvent as ReactPointerEvent,
+  type CSSProperties,
   type ReactNode,
   useEffect,
   useMemo,
@@ -4873,6 +4874,8 @@ function Home() {
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
   const [sceneImageEffectEditorId, setSceneImageEffectEditorId] = useState("");
+  const [sceneImageEffectPreviewTime, setSceneImageEffectPreviewTime] = useState(0);
+  const [sceneImageEffectPreviewPlaying, setSceneImageEffectPreviewPlaying] = useState(false);
   const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
   const [renamingTextOverlayName, setRenamingTextOverlayName] = useState("");
   const [renamingDecorationId, setRenamingDecorationId] = useState("");
@@ -5339,6 +5342,42 @@ function Home() {
   const sceneDecorations = scene.mapDecorations ?? [];
   const sceneImages = scene.sceneImages ?? [];
   const sceneImageEffectEditorImage = sceneImages.find((image) => image.id === sceneImageEffectEditorId);
+  const sceneImageEffectPreviewDuration = sceneImageEffectEditorImage
+    ? Math.max(0.1, sceneImageTransitionDuration(sceneImageEffectEditorImage))
+    : 0.1;
+  const sceneImageEffectPreviewProgress = Math.min(1, Math.max(0, sceneImageEffectPreviewTime / sceneImageEffectPreviewDuration));
+  const sceneImageEffectPreviewTransition = sceneImageEffectEditorImage ? normalizeSceneImageTransition(sceneImageEffectEditorImage.transition) : "cut";
+  const sceneImageEffectPreviewMediaStyle: CSSProperties = {
+    opacity: sceneImageEffectPreviewTransition === "crossfade" || sceneImageEffectPreviewTransition === "fade-black"
+      ? sceneImageEffectPreviewProgress
+      : 1,
+    transform: sceneImageEffectPreviewTransition === "slide-left"
+      ? `translateX(${(sceneImageEffectPreviewProgress - 1) * 100}%)`
+      : sceneImageEffectPreviewTransition === "slide-right"
+        ? `translateX(${(1 - sceneImageEffectPreviewProgress) * 100}%)`
+        : sceneImageEffectPreviewTransition === "zoom"
+          ? `scale(${1.14 - sceneImageEffectPreviewProgress * 0.14})`
+          : undefined,
+    filter: sceneImageEffectPreviewTransition === "blur"
+      ? `blur(${((1 - sceneImageEffectPreviewProgress) * 12).toFixed(2)}px)`
+      : sceneImageEffectPreviewTransition === "fade-black"
+        ? `brightness(${(0.35 + sceneImageEffectPreviewProgress * 0.65).toFixed(2)})`
+        : undefined,
+  };
+  useEffect(() => {
+    if (!sceneImageEffectEditorImage || !sceneImageEffectPreviewPlaying) return;
+    const startedAt = performance.now() - sceneImageEffectPreviewTime * 1000;
+    const timer = window.setInterval(() => {
+      const next = Math.min(sceneImageEffectPreviewDuration, Math.max(0, (performance.now() - startedAt) / 1000));
+      setSceneImageEffectPreviewTime(next);
+      if (next >= sceneImageEffectPreviewDuration) setSceneImageEffectPreviewPlaying(false);
+    }, 40);
+    return () => window.clearInterval(timer);
+  }, [sceneImageEffectEditorImage?.id, sceneImageEffectPreviewPlaying, sceneImageEffectPreviewDuration, sceneImageEffectPreviewTime]);
+  useEffect(() => {
+    setSceneImageEffectPreviewTime(0);
+    setSceneImageEffectPreviewPlaying(false);
+  }, [sceneImageEffectEditorId, sceneImageEffectEditorImage?.transition]);
   const animatedEffectAssets = useMemo(
     () => assetLibrary.filter((item) => isAnimatedEffectFile(item.file)),
     [assetLibrary],
@@ -8932,6 +8971,21 @@ function Home() {
     setSceneImageEffectEditorId(image.id);
   };
 
+  const resetSceneImageEffectPreview = () => {
+    setSceneImageEffectPreviewPlaying(false);
+    setSceneImageEffectPreviewTime(0);
+  };
+
+  const applySceneImageEffectPreset = (preset: "quick" | "smooth" | "long" | "none") => {
+    const image = sceneImages.find((entry) => entry.id === sceneImageEffectEditorId);
+    if (!image) return;
+    const transition = preset === "none" ? "cut" : normalizeSceneImageTransition(image.transition) === "cut" ? "crossfade" : normalizeSceneImageTransition(image.transition);
+    const duration = preset === "quick" ? 0.25 : preset === "long" ? 1.2 : 0.6;
+    updateSceneImage("transition", transition);
+    updateSceneImage("transitionEnd", Math.min(sceneDuration, Number((image.start + duration).toFixed(2))));
+    resetSceneImageEffectPreview();
+  };
+
   type TextEffectTimingField = "fadeInStart" | "fadeInEnd" | "fadeOutStart" | "fadeOutEnd";
   const updateTextEffectTiming = (field: TextEffectTimingField, value: number) => {
     const overlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
@@ -8975,11 +9029,13 @@ function Home() {
     }
     const current = textEffectTiming(overlay);
     const duration = Math.min(current.span / 2, preset === "quick" ? 0.35 : preset === "long" ? 1.4 : 0.8);
-    updateTextOverlay("textEffect", "fade");
-    updateTextEffectTiming("fadeInStart", 0);
-    updateTextEffectTiming("fadeInEnd", duration);
-    updateTextEffectTiming("fadeOutStart", Math.max(duration, current.span - duration));
-    updateTextEffectTiming("fadeOutEnd", current.span);
+    updateTextOverlay("textEffectDuration", duration);
+    if (overlay.textEffect === "fade") {
+      updateTextEffectTiming("fadeInStart", 0);
+      updateTextEffectTiming("fadeInEnd", duration);
+      updateTextEffectTiming("fadeOutStart", Math.max(duration, current.span - duration));
+      updateTextEffectTiming("fadeOutEnd", current.span);
+    }
   };
 
   const playTextEffectSegment = (start: number, end: number) => {
@@ -21656,19 +21712,28 @@ function Home() {
               <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng hình ảnh" onClick={closeSceneImageEffectEditor}>×</button>
             </header>
             <div className="scene-image-effect-editor-preview" aria-label="Xem trước hiệu ứng chuyển hình">
-              <div className={`scene-image-effect-review scene-image-effect-review-${normalizeSceneImageTransition(sceneImageEffectEditorImage.transition)}`}>
+              <div className={`scene-image-effect-review scene-image-effect-review-${sceneImageEffectPreviewTransition}`}>
                 {assetPreviewSource(sceneImageEffectEditorImage.url) && (
                   sceneImageEffectEditorImage.mediaType === "video" || isVideoMedia(sceneImageEffectEditorImage.url)
-                    ? <video src={assetPreviewSource(sceneImageEffectEditorImage.url)} muted autoPlay loop playsInline />
-                    : <img src={assetPreviewSource(sceneImageEffectEditorImage.url)} alt="Xem trước hình ảnh" />
+                    ? <video src={assetPreviewSource(sceneImageEffectEditorImage.url)} muted autoPlay loop playsInline style={sceneImageEffectPreviewMediaStyle} />
+                    : <img src={assetPreviewSource(sceneImageEffectEditorImage.url)} alt="Xem trước hình ảnh" style={sceneImageEffectPreviewMediaStyle} />
                 )}
-                <span>Review tại 65% tiến độ hiệu ứng</span>
+                <span>Review {Math.round(sceneImageEffectPreviewProgress * 100)}%</span>
               </div>
             </div>
-            <div className="scene-image-effect-editor-controls">
-              <label className="field"><FieldLabel hint="Chọn cách layer hình ảnh đi vào cảnh.">Hiệu ứng chuyển hình</FieldLabel><select value={normalizeSceneImageTransition(sceneImageEffectEditorImage.transition)} onChange={(event) => updateSceneImage("transition", normalizeSceneImageTransition(event.target.value))}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>{sceneImageTransitionOptions.find((option) => option.value === normalizeSceneImageTransition(sceneImageEffectEditorImage.transition))?.hint}</small></label>
-              {normalizeSceneImageTransition(sceneImageEffectEditorImage.transition) !== "cut" && <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.max(0.1, sceneImageEffectEditorImage.start + 0.1)} max={sceneDuration} step={0.1} value={sceneImageEffectEditorImage.transitionEnd} onCommit={(value) => updateSceneImage("transitionEnd", value)} /><b>s</b></div></label>}
+            <div className="scene-image-effect-preview-controls" aria-label="Điều khiển xem thử hiệu ứng hình ảnh">
+              <button type="button" className="button primary" onClick={() => {
+                if (sceneImageEffectPreviewTime >= sceneImageEffectPreviewDuration) setSceneImageEffectPreviewTime(0);
+                setSceneImageEffectPreviewPlaying(true);
+              }}>▶ Phát thử</button>
+              <button type="button" className="button secondary" onClick={resetSceneImageEffectPreview}>↺ Về đầu</button>
+              <span>{formatPreciseTime(sceneImageEffectPreviewTime)} / {formatPreciseTime(sceneImageEffectPreviewDuration)}</span>
             </div>
+            <div className="scene-image-effect-editor-controls">
+              <label className="field"><FieldLabel hint="Chọn cách layer hình ảnh đi vào cảnh.">Hiệu ứng chuyển hình</FieldLabel><select value={sceneImageEffectPreviewTransition} onChange={(event) => { updateSceneImage("transition", normalizeSceneImageTransition(event.target.value)); resetSceneImageEffectPreview(); }}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>{sceneImageTransitionOptions.find((option) => option.value === sceneImageEffectPreviewTransition)?.hint}</small></label>
+              {sceneImageEffectPreviewTransition !== "cut" && <label className="field"><TimeFieldLabel hint="Mốc tuyệt đối tính từ đầu cảnh; khi chạy đến mốc này, hiệu ứng chuyển hình kết thúc.">Thời gian kết thúc hiệu ứng</TimeFieldLabel><div className="number-with-unit"><NumericInput min={Math.max(0.1, sceneImageEffectEditorImage.start + 0.1)} max={sceneDuration} step={0.1} value={sceneImageEffectEditorImage.transitionEnd} onCommit={(value) => { updateSceneImage("transitionEnd", value); resetSceneImageEffectPreview(); }} /><b>s</b></div></label>}
+            </div>
+            <div className="scene-image-effect-presets" aria-label="Preset hiệu ứng chuyển hình"><span>Preset</span><button type="button" onClick={() => applySceneImageEffectPreset("quick")}>Nhanh</button><button type="button" onClick={() => applySceneImageEffectPreset("smooth")}>Mượt</button><button type="button" onClick={() => applySceneImageEffectPreset("long")}>Dài</button><button type="button" onClick={() => applySceneImageEffectPreset("none")}>Không hiệu ứng</button></div>
             <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={closeSceneImageEffectEditor}>Hoàn tất</button></footer>
           </section>
         </div>
@@ -21816,10 +21881,10 @@ function Home() {
                     <small className="text-effect-preview-note">Các lớp chữ khác được ẩn trong khung này để kiểm tra riêng hiệu ứng.</small>
                   </section>
                   <div className="text-effect-presets" aria-label="Preset hiệu ứng chữ">
-                    <span>Preset</span>
-                    <button type="button" onClick={() => applyTextEffectPreset("quick")}>Nhanh</button>
-                    <button type="button" onClick={() => applyTextEffectPreset("smooth")}>Mượt</button>
-                    <button type="button" onClick={() => applyTextEffectPreset("long")}>Dài</button>
+                    <span>Preset {TEXT_OVERLAY_EFFECT_OPTIONS.find((option) => option.value === overlay.textEffect)?.label ?? "hiện tại"}</span>
+                    <button type="button" title="Áp dụng preset nhanh cho hiệu ứng đang chọn" onClick={() => applyTextEffectPreset("quick")}>Nhanh</button>
+                    <button type="button" title="Áp dụng preset mượt cho hiệu ứng đang chọn" onClick={() => applyTextEffectPreset("smooth")}>Mượt</button>
+                    <button type="button" title="Áp dụng preset dài cho hiệu ứng đang chọn" onClick={() => applyTextEffectPreset("long")}>Dài</button>
                     <button type="button" onClick={() => applyTextEffectPreset("none")}>Không hiệu ứng</button>
                   </div>
                   {overlay.textEffect === "fade" ? (
