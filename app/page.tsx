@@ -21730,14 +21730,14 @@ function Home() {
                 )}
                 <span>Review {Math.round(sceneImageEffectPreviewProgress * 100)}%</span>
               </div>
-            </div>
-            <div className="scene-image-effect-preview-controls" aria-label="Điều khiển xem thử hiệu ứng hình ảnh">
-              <button type="button" className="button primary" onClick={() => {
-                if (sceneImageEffectPreviewTime >= sceneImageEffectPreviewDuration) setSceneImageEffectPreviewTime(0);
-                setSceneImageEffectPreviewPlaying(true);
-              }}>▶ Phát thử</button>
-              <button type="button" className="button secondary" onClick={resetSceneImageEffectPreview}>↺ Về đầu</button>
-              <span>{formatPreciseTime(sceneImageEffectPreviewTime)} / {formatPreciseTime(sceneImageEffectPreviewDuration)}</span>
+              <div className="scene-image-effect-preview-controls" aria-label="Điều khiển xem thử hiệu ứng hình ảnh">
+                <button type="button" className="button primary" onClick={() => {
+                  if (sceneImageEffectPreviewTime >= sceneImageEffectPreviewDuration) setSceneImageEffectPreviewTime(0);
+                  setSceneImageEffectPreviewPlaying(true);
+                }}>▶ Phát thử</button>
+                <button type="button" className="button secondary" onClick={resetSceneImageEffectPreview}>↺ Về đầu</button>
+                <span>{formatPreciseTime(sceneImageEffectPreviewTime)} / {formatPreciseTime(sceneImageEffectPreviewDuration)}</span>
+              </div>
             </div>
             <div className="scene-image-effect-editor-controls">
               <label className="field"><FieldLabel hint="Chọn cách layer hình ảnh đi vào cảnh.">Hiệu ứng chuyển hình</FieldLabel><select value={sceneImageEffectPreviewTransition} onChange={(event) => { updateSceneImage("transition", normalizeSceneImageTransition(event.target.value)); resetSceneImageEffectPreview(); }}>{sceneImageTransitionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>{sceneImageTransitionOptions.find((option) => option.value === sceneImageEffectPreviewTransition)?.hint}</small></label>
