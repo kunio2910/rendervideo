@@ -92,6 +92,16 @@ const summarizeFfmpegFailure = (log) => {
     .slice(0, 360);
 };
 
+// Windows exposes FFmpeg's negative errno-style exit codes as unsigned
+// 32-bit values (for example -22 becomes 4294967274). Decode them before
+// showing the failure so the UI and log point to the real FFmpeg status.
+const normalizeProcessExitCode = (code) => {
+  const numeric = Number(code);
+  return Number.isFinite(numeric) && numeric > 0x7fffffff
+    ? numeric - 0x100000000
+    : numeric;
+};
+
 const formatRenderClock = (value) => {
   const seconds = Math.max(0, Number(value) || 0);
   const minutes = Math.floor(seconds / 60);
@@ -339,7 +349,8 @@ const runConcatJob = async (job, clips) => {
       child.once("error", reject);
       child.once("exit", resolve);
     });
-    if (exitCode !== 0) throw new Error(`FFmpeg nối video kết thúc với mã lỗi ${exitCode}`);
+    const normalizedExitCode = normalizeProcessExitCode(exitCode);
+    if (normalizedExitCode !== 0) throw new Error(`FFmpeg nối video kết thúc với mã lỗi ${normalizedExitCode}`);
     job.clip = await storeRenderedClip({
       sourcePath: job.outputPath,
       name: job.name,
@@ -569,9 +580,10 @@ const runJob = async (job, project, files) => {
       job.detail = job.message;
       return;
     }
-    if (exitCode !== 0) {
+    const normalizedExitCode = normalizeProcessExitCode(exitCode);
+    if (normalizedExitCode !== 0) {
       const detail = summarizeFfmpegFailure(job.log);
-      throw new Error(`FFmpeg kết thúc với mã lỗi ${exitCode}${detail ? `: ${detail}` : ""}`);
+      throw new Error(`FFmpeg kết thúc với mã lỗi ${normalizedExitCode}${detail ? `: ${detail}` : ""}`);
     }
     job.stage = "finalizing";
     job.stageLabel = "Hoàn tất video";

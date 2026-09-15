@@ -635,7 +635,11 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /Scene complete/);
   assert.match(renderer, /Render stage: joining/);
   assert.match(renderer, /Render stage: mixing background music/);
+  assert.match(renderer, /const normalizeProcessExitCode = \(code\)/);
+  assert.match(renderer, /exited \$\{normalizedCode\}/);
   assert.match(localServer, /renderJobPayload/);
+  assert.match(localServer, /0x7fffffff/);
+  assert.match(localServer, /normalizedExitCode/);
   assert.match(localServer, /mediaTimeSeconds/);
   assert.match(localServer, /etaSeconds/);
   assert.match(page, /const SNOWFLAKE_SEEDS = Array\.from\(\{ length: 36 \}/);

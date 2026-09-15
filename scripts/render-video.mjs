@@ -885,13 +885,43 @@ const loadPopupFontCss = () => {
   return popupFontCssPromise;
 };
 
+const normalizeProcessExitCode = (code) => {
+  const numeric = Number(code);
+  return Number.isFinite(numeric) && numeric > 0x7fffffff
+    ? numeric - 0x100000000
+    : numeric;
+};
+
+const summarizeProcessFailure = (output) => String(output || "")
+  .replaceAll("\r", "")
+  .split("\n")
+  .map((line) => line.trim())
+  .filter((line) => line && !/^frame=|^size=|^video:/i.test(line))
+  .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line))
+  .at(-1)
+  ?.replace(/\s+/g, " ")
+  .slice(0, 360) || "";
+
 const run = (command, args) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit", windowsHide: true });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    let output = "";
+    const collect = (chunk) => {
+      output = `${output}${chunk.toString()}`.slice(-12000);
+      process.stdout.write(chunk);
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
     child.once("error", reject);
-    child.once("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`${path.basename(command)} exited ${code}`)),
-    );
+    child.once("exit", (code) => {
+      const normalizedCode = normalizeProcessExitCode(code);
+      if (normalizedCode === 0) {
+        resolve();
+        return;
+      }
+      const detail = summarizeProcessFailure(output);
+      reject(new Error(`${path.basename(command)} exited ${normalizedCode}${detail ? `: ${detail}` : ""}`));
+    });
   });
 
 const concatFileEntry = (filePath) => `file '${String(filePath).replaceAll("'", "'\\''")}'`;
