@@ -4866,6 +4866,10 @@ function Home() {
   const [selectedPopupId, setSelectedPopupId] = useState("");
   const [selectedTextOverlayId, setSelectedTextOverlayId] = useState("");
   const [textEffectEditorOverlayId, setTextEffectEditorOverlayId] = useState("");
+  const [textEffectPreviewTime, setTextEffectPreviewTime] = useState(0);
+  const [textEffectPreviewPlaying, setTextEffectPreviewPlaying] = useState(false);
+  const [textEffectPreviewRestartToken, setTextEffectPreviewRestartToken] = useState(0);
+  const textEffectPreviewTimeRef = useRef(0);
   const [selectedDecorationId, setSelectedDecorationId] = useState("");
   const [selectedSceneImageId, setSelectedSceneImageId] = useState("");
   const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
@@ -5310,6 +5314,27 @@ function Home() {
     const fadeOutStart = Math.min(fadeOutEnd - 0.05, Math.max(fadeInEnd, Number(overlay.fadeOutStart ?? Math.max(fadeInEnd, span - 0.8)) || Math.max(fadeInEnd, span - 0.8)));
     return { span, fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd };
   };
+
+  useEffect(() => {
+    if (!textEffectPreviewPlaying || !textEffectEditorOverlay) return;
+    const span = Math.max(0.1, Number(textEffectEditorOverlay.end ?? 0) - Number(textEffectEditorOverlay.start ?? 0));
+    const startedAt = performance.now() - textEffectPreviewTimeRef.current * 1000;
+    const timer = window.setInterval(() => {
+      const next = Math.min(span, Math.max(0, (performance.now() - startedAt) / 1000));
+      textEffectPreviewTimeRef.current = next;
+      setTextEffectPreviewTime(next);
+      if (next >= span) {
+        setTextEffectPreviewPlaying(false);
+        window.clearInterval(timer);
+      }
+    }, 40);
+    return () => window.clearInterval(timer);
+  }, [
+    textEffectPreviewPlaying,
+    textEffectEditorOverlayId,
+    textEffectEditorOverlay?.start,
+    textEffectEditorOverlay?.end,
+  ]);
   const sceneDecorations = scene.mapDecorations ?? [];
   const sceneImages = scene.sceneImages ?? [];
   const animatedEffectAssets = useMemo(
@@ -8861,8 +8886,38 @@ function Home() {
     }));
   };
 
+  const closeTextEffectEditor = () => {
+    setTextEffectPreviewPlaying(false);
+    setTextEffectEditorOverlayId("");
+  };
+
+  const resetTextEffectPreview = () => {
+    textEffectPreviewTimeRef.current = 0;
+    setTextEffectPreviewTime(0);
+    setTextEffectPreviewPlaying(false);
+    setTextEffectPreviewRestartToken((value) => value + 1);
+  };
+
   const openTextEffectEditor = (overlay: TextOverlay) => {
     setSelectedTextOverlayId(overlay.id);
+    resetTextEffectPreview();
+    setTextEffectEditorOverlayId(overlay.id);
+  };
+
+  const openSceneStructureTextEffectEditor = (item: SceneStructureItem) => {
+    if (item.kind !== "text") return;
+    const overlay = sceneStructureTexts.find((entry) => entry.id === item.id);
+    if (!overlay) return;
+    setPlaying(false);
+    setPreviewPlaybackMode(false);
+    setSelectedId(sceneStructureScene.id);
+    setSelectedSceneIds([sceneStructureScene.id]);
+    setSelectedPopupId("");
+    setSelectedDecorationId("");
+    setSelectedSceneImageId("");
+    setSelectedTextOverlayId(overlay.id);
+    setPlayTime(sceneStructureScene.start + Math.max(0, Number(overlay.start) || 0));
+    resetTextEffectPreview();
     setTextEffectEditorOverlayId(overlay.id);
   };
 
@@ -8930,6 +8985,18 @@ function Home() {
     window.setTimeout(() => {
       if (scene.start + end <= scene.end) setPlayTime(scene.start + end);
     }, Math.max(100, (end - localStart) * 1000));
+  };
+
+  const toggleTextEffectPreview = () => {
+    const overlay = sceneTextOverlays.find((item) => item.id === textEffectEditorOverlayId);
+    if (!overlay) return;
+    const span = Math.max(0.1, Number(overlay.end ?? 0) - Number(overlay.start ?? 0));
+    if (textEffectPreviewTimeRef.current >= span - 0.01) {
+      textEffectPreviewTimeRef.current = 0;
+      setTextEffectPreviewTime(0);
+      setTextEffectPreviewRestartToken((value) => value + 1);
+    }
+    setTextEffectPreviewPlaying((value) => !value);
   };
 
   const resetActiveTextOverlayGeometry = () => {
@@ -21564,7 +21631,7 @@ function Home() {
         </div>
       </div>
       {textEffectEditorOverlay && (
-        <div className="modal-backdrop text-effect-editor-backdrop" onMouseDown={() => setTextEffectEditorOverlayId("")}>
+        <div className="modal-backdrop text-effect-editor-backdrop" onMouseDown={closeTextEffectEditor}>
           <section
             className="text-effect-editor-modal"
             role="dialog"
@@ -21578,6 +21645,14 @@ function Home() {
               const fadeInDuration = timing.fadeInEnd - timing.fadeInStart;
               const fadeOutDuration = timing.fadeOutEnd - timing.fadeOutStart;
               const fadeOverlap = timing.fadeInEnd > timing.fadeOutStart;
+              const previewTime = Math.min(timing.span, Math.max(0, textEffectPreviewTime));
+              const previewEffectDuration = textOverlayEffectDuration(overlay, 0, timing.span);
+              const previewReverseDelay = overlay.textEffectReverse
+                ? Math.max(0, timing.span - previewEffectDuration * 2)
+                : 0;
+              const previewBackgroundValue = safeTrim(scene.background) || legacyBackgroundPreview;
+              const previewBackgroundSource = assetPreviewSource(previewBackgroundValue);
+              const previewProgress = Math.min(100, Math.max(0, previewTime / Math.max(0.1, timing.span) * 100));
               const percent = (value: number) => `${Math.min(100, Math.max(0, value / timing.span * 100))}%`;
               return (
                 <>
@@ -21586,7 +21661,7 @@ function Home() {
                       <span className="modal-kicker">CHỮ VIẾT · {textOverlayLabel(overlay, sceneTextOverlays.indexOf(overlay))}</span>
                       <h2 id="text-effect-editor-title">Hiệu ứng chữ</h2>
                     </div>
-                    <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng" onClick={() => setTextEffectEditorOverlayId("")}>×</button>
+                    <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng" onClick={closeTextEffectEditor}>×</button>
                   </header>
                   <label className="field text-effect-modal-selector">
                     <FieldLabel hint="Hiệu ứng chỉ áp dụng cho item chữ viết đang chỉnh sửa.">Chọn hiệu ứng</FieldLabel>
@@ -21594,6 +21669,109 @@ function Home() {
                       {TEXT_OVERLAY_EFFECT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </label>
+                  <div className="text-effect-item-timing" aria-label="Thời gian hiển thị chữ">
+                    <label className="field">
+                      <TimeFieldLabel hint="Mốc bắt đầu tương đối trong cảnh.">Bắt đầu chữ</TimeFieldLabel>
+                      <div className="number-with-unit">
+                        <NumericInput
+                          min={0}
+                          max={Math.max(0, sceneDuration - 0.1)}
+                          step={0.05}
+                          value={overlay.start}
+                          onCommit={(value) => updateTextOverlayTimingInput(overlay, "start", String(value))}
+                        />
+                        <b>s</b>
+                      </div>
+                    </label>
+                    <label className="field">
+                      <TimeFieldLabel hint="Mốc kết thúc tương đối trong cảnh.">Kết thúc chữ</TimeFieldLabel>
+                      <div className="number-with-unit">
+                        <NumericInput
+                          min={0.1}
+                          max={sceneDuration}
+                          step={0.05}
+                          value={overlay.end}
+                          onCommit={(value) => updateTextOverlayTimingInput(overlay, "end", String(value))}
+                        />
+                        <b>s</b>
+                      </div>
+                    </label>
+                    <small className="text-effect-item-timing-note">Mốc được tính từ đầu cảnh, giúp kiểm soát chính xác khoảng chữ xuất hiện trong video.</small>
+                  </div>
+                  <section className="text-effect-preview-card" aria-label="Review riêng hiệu ứng chữ">
+                    <header className="text-effect-preview-heading">
+                      <div>
+                        <strong>Review riêng hiệu ứng</strong>
+                        <small>Chỉ hiển thị lớp chữ đang chọn trên nền của cảnh hiện tại.</small>
+                      </div>
+                      <span className="text-effect-preview-time">{formatPreciseTime(previewTime)} / {formatPreciseTime(timing.span)}</span>
+                    </header>
+                    <div className={"text-effect-preview-stage" + (aspectRatio === "16:9" ? " preview-landscape" : "")}>
+                      {previewBackgroundSource ? (
+                        isVideoMedia(previewBackgroundValue) ? (
+                          <video className="project-background" src={previewBackgroundSource} muted loop autoPlay={textEffectPreviewPlaying} playsInline preload="metadata" aria-hidden="true" />
+                        ) : (
+                          <img className="project-background" src={previewBackgroundSource} alt="" aria-hidden="true" />
+                        )
+                      ) : (
+                        <div className="text-effect-preview-empty-background">Nền cảnh hiện tại</div>
+                      )}
+                      {safeTrim(overlay.text) && (
+                        <div
+                          key={overlay.id + "-" + textEffectPreviewRestartToken}
+                          className={
+                            "map-text-overlay text-effect-" + (overlay.textEffect ?? "none")
+                            + (overlay.textEffectReverse === true ? " text-effect-reverse" : "")
+                            + ((textEffectPreviewPlaying || previewTime > 0) ? " is-playing" : "")
+                          }
+                          style={{
+                            left: overlay.x + "%",
+                            top: overlay.y + "%",
+                            zIndex: 2,
+                            ...(Number.isFinite(Number(overlay.width)) ? { width: overlay.width + "%" } : {}),
+                            ...(Number.isFinite(Number(overlay.height)) ? { height: overlay.height + "%" } : {}),
+                            color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
+                            ...textOverlayPlaybackStyle(overlay, 0, timing.span, previewTime, true),
+                            ...textOverlayFadePlaybackStyle(overlay, 0, timing.span, previewTime, true),
+                            fontSize: overlay.size + "px",
+                            fontFamily: overlay.font,
+                            fontWeight: overlay.style.includes("bold") ? 700 : 400,
+                            fontStyle: overlay.style.includes("italic") ? "italic" : "normal",
+                            WebkitTextStroke: overlay.strokeWidth > 0
+                              ? overlay.strokeWidth + "px " + colorWithAlpha(overlay.strokeColor, overlay.opacity / 100, "#000000")
+                              : undefined,
+                            ["--text-border-width" as string]: overlay.borderWidth + "px",
+                            ["--text-border-color" as string]: colorWithAlpha(overlay.borderColor, overlay.borderOpacity / 100, "#ffffff"),
+                            ["--text-border-fill" as string]: colorWithAlpha(overlay.borderFill, overlay.borderOpacity / 100, "#14202e"),
+                            ["--text-effect-duration" as string]: previewEffectDuration + "s",
+                            ["--text-effect-reverse-delay" as string]: previewReverseDelay + "s",
+                            animationPlayState: textEffectPreviewPlaying ? "running" : "paused",
+                          }}
+                        >
+                          <span className="text-effect-reverse-enter">
+                            <span className="text-effect-reverse-exit">{overlay.text}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-effect-preview-controls">
+                      <button type="button" className="button secondary" onClick={toggleTextEffectPreview}>
+                        {textEffectPreviewPlaying ? "⏸ Dừng" : previewTime > 0 ? "▶ Tiếp tục" : "▶ Phát thử"}
+                      </button>
+                      <button type="button" className="button ghost" onClick={resetTextEffectPreview}>↺ Về đầu</button>
+                      <div
+                        className="text-effect-preview-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={timing.span}
+                        aria-valuenow={previewTime}
+                        aria-label="Tiến độ review hiệu ứng chữ"
+                      >
+                        <i style={{ width: previewProgress + "%" }} />
+                      </div>
+                    </div>
+                    <small className="text-effect-preview-note">Các lớp chữ khác được ẩn trong khung này để kiểm tra riêng hiệu ứng.</small>
+                  </section>
                   <div className="text-effect-presets" aria-label="Preset hiệu ứng chữ">
                     <span>Preset</span>
                     <button type="button" onClick={() => applyTextEffectPreset("quick")}>Nhanh</button>
@@ -21649,7 +21827,7 @@ function Home() {
                       <label className="field-checkbox-control"><input type="checkbox" checked={overlay.textEffectReverse === true} onChange={(event) => updateTextOverlay("textEffectReverse", event.target.checked)} /><b>Reverse ở cuối</b></label>
                     </div>
                   ) : <div className="text-effect-empty-state">Chưa bật hiệu ứng. Chọn một hiệu ứng hoặc preset để bắt đầu.</div>}
-                  <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={() => setTextEffectEditorOverlayId("")}>Hoàn tất</button></footer>
+                  <footer className="text-effect-editor-footer"><span>Thay đổi được lưu tự động và áp dụng cho xem trước và render.</span><button type="button" className="button primary" onClick={closeTextEffectEditor}>Hoàn tất</button></footer>
                 </>
               );
             })()}
@@ -23062,6 +23240,17 @@ function Home() {
                       <small className="scene-structure-readonly-note">Thời gian của tài nguyên này được xác định tự động theo cảnh.</small>
                     )}
                     <div className="scene-structure-inspector-actions">
+                      {selectedSceneStructureItem.kind === "text" && (
+                        <button
+                          type="button"
+                          className="scene-structure-text-effect-button"
+                          onClick={() => openSceneStructureTextEffectEditor(selectedSceneStructureItem)}
+                          aria-label={"Mở hiệu ứng chữ " + selectedSceneStructureItem.label}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z" /></svg>
+                          Hiệu ứng
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="scene-structure-open-editor"
