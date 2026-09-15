@@ -2377,14 +2377,14 @@ const buildSceneImageTimingMinimap = (
               ? "gap"
               : "empty",
       imageId: activeRow?.imageId,
-      segment: activeRow ? activeRow.index % 8 : undefined,
+      segment: activeRow ? activeRow.index % 4 : undefined,
     } satisfies SceneImageTimingMinimapPoint;
   });
   const boundaries = check.rows.flatMap((row) => (
     Number.isFinite(row.start) && Number.isFinite(row.end)
       ? [
-          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 8 },
-          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 8 },
+          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 4 },
+          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 4 },
         ]
       : []
   ));
@@ -8915,10 +8915,20 @@ function Home() {
     setSelectedPopupId("");
     setSelectedDecorationId("");
     setSelectedSceneImageId("");
+    setSceneStructureQuickEditToken("");
     setSelectedTextOverlayId(overlay.id);
     setPlayTime(sceneStructureScene.start + Math.max(0, Number(overlay.start) || 0));
     resetTextEffectPreview();
     setTextEffectEditorOverlayId(overlay.id);
+  };
+
+  const openSceneImageEffectEditor = (image: SceneImage) => {
+    setSelectedSceneImageId(image.id);
+    focusEditorSection("images");
+    window.setTimeout(() => {
+      const target = document.getElementById(`editor-image-effects-${image.id}`);
+      if (target instanceof HTMLElement) scrollEditorTargetIntoView(target, "center");
+    }, 120);
   };
 
   type TextEffectTimingField = "fadeInStart" | "fadeInEnd" | "fadeOutStart" | "fadeOutEnd";
@@ -15379,6 +15389,7 @@ function Home() {
       content = image ? (
         <div className="scene-structure-quick-stack">
           {timingFields}
+          <button type="button" className="button secondary scene-structure-quick-effect-button" onClick={() => openSceneImageEffectEditor(image)}>✦ Hiệu ứng hình ảnh</button>
           <button
             type="button"
             className="button secondary scene-structure-quick-duration-button"
@@ -15525,6 +15536,7 @@ function Home() {
       content = overlay ? (
         <div className="scene-structure-quick-stack">
           {timingFields}
+          <button type="button" className="button secondary scene-structure-quick-effect-button" onClick={() => openSceneStructureTextEffectEditor(item)}>✦ Hiệu ứng chữ</button>
           <label className="scene-structure-quick-field"><span>Tên lớp chữ</span><input value={overlay.name} onChange={(event) => updateSceneStructureQuickText(overlay.id, { name: event.target.value })} /></label>
           <label className="scene-structure-quick-field"><span>Nội dung</span><textarea rows={4} value={overlay.text} onChange={(event) => updateSceneStructureQuickText(overlay.id, { text: event.target.value })} /></label>
           <div className="scene-structure-quick-grid scene-structure-quick-grid-3">
@@ -18610,6 +18622,7 @@ function Home() {
                               <path d="m14 5 5 5" />
                             </svg>
                           </button>
+                          <button type="button" className="scene-image-action scene-image-effect-action" title="Chỉnh hiệu ứng hình ảnh" aria-label={`Chỉnh hiệu ứng hình ảnh cho ${sceneImageLabel(image, index)}`} onClick={() => openSceneImageEffectEditor(image)}>✦</button>
                           <button type="button" className="scene-image-action" title={image.visible === false ? "Hiện lớp" : "Ẩn lớp"} onClick={() => toggleSceneImageVisibility(image.id)}>
                             {image.visible === false ? "○" : "◉"}
                           </button>
@@ -18768,6 +18781,7 @@ function Home() {
                       </EditorFieldGroup>
 
                       <EditorFieldGroup title="Chuyển hình" description="Cách layer đi vào và mốc kết thúc hiệu ứng." advanced>
+                        <span id={`editor-image-effects-${activeSceneImage.id}`} className="scene-image-effect-anchor" aria-hidden="true" />
                         <div className="field-row scene-image-transition-row">
                           <label className="field scene-image-transition-field">
                             <FieldLabel hint="Chọn cách hình ảnh xuất hiện khi bắt đầu hiển thị.">Hiệu ứng chuyển hình</FieldLabel>
@@ -23240,17 +23254,6 @@ function Home() {
                       <small className="scene-structure-readonly-note">Thời gian của tài nguyên này được xác định tự động theo cảnh.</small>
                     )}
                     <div className="scene-structure-inspector-actions">
-                      {selectedSceneStructureItem.kind === "text" && (
-                        <button
-                          type="button"
-                          className="scene-structure-text-effect-button"
-                          onClick={() => openSceneStructureTextEffectEditor(selectedSceneStructureItem)}
-                          aria-label={"Mở hiệu ứng chữ " + selectedSceneStructureItem.label}
-                        >
-                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z" /></svg>
-                          Hiệu ứng
-                        </button>
-                      )}
                       <button
                         type="button"
                         className="scene-structure-open-editor"
@@ -23369,6 +23372,8 @@ function Home() {
                     })}
                   </div>
                   <div className="image-timing-minimap-legend" aria-label="Chú giải minimap">
+                    <span><i className="state-image" /> Hình ảnh</span>
+                    <span><i className="state-transition" /> Chuyển hình</span>
                     <span><i className="state-gap" /> Khoảng trống</span>
                     <span><i className="state-overlap" /> Chồng lấn</span>
                   </div>
