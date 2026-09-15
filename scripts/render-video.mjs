@@ -2463,11 +2463,14 @@ for (let index = 0; index < scenes.length; index += 1) {
     const fadeInEnd = clamp(Number(overlay.fadeInEnd ?? Math.min(0.8, textSpan)) || Math.min(0.8, textSpan), fadeInStart + 0.05, textSpan);
     const fadeOutEnd = clamp(Number(overlay.fadeOutEnd ?? textSpan) || textSpan, fadeInEnd + 0.05, textSpan);
     const fadeOutStart = clamp(Number(overlay.fadeOutStart ?? Math.max(fadeInEnd, textSpan - 0.8)) || Math.max(fadeInEnd, textSpan - 0.8), fadeInEnd, Math.max(fadeInEnd, fadeOutEnd - 0.05));
-    const fadeInProgress = `min(1,max(0,(t-${textStart + fadeInStart})/${Math.max(0.05, fadeInEnd - fadeInStart)}))`;
-    const fadeOutProgress = `min(1,max(0,(t-${textStart + fadeOutStart})/${Math.max(0.05, fadeOutEnd - fadeOutStart)}))`;
+    // geq exposes the frame timestamp as uppercase T. Using lowercase t
+    // makes FFmpeg treat it as an undefined constant and return -22 on
+    // Windows when a scene contains a Fade text effect.
+    const fadeInProgress = `clip((T-${textStart + fadeInStart})/${Math.max(0.05, fadeInEnd - fadeInStart)},0,1)`;
+    const fadeOutProgress = `clip((T-${textStart + fadeOutStart})/${Math.max(0.05, fadeOutEnd - fadeOutStart)},0,1)`;
     const fadeInAlpha = textEffectMotionProgressExpression(fadeInProgress, overlay.fadeInMotion);
     const fadeOutAlpha = textEffectMotionProgressExpression(fadeOutProgress, overlay.fadeOutMotion);
-    const fadeAlpha = `if(lt(t,${textStart + fadeInStart}),0,if(lt(t,${textStart + fadeInEnd}),${fadeInAlpha},if(lt(t,${textStart + fadeOutStart}),1,if(lt(t,${textStart + fadeOutEnd}),1-(${fadeOutAlpha}),0))))`;
+    const fadeAlpha = `if(lt(T,${textStart + fadeInStart}),0,if(lt(T,${textStart + fadeInEnd}),${fadeInAlpha},if(lt(T,${textStart + fadeOutStart}),1,if(lt(T,${textStart + fadeOutEnd}),1-${fadeOutAlpha},0))))`;
     const reverseStart = textEnd - effectDuration;
     const forwardProgress = `min(1,max(0,(t-${textStart})/${effectDuration}))`;
     const forwardGeqProgress = `min(1,max(0,(T-${textStart})/${effectDuration}))`;
