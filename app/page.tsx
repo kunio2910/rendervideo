@@ -17278,43 +17278,6 @@ function Home() {
                 </button>
               </div>
             </>
-          ) : activeStudioTab === "studio" ? (
-            <>
-              <header className="topbar studio-topbar">
-                <div className="studio-page-title">
-                  <span className="studio-page-kicker">KITO STUDIO</span>
-                  <h1>Text to Speech</h1>
-                  <p>Tạo lời thuyết minh từ văn bản và xuất thành file MP3.</p>
-                </div>
-              </header>
-              <section className="tts-workspace" aria-labelledby="tts-heading">
-                <div className="tts-card">
-                  <div className="tts-card-heading">
-                    <div><span className="studio-page-kicker">THUYẾT MINH</span><h2 id="tts-heading">Tạo giọng đọc</h2></div>
-                    <span className="tts-provider-badge">Cloud TTS · Local proxy</span>
-                  </div>
-                  <label className="tts-field">
-                    <span>Lời thuyết minh</span>
-                    <textarea value={studioNarration} onChange={(event) => setStudioNarration(event.target.value)} placeholder="Nhập nội dung cần đọc…" rows={9} />
-                    <small>{studioNarration.length.toLocaleString("vi-VN")} ký tự</small>
-                  </label>
-                  <div className="tts-settings-grid">
-                    <label className="tts-field"><span>Giọng đọc</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>
-                      {!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}
-                      {studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}
-                    </select><small>Giọng Việt của trình duyệt dùng cho nghe thử. MP3 dùng Voice ID đã cấu hình ở local renderer.</small></label>
-                    <label className="tts-field"><span>Tốc độ · {studioRate.toFixed(1)}×</span><input type="range" min="0.5" max="2" step="0.1" value={studioRate} onChange={(event) => setStudioRate(Number(event.target.value))} /></label>
-                    <label className="tts-field"><span>Cao độ · {studioPitch.toFixed(1)}</span><input type="range" min="0" max="2" step="0.1" value={studioPitch} onChange={(event) => setStudioPitch(Number(event.target.value))} /></label>
-                  </div>
-                  <div className="tts-actions">
-                    <button type="button" className="button secondary" onClick={previewStudioSpeech}>{studioSpeaking ? "■ Dừng nghe thử" : "▶ Nghe thử"}</button>
-                    <button type="button" className="button primary" onClick={() => void exportStudioSpeech()} disabled={studioExporting}>{studioExporting ? "Đang tạo MP3…" : "↓ Xuất file MP3"}</button>
-                  </div>
-                  {studioAudioUrl && <div className="tts-result"><div><strong>File MP3 đã tạo</strong><span>{studioAudioName}</span></div><audio controls src={studioAudioUrl} /><a className="button secondary" href={studioAudioUrl} download={studioAudioName}>Tải xuống</a></div>}
-                  <div className="tts-note"><span>i</span><p>Nghe thử chạy trên máy. Xuất MP3 cần local renderer và khóa TTS được cấu hình ở backend.</p></div>
-                </div>
-              </section>
-            </>
           ) : (
             <button
               type="button"
@@ -21796,6 +21759,33 @@ function Home() {
                     </section>
                     <p className="export-help">Các file trong thư viện tài nguyên sẽ được dùng lại cho những lần render tiếp theo.</p>
                   </div>
+                </div>
+              </section>
+            </>
+          ) : activeStudioTab === "studio" ? (
+            <>
+              <header className="topbar studio-topbar">
+                <div className="studio-page-title">
+                  <span className="studio-page-kicker">KITO STUDIO</span>
+                  <h1>Text to Speech</h1>
+                  <p>Tạo lời thuyết minh từ văn bản và xuất thành file MP3.</p>
+                </div>
+              </header>
+              <section className="tts-workspace" aria-labelledby="tts-heading">
+                <div className="tts-card">
+                  <div className="tts-card-heading">
+                    <div><span className="studio-page-kicker">THUYẾT MINH</span><h2 id="tts-heading">Tạo giọng đọc</h2></div>
+                    <span className="tts-provider-badge">Cloud TTS · Local proxy</span>
+                  </div>
+                  <label className="tts-field"><span>Lời thuyết minh</span><textarea value={studioNarration} onChange={(event) => setStudioNarration(event.target.value)} placeholder="Nhập nội dung cần đọc…" rows={9} /><small>{studioNarration.length.toLocaleString("vi-VN")} ký tự</small></label>
+                  <div className="tts-settings-grid">
+                    <label className="tts-field"><span>Giọng đọc nghe thử</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>{!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}{studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}</select><small>MP3 dùng Voice ID đã cấu hình ở local renderer.</small></label>
+                    <label className="tts-field"><span>Tốc độ · {studioRate.toFixed(1)}×</span><input type="range" min="0.5" max="2" step="0.1" value={studioRate} onChange={(event) => setStudioRate(Number(event.target.value))} /></label>
+                    <label className="tts-field"><span>Cao độ · {studioPitch.toFixed(1)}</span><input type="range" min="0" max="2" step="0.1" value={studioPitch} onChange={(event) => setStudioPitch(Number(event.target.value))} /></label>
+                  </div>
+                  <div className="tts-actions"><button type="button" className="button secondary" onClick={previewStudioSpeech}>{studioSpeaking ? "■ Dừng nghe thử" : "▶ Nghe thử"}</button><button type="button" className="button primary" onClick={() => void exportStudioSpeech()} disabled={studioExporting}>{studioExporting ? "Đang tạo MP3…" : "↓ Xuất file MP3"}</button></div>
+                  {studioAudioUrl && <div className="tts-result"><div><strong>File MP3 đã tạo</strong><span>{studioAudioName}</span></div><audio controls src={studioAudioUrl} /><a className="button secondary" href={studioAudioUrl} download={studioAudioName}>Tải xuống</a></div>}
+                  <div className="tts-note"><span>i</span><p>Nghe thử chạy trên máy. Xuất MP3 cần local renderer và khóa TTS được cấu hình ở backend.</p></div>
                 </div>
               </section>
             </>
