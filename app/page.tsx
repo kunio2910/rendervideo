@@ -4906,10 +4906,13 @@ function Home() {
   const [studioRate, setStudioRate] = useState(1);
   const [studioPitch, setStudioPitch] = useState(1);
   const [studioSpeaking, setStudioSpeaking] = useState(false);
+  const [studioPreviewLoading, setStudioPreviewLoading] = useState(false);
+  const [studioPreviewAudioUrl, setStudioPreviewAudioUrl] = useState("");
   const [studioExporting, setStudioExporting] = useState(false);
   const [studioAudioUrl, setStudioAudioUrl] = useState("");
   const [studioAudioName, setStudioAudioName] = useState("");
   const [studioVoiceOptions, setStudioVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const studioPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -5066,27 +5069,43 @@ function Home() {
     return () => window.speechSynthesis.removeEventListener("voiceschanged", refreshVoices);
   }, []);
 
-  const previewStudioSpeech = () => {
+  const previewStudioSpeech = async () => {
     const text = studioNarration.trim();
-    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) {
+    if (!text) {
       setToast("Hãy nhập lời thuyết minh để nghe thử");
       return;
     }
+    if (studioPreviewLoading) {
+      return;
+    }
     if (studioSpeaking) {
-      window.speechSynthesis.cancel();
+      studioPreviewAudioRef.current?.pause();
       setStudioSpeaking(false);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = window.speechSynthesis.getVoices().find((item) => item.voiceURI === studioVoice);
-    if (voice) utterance.voice = voice;
-    utterance.lang = voice?.lang || studioLanguage;
-    utterance.rate = studioRate;
-    utterance.pitch = studioPitch;
-    utterance.onstart = () => setStudioSpeaking(true);
-    utterance.onend = () => setStudioSpeaking(false);
-    utterance.onerror = () => { setStudioSpeaking(false); setToast("Không thể phát thử giọng đọc trên trình duyệt này"); };
-    window.speechSynthesis.speak(utterance);
+    setStudioPreviewLoading(true);
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voiceId: studioCloudVoice, speed: studioRate, pitch: studioPitch }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.audioBase64) throw new Error(payload.error || "Local TTS chưa được cấu hình");
+      const audioUrl = `data:${payload.mimeType || "audio/mpeg"};base64,${payload.audioBase64}`;
+      setStudioPreviewAudioUrl(audioUrl);
+      const audio = studioPreviewAudioRef.current;
+      if (audio) {
+        audio.src = audioUrl;
+        audio.load();
+        audio.onended = () => setStudioSpeaking(false);
+        await audio.play();
+        setStudioSpeaking(true);
+      }
+    } catch (error) {
+      setStudioSpeaking(false);
+      setToast(error instanceof Error ? `${error.message}. Hãy kiểm tra local renderer và API key.` : "Không thể nghe thử ElevenLabs");
+    } finally { setStudioPreviewLoading(false); }
   };
 
   const exportStudioSpeech = async () => {
@@ -21801,7 +21820,7 @@ function Home() {
                   <div className="tts-settings-grid">
                     <label className="tts-field"><span>Nhà cung cấp</span><select value={studioProvider} onChange={(event) => setStudioProvider(event.target.value as StudioTtsProvider)}><option value="browser">Trình duyệt · miễn phí</option><option value="elevenlabs">ElevenLabs</option></select><small>Mặc định dùng tài nguyên giọng đọc trên máy.</small></label>
                     {studioProvider === "elevenlabs" ? (
-                      <label className="tts-field"><span>Giọng đọc</span><select value={studioCloudVoice} onChange={(event) => setStudioCloudVoice(event.target.value)}><option value="DjY392W4TymVhSsT96jM">Giọng nam kể chuyện</option><option value="21m00Tcm4TlvDq8ikWAM">Giọng nữ tiêu chuẩn</option></select><small>Danh sách có thể mở rộng bằng Voice ID trong cấu hình ElevenLabs.</small></label>
+                      <label className="tts-field"><span>Giọng đọc</span><select value={studioCloudVoice} onChange={(event) => setStudioCloudVoice(event.target.value)}><option value="DjY392W4TymVhSsT96jM">Giọng nam kể chuyện</option><option value="YeV2u3R2gzLArVTYTis8">Giọng ElevenLabs · YeV2u3R2gzLArVTYTis8</option><option value="47rM9DW5VmjOw23BVHWi">Giọng ElevenLabs · 47rM9DW5VmjOw23BVHWi</option><option value="21m00Tcm4TlvDq8ikWAM">Giọng nữ tiêu chuẩn</option></select><small>Voice ID được gửi trực tiếp tới ElevenLabs khi xuất MP3.</small></label>
                     ) : (
                       <label className="tts-field"><span>Giọng đọc</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>{!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}{studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}</select><small>Danh sách lấy từ các giọng có sẵn trên máy.</small></label>
                     )}
@@ -21809,7 +21828,8 @@ function Home() {
                     <label className="tts-field"><span>Tốc độ · {studioRate.toFixed(1)}×</span><input type="range" min="0.5" max="2" step="0.1" value={studioRate} onChange={(event) => setStudioRate(Number(event.target.value))} /></label>
                     <label className="tts-field"><span>Cao độ · {studioPitch.toFixed(1)}</span><input type="range" min="0" max="2" step="0.1" value={studioPitch} onChange={(event) => setStudioPitch(Number(event.target.value))} /></label>
                   </div>
-                  <div className="tts-actions"><button type="button" className="button secondary" onClick={previewStudioSpeech}>{studioSpeaking ? "■ Dừng nghe thử" : "▶ Nghe thử"}</button><button type="button" className="button primary" onClick={() => void exportStudioSpeech()} disabled={studioExporting}>{studioExporting ? "Đang tạo MP3…" : "↓ Xuất file MP3"}</button></div>
+                  <div className="tts-actions"><button type="button" className="button secondary" onClick={() => void previewStudioSpeech()} disabled={studioPreviewLoading}>{studioPreviewLoading ? "Đang tạo bản nghe thử…" : studioSpeaking ? "■ Dừng nghe thử" : "▶ Nghe thử ElevenLabs"}</button><button type="button" className="button primary" onClick={() => void exportStudioSpeech()} disabled={studioExporting}>{studioExporting ? "Đang tạo MP3…" : "↓ Xuất file MP3"}</button></div>
+                  <audio ref={studioPreviewAudioRef} src={studioPreviewAudioUrl} className="tts-preview-audio" controls aria-label="Bản nghe thử ElevenLabs" onPlay={() => setStudioSpeaking(true)} onPause={() => setStudioSpeaking(false)} onEnded={() => setStudioSpeaking(false)} />
                   {studioAudioUrl && <div className="tts-result"><div><strong>File MP3 đã tạo</strong><span>{studioAudioName}</span></div><audio controls src={studioAudioUrl} /><a className="button secondary" href={studioAudioUrl} download={studioAudioName}>Tải xuống</a></div>}
                   <div className="tts-note"><span>i</span><p>Nghe thử chạy trên máy. Xuất MP3 cần local renderer và khóa TTS được cấu hình ở backend.</p></div>
                 </div>

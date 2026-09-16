@@ -7590,6 +7590,7 @@ body {
 .tts-result strong { color: #317346; font-size: 11px; }
 .tts-result span { overflow: hidden; color: var(--studio-muted); text-overflow: ellipsis; white-space: nowrap; font: 9px var(--font-mono); }
 .tts-result audio { width: 230px; height: 32px; }
+.tts-preview-audio { width: 100%; height: 34px; margin-top: 14px; }
 .tts-result .button { min-height: 32px; padding-inline: 10px; font-size: 10px; }
 .tts-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--studio-line); }
 .tts-note > span { width: 16px; height: 16px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #f2dfbf; color: #a96524; font: 700 10px Georgia, serif; }
