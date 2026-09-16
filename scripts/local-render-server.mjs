@@ -921,6 +921,30 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  const renderedClipDeleteMatch = url.pathname.match(/^\/api\/rendered-clips\/([a-f0-9-]+)$/i);
+  if (request.method === "DELETE" && renderedClipDeleteMatch) {
+    const id = renderedClipDeleteMatch[1];
+    if (!isStoredClipId(id)) {
+      sendJson(response, 400, { error: "Mã video không hợp lệ" });
+      return;
+    }
+    try {
+      const clip = await readStoredClip(id);
+      if (!clip) {
+        sendJson(response, 404, { error: "Không tìm thấy video đã render" });
+        return;
+      }
+      await Promise.all([
+        fs.rm(clipVideoPath(id), { force: true }),
+        fs.rm(clipMetadataPath(id), { force: true }),
+      ]);
+      sendJson(response, 200, { deleted: true, id });
+    } catch (error) {
+      sendJson(response, 500, { error: error instanceof Error ? error.message : "Không thể xóa video đã render" });
+    }
+    return;
+  }
+
   const renderedClipDownloadMatch = url.pathname.match(/^\/api\/rendered-clips\/([a-f0-9-]+)\/download$/i);
   if (request.method === "GET" && renderedClipDownloadMatch) {
     const clip = await readStoredClip(renderedClipDownloadMatch[1]);

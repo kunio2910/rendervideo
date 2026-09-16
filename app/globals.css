@@ -3505,6 +3505,8 @@ body {
 }
 .rendered-clip-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .rendered-clip-actions a { color: #50c786; }
+.rendered-clip-actions .rendered-clip-delete { color: #c5544d; font-size: 16px; font-weight: 700; }
+.rendered-clip-actions .rendered-clip-delete:hover { border-color: #e3aaa3; background: #fff0ed; color: #a9362e; }
 .rendered-clips-empty { padding: 11px 0 1px; }
 .rendered-clips-log { margin-bottom: 0; }
 @media (max-width: 620px) {

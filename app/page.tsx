@@ -1962,6 +1962,7 @@ type EditorSectionClipboard =
     };
 
 type StudioTab = "compose" | "export" | "settings" | "studio";
+type StudioTtsProvider = "elevenlabs" | "browser";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: false,
@@ -4898,7 +4899,10 @@ function Home() {
   const [renderEncoder, setRenderEncoder] = useState<RenderEncoder>("auto");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
   const [studioNarration, setStudioNarration] = useState("");
+  const [studioProvider, setStudioProvider] = useState<StudioTtsProvider>("browser");
+  const [studioLanguage, setStudioLanguage] = useState("vi-VN");
   const [studioVoice, setStudioVoice] = useState("");
+  const [studioCloudVoice, setStudioCloudVoice] = useState("DjY392W4TymVhSsT96jM");
   const [studioRate, setStudioRate] = useState(1);
   const [studioPitch, setStudioPitch] = useState(1);
   const [studioSpeaking, setStudioSpeaking] = useState(false);
@@ -5076,7 +5080,7 @@ function Home() {
     const utterance = new SpeechSynthesisUtterance(text);
     const voice = window.speechSynthesis.getVoices().find((item) => item.voiceURI === studioVoice);
     if (voice) utterance.voice = voice;
-    utterance.lang = voice?.lang || "vi-VN";
+    utterance.lang = voice?.lang || studioLanguage;
     utterance.rate = studioRate;
     utterance.pitch = studioPitch;
     utterance.onstart = () => setStudioSpeaking(true);
@@ -5091,14 +5095,16 @@ function Home() {
       if (!text) setToast("Hãy nhập lời thuyết minh trước khi xuất MP3");
       return;
     }
+    if (studioProvider !== "elevenlabs") {
+      setToast("Trình duyệt chỉ hỗ trợ nghe thử; hãy chọn ElevenLabs để xuất MP3");
+      return;
+    }
     setStudioExporting(true);
     try {
       const response = await fetch(`${LOCAL_RENDERER_URL}/api/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Browser voiceURI is not an ElevenLabs voice ID. The cloud voice is
-        // selected securely by ELEVENLABS_VOICE_ID on the local renderer.
-        body: JSON.stringify({ text, speed: studioRate, pitch: studioPitch }),
+        body: JSON.stringify({ text, voiceId: studioCloudVoice, speed: studioRate, pitch: studioPitch }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.audioBase64) throw new Error(payload.error || "Local TTS chưa được cấu hình");
@@ -13338,6 +13344,20 @@ function Home() {
     setSelectedRenderedClipIds((ids) => ids.includes(clipId)
       ? ids.filter((id) => id !== clipId)
       : [...ids, clipId]);
+  };
+
+  const deleteRenderedClip = async (clip: RenderedClip) => {
+    if (!window.confirm(`Xóa “${clip.name}” khỏi máy? File video và thông tin của clip sẽ bị xóa.`)) return;
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/rendered-clips/${encodeURIComponent(clip.id)}`, { method: "DELETE" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Không thể xóa clip");
+      setRenderedClips((clips) => clips.filter((item) => item.id !== clip.id));
+      setSelectedRenderedClipIds((ids) => ids.filter((id) => id !== clip.id));
+      setToast(`Đã xóa ${clip.name} khỏi máy`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không thể xóa clip");
+    }
   };
 
   const moveSelectedRenderedClip = (clipId: string, direction: -1 | 1) => {
@@ -21779,7 +21799,13 @@ function Home() {
                   </div>
                   <label className="tts-field"><span>Lời thuyết minh</span><textarea value={studioNarration} onChange={(event) => setStudioNarration(event.target.value)} placeholder="Nhập nội dung cần đọc…" rows={9} /><small>{studioNarration.length.toLocaleString("vi-VN")} ký tự</small></label>
                   <div className="tts-settings-grid">
-                    <label className="tts-field"><span>Giọng đọc nghe thử</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>{!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}{studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}</select><small>MP3 dùng Voice ID đã cấu hình ở local renderer.</small></label>
+                    <label className="tts-field"><span>Nhà cung cấp</span><select value={studioProvider} onChange={(event) => setStudioProvider(event.target.value as StudioTtsProvider)}><option value="browser">Trình duyệt · miễn phí</option><option value="elevenlabs">ElevenLabs</option></select><small>Mặc định dùng tài nguyên giọng đọc trên máy.</small></label>
+                    {studioProvider === "elevenlabs" ? (
+                      <label className="tts-field"><span>Giọng đọc</span><select value={studioCloudVoice} onChange={(event) => setStudioCloudVoice(event.target.value)}><option value="DjY392W4TymVhSsT96jM">Giọng nam kể chuyện</option><option value="21m00Tcm4TlvDq8ikWAM">Giọng nữ tiêu chuẩn</option></select><small>Danh sách có thể mở rộng bằng Voice ID trong cấu hình ElevenLabs.</small></label>
+                    ) : (
+                      <label className="tts-field"><span>Giọng đọc</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>{!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}{studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}</select><small>Danh sách lấy từ các giọng có sẵn trên máy.</small></label>
+                    )}
+                    {studioProvider === "browser" && <label className="tts-field"><span>Ngôn ngữ</span><select value={studioLanguage} onChange={(event) => setStudioLanguage(event.target.value)}><option value="vi-VN">Tiếng Việt · vi-VN</option></select><small>Mã ngôn ngữ mặc định cho giọng đọc tiếng Việt.</small></label>}
                     <label className="tts-field"><span>Tốc độ · {studioRate.toFixed(1)}×</span><input type="range" min="0.5" max="2" step="0.1" value={studioRate} onChange={(event) => setStudioRate(Number(event.target.value))} /></label>
                     <label className="tts-field"><span>Cao độ · {studioPitch.toFixed(1)}</span><input type="range" min="0" max="2" step="0.1" value={studioPitch} onChange={(event) => setStudioPitch(Number(event.target.value))} /></label>
                   </div>
@@ -22552,6 +22578,7 @@ function Home() {
                               <button type="button" disabled={selectionIndex === selectedRenderedClipIds.length - 1} onClick={() => moveSelectedRenderedClip(clip.id, 1)} aria-label="Đưa xuống">↓</button>
                             </>}
                             <a href={`${LOCAL_RENDERER_URL}${clip.downloadUrl}`} download={clip.name} aria-label={`Tải ${clip.name}`}>⇩</a>
+                            <button type="button" className="rendered-clip-delete" onClick={() => void deleteRenderedClip(clip)} aria-label={`Xóa ${clip.name}`} title="Xóa clip khỏi máy">×</button>
                           </div>
                         </li>
                       );
