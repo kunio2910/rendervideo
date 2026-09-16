@@ -1961,7 +1961,7 @@ type EditorSectionClipboard =
       section: "layer";
     };
 
-type StudioTab = "compose" | "export" | "settings";
+type StudioTab = "compose" | "export" | "settings" | "studio";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: false,
@@ -4897,6 +4897,15 @@ function Home() {
   const [renderProfile, setRenderProfile] = useState<RenderProfile>("quality");
   const [renderEncoder, setRenderEncoder] = useState<RenderEncoder>("auto");
   const [activeStudioTab, setActiveStudioTab] = useState<StudioTab>("compose");
+  const [studioNarration, setStudioNarration] = useState("");
+  const [studioVoice, setStudioVoice] = useState("");
+  const [studioRate, setStudioRate] = useState(1);
+  const [studioPitch, setStudioPitch] = useState(1);
+  const [studioSpeaking, setStudioSpeaking] = useState(false);
+  const [studioExporting, setStudioExporting] = useState(false);
+  const [studioAudioUrl, setStudioAudioUrl] = useState("");
+  const [studioAudioName, setStudioAudioName] = useState("");
+  const [studioVoiceOptions, setStudioVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [imageEnabled, setImageEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [background, setBackground] = useState("");
@@ -5038,6 +5047,68 @@ function Home() {
   }>({ status: "idle", sceneId: "", message: "", progress: 0 });
   const [subtitleImportBusy, setSubtitleImportBusy] = useState(false);
   const [subtitleGenerationTrackId, setSubtitleGenerationTrackId] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const refreshVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const options = voices
+        .filter((voice) => /^vi(-|_|$)/i.test(voice.lang) || /vietnam|tiếng việt|vietnamese/i.test(voice.name))
+        .map((voice) => ({ value: voice.voiceURI, label: `${voice.name} · ${voice.lang}` }));
+      setStudioVoiceOptions(options);
+      setStudioVoice((current) => current || options[0]?.value || "");
+    };
+    refreshVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", refreshVoices);
+  }, []);
+
+  const previewStudioSpeech = () => {
+    const text = studioNarration.trim();
+    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setToast("Hãy nhập lời thuyết minh để nghe thử");
+      return;
+    }
+    if (studioSpeaking) {
+      window.speechSynthesis.cancel();
+      setStudioSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = window.speechSynthesis.getVoices().find((item) => item.voiceURI === studioVoice);
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || "vi-VN";
+    utterance.rate = studioRate;
+    utterance.pitch = studioPitch;
+    utterance.onstart = () => setStudioSpeaking(true);
+    utterance.onend = () => setStudioSpeaking(false);
+    utterance.onerror = () => { setStudioSpeaking(false); setToast("Không thể phát thử giọng đọc trên trình duyệt này"); };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const exportStudioSpeech = async () => {
+    const text = studioNarration.trim();
+    if (!text || studioExporting) {
+      if (!text) setToast("Hãy nhập lời thuyết minh trước khi xuất MP3");
+      return;
+    }
+    setStudioExporting(true);
+    try {
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Browser voiceURI is not an ElevenLabs voice ID. The cloud voice is
+        // selected securely by ELEVENLABS_VOICE_ID on the local renderer.
+        body: JSON.stringify({ text, speed: studioRate, pitch: studioPitch }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.audioBase64) throw new Error(payload.error || "Local TTS chưa được cấu hình");
+      setStudioAudioUrl(`data:${payload.mimeType || "audio/mpeg"};base64,${payload.audioBase64}`);
+      setStudioAudioName(`studio-voice-${new Date().toISOString().replace(/[:.]/g, "-")}.mp3`);
+      setToast("Đã tạo file MP3 từ lời thuyết minh");
+    } catch (error) {
+      setToast(error instanceof Error ? `${error.message}. Hãy cấu hình ELEVENLABS_API_KEY cho local renderer.` : "Không thể xuất MP3");
+    } finally { setStudioExporting(false); }
+  };
   const [localRenderFiles, setLocalRenderFiles] = useState<File[]>([]);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [sceneImageSpritePreviewUrls, setSceneImageSpritePreviewUrls] = useState<Record<string, string>>({});
@@ -17137,6 +17208,16 @@ function Home() {
             <span className="rail-icon" aria-hidden="true">⚙</span>
             <span>Cài đặt</span>
           </button>
+          <button
+            type="button"
+            className={`rail-item ${activeStudioTab === "studio" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("studio")}
+            aria-current={activeStudioTab === "studio" ? "page" : undefined}
+            title="Studio Text to Speech"
+          >
+            <span className="rail-icon" aria-hidden="true">♫</span>
+            <span>Studio</span>
+          </button>
         </nav>
 
         <div className="studio-main">
@@ -17196,6 +17277,43 @@ function Home() {
                   Đăng xuất
                 </button>
               </div>
+            </>
+          ) : activeStudioTab === "studio" ? (
+            <>
+              <header className="topbar studio-topbar">
+                <div className="studio-page-title">
+                  <span className="studio-page-kicker">KITO STUDIO</span>
+                  <h1>Text to Speech</h1>
+                  <p>Tạo lời thuyết minh từ văn bản và xuất thành file MP3.</p>
+                </div>
+              </header>
+              <section className="tts-workspace" aria-labelledby="tts-heading">
+                <div className="tts-card">
+                  <div className="tts-card-heading">
+                    <div><span className="studio-page-kicker">THUYẾT MINH</span><h2 id="tts-heading">Tạo giọng đọc</h2></div>
+                    <span className="tts-provider-badge">Cloud TTS · Local proxy</span>
+                  </div>
+                  <label className="tts-field">
+                    <span>Lời thuyết minh</span>
+                    <textarea value={studioNarration} onChange={(event) => setStudioNarration(event.target.value)} placeholder="Nhập nội dung cần đọc…" rows={9} />
+                    <small>{studioNarration.length.toLocaleString("vi-VN")} ký tự</small>
+                  </label>
+                  <div className="tts-settings-grid">
+                    <label className="tts-field"><span>Giọng đọc</span><select value={studioVoice} onChange={(event) => setStudioVoice(event.target.value)}>
+                      {!studioVoiceOptions.length && <option value="">Giọng mặc định · vi-VN</option>}
+                      {studioVoiceOptions.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}
+                    </select><small>Giọng Việt của trình duyệt dùng cho nghe thử. MP3 dùng Voice ID đã cấu hình ở local renderer.</small></label>
+                    <label className="tts-field"><span>Tốc độ · {studioRate.toFixed(1)}×</span><input type="range" min="0.5" max="2" step="0.1" value={studioRate} onChange={(event) => setStudioRate(Number(event.target.value))} /></label>
+                    <label className="tts-field"><span>Cao độ · {studioPitch.toFixed(1)}</span><input type="range" min="0" max="2" step="0.1" value={studioPitch} onChange={(event) => setStudioPitch(Number(event.target.value))} /></label>
+                  </div>
+                  <div className="tts-actions">
+                    <button type="button" className="button secondary" onClick={previewStudioSpeech}>{studioSpeaking ? "■ Dừng nghe thử" : "▶ Nghe thử"}</button>
+                    <button type="button" className="button primary" onClick={() => void exportStudioSpeech()} disabled={studioExporting}>{studioExporting ? "Đang tạo MP3…" : "↓ Xuất file MP3"}</button>
+                  </div>
+                  {studioAudioUrl && <div className="tts-result"><div><strong>File MP3 đã tạo</strong><span>{studioAudioName}</span></div><audio controls src={studioAudioUrl} /><a className="button secondary" href={studioAudioUrl} download={studioAudioName}>Tải xuống</a></div>}
+                  <div className="tts-note"><span>i</span><p>Nghe thử chạy trên máy. Xuất MP3 cần local renderer và khóa TTS được cấu hình ở backend.</p></div>
+                </div>
+              </section>
             </>
           ) : (
             <button

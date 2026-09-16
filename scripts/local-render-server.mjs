@@ -658,6 +658,54 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/tts") {
+    try {
+      const webRequest = new Request(`http://${host}:${port}${url.pathname}`, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const body = await webRequest.json();
+      const text = String(body?.text || "").trim();
+      const apiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
+      const voiceId = String(body?.voiceId || process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM").trim();
+      if (!text) throw new Error("Thiếu lời thuyết minh");
+      if (!apiKey) throw new Error("Chưa cấu hình ELEVENLABS_API_KEY");
+      if (text.length > 10000) throw new Error("Lời thuyết minh vượt quá 10.000 ký tự");
+      const ttsResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey,
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            use_speaker_boost: true,
+          },
+        }),
+      });
+      if (!ttsResponse.ok) {
+        const detail = (await ttsResponse.text()).replace(/\s+/g, " ").slice(0, 240);
+        throw new Error(`ElevenLabs từ chối yêu cầu (${ttsResponse.status})${detail ? `: ${detail}` : ""}`);
+      }
+      const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+      sendJson(response, 200, {
+        audioBase64: audioBuffer.toString("base64"),
+        mimeType: "audio/mpeg",
+      });
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Không thể tạo giọng đọc" });
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/cache") {
     try {
       sendJson(response, 200, await getResourceCacheSummary(renderCacheRoot));
