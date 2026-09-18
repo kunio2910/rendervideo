@@ -7639,15 +7639,7 @@ body {
 .image-studio-url-field small { color: var(--studio-muted); font-size: 8px; line-height: 1.45; }
 .image-studio-url-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
 .image-studio-url-actions .button { min-width: 0; padding-inline: 6px; }
-.image-studio-url-actions .cloudinary-button { border-color: #c7a8da; background: rgba(143,83,181,.08); color: #75419a; }
-.image-studio-cloudinary-panel { display: grid; gap: 8px; margin-top: 10px; padding: 11px; border: 1px solid #c7a8da; border-radius: 9px; background: rgba(143,83,181,.07); }
-.image-studio-cloudinary-panel > strong { color: #75419a; font-size: 10px; }
-.image-studio-cloudinary-panel > small { color: var(--studio-muted); font-size: 8px; line-height: 1.4; }
-.image-studio-cloudinary-panel label { display: grid; gap: 4px; }
-.image-studio-cloudinary-panel label span { color: var(--studio-ink); font-size: 8px; font-weight: 700; }
-.image-studio-cloudinary-panel input { width: 100%; min-height: 31px; padding: 0 8px; border: 1px solid var(--studio-line); border-radius: 7px; background: var(--panel-bg); color: var(--studio-ink); font: 9px var(--font-mono); outline: none; }
-.image-studio-cloudinary-panel input:focus { border-color: #9a63bc; box-shadow: 0 0 0 3px rgba(143,83,181,.12); }
-.image-studio-cloudinary-panel .button { min-height: 32px; font-size: 8px; }
+.image-studio-url-actions .cloudinary-picker { min-width: 0; min-height: 32px; padding: 5px 6px; font-size: 9px; }
 .image-studio-recent-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 16px 0 9px; }
 .image-studio-recent-heading strong { color: var(--studio-ink); font-size: 10px; }
 .image-studio-recent-heading span { min-width: 22px; padding: 3px 5px; border-radius: 999px; background: var(--panel-soft); color: var(--studio-muted); font: 8px var(--font-mono); text-align: center; }
@@ -7680,6 +7672,12 @@ body {
 .image-studio-crop-frame::before, .image-studio-crop-frame::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
 .image-studio-crop-frame::before { background: linear-gradient(to right, transparent 33.33%, rgba(255,255,255,.45) 33.33%, rgba(255,255,255,.45) calc(33.33% + 1px), transparent calc(33.33% + 1px), transparent 66.66%, rgba(255,255,255,.45) 66.66%, rgba(255,255,255,.45) calc(66.66% + 1px), transparent calc(66.66% + 1px)), linear-gradient(to bottom, transparent 33.33%, rgba(255,255,255,.45) 33.33%, rgba(255,255,255,.45) calc(33.33% + 1px), transparent calc(33.33% + 1px), transparent 66.66%, rgba(255,255,255,.45) 66.66%, rgba(255,255,255,.45) calc(66.66% + 1px), transparent calc(66.66% + 1px)); }
 .image-studio-crop-frame::after { inset: -4px; border: 4px solid transparent; border-image: linear-gradient(90deg, var(--blue) 0 16px, transparent 16px 100%) 1; opacity: .95; }
+.image-studio-crop-actions { position: absolute; z-index: 4; top: 12px; right: 12px; display: flex; gap: 6px; }
+.image-studio-crop-actions button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid; border-radius: 8px; color: #fff; font: 800 19px/1 Arial, sans-serif; cursor: pointer; }
+.image-studio-crop-actions .crop-confirm { border-color: #239b60; background: #1fbd70; box-shadow: 0 4px 12px rgba(31,189,112,.3); animation: image-studio-crop-confirm-pulse 1.35s ease-in-out infinite; }
+.image-studio-crop-actions .crop-cancel { border-color: #c94c4c; background: #e26565; box-shadow: 0 4px 12px rgba(226,101,101,.24); }
+.image-studio-crop-actions button:hover { filter: brightness(1.08); transform: translateY(-1px); }
+@keyframes image-studio-crop-confirm-pulse { 0%, 100% { box-shadow: 0 4px 12px rgba(31,189,112,.3); } 50% { box-shadow: 0 0 0 5px rgba(31,189,112,.16), 0 5px 16px rgba(31,189,112,.45); } }
 .image-studio-empty-canvas { display: grid; place-items: center; gap: 7px; padding: 24px; color: var(--studio-muted); text-align: center; }
 .image-studio-empty-canvas > span { color: var(--blue); font-size: 34px; }
 .image-studio-empty-canvas strong { color: var(--studio-ink); font-size: 12px; }

@@ -4960,19 +4960,15 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
   const [source, setSource] = useState("");
   const [sourceName, setSourceName] = useState("Chưa chọn ảnh");
   const [urlDraft, setUrlDraft] = useState("");
-  const [localFile, setLocalFile] = useState<File | null>(null);
-  const [cloudinaryOpen, setCloudinaryOpen] = useState(false);
-  const [cloudinaryCloudName, setCloudinaryCloudName] = useState("");
-  const [cloudinaryUploadPreset, setCloudinaryUploadPreset] = useState("");
-  const [cloudinaryBusy, setCloudinaryBusy] = useState(false);
   const [settings, setSettings] = useState<ImageStudioAdjustments>(DEFAULT_IMAGE_STUDIO_ADJUSTMENTS);
   const [undoStack, setUndoStack] = useState<ImageStudioAdjustments[]>([]);
   const [redoStack, setRedoStack] = useState<ImageStudioAdjustments[]>([]);
-  const [recentImages, setRecentImages] = useState<Array<{ id: string; name: string; src: string; file?: File }>>([]);
+  const [recentImages, setRecentImages] = useState<Array<{ id: string; name: string; src: string }>>([]);
   const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
   const cropDragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const cropSnapshotRef = useRef<{ settings: ImageStudioAdjustments; ratio: ImageStudioRatio; undoStack: ImageStudioAdjustments[]; redoStack: ImageStudioAdjustments[] } | null>(null);
 
   useEffect(() => () => {
     objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -5000,15 +4996,15 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
     setSettings(next);
   };
 
-  const selectImageSource = (nextSource: string, name: string, file: File | null = null) => {
+  const selectImageSource = (nextSource: string, name: string) => {
     setSource(nextSource);
     setSourceName(name);
-    setLocalFile(file);
     setSettings(DEFAULT_IMAGE_STUDIO_ADJUSTMENTS);
     setUndoStack([]);
     setRedoStack([]);
+    cropSnapshotRef.current = null;
     setRecentImages((items) => [
-      { id: `${Date.now()}-${name}`, name, src: nextSource, ...(file ? { file } : {}) },
+      { id: `${Date.now()}-${name}`, name, src: nextSource },
       ...items.filter((item) => item.src !== nextSource),
     ].slice(0, 8));
   };
@@ -5020,7 +5016,7 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
     }
     const objectUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(objectUrl);
-    selectImageSource(objectUrl, file.name, file);
+    selectImageSource(objectUrl, file.name);
     await onSaveFile([file]);
     onNotify(`Đã tải “${file.name}” vào trình chỉnh sửa`);
   };
@@ -5036,40 +5032,10 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
     onNotify("Đã nạp URL hình ảnh vào màn hình review");
   };
 
-  const uploadToCloudinary = async () => {
-    const cloudName = cloudinaryCloudName.trim();
-    const uploadPreset = cloudinaryUploadPreset.trim();
-    if (!cloudName || !uploadPreset) {
-      onNotify("Hãy nhập Cloud Name và Unsigned Upload Preset của Cloudinary");
-      setCloudinaryOpen(true);
-      return;
-    }
-    if (!localFile && !source) {
-      onNotify("Hãy chọn ảnh hoặc nạp URL trước khi tải lên Cloudinary");
-      return;
-    }
-    setCloudinaryBusy(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", localFile ?? source);
-      formData.append("upload_preset", uploadPreset);
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.secure_url) throw new Error(payload.error?.message || "Cloudinary từ chối yêu cầu upload");
-      const nextUrl = String(payload.secure_url);
-      const name = `${payload.original_filename || "cloudinary-image"}.${payload.format || "jpg"}`;
-      setUrlDraft(nextUrl);
-      setLocalFile(null);
-      selectImageSource(nextUrl, name);
-      onNotify("Đã upload ảnh lên Cloudinary và nạp URL mới");
-    } catch (error) {
-      onNotify(error instanceof Error ? `Cloudinary lỗi: ${error.message}` : "Không thể upload lên Cloudinary");
-    } finally {
-      setCloudinaryBusy(false);
-    }
+  const selectCloudinaryImage = (selection: CloudinaryMediaLibrarySelection) => {
+    setUrlDraft(selection.url);
+    selectImageSource(selection.url, selection.name || "Ảnh Cloudinary");
+    onNotify("Đã chọn ảnh từ Cloudinary và nạp vào màn hình review");
   };
 
   const renderEditedImage = async () => {
@@ -5182,7 +5148,48 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
     setBackgroundColor("#f3eee4");
     setTransparentBackground(false);
     setTool("basic");
+    cropSnapshotRef.current = null;
     onNotify("Đã đưa thông số chỉnh sửa về mặc định");
+  };
+
+  const beginCropMode = () => {
+    if (tool !== "crop") {
+      cropSnapshotRef.current = { settings, ratio, undoStack, redoStack };
+      setSettings((current) => ({ ...current, fit: "cover", panX: 0, panY: 0 }));
+    }
+    setTool("crop");
+  };
+
+  const restoreCropSnapshot = () => {
+    const snapshot = cropSnapshotRef.current;
+    if (snapshot) {
+      setSettings(snapshot.settings);
+      setRatio(snapshot.ratio);
+      setUndoStack(snapshot.undoStack);
+      setRedoStack(snapshot.redoStack);
+    }
+    cropSnapshotRef.current = null;
+  };
+
+  const cancelCrop = () => {
+    restoreCropSnapshot();
+    setTool("basic");
+    onNotify("Đã hủy thao tác cắt");
+  };
+
+  const applyCrop = () => {
+    cropSnapshotRef.current = null;
+    setTool("basic");
+    onNotify("Đã áp dụng cắt ảnh");
+  };
+
+  const selectTool = (nextTool: ImageStudioTool) => {
+    if (nextTool === "crop") {
+      beginCropMode();
+      return;
+    }
+    if (tool === "crop") restoreCropSnapshot();
+    setTool(nextTool);
   };
 
   const beginImagePan = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -5233,11 +5240,10 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
           <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadLocalImage(file); event.currentTarget.value = ""; }} />
           <button type="button" className="image-studio-upload-button" onClick={() => fileInputRef.current?.click()}><b>↑ Chọn ảnh dưới máy</b><small>PNG, JPG, WEBP, GIF hoặc AVIF</small></button>
           <div className="image-studio-source-divider"><span>hoặc</span></div>
-          <label className="image-studio-url-field"><span>URL hình ảnh</span><textarea rows={3} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://example.com/image.png" /><div className="image-studio-url-actions"><button type="button" className="button secondary" onClick={loadImageUrl}>Nạp URL</button><button type="button" className="button cloudinary-button" onClick={() => setCloudinaryOpen((value) => !value)}>Cloudinary API</button></div><small>URL cần cho phép trình duyệt truy cập nếu muốn xuất ảnh.</small></label>
-          {cloudinaryOpen && <section className="image-studio-cloudinary-panel" aria-label="Cấu hình Cloudinary"><strong>Cloudinary Upload API</strong><small>Dùng Unsigned Upload Preset; không nhập API Secret vào website.</small><label><span>Cloud Name</span><input value={cloudinaryCloudName} onChange={(event) => setCloudinaryCloudName(event.target.value)} placeholder="demo-cloud" /></label><label><span>Unsigned Upload Preset</span><input value={cloudinaryUploadPreset} onChange={(event) => setCloudinaryUploadPreset(event.target.value)} placeholder="kito_unsigned" /></label><button type="button" className="button primary" onClick={() => void uploadToCloudinary()} disabled={cloudinaryBusy}>{cloudinaryBusy ? "Đang upload…" : "↑ Upload và dùng URL Cloudinary"}</button></section>}
+          <label className="image-studio-url-field"><span>URL hình ảnh</span><textarea rows={3} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://example.com/image.png" /><div className="image-studio-url-actions"><button type="button" className="button secondary" onClick={loadImageUrl}>Nạp URL</button><CloudinaryMediaPickerButton value={urlDraft || source} mediaKind="image" onSelect={selectCloudinaryImage} /></div><small>URL cần cho phép trình duyệt truy cập nếu muốn xuất ảnh.</small></label>
           <div className="image-studio-recent-heading"><strong>Ảnh gần đây</strong><span>{recentImages.length}</span></div>
           <div className="image-studio-recent-grid">
-            {recentImages.map((item) => <button key={item.id} type="button" className={item.src === source ? "active" : ""} onClick={() => { setSource(item.src); setSourceName(item.name); setLocalFile(item.file ?? null); }}><img src={item.src} alt="" /><span>{item.name}</span></button>)}
+            {recentImages.map((item) => <button key={item.id} type="button" className={item.src === source ? "active" : ""} onClick={() => { setSource(item.src); setSourceName(item.name); }}><img src={item.src} alt="" /><span>{item.name}</span></button>)}
             {!recentImages.length && <div className="image-studio-empty-assets">Ảnh tải lên hoặc URL đã nạp sẽ xuất hiện tại đây.</div>}
           </div>
         </aside>
@@ -5250,7 +5256,7 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
           <div className="image-studio-canvas-wrap">
             <div className={`image-studio-artboard ratio-${ratio.replace(":", "-")}${tool === "crop" ? " is-cropping" : ""}`} style={{ backgroundColor: transparentBackground ? "transparent" : backgroundColor, transform: `scale(${zoom / 100})`, transformOrigin: "center" }} onPointerDown={beginImagePan} onPointerMove={moveImagePan} onPointerUp={endImagePan} onPointerCancel={endImagePan}>
               {source ? <img src={source} alt="Ảnh đang chỉnh sửa" crossOrigin={/^https?:\/\//i.test(source) ? "anonymous" : undefined} style={previewStyle} draggable={false} /> : <div className="image-studio-empty-canvas"><span>▧</span><strong>Chưa có hình ảnh</strong><small>Chọn ảnh dưới máy hoặc nhập URL ở panel bên trái.</small></div>}
-              {tool === "crop" && source && <div className="image-studio-crop-frame" aria-label="Khung cắt tự do"><span className="crop-corner top-left" /><span className="crop-corner top-right" /><span className="crop-corner bottom-left" /><span className="crop-corner bottom-right" /><b>Cắt tự do · kéo ảnh để căn</b></div>}
+              {tool === "crop" && source && <><div className="image-studio-crop-frame" aria-label="Khung cắt tự do"><span className="crop-corner top-left" /><span className="crop-corner top-right" /><span className="crop-corner bottom-left" /><span className="crop-corner bottom-right" /><b>Cắt tự do · kéo ảnh để căn</b></div><div className="image-studio-crop-actions" aria-label="Xác nhận cắt ảnh" onPointerDown={(event) => event.stopPropagation()}><button type="button" className="crop-confirm" onClick={applyCrop} title="Áp dụng cắt ảnh" aria-label="Áp dụng cắt ảnh">✓</button><button type="button" className="crop-cancel" onClick={cancelCrop} title="Hủy cắt ảnh" aria-label="Hủy cắt ảnh">×</button></div></>}
             </div>
           </div>
           <div className="image-studio-zoom"><button type="button" onClick={() => setZoom((value) => Math.max(40, value - 10))}>−</button><input type="range" min="40" max="160" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><b>{zoom}%</b><button type="button" onClick={() => setZoom((value) => Math.min(160, value + 10))}>＋</button></div>
@@ -5258,7 +5264,7 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
 
         <aside className="image-studio-inspector">
           <div className="image-studio-panel-heading"><div><span>THÔNG SỐ</span><h2>Chỉnh sửa ảnh</h2></div><button type="button" className="image-studio-reset-button" onClick={resetImageEditor}>↺ Mặc định</button></div>
-          <div className="image-studio-tool-tabs">{(["basic", "crop", "color", "filter", "background", "ai"] as ImageStudioTool[]).map((item) => <button key={item} type="button" className={tool === item ? "active" : ""} onClick={() => setTool(item)}>{{ basic: "Cơ bản", crop: "Cắt", color: "Màu", filter: "Bộ lọc", background: "Nền", ai: "AI" }[item]}</button>)}</div>
+          <div className="image-studio-tool-tabs">{(["basic", "crop", "color", "filter", "background", "ai"] as ImageStudioTool[]).map((item) => <button key={item} type="button" className={tool === item ? "active" : ""} onClick={() => selectTool(item)}>{{ basic: "Cơ bản", crop: "Cắt", color: "Màu", filter: "Bộ lọc", background: "Nền", ai: "AI" }[item]}</button>)}</div>
           <div className="image-studio-tool-body">
             {tool === "basic" && <>{rangeField("Độ trong suốt", "opacity", 0, 100, "%")}{rangeField("Bo góc", "radius", 0, 100, "px")}{rangeField("Viền", "borderWidth", 0, 20, "px")}<label className="image-studio-field color"><span>Màu viền</span><input type="color" value={settings.borderColor} onChange={(event) => commitSettings({ borderColor: event.target.value })} /></label>{rangeField("Đổ bóng", "shadow", 0, 60, "%")}</>}
             {tool === "crop" && <><label className="image-studio-field"><span>Kiểu cắt</span><select value={settings.fit} onChange={(event) => commitSettings({ fit: event.target.value as ImageStudioAdjustments["fit"], panX: 0, panY: 0 })}><option value="cover">Cắt tự do · lấp đầy khung</option><option value="contain">Giữ toàn bộ ảnh</option></select></label><div className="image-studio-crop-presets"><button type="button" className="active" onClick={() => commitSettings({ fit: "cover", panX: 0, panY: 0 })}>Tự do</button>{(["9:16", "16:9", "1:1"] as ImageStudioRatio[]).map((item) => <button key={item} type="button" className={ratio === item ? "active" : ""} onClick={() => { setRatio(item); commitSettings({ fit: "cover", panX: 0, panY: 0 }); }}>{item}</button>)}</div><button type="button" className="button secondary" onClick={() => commitSettings({ panX: 0, panY: 0, fit: "cover" })}>Căn giữa ảnh</button><small>Kéo trực tiếp trên review để di chuyển ảnh trong khung cắt. Các góc xanh thể hiện vùng cắt.</small></>}
