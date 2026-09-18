@@ -4886,6 +4886,7 @@ function Home() {
   const [sceneImageEffectEditorId, setSceneImageEffectEditorId] = useState("");
   const [sceneImageEffectPreviewTime, setSceneImageEffectPreviewTime] = useState(0);
   const [sceneImageEffectPreviewPlaying, setSceneImageEffectPreviewPlaying] = useState(false);
+  const [effectPreviewAspectRatio, setEffectPreviewAspectRatio] = useState<AspectRatio>("9:16");
   const [renamingTextOverlayId, setRenamingTextOverlayId] = useState("");
   const [renamingTextOverlayName, setRenamingTextOverlayName] = useState("");
   const [renamingDecorationId, setRenamingDecorationId] = useState("");
@@ -9056,6 +9057,7 @@ function Home() {
 
   const openTextEffectEditor = (overlay: TextOverlay) => {
     setSelectedTextOverlayId(overlay.id);
+    setEffectPreviewAspectRatio("9:16");
     resetTextEffectPreview();
     setTextEffectEditorOverlayId(overlay.id);
   };
@@ -9073,12 +9075,14 @@ function Home() {
     setSelectedSceneImageId("");
     setSelectedTextOverlayId(overlay.id);
     setPlayTime(sceneStructureScene.start + Math.max(0, Number(overlay.start) || 0));
+    setEffectPreviewAspectRatio("9:16");
     resetTextEffectPreview();
     setTextEffectEditorOverlayId(overlay.id);
   };
 
   const openSceneImageEffectEditor = (image: SceneImage) => {
     setSelectedSceneImageId(image.id);
+    setEffectPreviewAspectRatio("9:16");
     setSceneImageEffectEditorId(image.id);
   };
 
@@ -21981,7 +21985,13 @@ function Home() {
               <button type="button" className="modal-close-button" aria-label="Đóng popup hiệu ứng hình ảnh" onClick={closeSceneImageEffectEditor}>×</button>
             </header>
             <div className="scene-image-effect-editor-preview" aria-label="Xem trước hiệu ứng chuyển hình">
-              <div className={`scene-image-effect-review scene-image-effect-review-${sceneImageEffectPreviewTransition}`}>
+              <div className="effect-preview-ratio-switch" aria-label="Tỉ lệ khung review hiệu ứng hình ảnh">
+                <span>Tỉ lệ</span>
+                {(["9:16", "16:9"] as AspectRatio[]).map((ratio) => (
+                  <button key={ratio} type="button" className={effectPreviewAspectRatio === ratio ? "active" : ""} aria-pressed={effectPreviewAspectRatio === ratio} onClick={() => setEffectPreviewAspectRatio(ratio)}>{ratio}</button>
+                ))}
+              </div>
+              <div className={`scene-image-effect-review scene-image-effect-review-${sceneImageEffectPreviewTransition}${effectPreviewAspectRatio === "16:9" ? " is-landscape" : ""}`}>
                 {assetPreviewSource(sceneImageEffectEditorImage.url) && (
                   sceneImageEffectEditorImage.mediaType === "video" || isVideoMedia(sceneImageEffectEditorImage.url)
                     ? <video src={assetPreviewSource(sceneImageEffectEditorImage.url)} muted autoPlay loop playsInline style={sceneImageEffectPreviewMediaStyle} />
@@ -22081,9 +22091,17 @@ function Home() {
                         <strong>Review riêng hiệu ứng</strong>
                         <small>Chỉ hiển thị lớp chữ đang chọn trên nền của cảnh hiện tại.</small>
                       </div>
-                      <span className="text-effect-preview-time">{formatPreciseTime(previewTime)} / {formatPreciseTime(timing.span)}</span>
+                      <div className="text-effect-preview-heading-actions">
+                        <div className="effect-preview-ratio-switch" aria-label="Tỉ lệ khung review hiệu ứng chữ">
+                          <span>Tỉ lệ</span>
+                          {(["9:16", "16:9"] as AspectRatio[]).map((ratio) => (
+                            <button key={ratio} type="button" className={effectPreviewAspectRatio === ratio ? "active" : ""} aria-pressed={effectPreviewAspectRatio === ratio} onClick={() => setEffectPreviewAspectRatio(ratio)}>{ratio}</button>
+                          ))}
+                        </div>
+                        <span className="text-effect-preview-time">{formatPreciseTime(previewTime)} / {formatPreciseTime(timing.span)}</span>
+                      </div>
                     </header>
-                    <div className={"text-effect-preview-stage" + (aspectRatio === "16:9" ? " preview-landscape" : "")}>
+                    <div className={"text-effect-preview-stage" + (effectPreviewAspectRatio === "16:9" ? " preview-landscape" : "")}>
                       {previewBackgroundSource ? (
                         isVideoMedia(previewBackgroundValue) ? (
                           <video className="project-background" src={previewBackgroundSource} muted loop autoPlay={textEffectPreviewPlaying} playsInline preload="metadata" aria-hidden="true" />
