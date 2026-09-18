@@ -1961,7 +1961,7 @@ type EditorSectionClipboard =
       section: "layer";
     };
 
-type StudioTab = "compose" | "export" | "settings" | "studio";
+type StudioTab = "compose" | "export" | "settings" | "studio" | "image";
 type StudioTtsProvider = "elevenlabs" | "browser";
 type SavedSceneStructureTemplate = {
   id: string;
@@ -2388,14 +2388,14 @@ const buildSceneImageTimingMinimap = (
               ? "gap"
               : "empty",
       imageId: activeRow?.imageId,
-      segment: activeRow ? activeRow.index % 4 : undefined,
+      segment: activeRow ? activeRow.index % 8 : undefined,
     } satisfies SceneImageTimingMinimapPoint;
   });
   const boundaries = check.rows.flatMap((row) => (
     Number.isFinite(row.start) && Number.isFinite(row.end)
       ? [
-          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 4 },
-          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 4 },
+          { imageId: row.imageId, time: row.start, type: "start" as const, segment: row.index % 8 },
+          { imageId: row.imageId, time: row.end, type: "end" as const, segment: row.index % 8 },
         ]
       : []
   ));
@@ -4868,6 +4868,329 @@ function ReviewEditable({ value, label, onCommit, numeric = false, multiline = f
     >
       {value || "—"}
     </button>
+  );
+}
+
+type ImageStudioTool = "basic" | "crop" | "color" | "filter" | "background" | "ai";
+type ImageStudioRatio = "9:16" | "16:9" | "1:1";
+type ImageStudioFormat = "image/png" | "image/jpeg" | "image/webp";
+type ImageStudioAdjustments = {
+  opacity: number;
+  radius: number;
+  borderWidth: number;
+  borderColor: string;
+  shadow: number;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  blur: number;
+  warmth: number;
+  rotate: number;
+  flipX: boolean;
+  flipY: boolean;
+  fit: "contain" | "cover";
+  preset: "original" | "warm" | "cool" | "mono" | "vintage";
+  visible: boolean;
+};
+
+const DEFAULT_IMAGE_STUDIO_ADJUSTMENTS: ImageStudioAdjustments = {
+  opacity: 100,
+  radius: 0,
+  borderWidth: 0,
+  borderColor: "#ffffff",
+  shadow: 18,
+  brightness: 100,
+  contrast: 100,
+  saturation: 100,
+  blur: 0,
+  warmth: 0,
+  rotate: 0,
+  flipX: false,
+  flipY: false,
+  fit: "contain",
+  preset: "original",
+  visible: true,
+};
+
+const imageStudioDimensions = (ratio: ImageStudioRatio) => ratio === "16:9"
+  ? { width: 1920, height: 1080 }
+  : ratio === "1:1"
+    ? { width: 1080, height: 1080 }
+    : { width: 1080, height: 1920 };
+
+const imageStudioFilter = (settings: ImageStudioAdjustments) => {
+  const preset = settings.preset === "warm"
+    ? "sepia(18%) saturate(112%)"
+    : settings.preset === "cool"
+      ? "hue-rotate(178deg) saturate(88%)"
+      : settings.preset === "mono"
+        ? "grayscale(100%)"
+        : settings.preset === "vintage"
+          ? "sepia(34%) contrast(92%) saturate(82%)"
+          : "";
+  const warmth = settings.warmth === 0 ? "" : settings.warmth > 0
+    ? `sepia(${Math.min(45, settings.warmth * 0.45)}%) saturate(${100 + settings.warmth * 0.35}%)`
+    : `hue-rotate(${Math.abs(settings.warmth) * 1.5}deg) saturate(${100 - Math.abs(settings.warmth) * 0.2}%)`;
+  return [
+    `brightness(${settings.brightness}%)`,
+    `contrast(${settings.contrast}%)`,
+    `saturate(${settings.saturation}%)`,
+    `blur(${settings.blur}px)`,
+    warmth,
+    preset,
+  ].filter(Boolean).join(" ");
+};
+
+type ImageStudioWorkspaceProps = {
+  onSaveFile: (files: File[]) => Promise<void>;
+  onNotify: (message: string) => void;
+};
+
+function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProps) {
+  const [tool, setTool] = useState<ImageStudioTool>("basic");
+  const [ratio, setRatio] = useState<ImageStudioRatio>("9:16");
+  const [format, setFormat] = useState<ImageStudioFormat>("image/png");
+  const [backgroundColor, setBackgroundColor] = useState("#f3eee4");
+  const [transparentBackground, setTransparentBackground] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const [source, setSource] = useState("");
+  const [sourceName, setSourceName] = useState("Chưa chọn ảnh");
+  const [urlDraft, setUrlDraft] = useState("");
+  const [settings, setSettings] = useState<ImageStudioAdjustments>(DEFAULT_IMAGE_STUDIO_ADJUSTMENTS);
+  const [undoStack, setUndoStack] = useState<ImageStudioAdjustments[]>([]);
+  const [redoStack, setRedoStack] = useState<ImageStudioAdjustments[]>([]);
+  const [recentImages, setRecentImages] = useState<Array<{ id: string; name: string; src: string }>>([]);
+  const [busy, setBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const objectUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => () => {
+    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
+  const commitSettings = (patch: Partial<ImageStudioAdjustments>) => {
+    setUndoStack((items) => [...items.slice(-49), settings]);
+    setRedoStack([]);
+    setSettings((current) => ({ ...current, ...patch }));
+  };
+
+  const undo = () => {
+    const previous = undoStack.at(-1);
+    if (!previous) return;
+    setUndoStack((items) => items.slice(0, -1));
+    setRedoStack((items) => [...items.slice(-49), settings]);
+    setSettings(previous);
+  };
+
+  const redo = () => {
+    const next = redoStack.at(-1);
+    if (!next) return;
+    setRedoStack((items) => items.slice(0, -1));
+    setUndoStack((items) => [...items.slice(-49), settings]);
+    setSettings(next);
+  };
+
+  const selectImageSource = (nextSource: string, name: string) => {
+    setSource(nextSource);
+    setSourceName(name);
+    setSettings(DEFAULT_IMAGE_STUDIO_ADJUSTMENTS);
+    setUndoStack([]);
+    setRedoStack([]);
+    setRecentImages((items) => [
+      { id: `${Date.now()}-${name}`, name, src: nextSource },
+      ...items.filter((item) => item.src !== nextSource),
+    ].slice(0, 8));
+  };
+
+  const loadLocalImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      onNotify("Chỉ hỗ trợ file hình ảnh PNG, JPG, WEBP, GIF hoặc AVIF");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlsRef.current.push(objectUrl);
+    selectImageSource(objectUrl, file.name);
+    await onSaveFile([file]);
+    onNotify(`Đã tải “${file.name}” vào trình chỉnh sửa`);
+  };
+
+  const loadImageUrl = () => {
+    const value = urlDraft.trim();
+    if (!/^https?:\/\//i.test(value) && !/^data:image\//i.test(value)) {
+      onNotify("URL hình ảnh phải bắt đầu bằng http://, https:// hoặc data:image/");
+      return;
+    }
+    const name = fileNameOnly(value.split("?")[0]) || "Ảnh từ URL";
+    selectImageSource(value, name);
+    onNotify("Đã nạp URL hình ảnh vào màn hình review");
+  };
+
+  const renderEditedImage = async () => {
+    if (!source) throw new Error("Hãy chọn ảnh dưới máy hoặc nhập URL trước");
+    const dimensions = imageStudioDimensions(ratio);
+    const canvas = document.createElement("canvas");
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Trình duyệt không hỗ trợ Canvas 2D");
+    if (!transparentBackground || format !== "image/png") {
+      context.fillStyle = backgroundColor;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    const image = new Image();
+    if (/^https?:\/\//i.test(source)) image.crossOrigin = "anonymous";
+    image.src = source;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Không tải được hình ảnh. URL có thể chặn truy cập từ trình duyệt."));
+    });
+    const padding = Math.round(Math.min(canvas.width, canvas.height) * 0.045);
+    const boxWidth = canvas.width - padding * 2;
+    const boxHeight = canvas.height - padding * 2;
+    const imageRatio = image.naturalWidth / Math.max(1, image.naturalHeight);
+    const boxRatio = boxWidth / boxHeight;
+    let drawWidth = boxWidth;
+    let drawHeight = boxHeight;
+    if (settings.fit === "contain") {
+      if (imageRatio > boxRatio) drawHeight = drawWidth / imageRatio;
+      else drawWidth = drawHeight * imageRatio;
+    } else if (imageRatio > boxRatio) drawWidth = drawHeight * imageRatio;
+    else drawHeight = drawWidth / imageRatio;
+    const radius = Math.min(drawWidth, drawHeight) * Math.min(0.48, settings.radius / 200);
+    context.save();
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate(settings.rotate * Math.PI / 180);
+    context.scale(settings.flipX ? -1 : 1, settings.flipY ? -1 : 1);
+    context.globalAlpha = settings.visible ? settings.opacity / 100 : 0;
+    context.filter = imageStudioFilter(settings);
+    context.shadowColor = "rgba(0, 0, 0, 0.42)";
+    context.shadowBlur = settings.shadow * 2;
+    context.shadowOffsetY = settings.shadow;
+    context.beginPath();
+    context.roundRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight, radius);
+    context.clip();
+    context.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    context.restore();
+    if (settings.borderWidth > 0 && settings.visible) {
+      context.save();
+      context.translate(canvas.width / 2, canvas.height / 2);
+      context.rotate(settings.rotate * Math.PI / 180);
+      context.scale(settings.flipX ? -1 : 1, settings.flipY ? -1 : 1);
+      context.strokeStyle = settings.borderColor;
+      context.lineWidth = settings.borderWidth * Math.max(1, canvas.width / 600);
+      context.beginPath();
+      context.roundRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight, radius);
+      context.stroke();
+      context.restore();
+    }
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, format, .94));
+    if (!blob) throw new Error("Không thể tạo file ảnh");
+    const extension = format === "image/jpeg" ? "jpg" : format === "image/webp" ? "webp" : "png";
+    return new File([blob], `kito-image-${Date.now()}.${extension}`, { type: format, lastModified: Date.now() });
+  };
+
+  const exportImage = async (saveToLibrary: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const file = await renderEditedImage();
+      if (saveToLibrary) {
+        await onSaveFile([file]);
+        onNotify(`Đã lưu “${file.name}” vào thư viện tài nguyên`);
+      } else {
+        const url = URL.createObjectURL(file);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = file.name;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+        onNotify(`Đã xuất ${file.name}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể xuất ảnh";
+      onNotify(`${message}${/^https?:\/\//i.test(source) ? " Hãy thử tải ảnh về máy rồi chọn file nếu máy chủ không cho phép xuất qua URL." : ""}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const previewStyle: CSSProperties = {
+    opacity: settings.visible ? settings.opacity / 100 : 0,
+    borderRadius: `${settings.radius}px`,
+    border: `${settings.borderWidth}px solid ${settings.borderColor}`,
+    boxShadow: `0 ${Math.round(settings.shadow / 2)}px ${settings.shadow * 2}px rgba(16, 24, 32, .35)`,
+    filter: imageStudioFilter(settings),
+    objectFit: settings.fit,
+    transform: `rotate(${settings.rotate}deg) scaleX(${settings.flipX ? -1 : 1}) scaleY(${settings.flipY ? -1 : 1})`,
+  };
+
+  const rangeField = (
+    label: string,
+    key: keyof Pick<ImageStudioAdjustments, "opacity" | "radius" | "borderWidth" | "shadow" | "brightness" | "contrast" | "saturation" | "blur" | "warmth">,
+    min: number,
+    max: number,
+    unit = "",
+  ) => <label className="image-studio-field"><span>{label}<b>{settings[key]}{unit}</b></span><input type="range" min={min} max={max} value={settings[key]} onChange={(event) => commitSettings({ [key]: Number(event.target.value) })} /></label>;
+
+  return (
+    <>
+      <header className="topbar image-studio-topbar">
+        <div className="studio-page-title"><span className="studio-page-kicker">KITO IMAGE STUDIO</span><h1>Trình chỉnh sửa Hình Ảnh</h1><p>{sourceName} · {imageStudioDimensions(ratio).width} × {imageStudioDimensions(ratio).height}</p></div>
+        <div className="image-studio-header-actions">
+          <button type="button" className="button secondary" onClick={undo} disabled={!undoStack.length} title="Hoàn tác">↶</button>
+          <button type="button" className="button secondary" onClick={redo} disabled={!redoStack.length} title="Làm lại">↷</button>
+          <button type="button" className="button secondary" onClick={() => void exportImage(true)} disabled={!source || busy}>Lưu vào thư viện</button>
+          <button type="button" className="button primary" onClick={() => void exportImage(false)} disabled={!source || busy}>{busy ? "Đang xử lý…" : "↓ Xuất ảnh"}</button>
+        </div>
+      </header>
+      <section className="image-studio-workspace" aria-label="Trình chỉnh sửa hình ảnh">
+        <aside className="image-studio-assets">
+          <div className="image-studio-panel-heading"><div><span>NGUỒN ẢNH</span><h2>Thư viện</h2></div></div>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadLocalImage(file); event.currentTarget.value = ""; }} />
+          <button type="button" className="image-studio-upload-button" onClick={() => fileInputRef.current?.click()}><b>↑ Chọn ảnh dưới máy</b><small>PNG, JPG, WEBP, GIF hoặc AVIF</small></button>
+          <div className="image-studio-source-divider"><span>hoặc</span></div>
+          <label className="image-studio-url-field"><span>URL hình ảnh</span><textarea rows={3} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://example.com/image.png" /><button type="button" className="button secondary" onClick={loadImageUrl}>Nạp URL</button><small>URL cần cho phép trình duyệt truy cập nếu muốn xuất ảnh.</small></label>
+          <div className="image-studio-recent-heading"><strong>Ảnh gần đây</strong><span>{recentImages.length}</span></div>
+          <div className="image-studio-recent-grid">
+            {recentImages.map((item) => <button key={item.id} type="button" className={item.src === source ? "active" : ""} onClick={() => { setSource(item.src); setSourceName(item.name); }}><img src={item.src} alt="" /><span>{item.name}</span></button>)}
+            {!recentImages.length && <div className="image-studio-empty-assets">Ảnh tải lên hoặc URL đã nạp sẽ xuất hiện tại đây.</div>}
+          </div>
+        </aside>
+
+        <section className="image-studio-stage">
+          <div className="image-studio-canvas-toolbar">
+            <div><button type="button" onClick={() => commitSettings({ rotate: (settings.rotate + 90) % 360 })}>↻ Xoay</button><button type="button" onClick={() => commitSettings({ flipX: !settings.flipX })}>⇆ Lật ngang</button><button type="button" onClick={() => commitSettings({ flipY: !settings.flipY })}>⇅ Lật dọc</button></div>
+            <div className="image-studio-ratio-buttons">{(["9:16", "16:9", "1:1"] as ImageStudioRatio[]).map((item) => <button key={item} type="button" className={ratio === item ? "active" : ""} onClick={() => setRatio(item)}>{item}</button>)}</div>
+          </div>
+          <div className="image-studio-canvas-wrap">
+            <div className={`image-studio-artboard ratio-${ratio.replace(":", "-")}`} style={{ backgroundColor: transparentBackground ? "transparent" : backgroundColor }}>
+              {source ? <img src={source} alt="Ảnh đang chỉnh sửa" crossOrigin={/^https?:\/\//i.test(source) ? "anonymous" : undefined} style={previewStyle} /> : <div className="image-studio-empty-canvas"><span>▧</span><strong>Chưa có hình ảnh</strong><small>Chọn ảnh dưới máy hoặc nhập URL ở panel bên trái.</small></div>}
+            </div>
+          </div>
+          <div className="image-studio-zoom"><button type="button" onClick={() => setZoom((value) => Math.max(40, value - 10))}>−</button><input type="range" min="40" max="160" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><b>{zoom}%</b><button type="button" onClick={() => setZoom((value) => Math.min(160, value + 10))}>＋</button></div>
+        </section>
+
+        <aside className="image-studio-inspector">
+          <div className="image-studio-panel-heading"><div><span>THÔNG SỐ</span><h2>Chỉnh sửa ảnh</h2></div><button type="button" onClick={() => commitSettings(DEFAULT_IMAGE_STUDIO_ADJUSTMENTS)}>↺</button></div>
+          <div className="image-studio-tool-tabs">{(["basic", "crop", "color", "filter", "background", "ai"] as ImageStudioTool[]).map((item) => <button key={item} type="button" className={tool === item ? "active" : ""} onClick={() => setTool(item)}>{{ basic: "Cơ bản", crop: "Cắt", color: "Màu", filter: "Bộ lọc", background: "Nền", ai: "AI" }[item]}</button>)}</div>
+          <div className="image-studio-tool-body">
+            {tool === "basic" && <>{rangeField("Độ trong suốt", "opacity", 0, 100, "%")}{rangeField("Bo góc", "radius", 0, 100, "px")}{rangeField("Viền", "borderWidth", 0, 20, "px")}<label className="image-studio-field color"><span>Màu viền</span><input type="color" value={settings.borderColor} onChange={(event) => commitSettings({ borderColor: event.target.value })} /></label>{rangeField("Đổ bóng", "shadow", 0, 60, "%")}</>}
+            {tool === "crop" && <><label className="image-studio-field"><span>Khớp ảnh vào khung</span><select value={settings.fit} onChange={(event) => commitSettings({ fit: event.target.value as ImageStudioAdjustments["fit"] })}><option value="contain">Hiện toàn bộ ảnh</option><option value="cover">Lấp đầy khung</option></select></label><div className="image-studio-crop-presets">{(["9:16", "16:9", "1:1"] as ImageStudioRatio[]).map((item) => <button key={item} type="button" className={ratio === item ? "active" : ""} onClick={() => setRatio(item)}>{item}</button>)}</div><small>Kéo ảnh và cắt tự do sẽ được bổ sung ở giai đoạn canvas nâng cao.</small></>}
+            {tool === "color" && <>{rangeField("Độ sáng", "brightness", 0, 200, "%")}{rangeField("Tương phản", "contrast", 0, 200, "%")}{rangeField("Bão hòa", "saturation", 0, 200, "%")}{rangeField("Nhiệt độ", "warmth", -100, 100)}{rangeField("Làm mờ", "blur", 0, 20, "px")}</>}
+            {tool === "filter" && <div className="image-studio-filter-grid">{(["original", "warm", "cool", "mono", "vintage"] as ImageStudioAdjustments["preset"][]).map((preset) => <button key={preset} type="button" className={settings.preset === preset ? "active" : ""} onClick={() => commitSettings({ preset })}>{{ original: "Gốc", warm: "Ấm", cool: "Lạnh", mono: "Trắng đen", vintage: "Cổ điển" }[preset]}</button>)}</div>}
+            {tool === "background" && <><label className="image-studio-check"><input type="checkbox" checked={transparentBackground} onChange={(event) => setTransparentBackground(event.target.checked)} /><span>Nền trong suốt khi xuất PNG</span></label><label className="image-studio-field color"><span>Màu nền</span><input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><button type="button" className="button secondary" disabled>Xóa nền tự động · sắp có</button><small>Xóa nền AI cần thêm dịch vụ xử lý phía máy chủ.</small></>}
+            {tool === "ai" && <div className="image-studio-ai-list"><button type="button" disabled>Nâng chất lượng ảnh</button><button type="button" disabled>Mở rộng ảnh AI</button><button type="button" disabled>Xóa vật thể</button><small>Các chức năng AI sẽ được kết nối ở giai đoạn tiếp theo.</small></div>}
+          </div>
+          <label className="image-studio-field"><span>Định dạng xuất</span><select value={format} onChange={(event) => setFormat(event.target.value as ImageStudioFormat)}><option value="image/png">PNG</option><option value="image/jpeg">JPG</option><option value="image/webp">WEBP</option></select></label>
+        </aside>
+
+        <div className="image-studio-layers">
+          <div className="image-studio-layer-heading"><strong>Layer ảnh</strong><small>Kéo để đổi thứ tự trong bản nâng cao</small></div>
+          <div className="image-studio-layer-list"><button type="button" className="active" onClick={() => commitSettings({ visible: !settings.visible })}><span>{settings.visible ? "◉" : "○"}</span><b>{sourceName}</b><small>Hình ảnh</small></button><button type="button"><span>▧</span><b>Nền</b><small>{transparentBackground ? "Trong suốt" : backgroundColor}</small></button></div>
+          <div className="image-studio-layer-status"><strong>Tự động lưu trạng thái phiên</strong><span>Hoàn tác tối đa 50 bước chỉnh sửa</span></div>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -17376,6 +17699,16 @@ function Home() {
             <span className="rail-icon" aria-hidden="true">♫</span>
             <span>Studio</span>
           </button>
+          <button
+            type="button"
+            className={`rail-item ${activeStudioTab === "image" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("image")}
+            aria-current={activeStudioTab === "image" ? "page" : undefined}
+            title="Trình chỉnh sửa hình ảnh"
+          >
+            <span className="rail-icon" aria-hidden="true">▧</span>
+            <span>Hình Ảnh</span>
+          </button>
         </nav>
 
         <div className="studio-main">
@@ -21954,6 +22287,14 @@ function Home() {
                 </div>
               </section>
             </>
+          ) : activeStudioTab === "image" ? (
+            <ImageStudioWorkspace
+              onSaveFile={addAssetsToLibrary}
+              onNotify={(message) => {
+                setToast(message);
+                window.setTimeout(() => setToast(""), 3600);
+              }}
+            />
           ) : (
             <SettingsWorkspace
               projectItems={projectItems}

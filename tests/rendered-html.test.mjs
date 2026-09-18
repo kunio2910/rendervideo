@@ -335,7 +335,7 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /updateSceneStructureTiming\(structureItem, start, end\)/);
   assert.match(css, /\.subtitle-track/);
   assert.match(css, /\.scene-structure-link-control/);
-  assert.match(css, /repeat\(6, 27px\)/);
+  assert.match(css, /repeat\(7, 27px\)/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
