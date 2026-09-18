@@ -1963,10 +1963,11 @@ type EditorSectionClipboard =
 
 type StudioTab = "compose" | "export" | "settings" | "studio";
 type StudioTtsProvider = "elevenlabs" | "browser";
-type SceneStructureTemplate = {
+type SavedSceneStructureTemplate = {
   id: string;
   name: string;
   createdAt: string;
+  duration?: number;
   scene: Scene;
 };
 
@@ -5213,7 +5214,7 @@ function Home() {
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [selectedSceneStructureTokens, setSelectedSceneStructureTokens] = useState<string[]>([]);
   const [sceneStructureQuickEditToken, setSceneStructureQuickEditToken] = useState("");
-  const [sceneStructureTemplates, setSceneStructureTemplates] = useState<SceneStructureTemplate[]>([]);
+  const [sceneStructureTemplates, setSceneStructureTemplates] = useState<SavedSceneStructureTemplate[]>([]);
   const [sceneTemplateDialogOpen, setSceneTemplateDialogOpen] = useState(false);
   const [sceneTemplateSaveMode, setSceneTemplateSaveMode] = useState<"new" | "overwrite">("new");
   const [sceneTemplateName, setSceneTemplateName] = useState("");
@@ -13890,7 +13891,7 @@ function Home() {
       const raw = window.localStorage.getItem(SCENE_STRUCTURE_TEMPLATE_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) setSceneStructureTemplates(parsed.filter((item) => isRecord(item) && isRecord(item.scene)) as SceneStructureTemplate[]);
+      if (Array.isArray(parsed)) setSceneStructureTemplates(parsed.filter((item) => isRecord(item) && isRecord(item.scene)) as SavedSceneStructureTemplate[]);
     } catch {
       // Ignore corrupt template storage and keep the editor usable.
     }
@@ -13924,18 +13925,23 @@ function Home() {
         setToast("Hãy chọn template cần ghi đè");
         return;
       }
+      const savedScene = JSON.parse(JSON.stringify(sceneStructureScene)) as Scene;
+      const duration = Math.max(0.1, Number(savedScene.end) - Number(savedScene.start));
       setSceneStructureTemplates((templates) => templates.map((template) => template.id === sceneTemplateOverwriteId
-        ? { ...template, name, createdAt: new Date().toISOString(), scene: JSON.parse(JSON.stringify(sceneStructureScene)) as Scene }
+        ? { ...template, name, createdAt: new Date().toISOString(), duration, scene: savedScene }
         : template));
       setSceneTemplateSelectedId(sceneTemplateOverwriteId);
       setToast(`Đã ghi đè template “${name}”`);
     } else {
       const id = `scene-template-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const savedScene = JSON.parse(JSON.stringify(sceneStructureScene)) as Scene;
+      const duration = Math.max(0.1, Number(savedScene.end) - Number(savedScene.start));
       setSceneStructureTemplates((templates) => [...templates, {
         id,
         name,
         createdAt: new Date().toISOString(),
-        scene: JSON.parse(JSON.stringify(sceneStructureScene)) as Scene,
+        duration,
+        scene: savedScene,
       }]);
       setSceneTemplateSelectedId(id);
       setToast(`Đã tạo template “${name}”`);
@@ -13952,8 +13958,14 @@ function Home() {
     if (!window.confirm(`Load template “${template.name}” vào cảnh hiện tại? Nội dung hình ảnh, chữ viết và âm thanh của cảnh sẽ được thay thế.`)) return;
     const currentSceneId = sceneStructureScene.id;
     const loadedScene = JSON.parse(JSON.stringify(template.scene)) as Scene;
+    const templateDuration = Math.max(
+      0.1,
+      Number(template.duration ?? (Number(loadedScene.end) - Number(loadedScene.start))) || 0.1,
+    );
+    const currentStart = Number(sceneStructureScene.start) || 0;
+    const nextEnd = Number((currentStart + templateDuration).toFixed(2));
     setScenes((items) => items.map((item) => item.id === currentSceneId
-      ? { ...loadedScene, id: currentSceneId, number: item.number, start: item.start, end: item.end, sceneName: item.sceneName }
+      ? { ...loadedScene, id: currentSceneId, number: item.number, start: currentStart, end: nextEnd, sceneName: item.sceneName }
       : item));
     setSelectedSceneStructureToken("");
     setSelectedSceneStructureTokens([]);

@@ -762,7 +762,7 @@ button { color: inherit; }
 .scene-image-manager { display: grid; gap: 8px; }
 .scene-image-manager > small { color: var(--muted); font-size: 9px; line-height: 1.45; }
 .scene-image-list { display: grid; gap: 5px; }
-.scene-image-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) repeat(6, 27px); gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
+.scene-image-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) repeat(7, 27px); gap: 4px; align-items: center; border: 1px solid transparent; border-radius: 7px; background: var(--panel-bg); }
 .scene-image-item.active { border-color: var(--orange); background: rgba(240, 179, 95, .14); }
 .scene-image-item.is-hidden { opacity: .55; }
 .scene-image-item.is-editor-hidden,
