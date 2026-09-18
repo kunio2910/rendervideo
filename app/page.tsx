@@ -1961,7 +1961,7 @@ type EditorSectionClipboard =
       section: "layer";
     };
 
-type StudioTab = "compose" | "export" | "settings" | "studio" | "image";
+type StudioTab = "compose" | "export" | "settings" | "studio" | "script" | "image";
 type StudioTtsProvider = "elevenlabs" | "browser";
 type SavedSceneStructureTemplate = {
   id: string;
@@ -5282,6 +5282,165 @@ function ImageStudioWorkspace({ onSaveFile, onNotify }: ImageStudioWorkspaceProp
           <div className="image-studio-layer-status"><strong>Tự động lưu trạng thái phiên</strong><span>Hoàn tác tối đa 50 bước chỉnh sửa</span></div>
         </div>
       </section>
+    </>
+  );
+}
+
+type ScriptWorkspaceProps = {
+  scenes: Scene[];
+  projectTitle: string;
+  selectedSceneId: string;
+  onUpdateScene: (sceneId: string, patch: Partial<Scene>) => void;
+  onSave: () => void;
+  onOpenComposer: (sceneId: string) => void;
+  onNotify: (message: string) => void;
+};
+
+function ScriptWorkspace({
+  scenes,
+  projectTitle,
+  selectedSceneId,
+  onUpdateScene,
+  onSave,
+  onOpenComposer,
+  onNotify,
+}: ScriptWorkspaceProps) {
+  const [activeSceneId, setActiveSceneId] = useState(selectedSceneId || scenes[0]?.id || "");
+  const [viewMode, setViewMode] = useState<"script" | "storyboard">("script");
+  const [audioInput, setAudioInput] = useState("");
+  const [audioFilePreviewUrl, setAudioFilePreviewUrl] = useState("");
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioObjectUrlRef = useRef("");
+
+  useEffect(() => {
+    if (!scenes.some((item) => item.id === activeSceneId)) setActiveSceneId(scenes[0]?.id || "");
+  }, [activeSceneId, scenes]);
+
+  useEffect(() => () => {
+    if (audioObjectUrlRef.current) URL.revokeObjectURL(audioObjectUrlRef.current);
+  }, []);
+
+  const activeScene = scenes.find((item) => item.id === activeSceneId) ?? scenes[0] ?? null;
+  const sceneDuration = activeScene ? Math.max(0.1, activeScene.end - activeScene.start) : 0;
+  const totalDuration = scenes.reduce((total, item) => Math.max(total, item.end), 0);
+  const clearAudioFilePreview = () => {
+    if (audioObjectUrlRef.current) URL.revokeObjectURL(audioObjectUrlRef.current);
+    audioObjectUrlRef.current = "";
+    setAudioFilePreviewUrl("");
+  };
+  const audioSource = audioFilePreviewUrl || audioInput.trim();
+
+  const selectScene = (sceneId: string) => {
+    setActiveSceneId(sceneId);
+  };
+
+  const updateActiveScene = (patch: Partial<Scene>) => {
+    if (activeScene) onUpdateScene(activeScene.id, patch);
+  };
+
+  const checkScript = () => {
+    const issues = scenes.flatMap((item) => {
+      const sceneIssues: string[] = [];
+      if (!item.sceneName.trim()) sceneIssues.push(`Cảnh ${item.number} chưa có tên`);
+      if (!item.narration.trim()) sceneIssues.push(`Cảnh ${item.number} chưa có lời thuyết minh`);
+      if (!Boolean(item.background || item.image || item.sceneImages?.some((image) => image.url))) {
+        sceneIssues.push(`Cảnh ${item.number} chưa có hình ảnh`);
+      }
+      return sceneIssues;
+    });
+    onNotify(issues.length ? `Kịch bản còn ${issues.length} cảnh cần kiểm tra` : "Kịch bản đã sẵn sàng để dựng");
+  };
+
+  const toggleAudioPreview = async () => {
+    if (!audioSource) {
+      onNotify("Hãy nhập URL âm thanh hoặc chọn file từ máy trước khi nghe thử");
+      return;
+    }
+    if (!/^https?:\/\//i.test(audioSource) && !/^blob:/.test(audioSource) && !/^data:audio\//i.test(audioSource)) {
+      onNotify("URL âm thanh phải bắt đầu bằng http://, https:// hoặc data:audio/");
+      return;
+    }
+    const player = audioRef.current;
+    if (!player) return;
+    try {
+      if (player.paused) await player.play();
+      else player.pause();
+    } catch {
+      onNotify("Không thể phát âm thanh. Hãy kiểm tra URL hoặc định dạng file.");
+    }
+  };
+
+  return (
+    <>
+      <header className="topbar script-topbar">
+        <div className="studio-page-title">
+          <span className="studio-page-kicker">KỊCH BẢN · WORKFLOW</span>
+          <h1>{projectTitle || "Kịch bản video"}</h1>
+          <p>Soạn nội dung, chia cảnh và kiểm tra trước khi chuyển sang Biên soạn.</p>
+        </div>
+        <div className="script-header-actions">
+          <button type="button" className="button secondary" onClick={onSave}>↶ Lưu bản nháp</button>
+          <button type="button" className="button secondary script-check-button" onClick={checkScript}>✓ Kiểm tra kịch bản</button>
+          <button type="button" className="button primary" onClick={() => activeScene && onOpenComposer(activeScene.id)}>✦ Tạo dự án dựng</button>
+        </div>
+      </header>
+      <section className="script-workspace" aria-label="Workflow soạn kịch bản">
+        <aside className="script-scenes-panel">
+          <div className="script-panel-heading"><h2>Cảnh</h2><span>{scenes.length}</span></div>
+          <div className="script-scene-list">
+            {scenes.map((item) => {
+              const hasNarration = Boolean(item.narration.trim());
+              const hasImage = Boolean(item.background || item.image || item.sceneImages?.some((image) => image.url));
+              return (
+                <button key={item.id} type="button" className={`script-scene-card ${item.id === activeScene?.id ? "active" : ""}`} onClick={() => selectScene(item.id)}>
+                  <span className="script-scene-number">{String(item.number).padStart(2, "0")}</span>
+                  <span className="script-scene-copy"><strong>{item.sceneName || `Cảnh ${item.number}`}</strong><small>{formatTime(Math.max(0, item.end - item.start))} · {item.location || "Chưa có địa điểm"}</small></span>
+                  <span className={`script-scene-status ${hasNarration && hasImage ? "ready" : "warning"}`}>{hasNarration && hasImage ? "● Sẵn sàng dựng" : "● Thiếu nội dung"}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" className="script-add-scene" onClick={() => onNotify("Thêm cảnh mới trong Biên soạn để giữ đồng bộ timeline")}>＋ Thêm cảnh mới</button>
+        </aside>
+
+        <section className="script-editor-panel">
+          <div className="script-editor-toolbar">
+            <div className="script-view-toggle" role="group" aria-label="Chế độ hiển thị kịch bản">
+              <button type="button" className={viewMode === "script" ? "active" : ""} onClick={() => setViewMode("script")}>Soạn thảo</button>
+              <button type="button" className={viewMode === "storyboard" ? "active" : ""} onClick={() => setViewMode("storyboard")}>Storyboard</button>
+            </div>
+            <span>Tự động lưu theo dự án</span>
+          </div>
+          {viewMode === "script" && activeScene ? (
+            <article className="script-sheet">
+              <header className="script-sheet-heading"><div><span>CẢNH {String(activeScene.number).padStart(2, "0")} · BIÊN SOẠN</span><h2>{activeScene.sceneName || `Cảnh ${activeScene.number}`}</h2></div><b>{formatPreciseTime(activeScene.start)} → {formatPreciseTime(activeScene.end)}</b></header>
+              <label className="script-field"><span>Nội dung / ghi chú</span><textarea value={activeScene.reference} placeholder="Mô tả nội dung, bối cảnh và diễn biến của cảnh…" onChange={(event) => updateActiveScene({ reference: event.target.value })} /></label>
+              <label className="script-field"><span>Lời thuyết minh</span><textarea className="script-narration" value={activeScene.narration} placeholder="Nhập lời thuyết minh hoặc lời thoại của cảnh…" onChange={(event) => updateActiveScene({ narration: event.target.value })} /></label>
+              <label className="script-field"><span>Chữ trên màn hình</span><input value={activeScene.overlayText} placeholder="Tiêu đề hoặc câu nhấn mạnh" onChange={(event) => updateActiveScene({ overlayText: event.target.value })} /></label>
+
+              <section className="script-audio-preview" aria-label="Nghe thử âm thanh">
+                <div className="script-section-heading"><div><strong>Nghe thử âm thanh</strong><small>Không tạo voice hoặc phụ đề tại đây.</small></div><span>Preview</span></div>
+                <div className="script-audio-input-row"><input type="url" value={audioInput} placeholder="https://example.com/audio.mp3" aria-label="URL âm thanh nghe thử" onChange={(event) => { clearAudioFilePreview(); setAudioInput(event.target.value); }} /><LocalFileButton accept="audio/*" label="Chọn file máy" onPick={(file) => { clearAudioFilePreview(); const url = URL.createObjectURL(file); audioObjectUrlRef.current = url; setAudioFilePreviewUrl(url); setAudioInput(file.name); }} /></div>
+                <div className="script-audio-actions"><button type="button" className="button primary" onClick={() => void toggleAudioPreview()}>{audioPlaying ? "■ Dừng nghe thử" : "▶ Nghe thử"}</button><audio ref={audioRef} controls preload="metadata" src={audioSource || undefined} onPlay={() => setAudioPlaying(true)} onPause={() => setAudioPlaying(false)} onEnded={() => setAudioPlaying(false)} /></div>
+              </section>
+            </article>
+          ) : (
+            <div className="script-storyboard-grid">{scenes.map((item) => <button key={item.id} type="button" className="script-storyboard-card" onClick={() => { setViewMode("script"); selectScene(item.id); }}><span>{String(item.number).padStart(2, "0")}</span><strong>{item.sceneName || `Cảnh ${item.number}`}</strong><small>{formatTime(Math.max(0, item.end - item.start))}</small></button>)}</div>
+          )}
+        </section>
+
+        <aside className="script-inspector-panel">
+          <div className="script-panel-heading"><h2>Thông tin cảnh</h2><span>{activeScene ? `Cảnh ${activeScene.number}` : "—"}</span></div>
+          {activeScene ? <>
+            <label className="script-field"><span>Tên cảnh</span><input value={activeScene.sceneName} onChange={(event) => updateActiveScene({ sceneName: event.target.value })} /></label>
+            <div className="script-field-row"><label className="script-field"><span>Bắt đầu</span><input value={formatPreciseTime(activeScene.start)} readOnly /></label><label className="script-field"><span>Kết thúc</span><input value={formatPreciseTime(activeScene.end)} readOnly /></label></div>
+            <div className="script-resource-list"><strong>Tài nguyên</strong><span className={activeScene.background || activeScene.image || activeScene.sceneImages?.some((image) => image.url) ? "ok" : "missing"}>Hình ảnh · {activeScene.background || activeScene.image || activeScene.sceneImages?.some((image) => image.url) ? "Đã có" : "Chưa có"}</span><span className={activeScene.narration.trim() ? "ok" : "missing"}>Lời thuyết minh · {activeScene.narration.trim() ? "Đã có" : "Chưa có"}</span><span className={activeScene.subtitles?.length ? "ok" : "muted"}>Phụ đề · {activeScene.subtitles?.length ? `${activeScene.subtitles.length} câu` : "Tạo trong Biên soạn"}</span></div>
+            <button type="button" className="button secondary script-open-compose" onClick={() => onOpenComposer(activeScene.id)}>Mở cảnh trong Biên soạn →</button>
+          </> : <p className="script-empty-state">Chưa có cảnh để soạn.</p>}
+        </aside>
+      </section>
+      <footer className="script-timeline"><div><strong>Timeline kịch bản</strong><span>{scenes.length} cảnh · Tổng thời lượng {formatTime(totalDuration)}</span></div><div className="script-timeline-track">{scenes.map((item) => <button key={item.id} type="button" style={{ flex: Math.max(1, item.end - item.start) }} onClick={() => selectScene(item.id)}>{String(item.number).padStart(2, "0")} · {formatTime(Math.max(0, item.end - item.start))}</button>)}</div></footer>
     </>
   );
 }
@@ -17793,6 +17952,16 @@ function Home() {
           </button>
           <button
             type="button"
+            className={`rail-item ${activeStudioTab === "script" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("script")}
+            aria-current={activeStudioTab === "script" ? "page" : undefined}
+            title="Soạn kịch bản và chuẩn bị workflow dựng clip"
+          >
+            <span className="rail-icon" aria-hidden="true">✓</span>
+            <span>Kịch bản</span>
+          </button>
+          <button
+            type="button"
             className={`rail-item ${activeStudioTab === "image" ? "active" : ""}`}
             onClick={() => setActiveStudioTab("image")}
             aria-current={activeStudioTab === "image" ? "page" : undefined}
@@ -22379,6 +22548,29 @@ function Home() {
                 </div>
               </section>
             </>
+          ) : activeStudioTab === "script" ? (
+            <ScriptWorkspace
+              scenes={scenes}
+              projectTitle={projectTitle}
+              selectedSceneId={selectedId}
+              onUpdateScene={(sceneId, patch) => {
+                if (!hydrated) return;
+                setScenes((items) => items.map((item) => (item.id === sceneId ? { ...item, ...patch } : item)));
+              }}
+              onSave={() => void saveProjectNow()}
+              onOpenComposer={(sceneId) => {
+                const target = scenes.find((item) => item.id === sceneId);
+                if (!target) return;
+                setSelectedId(target.id);
+                setSelectedSceneIds([target.id]);
+                setPlayTime(target.start);
+                setActiveStudioTab("compose");
+              }}
+              onNotify={(message) => {
+                setToast(message);
+                window.setTimeout(() => setToast(""), 3600);
+              }}
+            />
           ) : activeStudioTab === "image" ? (
             <ImageStudioWorkspace
               onSaveFile={addAssetsToLibrary}
