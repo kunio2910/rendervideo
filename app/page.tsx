@@ -1963,6 +1963,14 @@ type EditorSectionClipboard =
 
 type StudioTab = "compose" | "export" | "settings" | "studio";
 type StudioTtsProvider = "elevenlabs" | "browser";
+type SceneStructureTemplate = {
+  id: string;
+  name: string;
+  createdAt: string;
+  scene: Scene;
+};
+
+const SCENE_STRUCTURE_TEMPLATE_STORAGE_KEY = "kito-video-scene-structure-templates";
 
 const DEFAULT_EDITOR_SECTIONS: EditorSectionState = {
   visual: false,
@@ -5205,6 +5213,12 @@ function Home() {
   const [selectedSceneStructureToken, setSelectedSceneStructureToken] = useState("");
   const [selectedSceneStructureTokens, setSelectedSceneStructureTokens] = useState<string[]>([]);
   const [sceneStructureQuickEditToken, setSceneStructureQuickEditToken] = useState("");
+  const [sceneStructureTemplates, setSceneStructureTemplates] = useState<SceneStructureTemplate[]>([]);
+  const [sceneTemplateDialogOpen, setSceneTemplateDialogOpen] = useState(false);
+  const [sceneTemplateSaveMode, setSceneTemplateSaveMode] = useState<"new" | "overwrite">("new");
+  const [sceneTemplateName, setSceneTemplateName] = useState("");
+  const [sceneTemplateOverwriteId, setSceneTemplateOverwriteId] = useState("");
+  const [sceneTemplateSelectedId, setSceneTemplateSelectedId] = useState("");
   const [sceneStructureImageSyncGapDraft, setSceneStructureImageSyncGapDraft] = useState(() => String(readSceneImageSyncGapPreference()));
   const [sceneStructureImageSyncIncludeHidden, setSceneStructureImageSyncIncludeHidden] = useState(readSceneImageSyncIncludeHiddenPreference);
   const [sceneStructureImageSyncNotice, setSceneStructureImageSyncNotice] = useState("");
@@ -13869,6 +13883,95 @@ function Home() {
     setSelectedSceneStructureToken(explicitlySelectedPreviewLayerToken);
     if (playTime < scene.start || playTime > scene.end) setPlayTime(scene.start);
     setSceneStructureOpen(true);
+  };
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SCENE_STRUCTURE_TEMPLATE_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setSceneStructureTemplates(parsed.filter((item) => isRecord(item) && isRecord(item.scene)) as SceneStructureTemplate[]);
+    } catch {
+      // Ignore corrupt template storage and keep the editor usable.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SCENE_STRUCTURE_TEMPLATE_STORAGE_KEY, JSON.stringify(sceneStructureTemplates));
+    } catch {
+      // Private browsing or a full storage quota should not block editing.
+    }
+  }, [sceneStructureTemplates]);
+
+  const openSceneTemplateDialog = (mode: "new" | "overwrite") => {
+    setSceneTemplateSaveMode(mode);
+    setSceneTemplateName(mode === "overwrite"
+      ? sceneStructureTemplates.find((item) => item.id === sceneTemplateOverwriteId)?.name ?? ""
+      : `${sceneStructureScene.sceneName || "Cảnh"} · Template`);
+    setSceneTemplateOverwriteId((current) => current || sceneStructureTemplates[0]?.id || "");
+    setSceneTemplateDialogOpen(true);
+  };
+
+  const saveSceneStructureTemplate = () => {
+    const name = sceneTemplateName.trim();
+    if (!name) {
+      setToast("Hãy nhập tên template");
+      return;
+    }
+    if (sceneTemplateSaveMode === "overwrite") {
+      if (!sceneTemplateOverwriteId) {
+        setToast("Hãy chọn template cần ghi đè");
+        return;
+      }
+      setSceneStructureTemplates((templates) => templates.map((template) => template.id === sceneTemplateOverwriteId
+        ? { ...template, name, createdAt: new Date().toISOString(), scene: JSON.parse(JSON.stringify(sceneStructureScene)) as Scene }
+        : template));
+      setSceneTemplateSelectedId(sceneTemplateOverwriteId);
+      setToast(`Đã ghi đè template “${name}”`);
+    } else {
+      const id = `scene-template-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setSceneStructureTemplates((templates) => [...templates, {
+        id,
+        name,
+        createdAt: new Date().toISOString(),
+        scene: JSON.parse(JSON.stringify(sceneStructureScene)) as Scene,
+      }]);
+      setSceneTemplateSelectedId(id);
+      setToast(`Đã tạo template “${name}”`);
+    }
+    setSceneTemplateDialogOpen(false);
+  };
+
+  const loadSceneStructureTemplate = () => {
+    const template = sceneStructureTemplates.find((item) => item.id === sceneTemplateSelectedId);
+    if (!template) {
+      setToast("Hãy chọn template để load");
+      return;
+    }
+    if (!window.confirm(`Load template “${template.name}” vào cảnh hiện tại? Nội dung hình ảnh, chữ viết và âm thanh của cảnh sẽ được thay thế.`)) return;
+    const currentSceneId = sceneStructureScene.id;
+    const loadedScene = JSON.parse(JSON.stringify(template.scene)) as Scene;
+    setScenes((items) => items.map((item) => item.id === currentSceneId
+      ? { ...loadedScene, id: currentSceneId, number: item.number, start: item.start, end: item.end, sceneName: item.sceneName }
+      : item));
+    setSelectedSceneStructureToken("");
+    setSelectedSceneStructureTokens([]);
+    setSceneStructureQuickEditToken("");
+    setPlayTime(sceneStructureScene.start);
+    setToast(`Đã load template “${template.name}” · các thẻ đã được khôi phục`);
+  };
+
+  const deleteSceneStructureTemplate = () => {
+    const template = sceneStructureTemplates.find((item) => item.id === sceneTemplateSelectedId);
+    if (!template) {
+      setToast("Hãy chọn template cần xóa");
+      return;
+    }
+    if (!window.confirm(`Xóa template “${template.name}” khỏi máy?`)) return;
+    setSceneStructureTemplates((templates) => templates.filter((item) => item.id !== template.id));
+    setSceneTemplateSelectedId("");
+    setToast(`Đã xóa template “${template.name}”`);
   };
 
   const closeSceneStructure = () => {
@@ -22844,6 +22947,40 @@ function Home() {
                 {SCENE_STRUCTURE_VIEW_OPTIONS.find((option) => option.value === sceneStructureViewMode)?.description}
               </span>
             </nav>
+
+            <section className="scene-structure-template-bar" aria-label="Template cấu trúc cảnh">
+              <div className="scene-structure-template-heading">
+                <span aria-hidden="true">▣</span>
+                <div><strong>Template</strong><small>Lưu và khôi phục toàn bộ thẻ của cảnh</small></div>
+              </div>
+              <select
+                aria-label="Template đã lưu"
+                value={sceneTemplateSelectedId}
+                onChange={(event) => setSceneTemplateSelectedId(event.target.value)}
+              >
+                <option value="">Template đã lưu</option>
+                {sceneStructureTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <button type="button" className="button secondary" onClick={() => openSceneTemplateDialog("new")}>＋ Lưu template</button>
+              <button type="button" className="button secondary" onClick={() => openSceneTemplateDialog("overwrite")} disabled={!sceneStructureTemplates.length}>↻ Ghi đè</button>
+              <button type="button" className="button primary" onClick={loadSceneStructureTemplate} disabled={!sceneTemplateSelectedId}>▣ Load template</button>
+              <button type="button" className="button scene-structure-template-delete-button" onClick={deleteSceneStructureTemplate} disabled={!sceneTemplateSelectedId} aria-label="Xóa template">×</button>
+            </section>
+
+            {sceneTemplateDialogOpen && (
+              <div className="scene-structure-template-dialog-backdrop" role="presentation" onMouseDown={() => setSceneTemplateDialogOpen(false)}>
+                <section className="scene-structure-template-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-template-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+                  <header><div><span>SCENE TEMPLATE</span><h2 id="scene-template-dialog-title">Lưu template</h2></div><button type="button" onClick={() => setSceneTemplateDialogOpen(false)} aria-label="Đóng">×</button></header>
+                  <div className="scene-template-mode-list">
+                    <label className={sceneTemplateSaveMode === "new" ? "active" : ""}><input type="radio" name="scene-template-mode" checked={sceneTemplateSaveMode === "new"} onChange={() => setSceneTemplateSaveMode("new")} /><span><strong>Tạo template mới</strong><small>Lưu cấu trúc cảnh hiện tại thành template mới.</small></span></label>
+                    <label className={sceneTemplateSaveMode === "overwrite" ? "active" : ""}><input type="radio" name="scene-template-mode" checked={sceneTemplateSaveMode === "overwrite"} onChange={() => setSceneTemplateSaveMode("overwrite")} /><span><strong>Ghi đè template</strong><small>Cập nhật nội dung cho template đã có.</small></span></label>
+                  </div>
+                  {sceneTemplateSaveMode === "overwrite" && <label className="field"><span>Template cần ghi đè</span><select value={sceneTemplateOverwriteId} onChange={(event) => { setSceneTemplateOverwriteId(event.target.value); setSceneTemplateName(sceneStructureTemplates.find((item) => item.id === event.target.value)?.name ?? ""); }}>{sceneStructureTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
+                  <label className="field"><span>Tên template</span><input value={sceneTemplateName} onChange={(event) => setSceneTemplateName(event.target.value)} placeholder="Ví dụ: Video kể chuyện · 5 cảnh" autoFocus /></label>
+                  <footer><button type="button" className="button secondary" onClick={() => setSceneTemplateDialogOpen(false)}>Hủy</button><button type="button" className="button primary" onClick={saveSceneStructureTemplate}>{sceneTemplateSaveMode === "overwrite" ? "Ghi đè template" : "Lưu template"}</button></footer>
+                </section>
+              </div>
+            )}
 
             <div className={`scene-structure-body ${sceneStructureLibraryCollapsed ? "library-collapsed" : ""} ${sceneStructureInspectorCollapsed ? "inspector-collapsed" : ""}`}>
               <aside
