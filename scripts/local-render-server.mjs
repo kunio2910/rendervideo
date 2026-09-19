@@ -819,7 +819,9 @@ const runWhiteboardJob = async (job, uploads, options) => {
       if (!job.telemetrySeen) job.frameEstimate = true;
       job.elapsedSeconds = elapsed;
       const frameRatio = job.totalFrames > 0 ? job.renderedFrames / job.totalFrames : 0;
-      job.progress = Math.max(job.progress, Math.min(88, Math.round(12 + frameRatio * 76)));
+      const overrunSeconds = Math.max(0, elapsed - job.totalDuration);
+      const overrunProgress = Math.min(2, overrunSeconds / Math.max(5, job.totalDuration * 0.25));
+      job.progress = Math.max(job.progress, Math.min(94, Math.round(12 + frameRatio * 80 + overrunProgress)));
       const mediaTime = Math.min(job.totalDuration, Math.max(Number(job.mediaTimeSeconds) || 0, estimatedMediaTime));
       const estimateMark = job.frameEstimate ? "≈" : "";
       job.detail = "Whiteboard · " + estimateMark + job.renderedFrames + "/" + job.totalFrames + " frame · " + job.renderFps + " FPS · " + formatRenderClock(mediaTime) + " / " + formatRenderClock(job.totalDuration);
