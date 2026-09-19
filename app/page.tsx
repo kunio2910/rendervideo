@@ -23,6 +23,7 @@ import {
   signOutFromGoogle,
 } from "./lib/firebase";
 import { parseSubtitleFileText } from "./lib/subtitles";
+import { WhiteboardWorkspace } from "./components/WhiteboardWorkspace";
 import {
   createWorkspaceBackup,
   readWorkspaceBackup,
@@ -1961,7 +1962,7 @@ type EditorSectionClipboard =
       section: "layer";
     };
 
-type StudioTab = "compose" | "export" | "settings" | "studio" | "script" | "image";
+type StudioTab = "compose" | "export" | "settings" | "studio" | "script" | "image" | "whiteboard";
 type StudioTtsProvider = "elevenlabs" | "browser";
 type SavedSceneStructureTemplate = {
   id: string;
@@ -17990,6 +17991,16 @@ function Home() {
           </button>
           <button
             type="button"
+            className={`rail-item ${activeStudioTab === "whiteboard" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("whiteboard")}
+            aria-current={activeStudioTab === "whiteboard" ? "page" : undefined}
+            title="Tạo video Whiteboard từ line art và color reference"
+          >
+            <span className="rail-icon" aria-hidden="true">✍</span>
+            <span>Whiteboard</span>
+          </button>
+          <button
+            type="button"
             className={`rail-item rail-scene-check ${sceneStructureOpen ? "active" : ""}`}
             aria-label="Kiểm tra cảnh đang chọn"
             aria-pressed={sceneStructureOpen}
@@ -22593,6 +22604,13 @@ function Home() {
                 </div>
               </section>
             </>
+          ) : activeStudioTab === "whiteboard" ? (
+            <WhiteboardWorkspace
+              onNotify={(message) => {
+                setToast(message);
+                window.setTimeout(() => setToast(""), 3600);
+              }}
+            />
           ) : activeStudioTab === "studio" ? (
             <>
               <header className="topbar studio-topbar">

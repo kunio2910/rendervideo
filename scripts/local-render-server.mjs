@@ -34,6 +34,11 @@ let activeJobId = null;
 let activeConcatJobId = null;
 let activeSubtitleAlignment = false;
 let activeCacheSync = false;
+const whiteboardJobsRoot = path.join(jobsRoot, "whiteboard");
+const whiteboardRendererPath = process.env.KITO_WHITEBOARD_RENDERER ||
+  path.join(root, "scripts", "whiteboard", "SRTWhiteboardPortable.exe");
+const whiteboardJobs = new Map();
+let activeWhiteboardJobId = null;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -187,6 +192,24 @@ const renderJobPayload = (job) => {
   };
 };
 
+const whiteboardRendererReady = async () => {
+  try {
+    await fs.access(whiteboardRendererPath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const whiteboardJobPayload = (job) => ({
+  id: job.id,
+  status: job.status,
+  progress: Number(job.progress) || 0,
+  message: job.message,
+  downloadUrl: job.downloadUrl || null,
+  clip: job.clip || null,
+  log: job.status === "failed" ? String(job.log || "").slice(-3000) : undefined,
+});
 const rationalToNumber = (value) => {
   const [top, bottom] = String(value || "").split("/").map(Number);
   if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > 0) return top / bottom;
@@ -632,6 +655,71 @@ await fs.mkdir(renderCacheRoot, { recursive: true });
 await fs.mkdir(renderedClipsRoot, { recursive: true });
 await fs.mkdir(concatJobsRoot, { recursive: true });
 
+const runWhiteboardJob = async (job, uploads, options) => {
+  activeWhiteboardJobId = job.id;
+  job.status = "preparing";
+  job.message = "Đang nhận tài nguyên Whiteboard…";
+  try {
+    await fs.mkdir(job.sourceDir, { recursive: true });
+    await fs.mkdir(job.outputDir, { recursive: true });
+    const saved = {};
+    for (const key of ["line", "annotation", "color", "hand", "audio", "subtitle"]) {
+      const file = uploads[key];
+      if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") continue;
+      const filename = safeName(file.name || key);
+      const target = path.join(job.sourceDir, filename);
+      await fs.writeFile(target, Buffer.from(await file.arrayBuffer()));
+      saved[key] = target;
+    }
+    if (!saved.line || !saved.annotation) throw new Error("Thiếu Line art hoặc Annotation JSON");
+    job.progress = 8;
+    job.message = "Đang khởi động renderer Whiteboard…";
+    const args = [saved.line, saved.annotation, job.outputPath];
+    if (saved.hand) args.push(saved.hand);
+    if (saved.color) args.push("--color-reference", saved.color);
+    if (saved.audio) {
+      args.push("--audio", saved.audio);
+      if (Number(options.audioStartMs) > 0) args.push("--audio-start-ms", String(Math.round(Number(options.audioStartMs))));
+    }
+    if (saved.subtitle) args.push("--subtitle", saved.subtitle);
+    args.push("--draw-speed", String(options.drawSpeed), "--line-reveal", options.lineReveal, "--match-bg", options.matchBg, "--color-fill", options.colorFill, "--aspect-ratio", options.aspectRatio, "--cap-long-edge", String(options.capLongEdge));
+    if (options.bareTip) args.push("--bare-tip");
+    job.status = "rendering";
+    job.progress = 12;
+    job.message = "Đang vẽ line art và phủ màu…";
+    const child = spawn(whiteboardRendererPath, args, { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    job.child = child;
+    const consume = (chunk) => {
+      const output = chunk.toString();
+      job.log = (String(job.log || "") + output).slice(-12000);
+      const lower = output.toLowerCase();
+      if (lower.includes("color") || lower.includes("colour")) job.progress = Math.max(job.progress, 72);
+      else if (lower.includes("render") || lower.includes("frame")) job.progress = Math.max(job.progress, 34);
+    };
+    child.stdout.on("data", consume);
+    child.stderr.on("data", consume);
+    const result = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+    const exitCode = normalizeProcessExitCode(result.code);
+    if (exitCode !== 0) throw new Error("Whiteboard renderer kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : ""));
+    await fs.access(job.outputPath);
+    job.progress = 94;
+    job.message = "Đang lưu video vào thư viện render…";
+    job.clip = await storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard" });
+    job.downloadUrl = job.clip.downloadUrl;
+    job.status = "completed";
+    job.progress = 100;
+    job.message = "Đã render Whiteboard thành công";
+  } catch (error) {
+    job.status = "failed";
+    job.message = error instanceof Error ? error.message : "Không thể render Whiteboard";
+  } finally {
+    job.child = null;
+    activeWhiteboardJobId = null;
+  }
+};
 const server = http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     response.writeHead(204, corsHeaders);
@@ -1033,6 +1121,83 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/whiteboard/render") {
+    if (activeJobId || activeCacheSync || activeConcatJobId || activeWhiteboardJobId) {
+      sendJson(response, 409, { error: "Local renderer đang bận với một phiên khác. Vui lòng chờ hoàn tất." });
+      return;
+    }
+    if (!(await whiteboardRendererReady())) {
+      sendJson(response, 503, { error: "Chưa tìm thấy Whiteboard renderer portable. Hãy chạy lại bước chuẩn bị desktop hoặc đặt KITO_WHITEBOARD_RENDERER." });
+      return;
+    }
+    try {
+      const webRequest = new Request("http://" + host + ":" + port + url.pathname, {
+        method: "POST",
+        headers: request.headers,
+        body: request,
+        duplex: "half",
+      });
+      const form = await webRequest.formData();
+      const uploads = {
+        line: form.get("line"),
+        annotation: form.get("annotation"),
+        color: form.get("color"),
+        hand: form.get("hand"),
+        audio: form.get("audio"),
+        subtitle: form.get("subtitle"),
+      };
+      const validUpload = (value) => value && typeof value !== "string" && typeof value.arrayBuffer === "function";
+      if (!validUpload(uploads.line) || !validUpload(uploads.annotation)) throw new Error("Hãy gửi đủ Line art và Annotation JSON");
+      let rawOptions = {};
+      try {
+        rawOptions = JSON.parse(String(form.get("options") || "{}"));
+      } catch {
+        rawOptions = {};
+      }
+      const pick = (value, choices, fallback) => choices.includes(value) ? value : fallback;
+      const options = {
+        drawSpeed: Math.min(1.5, Math.max(0.25, Number(rawOptions.drawSpeed) || 0.7)),
+        colorFill: pick(rawOptions.colorFill, ["hybrid", "brush", "contour-wipe"], "hybrid"),
+        lineReveal: pick(rawOptions.lineReveal, ["skeleton", "pixel"], "skeleton"),
+        matchBg: pick(rawOptions.matchBg, ["auto", "on", "off"], "auto"),
+        aspectRatio: pick(rawOptions.aspectRatio, ["auto", "9:16", "16:9", "4:3", "1:1"], "auto"),
+        capLongEdge: pick(Number(rawOptions.capLongEdge), [720, 1080, 1440], 1080),
+        audioStartMs: Math.max(0, Number(rawOptions.audioStartMs) || 0),
+        bareTip: Boolean(rawOptions.bareTip),
+      };
+      const requestedName = typeof form.get("name") === "string" ? form.get("name") : "whiteboard-scene";
+      const id = Date.now() + "-" + randomUUID().slice(0, 8);
+      const jobRoot = path.join(whiteboardJobsRoot, id);
+      const job = {
+        id,
+        status: "queued",
+        progress: 0,
+        message: "Đang xếp hàng Whiteboard…",
+        log: "",
+        name: safeVideoName(requestedName),
+        sourceDir: path.join(jobRoot, "source"),
+        outputDir: path.join(jobRoot, "output"),
+        outputPath: path.join(jobRoot, "output", safeVideoName(requestedName)),
+      };
+      whiteboardJobs.set(id, job);
+      void runWhiteboardJob(job, uploads, options);
+      sendJson(response, 202, { jobId: id });
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : "Dữ liệu Whiteboard không hợp lệ" });
+    }
+    return;
+  }
+
+  const whiteboardStatusMatch = url.pathname.match(/^\/api\/whiteboard\/render\/([^/]+)$/);
+  if (request.method === "GET" && whiteboardStatusMatch) {
+    const job = whiteboardJobs.get(whiteboardStatusMatch[1]);
+    if (!job) {
+      sendJson(response, 404, { error: "Không tìm thấy phiên Whiteboard" });
+      return;
+    }
+    sendJson(response, 200, whiteboardJobPayload(job));
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/render") {
     if (activeJobId || activeCacheSync || activeConcatJobId) {
       sendJson(response, 409, { error: activeCacheSync

@@ -32,6 +32,12 @@ await fs.mkdir(path.join(runtimeDirectory, "assets", "_vinext_fonts"), { recursi
 for (const script of requiredScripts) {
   await copy(path.join(projectDirectory, "scripts", script), path.join(runtimeDirectory, "scripts", script));
 }
+const whiteboardRenderer = path.join(projectDirectory, "scripts", "whiteboard", "SRTWhiteboardPortable.exe");
+if (await exists(whiteboardRenderer)) {
+  await copy(whiteboardRenderer, path.join(runtimeDirectory, "scripts", "whiteboard", "SRTWhiteboardPortable.exe"));
+} else {
+  console.warn("Thiếu Whiteboard renderer portable; bản desktop sẽ chỉ ẩn chức năng render Whiteboard.");
+}
 await copy(
   path.join(projectDirectory, "assets", "_vinext_fonts"),
   path.join(runtimeDirectory, "assets", "_vinext_fonts"),
