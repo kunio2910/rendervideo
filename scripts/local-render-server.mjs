@@ -75,6 +75,70 @@ const safeVideoName = (value, fallback = "video") => {
   return `${base}.mp4`;
 };
 
+const clampInteger = (value, minimum, maximum) => Math.min(Math.max(Math.round(Number(value) || 0), minimum), maximum);
+
+const detectImageDimensions = (buffer) => {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 24) return null;
+  if (buffer.readUInt32BE(0) === 0x89504e47 && buffer.toString("ascii", 1, 4) === "PNG") {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
+    if (buffer.toString("ascii", 12, 16) === "VP8X" && buffer.length >= 30) {
+      return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
+    }
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      while (buffer[offset] === 0xff) offset += 1;
+      const marker = buffer[offset++];
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (offset + 1 >= buffer.length) break;
+      const segmentLength = buffer.readUInt16BE(offset);
+      if (segmentLength < 2 || offset + segmentLength > buffer.length) break;
+      const isStartOfFrame = (marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf);
+      if (isStartOfFrame && offset + 7 < buffer.length) return { width: buffer.readUInt16BE(offset + 5), height: buffer.readUInt16BE(offset + 3) };
+      offset += segmentLength;
+    }
+  }
+  return null;
+};
+
+const normalizeWhiteboardDirection = (value) => ["top_to_bottom", "bottom_to_top", "left_to_right", "right_to_left"].includes(String(value)) ? String(value) : "top_to_bottom";
+
+const buildWhiteboardAnnotation = ({ lineBuffer, modules, canvas }) => {
+  const detected = detectImageDimensions(lineBuffer);
+  const width = Math.max(1, Number(detected?.width || canvas?.width || 1920));
+  const height = Math.max(1, Number(detected?.height || canvas?.height || 1080));
+  const rawModules = Array.isArray(modules) ? modules : [];
+  const sourceModules = rawModules.length ? rawModules : [{ name: "Toàn bộ khung hình", x: 0, y: 0, width, height, direction: "top_to_bottom", startMs: 0, endMs: 3000, subtitle: "", narrativeRole: "Toàn cảnh" }];
+  const elements = sourceModules.map((item, index) => {
+    const x = clampInteger(item?.x, 0, Math.max(0, width - 1));
+    const y = clampInteger(item?.y, 0, Math.max(0, height - 1));
+    const regionWidth = Math.max(1, Math.min(width - x, Math.round(Number(item?.width) || width)));
+    const regionHeight = Math.max(1, Math.min(height - y, Math.round(Number(item?.height) || height)));
+    const startMs = Math.max(0, Math.round(Number(item?.startMs) || 0));
+    const endMs = Math.max(startMs + 100, Math.round(Number(item?.endMs) || startMs + 3000));
+    const direction = normalizeWhiteboardDirection(item?.direction);
+    const handStart = direction === "bottom_to_top" ? [x + Math.round(regionWidth / 2), y + regionHeight] : direction === "left_to_right" ? [x, y + Math.round(regionHeight / 2)] : direction === "right_to_left" ? [x + regionWidth, y + Math.round(regionHeight / 2)] : [x + Math.round(regionWidth / 2), y];
+    const handEnd = direction === "bottom_to_top" ? [x + Math.round(regionWidth / 2), y] : direction === "left_to_right" ? [x + regionWidth, y + Math.round(regionHeight / 2)] : direction === "right_to_left" ? [x, y + Math.round(regionHeight / 2)] : [x + Math.round(regionWidth / 2), y + regionHeight];
+    return {
+      id: String(item?.id || `module-${index + 1}`),
+      label: String(item?.name || `Module ${index + 1}`),
+      sequence: index + 1,
+      narrativeRole: String(item?.narrativeRole || "Nội dung chính của cảnh"),
+      subtitle: String(item?.subtitle || ""),
+      type: "structure",
+      region: { x, y, width: regionWidth, height: regionHeight },
+      reveal: { direction, startMs, durationMs: endMs - startMs, maskPaddingPx: 22, protectedRegions: [] },
+      handPath: { start: handStart, end: handEnd, easing: "easeInOut" },
+    };
+  });
+  const lastEnd = elements.reduce((latest, element) => Math.max(latest, element.reveal.startMs + element.reveal.durationMs), 0);
+  return { sceneId: "whiteboard-scene", canvas: { width, height }, storyBasis: "Tạo tự động từ Drawing Modules", sceneDurationMs: Math.max(1000, lastEnd + 500), elements };
+};
+
 const runCommand = (command, args) => new Promise((resolve, reject) => {
   execFile(command, args, { windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
     if (error) {
@@ -663,15 +727,23 @@ const runWhiteboardJob = async (job, uploads, options) => {
     await fs.mkdir(job.sourceDir, { recursive: true });
     await fs.mkdir(job.outputDir, { recursive: true });
     const saved = {};
+    let lineBuffer = null;
     for (const key of ["line", "annotation", "color", "hand", "audio", "subtitle"]) {
       const file = uploads[key];
       if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") continue;
       const filename = safeName(file.name || key);
       const target = path.join(job.sourceDir, filename);
-      await fs.writeFile(target, Buffer.from(await file.arrayBuffer()));
+      const buffer = Buffer.from(await file.arrayBuffer());
+      await fs.writeFile(target, buffer);
       saved[key] = target;
+      if (key === "line") lineBuffer = buffer;
     }
-    if (!saved.line || !saved.annotation) throw new Error("Thiếu Line art hoặc Annotation JSON");
+    if (!saved.line) throw new Error("Thiếu Line art");
+    if (!saved.annotation) {
+      const generatedAnnotationPath = path.join(job.sourceDir, "generated.annotation.json");
+      await fs.writeFile(generatedAnnotationPath, JSON.stringify(buildWhiteboardAnnotation({ lineBuffer, modules: options.modules, canvas: options.canvas }), null, 2), "utf8");
+      saved.annotation = generatedAnnotationPath;
+    }
     job.progress = 8;
     job.message = "Đang khởi động renderer Whiteboard…";
     const args = [saved.line, saved.annotation, job.outputPath];
@@ -1147,7 +1219,7 @@ const server = http.createServer(async (request, response) => {
         subtitle: form.get("subtitle"),
       };
       const validUpload = (value) => value && typeof value !== "string" && typeof value.arrayBuffer === "function";
-      if (!validUpload(uploads.line) || !validUpload(uploads.annotation)) throw new Error("Hãy gửi đủ Line art và Annotation JSON");
+      if (!validUpload(uploads.line)) throw new Error("Hãy gửi đủ Line art");
       let rawOptions = {};
       try {
         rawOptions = JSON.parse(String(form.get("options") || "{}"));
@@ -1164,6 +1236,8 @@ const server = http.createServer(async (request, response) => {
         capLongEdge: pick(Number(rawOptions.capLongEdge), [720, 1080, 1440], 1080),
         audioStartMs: Math.max(0, Number(rawOptions.audioStartMs) || 0),
         bareTip: Boolean(rawOptions.bareTip),
+        modules: Array.isArray(rawOptions.modules) ? rawOptions.modules : [],
+        canvas: rawOptions.canvas && typeof rawOptions.canvas === "object" ? rawOptions.canvas : null,
       };
       const requestedName = typeof form.get("name") === "string" ? form.get("name") : "whiteboard-scene";
       const id = Date.now() + "-" + randomUUID().slice(0, 8);
