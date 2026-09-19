@@ -734,6 +734,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
   activeWhiteboardJobId = job.id;
   job.status = "preparing";
   job.message = "Đang nhận tài nguyên Whiteboard…";
+  let heartbeatTimer = null;
   try {
     await fs.mkdir(job.sourceDir, { recursive: true });
     await fs.mkdir(job.outputDir, { recursive: true });
@@ -748,6 +749,25 @@ const runWhiteboardJob = async (job, uploads, options) => {
       await fs.writeFile(target, buffer);
       saved[key] = target;
       if (key === "line") lineBuffer = buffer;
+    }
+    const remoteAudioUrl = typeof uploads.audioUrl === "string" ? uploads.audioUrl.trim() : "";
+    if (!saved.audio && remoteAudioUrl) {
+      const parsedAudioUrl = new URL(remoteAudioUrl);
+      if (!/^https?:$/.test(parsedAudioUrl.protocol)) throw new Error("URL audio phải dùng http hoặc https");
+      job.stage = "preparing";
+      job.stageLabel = "Tải audio từ URL";
+      job.progress = 4;
+      job.detail = "Đang tải audio từ URL…";
+      job.message = job.detail;
+      const remoteAudio = await fetch(parsedAudioUrl);
+      if (!remoteAudio.ok) throw new Error(`Không tải được audio từ URL (${remoteAudio.status})`);
+      const remoteAudioBuffer = Buffer.from(await remoteAudio.arrayBuffer());
+      if (remoteAudioBuffer.length > 128 * 1024 * 1024) throw new Error("Audio từ URL vượt quá giới hạn 128 MB");
+      const extension = path.extname(parsedAudioUrl.pathname) || ".audio";
+      const target = path.join(job.sourceDir, `remote-audio${extension}`);
+      await fs.writeFile(target, remoteAudioBuffer);
+      saved.audio = target;
+      job.log = `${String(job.log || "")}Audio URL: đã tải ${remoteAudioBuffer.length.toLocaleString("en-US")} bytes\n`;
     }
     if (!saved.line) throw new Error("Thiếu Line art");
     if (!saved.annotation) {
@@ -790,6 +810,23 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.stageLabel = "Đang vẽ Whiteboard";
     job.progress = 12;
     job.message = "Đang vẽ line art và phủ màu…";
+    const updateHeartbeat = () => {
+      if (job.status !== "rendering" || !job.startedAt) return;
+      const elapsed = renderElapsedSeconds(job);
+      const estimatedMediaTime = Math.min(job.totalDuration, elapsed);
+      const estimatedFrames = clampRenderFrame(estimatedMediaTime * job.renderFps, job.totalFrames);
+      if (estimatedFrames > job.renderedFrames) job.renderedFrames = estimatedFrames;
+      if (!job.telemetrySeen) job.frameEstimate = true;
+      job.elapsedSeconds = elapsed;
+      const frameRatio = job.totalFrames > 0 ? job.renderedFrames / job.totalFrames : 0;
+      job.progress = Math.max(job.progress, Math.min(88, Math.round(12 + frameRatio * 76)));
+      const mediaTime = Math.min(job.totalDuration, Math.max(Number(job.mediaTimeSeconds) || 0, estimatedMediaTime));
+      const estimateMark = job.frameEstimate ? "≈" : "";
+      job.detail = "Whiteboard · " + estimateMark + job.renderedFrames + "/" + job.totalFrames + " frame · " + job.renderFps + " FPS · " + formatRenderClock(mediaTime) + " / " + formatRenderClock(job.totalDuration);
+      job.message = job.detail;
+    };
+    heartbeatTimer = setInterval(updateHeartbeat, 500);
+    heartbeatTimer.unref?.();
     const child = spawn(whiteboardRendererPath, args, { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     job.child = child;
     const consume = (chunk) => {
@@ -809,6 +846,8 @@ const runWhiteboardJob = async (job, uploads, options) => {
           continue;
         }
         const mediaTime = timeMatch ? Number(timeMatch[1]) * 3600 + Number(timeMatch[2]) * 60 + Number(timeMatch[3]) : job.mediaTimeSeconds || 0;
+        job.telemetrySeen = true;
+        job.frameEstimate = false;
         job.mediaTimeSeconds = mediaTime;
         const renderedFrames = frameMatch
           ? clampRenderFrame(frameMatch[1], job.totalFrames)
@@ -851,6 +890,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.message = job.detail;
     job.log = `${String(job.log || "")}ERROR: ${job.detail}\n`;
   } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     job.child = null;
     activeWhiteboardJobId = null;
   }
@@ -1279,6 +1319,7 @@ const server = http.createServer(async (request, response) => {
         color: form.get("color"),
         hand: form.get("hand"),
         audio: form.get("audio"),
+        audioUrl: typeof form.get("audioUrl") === "string" ? String(form.get("audioUrl")).trim() : "",
         subtitle: form.get("subtitle"),
       };
       const validUpload = (value) => value && typeof value !== "string" && typeof value.arrayBuffer === "function";
