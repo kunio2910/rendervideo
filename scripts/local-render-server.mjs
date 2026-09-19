@@ -140,7 +140,12 @@ const buildWhiteboardAnnotation = ({ lineBuffer, modules, canvas }) => {
 };
 
 const runCommand = (command, args) => new Promise((resolve, reject) => {
-  execFile(command, args, { windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+  execFile(command, args, {
+    windowsHide: true,
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 30_000,
+    killSignal: "SIGTERM",
+  }, (error, stdout, stderr) => {
     if (error) {
       reject(new Error(String(stderr || "").trim() || error.message));
       return;
@@ -281,8 +286,8 @@ const whiteboardJobPayload = (job) => {
     etaSeconds: renderEtaSeconds(job, elapsedSeconds),
     downloadUrl: job.downloadUrl || null,
     clip: job.clip || null,
-    log: job.status === "failed" ? String(job.log || "").slice(-3000) : undefined,
-    logTail: String(job.log || "").slice(-5000),
+    log: job.status === "failed" ? String(job.log || "").slice(-24000) : undefined,
+    logTail: String(job.log || "").slice(-24000),
   };
 };
 const rationalToNumber = (value) => {
@@ -372,6 +377,7 @@ const storeRenderedClip = async ({
   sceneName = "",
   profileOverride = null,
   compatibilityKeyOverride = "",
+  onWarning = null,
 }) => {
   const id = randomUUID();
   const destination = clipVideoPath(id);
@@ -380,7 +386,8 @@ const storeRenderedClip = async ({
   let inspectedProfile = null;
   try {
     inspectedProfile = await inspectVideo(destination);
-  } catch {
+  } catch (error) {
+    onWarning?.(`FFprobe không đọc được metadata clip: ${error instanceof Error ? error.message : String(error)}`);
     // Giữ video tải xuống được, nhưng chặn nối nhanh cho đến khi FFprobe sẵn sàng.
   }
   const profile = profileOverride || inspectedProfile;
@@ -740,6 +747,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
     await fs.mkdir(job.outputDir, { recursive: true });
     const saved = {};
     let lineBuffer = null;
+    job.log = String(job.log || "") + "[prepare] Bắt đầu chuẩn bị tài nguyên Whiteboard\n";
     for (const key of ["line", "annotation", "color", "hand", "audio", "subtitle"]) {
       const file = uploads[key];
       if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") continue;
@@ -750,6 +758,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
       saved[key] = target;
       if (key === "line") lineBuffer = buffer;
     }
+    job.log = String(job.log || "") + "[prepare] Đã nhận line art" + (saved.color ? ", color reference" : "") + (saved.audio ? ", audio" : "") + (saved.subtitle ? ", subtitle" : "") + "\n";
     const remoteAudioUrl = typeof uploads.audioUrl === "string" ? uploads.audioUrl.trim() : "";
     if (!saved.audio && remoteAudioUrl) {
       const parsedAudioUrl = new URL(remoteAudioUrl);
@@ -774,6 +783,9 @@ const runWhiteboardJob = async (job, uploads, options) => {
       const generatedAnnotationPath = path.join(job.sourceDir, "generated.annotation.json");
       await fs.writeFile(generatedAnnotationPath, JSON.stringify(buildWhiteboardAnnotation({ lineBuffer, modules: options.modules, canvas: options.canvas }), null, 2), "utf8");
       saved.annotation = generatedAnnotationPath;
+      job.log = String(job.log || "") + "[annotation] Không có Annotation JSON, đã tạo tự động từ Drawing Modules\n";
+    } else {
+      job.log = String(job.log || "") + "[annotation] Sử dụng Annotation JSON do người dùng cung cấp\n";
     }
     let annotation = null;
     try {
@@ -795,6 +807,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.log = `${String(job.log || "")}Whiteboard renderer: ${renderFps} FPS · ${job.totalFrames} total frames · ${totalDuration.toFixed(2)}s\n`;
     job.progress = 8;
     job.message = "Đang khởi động renderer Whiteboard…";
+    job.log = String(job.log || "") + "[renderer] Khởi động native renderer với draw speed " + options.drawSpeed.toFixed(2) + "×\n";
     const args = [saved.line, saved.annotation, job.outputPath];
     if (saved.hand) args.push(saved.hand);
     if (saved.color) args.push("--color-reference", saved.color);
@@ -820,11 +833,12 @@ const runWhiteboardJob = async (job, uploads, options) => {
       job.elapsedSeconds = elapsed;
       const frameRatio = job.totalFrames > 0 ? job.renderedFrames / job.totalFrames : 0;
       const overrunSeconds = Math.max(0, elapsed - job.totalDuration);
-      const overrunProgress = Math.min(2, overrunSeconds / Math.max(5, job.totalDuration * 0.25));
-      job.progress = Math.max(job.progress, Math.min(94, Math.round(12 + frameRatio * 80 + overrunProgress)));
+      const overrunProgress = Math.min(7, overrunSeconds / Math.max(5, job.totalDuration * 0.25));
+      job.progress = Math.max(job.progress, Math.min(99, Math.round(12 + frameRatio * 80 + overrunProgress)));
       const mediaTime = Math.min(job.totalDuration, Math.max(Number(job.mediaTimeSeconds) || 0, estimatedMediaTime));
       const estimateMark = job.frameEstimate ? "≈" : "";
-      job.detail = "Whiteboard · " + estimateMark + job.renderedFrames + "/" + job.totalFrames + " frame · " + job.renderFps + " FPS · " + formatRenderClock(mediaTime) + " / " + formatRenderClock(job.totalDuration);
+      const phaseLabel = overrunSeconds > 0 ? " · đang hoàn tất renderer" : "";
+      job.detail = "Whiteboard · " + estimateMark + job.renderedFrames + "/" + job.totalFrames + " frame · " + job.renderFps + " FPS · " + formatRenderClock(mediaTime) + " / " + formatRenderClock(job.totalDuration) + phaseLabel;
       job.message = job.detail;
     };
     heartbeatTimer = setInterval(updateHeartbeat, 500);
@@ -833,7 +847,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.child = child;
     const consume = (chunk) => {
       const output = chunk.toString();
-      job.log = (String(job.log || "") + output).slice(-12000);
+      job.log = (String(job.log || "") + output).slice(-60000);
       job.elapsedSeconds = renderElapsedSeconds(job);
       const lower = output.toLowerCase();
       if (lower.includes("color") || lower.includes("colour")) job.progress = Math.max(job.progress, 72);
@@ -868,15 +882,17 @@ const runWhiteboardJob = async (job, uploads, options) => {
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     const exitCode = normalizeProcessExitCode(result.code);
+    job.log = String(job.log || "") + "[renderer] Process kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : "") + "\n";
     if (exitCode !== 0) throw new Error("Whiteboard renderer kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : ""));
     await fs.access(job.outputPath);
-    job.progress = 94;
+    job.progress = 99;
     job.stage = "finalizing";
     job.stageLabel = "Lưu video";
     job.renderedFrames = job.totalFrames;
     job.detail = `Đã xử lý ${job.totalFrames} frame · đang lưu video vào thư viện render…`;
     job.message = job.detail;
-    job.clip = await storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard" });
+    job.log = String(job.log || "") + "[finalize] Đã tạo file MP4, bắt đầu kiểm tra metadata và lưu vào thư viện render\n";
+    job.clip = await storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard", onWarning: (message) => { job.log = (String(job.log || "") + "[finalize] " + message + "\n").slice(-60000); } });
     job.downloadUrl = job.clip.downloadUrl;
     job.status = "completed";
     job.progress = 100;
@@ -884,13 +900,14 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.stageLabel = "Hoàn tất";
     job.detail = `Đã render Whiteboard · ${job.totalFrames} frame`;
     job.message = "Đã render Whiteboard thành công";
+    job.log = (String(job.log || "") + "[complete] Hoàn tất render Whiteboard · " + job.totalFrames + " frame · video đã lưu\n").slice(-60000);
   } catch (error) {
     job.status = "failed";
     job.stage = "failed";
     job.stageLabel = "Render lỗi";
     job.detail = error instanceof Error ? error.message : "Không thể render Whiteboard";
     job.message = job.detail;
-    job.log = `${String(job.log || "")}ERROR: ${job.detail}\n`;
+    job.log = (String(job.log || "") + "ERROR: " + job.detail + "\n").slice(-60000);
   } finally {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     job.child = null;
@@ -1334,7 +1351,7 @@ const server = http.createServer(async (request, response) => {
       }
       const pick = (value, choices, fallback) => choices.includes(value) ? value : fallback;
       const options = {
-        drawSpeed: Math.min(1.5, Math.max(0.25, Number(rawOptions.drawSpeed) || 0.7)),
+        drawSpeed: Math.min(1.5, Math.max(0.25, Number(rawOptions.drawSpeed) || 1.0)),
         colorFill: pick(rawOptions.colorFill, ["hybrid", "brush", "contour-wipe"], "hybrid"),
         lineReveal: pick(rawOptions.lineReveal, ["skeleton", "pixel"], "skeleton"),
         matchBg: pick(rawOptions.matchBg, ["auto", "on", "off"], "auto"),

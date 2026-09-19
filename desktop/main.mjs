@@ -123,6 +123,16 @@ const stopRenderer = () => {
   rendererLogStream = null;
 };
 
+const isLoopbackHttpUrl = (value) => {
+  try {
+    const parsed = new URL(String(value || ""));
+    return /^https?:$/.test(parsed.protocol)
+      && (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost");
+  } catch {
+    return false;
+  }
+};
+
 const createMainWindow = async (uiUrl) => {
   mainWindow = new BrowserWindow({
     width: 1500,
@@ -155,7 +165,24 @@ const createMainWindow = async (uiUrl) => {
   mainWindow.webContents.on("will-prevent-unload", (event) => {
     event.preventDefault();
   });
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Render requests use the fixed API port 4179. Do not let an accidental
+    // loopback popup expose the desktop UI's random static-server port.
+    if (isLoopbackHttpUrl(url)) return { action: "deny" };
+    return { action: "allow" };
+  });
+  const initialUi = (() => {
+    try { return new URL(uiUrl); } catch { return null; }
+  })();
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    try {
+      const target = new URL(url);
+      if (isLoopbackHttpUrl(url) && initialUi
+        && (target.port !== initialUi.port || target.hostname !== initialUi.hostname)) event.preventDefault();
+    } catch {
+      // Ignore malformed URLs and let Electron handle them normally.
+    }
+  });
   mainWindow.on("closed", () => { mainWindow = null; });
   await mainWindow.loadURL(uiUrl);
 };
