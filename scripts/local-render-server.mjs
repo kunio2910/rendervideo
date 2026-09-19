@@ -265,15 +265,26 @@ const whiteboardRendererReady = async () => {
   }
 };
 
-const whiteboardJobPayload = (job) => ({
-  id: job.id,
-  status: job.status,
-  progress: Number(job.progress) || 0,
-  message: job.message,
-  downloadUrl: job.downloadUrl || null,
-  clip: job.clip || null,
-  log: job.status === "failed" ? String(job.log || "").slice(-3000) : undefined,
-});
+const whiteboardJobPayload = (job) => {
+  const elapsedSeconds = renderElapsedSeconds(job);
+  return {
+    id: job.id,
+    status: job.status,
+    progress: Number(job.progress) || 0,
+    message: job.message,
+    detail: job.detail || job.message,
+    stageLabel: job.stageLabel || null,
+    renderFps: Number(job.renderFps) || 0,
+    renderedFrames: Number(job.renderedFrames) || 0,
+    totalFrames: Number(job.totalFrames) || 0,
+    elapsedSeconds: Math.round(elapsedSeconds),
+    etaSeconds: renderEtaSeconds(job, elapsedSeconds),
+    downloadUrl: job.downloadUrl || null,
+    clip: job.clip || null,
+    log: job.status === "failed" ? String(job.log || "").slice(-3000) : undefined,
+    logTail: String(job.log || "").slice(-5000),
+  };
+};
 const rationalToNumber = (value) => {
   const [top, bottom] = String(value || "").split("/").map(Number);
   if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > 0) return top / bottom;
@@ -744,6 +755,24 @@ const runWhiteboardJob = async (job, uploads, options) => {
       await fs.writeFile(generatedAnnotationPath, JSON.stringify(buildWhiteboardAnnotation({ lineBuffer, modules: options.modules, canvas: options.canvas }), null, 2), "utf8");
       saved.annotation = generatedAnnotationPath;
     }
+    let annotation = null;
+    try {
+      annotation = JSON.parse(await fs.readFile(saved.annotation, "utf8"));
+    } catch {
+      annotation = null;
+    }
+    const totalDuration = Math.max(1, Number(annotation?.sceneDurationMs) || 5_000) / 1000;
+    const renderFps = 30;
+    job.renderFps = renderFps;
+    job.totalDuration = totalDuration;
+    job.totalFrames = Math.max(1, Math.ceil(totalDuration * renderFps));
+    job.renderedFrames = 0;
+    job.startedAt = Date.now();
+    job.stage = "preparing";
+    job.stageLabel = "Chuẩn bị Whiteboard";
+    job.detail = `Whiteboard · 0/${job.totalFrames} frame · ${renderFps} FPS`;
+    job.message = job.detail;
+    job.log = `${String(job.log || "")}Whiteboard renderer: ${renderFps} FPS · ${job.totalFrames} total frames · ${totalDuration.toFixed(2)}s\n`;
     job.progress = 8;
     job.message = "Đang khởi động renderer Whiteboard…";
     const args = [saved.line, saved.annotation, job.outputPath];
@@ -757,6 +786,8 @@ const runWhiteboardJob = async (job, uploads, options) => {
     args.push("--draw-speed", String(options.drawSpeed), "--line-reveal", options.lineReveal, "--match-bg", options.matchBg, "--color-fill", options.colorFill, "--aspect-ratio", options.aspectRatio, "--cap-long-edge", String(options.capLongEdge));
     if (options.bareTip) args.push("--bare-tip");
     job.status = "rendering";
+    job.stage = "rendering";
+    job.stageLabel = "Đang vẽ Whiteboard";
     job.progress = 12;
     job.message = "Đang vẽ line art và phủ màu…";
     const child = spawn(whiteboardRendererPath, args, { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -764,9 +795,30 @@ const runWhiteboardJob = async (job, uploads, options) => {
     const consume = (chunk) => {
       const output = chunk.toString();
       job.log = (String(job.log || "") + output).slice(-12000);
+      job.elapsedSeconds = renderElapsedSeconds(job);
       const lower = output.toLowerCase();
       if (lower.includes("color") || lower.includes("colour")) job.progress = Math.max(job.progress, 72);
       else if (lower.includes("render") || lower.includes("frame")) job.progress = Math.max(job.progress, 34);
+      const lines = output.split(/\r\n|\n|\r/).map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        const frameMatch = line.match(/(?:frame(?:s)?|rendered\s+frames?|processed\s+frames?)\s*[=:]?\s*(\d+)/i);
+        const timeMatch = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+        if (!frameMatch && !timeMatch) {
+          job.detail = line.slice(-360);
+          job.message = job.detail;
+          continue;
+        }
+        const mediaTime = timeMatch ? Number(timeMatch[1]) * 3600 + Number(timeMatch[2]) * 60 + Number(timeMatch[3]) : job.mediaTimeSeconds || 0;
+        job.mediaTimeSeconds = mediaTime;
+        const renderedFrames = frameMatch
+          ? clampRenderFrame(frameMatch[1], job.totalFrames)
+          : clampRenderFrame(mediaTime * job.renderFps, job.totalFrames);
+        job.renderedFrames = Math.max(job.renderedFrames, renderedFrames);
+        const frameRatio = job.totalFrames > 0 ? job.renderedFrames / job.totalFrames : 0;
+        job.progress = Math.max(job.progress, Math.min(92, Math.round(12 + frameRatio * 80)));
+        job.detail = `Whiteboard · ${job.renderedFrames}/${job.totalFrames} frame · ${job.renderFps} FPS · ${formatRenderClock(mediaTime)} / ${formatRenderClock(job.totalDuration)}`;
+        job.message = job.detail;
+      }
     };
     child.stdout.on("data", consume);
     child.stderr.on("data", consume);
@@ -778,15 +830,26 @@ const runWhiteboardJob = async (job, uploads, options) => {
     if (exitCode !== 0) throw new Error("Whiteboard renderer kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : ""));
     await fs.access(job.outputPath);
     job.progress = 94;
-    job.message = "Đang lưu video vào thư viện render…";
+    job.stage = "finalizing";
+    job.stageLabel = "Lưu video";
+    job.renderedFrames = job.totalFrames;
+    job.detail = `Đã xử lý ${job.totalFrames} frame · đang lưu video vào thư viện render…`;
+    job.message = job.detail;
     job.clip = await storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard" });
     job.downloadUrl = job.clip.downloadUrl;
     job.status = "completed";
     job.progress = 100;
+    job.stage = "completed";
+    job.stageLabel = "Hoàn tất";
+    job.detail = `Đã render Whiteboard · ${job.totalFrames} frame`;
     job.message = "Đã render Whiteboard thành công";
   } catch (error) {
     job.status = "failed";
-    job.message = error instanceof Error ? error.message : "Không thể render Whiteboard";
+    job.stage = "failed";
+    job.stageLabel = "Render lỗi";
+    job.detail = error instanceof Error ? error.message : "Không thể render Whiteboard";
+    job.message = job.detail;
+    job.log = `${String(job.log || "")}ERROR: ${job.detail}\n`;
   } finally {
     job.child = null;
     activeWhiteboardJobId = null;
