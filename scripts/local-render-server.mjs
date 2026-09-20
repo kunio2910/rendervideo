@@ -385,7 +385,13 @@ const storeRenderedClip = async ({
   const stat = await fs.stat(destination);
   let inspectedProfile = null;
   try {
-    inspectedProfile = await inspectVideo(destination);
+    const inspectionTimeout = new Promise((resolve) => {
+      setTimeout(() => resolve(null), 8_000);
+    });
+    inspectedProfile = await Promise.race([inspectVideo(destination), inspectionTimeout]);
+    if (!inspectedProfile) {
+      onWarning?.("FFprobe kiểm tra metadata quá lâu; bỏ qua bước này để hoàn tất lưu video.");
+    }
   } catch (error) {
     onWarning?.(`FFprobe không đọc được metadata clip: ${error instanceof Error ? error.message : String(error)}`);
     // Giữ video tải xuống được, nhưng chặn nối nhanh cho đến khi FFprobe sẵn sàng.
