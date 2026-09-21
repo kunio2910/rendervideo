@@ -8501,10 +8501,10 @@ body {
   width: 84%;
   box-sizing: border-box;
   transform: translateY(-50%);
-  padding: 7px 12px;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 8px;
-  background: rgba(8, 14, 24, .78);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #fff;
   font-size: clamp(11px, 2.1vw, 18px);
   font-weight: 750;
@@ -15651,4 +15651,11 @@ body {
   .standalone-video-field-grid, .standalone-video-secondary-fields { grid-template-columns: 1fr; }
   .standalone-video-name-field { max-width: none; }
   .standalone-video-card { padding: 16px; }
+}
+
+/* Zoom is intentionally disabled as a scene effect. Keep the preview zoom
+   controls available for navigation, but hide effect panels from editing. */
+.scene-zoom-effect-card,
+.camera-motion-settings-card[aria-label="Hiệu ứng zoom ra vào"] {
+  display: none !important;
 }

@@ -69,7 +69,6 @@ type TextOverlayEffect =
   | "slide-left"
   | "slide-right"
   | "typewriter"
-  | "zoom"
   | "pop"
   | "glow"
   | "letter-spacing"
@@ -91,7 +90,6 @@ const TEXT_OVERLAY_EFFECT_OPTIONS: Array<{ value: TextOverlayEffect; label: stri
   { value: "slide-right", label: "Trượt sang phải" },
   { value: "typewriter", label: "Gõ từng ký tự" },
   { value: "word-by-word", label: "Hiện từng từ" },
-  { value: "zoom", label: "Zoom vào" },
   { value: "pop", label: "Pop / Bounce" },
   { value: "glow", label: "Glow pulse" },
   { value: "letter-spacing", label: "Giãn khoảng cách chữ" },
@@ -193,7 +191,7 @@ type MapDecoration = {
 };
 
 type SceneImageShape = "rectangle" | "square" | "circle" | "triangle" | "diamond";
-type SceneImageTransition = "cut" | "crossfade" | "fade-black" | "slide-left" | "slide-right" | "zoom" | "blur";
+type SceneImageTransition = "cut" | "crossfade" | "fade-black" | "slide-left" | "slide-right" | "blur";
 
 type SceneImage = {
   id: string;
@@ -1200,10 +1198,10 @@ const defaultSubtitleStyle = (
   font: "Arial",
   strokeWidth: 1,
   strokeColor: "#000000",
-  borderWidth: 1,
-  borderColor: "#ffffff",
-  borderOpacity: 88,
-  borderFill: "#0b1220",
+  borderWidth: 0,
+  borderColor: "transparent",
+  borderOpacity: 0,
+  borderFill: "transparent",
   x: 50,
   y: 83,
   boxWidth: 84,
@@ -1236,7 +1234,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   zoomName: "",
   centerX: 50,
   centerY: 50,
-  zoomEnabled: true,
+  zoomEnabled: false,
   cameraPanEnabled: false,
   cameraPanDirection: "horizontal",
   cameraPanAmount: 6,
@@ -2097,7 +2095,6 @@ const sceneImageTransitionOptions: Array<{ value: SceneImageTransition; label: s
   { value: "fade-black", label: "Fade đen", hint: "Màn hình chuyển qua màu đen rồi hiện hình mới." },
   { value: "slide-left", label: "Trượt trái", hint: "Hình mới trượt vào từ bên trái." },
   { value: "slide-right", label: "Trượt phải", hint: "Hình mới trượt vào từ bên phải." },
-  { value: "zoom", label: "Zoom", hint: "Hình mới thu nhẹ từ lớn về kích thước chuẩn." },
   { value: "blur", label: "Blur", hint: "Hình mới rõ dần từ trạng thái mờ." },
 ];
 
@@ -2585,10 +2582,12 @@ const normalizeSubtitleStyle = (value: unknown): SubtitleStyle => {
     font: isOverlayTextFont(font) ? font : base.font,
     strokeWidth: Math.min(12, positiveNumber(raw.strokeWidth, base.strokeWidth)),
     strokeColor: normalizeHexColor(raw.strokeColor, base.strokeColor),
-    borderWidth: Math.min(12, positiveNumber(raw.borderWidth, base.borderWidth)),
-    borderColor: normalizeHexColor(raw.borderColor, base.borderColor),
-    borderOpacity: Math.min(100, Math.max(0, positiveNumber(raw.borderOpacity, base.borderOpacity))),
-    borderFill: normalizeHexColor(raw.borderFill, base.borderFill),
+    // Subtitles are intentionally text-only. Keep legacy fields for saved
+    // projects, but never let them render a box or background.
+    borderWidth: 0,
+    borderColor: "transparent",
+    borderOpacity: 0,
+    borderFill: "transparent",
     x: clampPercent(raw.x, base.x),
     y: clampPercent(raw.y, base.y),
     boxWidth: Math.min(100, Math.max(40, positiveNumber(raw.boxWidth, base.boxWidth, 40))),
@@ -3568,7 +3567,9 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       zoomName: String((item as Scene & { zoomName?: unknown }).zoomName ?? "").trim(),
       centerX: clampPercent(item.centerX),
       centerY: clampPercent(item.centerY),
-      zoomEnabled: item.zoomEnabled !== false,
+      // Zoom effects are no longer supported. Normalize legacy projects to
+      // the neutral camera state while preserving their other settings.
+      zoomEnabled: false,
       cameraPanEnabled: item.cameraPanEnabled === true,
       cameraPanDirection: ["horizontal", "vertical", "diagonal"].includes(String(item.cameraPanDirection))
         ? item.cameraPanDirection as Scene["cameraPanDirection"]
@@ -3578,7 +3579,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       cameraPanMotion: ["linear", "ease-out", "ease-in-out"].includes(String(item.cameraPanMotion))
         ? item.cameraPanMotion as Scene["cameraPanMotion"]
         : "ease-in-out",
-      cameraZoomLoopEnabled: item.cameraZoomLoopEnabled === true,
+      cameraZoomLoopEnabled: false,
       cameraZoomLoopAmount: Math.min(25, Math.max(0, positiveNumber(item.cameraZoomLoopAmount, 8))),
       cameraZoomLoopSpeed: Math.min(3, Math.max(0.1, positiveNumber(item.cameraZoomLoopSpeed, 1, 0.1))),
       cameraZoomLoopMotion: ["linear", "ease-out", "ease-in-out"].includes(String(item.cameraZoomLoopMotion))
@@ -6353,9 +6354,7 @@ function Home() {
       ? `translateX(${(sceneImageEffectPreviewProgress - 1) * 100}%)`
       : sceneImageEffectPreviewTransition === "slide-right"
         ? `translateX(${(1 - sceneImageEffectPreviewProgress) * 100}%)`
-        : sceneImageEffectPreviewTransition === "zoom"
-          ? `scale(${1.14 - sceneImageEffectPreviewProgress * 0.14})`
-          : undefined,
+        : undefined,
     filter: sceneImageEffectPreviewTransition === "blur"
       ? `blur(${((1 - sceneImageEffectPreviewProgress) * 12).toFixed(2)}px)`
       : sceneImageEffectPreviewTransition === "fade-black"
@@ -7668,7 +7667,7 @@ function Home() {
     { length: Math.max(0, Math.round(decoration.depth)) },
     (_, index) => `${(index + 1) * 1.2}px ${(index + 1) * 1.2}px 0 ${decoration.accentColor}`,
   ).join(", ");
-  const zoomEnabled = scene.zoomEnabled !== false;
+  const zoomEnabled = false;
   const zoomStartTime = Math.min(
     sceneDuration,
     Math.max(0, Number(scene.zoomStart ?? 0)),
@@ -7718,7 +7717,7 @@ function Home() {
     : 0;
   const cameraPanX = cameraPanDirection === "vertical" ? 0 : cameraPanPhase * cameraPanAmount;
   const cameraPanY = cameraPanDirection === "horizontal" ? 0 : cameraPanPhase * cameraPanAmount * 0.65;
-  const cameraZoomLoopEnabled = scene.cameraZoomLoopEnabled === true;
+  const cameraZoomLoopEnabled = false;
   const cameraZoomLoopAmount = Math.min(25, Math.max(0, Number(scene.cameraZoomLoopAmount ?? 8) || 0));
   const cameraZoomLoopSpeed = Math.min(3, Math.max(0.1, Number(scene.cameraZoomLoopSpeed ?? 1) || 1));
   const cameraZoomLoopMotion = scene.cameraZoomLoopMotion ?? "ease-in-out";
@@ -16857,10 +16856,6 @@ function Home() {
             <label className="scene-structure-quick-field"><span>Chiều cao hộp (%)</span><NumericInput min={3} max={40} step={0.1} value={subtitleStyle.boxHeight ?? ""} placeholder="Tự động" onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: value } }))} onCommitEmpty={() => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), boxHeight: undefined } }))} /></label>
             <label className="scene-structure-quick-field"><span>Màu chữ</span><input type="color" value={normalizeHexColor(subtitleStyle.color, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), color: event.target.value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Độ mờ chữ (%)</span><NumericInput min={0} max={100} step={1} value={subtitleStyle.opacity} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), opacity: value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Border (px)</span><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderWidth: value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Màu border</span><input type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderColor: event.target.value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Màu nền</span><input type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#14202e")} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderFill: event.target.value } }))} /></label>
-            <label className="scene-structure-quick-field"><span>Độ trong suốt nền (%)</span><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), borderOpacity: value } }))} /></label>
             <label className="scene-structure-quick-field"><span>Hiệu ứng phụ đề</span><select value={subtitleStyle.animation} onChange={(event) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animation: event.target.value as SubtitleAnimation } }))}><option value="none">Không</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide-up">Trượt lên</option><option value="typewriter">Gõ chữ</option></select></label>
             <label className="scene-structure-quick-field"><span>Thời lượng hiệu ứng (giây)</span><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSceneStructureQuickScene((currentScene) => ({ ...currentScene, subtitleStyle: { ...normalizeSubtitleStyle(currentScene.subtitleStyle), animationDuration: value } }))} /></label>
           </div>
@@ -17780,9 +17775,7 @@ function Home() {
               ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
               : transition === "slide-right"
                 ? `translate(-50%, -50%) translateX(${(1 - transitionProgress) * 110}%)`
-                : transition === "zoom"
-                  ? `translate(-50%, -50%) scale(${1.14 - transitionProgress * 0.14})`
-                  : undefined;
+                : undefined;
             const transitionFilter = transition === "blur"
               ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
               : undefined;
@@ -17929,9 +17922,9 @@ function Home() {
               fontSize: `${Math.max(12, liveSubtitleStyle.size)}px`,
               fontStyle: liveSubtitleStyle.style.includes("italic") ? "italic" : "normal",
               fontWeight: liveSubtitleStyle.style.includes("bold") ? 750 : 400,
-              borderWidth: `${liveSubtitleStyle.borderWidth}px`,
-              borderColor: colorWithAlpha(liveSubtitleStyle.borderColor, liveSubtitleStyle.borderOpacity / 100, "#ffffff"),
-              background: colorWithAlpha(liveSubtitleStyle.borderFill, liveSubtitleStyle.borderOpacity / 100, "#0b1220"),
+              borderWidth: 0,
+              borderColor: "transparent",
+              background: "transparent",
               opacity: liveSubtitleOpacity,
               clipPath: liveSubtitleClipPath,
               textShadow: liveSubtitleStyle.strokeWidth > 0 ? `0 0 ${Math.max(1, liveSubtitleStyle.strokeWidth)}px ${liveSubtitleStyle.strokeColor}` : "none",
@@ -19143,9 +19136,7 @@ function Home() {
                 ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
                 : imageTransition.transition === "slide-right"
                   ? `translate(-50%, -50%) translateX(${(1 - transitionProgress) * 110}%)`
-                  : imageTransition.transition === "zoom"
-                    ? `translate(-50%, -50%) scale(${1.14 - transitionProgress * 0.14})`
-                    : undefined;
+                  : undefined;
               const transitionFilter = imageTransition.transition === "blur"
                 ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
                 : undefined;
@@ -19273,9 +19264,9 @@ function Home() {
                   fontSize: `clamp(11px, ${Math.max(1, subtitleStyle.size / 10)}vw, ${Math.max(12, subtitleStyle.size)}px)`,
                   fontStyle: subtitleStyle.style.includes("italic") ? "italic" : "normal",
                   fontWeight: subtitleStyle.style.includes("bold") ? 750 : 400,
-                  borderWidth: `${subtitleStyle.borderWidth}px`,
-                  borderColor: colorWithAlpha(subtitleStyle.borderColor, subtitleStyle.borderOpacity / 100, "#ffffff"),
-                  background: colorWithAlpha(subtitleStyle.borderFill, subtitleStyle.borderOpacity / 100, "#0b1220"),
+                  borderWidth: 0,
+                  borderColor: "transparent",
+                  background: "transparent",
                   opacity: subtitleAnimationOpacity,
                   clipPath: subtitleAnimationClipPath,
                   textShadow: subtitleStyle.strokeWidth > 0
@@ -20884,26 +20875,6 @@ function Home() {
               </div>
               <div className="field-row">
                 <label className="field">
-                  <FieldLabel hint="Độ dày đường viền của hộp phụ đề; đặt 0 để tắt.">Độ dày Border</FieldLabel>
-                  <div className="number-with-unit"><NumericInput min={0} max={12} step={1} value={subtitleStyle.borderWidth} onCommit={(value) => updateSubtitleStyle("borderWidth", value)} /><b>px</b></div>
-                </label>
-                <label className="field color-field">
-                  <FieldLabel hint="Màu đường viền quanh hộp phụ đề.">Màu Border</FieldLabel>
-                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderColor, "#ffffff")} onChange={(event) => updateSubtitleStyle("borderColor", event.target.value)} />
-                </label>
-              </div>
-              <div className="field-row">
-                <label className="field color-field">
-                  <FieldLabel hint="Màu nền bên trong hộp phụ đề.">Màu nền hộp</FieldLabel>
-                  <input className="text-color-picker" type="color" value={normalizeHexColor(subtitleStyle.borderFill, "#0b1220")} onChange={(event) => updateSubtitleStyle("borderFill", event.target.value)} />
-                </label>
-                <label className="field">
-                  <FieldLabel hint="Độ trong suốt của nền hộp; 0% là trong suốt hoàn toàn.">Độ mờ nền hộp</FieldLabel>
-                  <div className="number-with-unit"><NumericInput min={0} max={100} step={5} value={subtitleStyle.borderOpacity} onCommit={(value) => updateSubtitleStyle("borderOpacity", value)} /><b>%</b></div>
-                </label>
-              </div>
-              <div className="field-row">
-                <label className="field">
                   <TimeFieldLabel hint="Thời lượng chạy hiệu ứng ở mỗi lần phụ đề xuất hiện.">Thời lượng hiệu ứng</TimeFieldLabel>
                   <div className="number-with-unit"><NumericInput min={0.05} max={1} step={0.05} value={subtitleStyle.animationDuration} onCommit={(value) => updateSubtitleStyle("animationDuration", value)} /><b>s</b></div>
                 </label>
@@ -22135,7 +22106,6 @@ function Home() {
                   onChange={(event) => updatePopup("in", event.target.value)}
                 >
                   <option value="fade-slide-up">Fade + trượt lên</option>
-                  <option value="zoom-soft">Zoom nhẹ</option>
                   <option value="slide-left">Trượt từ trái</option>
                   <option value="slide-right">Trượt từ phải</option>
                   <option value="bounce">Nảy nhẹ</option>
@@ -22149,7 +22119,6 @@ function Home() {
                   onChange={(event) => updatePopup("out", event.target.value)}
                 >
                   <option value="fade-slide-down">Fade + trượt xuống</option>
-                  <option value="zoom-soft">Thu nhỏ</option>
                   <option value="slide-left">Trượt sang trái</option>
                   <option value="slide-right">Trượt sang phải</option>
                   <option value="bounce">Nảy và biến mất</option>
@@ -25129,32 +25098,6 @@ function Home() {
                       const imageTransitions = (item.sceneImages ?? []).filter((image) => normalizeSceneImageTransition(image.transition) !== "cut");
                       return (
                         <div className="review-grid-cell review-section-cell review-effects-cell" key={`review-effects-${item.id}`}>
-                          <div className="review-effect-heading">
-                            <button type="button" className={`review-effect-toggle ${item.zoomEnabled ? "is-on" : ""}`} onClick={() => updateReviewSceneField(item.id, "zoomEnabled", !item.zoomEnabled)}><span /> Hiệu ứng zoom</button>
-                            <span className={`review-chip ${item.zoomEnabled ? "review-chip-orange" : "review-chip-muted"}`}>{item.zoomEnabled ? "Đang bật" : "Đang tắt"}</span>
-                          </div>
-                          <div className="review-effect-columns">
-                            <div className="review-effect-group">
-                              <strong>Zoom vào</strong>
-                              <div><b>Bắt đầu</b><ReviewEditable value={Number(item.zoomStart).toFixed(2)} label="Thời gian bắt đầu zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomStart", Math.max(0, reviewNumber(value, item.zoomStart)))} /><em>s</em></div>
-                              <div><b>Kết thúc</b><ReviewEditable value={Number(item.zoomEnd).toFixed(2)} label="Thời gian kết thúc zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomEnd", Math.max(0, reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
-                            </div>
-                            <div className="review-effect-group">
-                              <strong>Zoom ra</strong>
-                              <div><b>Bắt đầu</b><ReviewEditable value={Math.max(0, item.zoomEnd - item.zoomOutDuration).toFixed(2)} label="Thời gian bắt đầu zoom ra" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomOutDuration", Math.max(0, item.zoomEnd - reviewNumber(value, item.zoomEnd)))} /><em>s</em></div>
-                              <div><b>Kết thúc</b><span className="review-readonly-value mono">{formatTime(duration)}</span></div>
-                            </div>
-                          </div>
-                          <div className="review-metric-grid review-effect-metrics">
-                            <div><b>Tỉ lệ zoom</b><ReviewEditable value={Number(item.zoom).toFixed(2)} label="Tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoom", Math.max(1, reviewNumber(value, item.zoom)))} /><em>×</em></div>
-                            <div><b>Zoom vào</b><ReviewEditable value={Number(item.zoomInDuration).toFixed(2)} label="Thời gian tới tỉ lệ zoom" numeric onCommit={(value) => updateReviewSceneField(item.id, "zoomInDuration", Math.max(0, reviewNumber(value, item.zoomInDuration)))} /><em>s</em></div>
-                            <div><b>Tâm X</b><ReviewEditable value={String(item.centerX)} label="Tâm bản đồ X" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerX", clampPercent(reviewNumber(value, item.centerX), item.centerX))} /><em>%</em></div>
-                            <div><b>Tâm Y</b><ReviewEditable value={String(item.centerY)} label="Tâm bản đồ Y" numeric onCommit={(value) => updateReviewSceneField(item.id, "centerY", clampPercent(reviewNumber(value, item.centerY), item.centerY))} /><em>%</em></div>
-                          </div>
-                          <div className="review-effect-timeline" aria-label={`Timeline hiệu ứng cảnh ${item.number}`}>
-                            <span><b>{formatTime(0)}</b><b>{formatTime(duration / 2)}</b><b>{formatTime(duration)}</b></span>
-                            <div><i className={item.zoomEnabled ? "is-active" : ""} style={{ left: `${Math.min(100, Math.max(0, (item.zoomStart / duration) * 100))}%`, width: `${Math.min(100, Math.max(1, ((item.zoomEnd - item.zoomStart) / duration) * 100))}%` }} /></div>
-                          </div>
                           <div className="review-active-effects">
                             <span>Hiệu ứng nền:</span>
                             {effectSummaries.length ? effectSummaries.map((effect) => <span className="review-chip" key={effect.label}>{effect.label} · {effect.intensity}% · ×{effect.speed}</span>) : <span className="review-chip review-chip-muted">Không có</span>}

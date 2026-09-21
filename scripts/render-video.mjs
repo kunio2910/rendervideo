@@ -295,7 +295,7 @@ const geqRgba = ({ red = "r(X,Y)", green = "g(X,Y)", blue = "b(X,Y)", alpha = "a
   `geq=r='${normalizeGeqExpression(red)}':g='${normalizeGeqExpression(green)}':b='${normalizeGeqExpression(blue)}':a='${normalizeGeqExpression(alpha)}'`;
 const textOverlayEffectValues = [
   "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right",
-  "typewriter", "zoom", "pop", "glow", "letter-spacing", "blur",
+  "typewriter", "pop", "glow", "letter-spacing", "blur",
   "highlight-sweep", "stroke-draw", "shake", "glitch", "shadow-lift",
   "word-by-word", "kinetic",
 ];
@@ -1840,15 +1840,15 @@ const createSubtitleOverlay = async (cue, index, subtitleStyle = {}) => {
     font: subtitleStyle.font ?? "Arial",
     strokeWidth: subtitleStyle.strokeWidth ?? 1,
     strokeColor: subtitleStyle.strokeColor ?? "#000000",
-    borderWidth: subtitleStyle.borderWidth ?? 1,
-  borderColor: subtitleStyle.borderColor ?? "#ffffff",
-  borderOpacity: subtitleStyle.borderOpacity ?? 88,
-  borderFill: subtitleStyle.borderFill ?? "#0b1220",
-  borderRadius: subtitleStyle.borderRadius ?? 8,
-  x: subtitleStyle.x ?? 50,
-  y: subtitleStyle.y ?? 83,
-  boxWidth: subtitleStyle.boxWidth ?? 84,
-  boxHeight: subtitleStyle.boxHeight,
+    borderWidth: 0,
+    borderColor: "transparent",
+    borderOpacity: 0,
+    borderFill: "transparent",
+    borderRadius: 0,
+    x: subtitleStyle.x ?? 50,
+    y: subtitleStyle.y ?? 83,
+    boxWidth: subtitleStyle.boxWidth ?? 84,
+    boxHeight: subtitleStyle.boxHeight,
   }, index);
 };
 
@@ -1965,9 +1965,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   );
   const zoomOutStart = Math.max(zoomInEnd, zoomEndFrames - zoomOutFrames);
   const zoomOutSpan = Math.max(1, zoomEndFrames - zoomOutStart);
-  const targetZoom = scene.zoomEnabled === false
-    ? 1
-    : Math.min(5, Math.max(1, Number(scene.zoom ?? 1)));
+  const targetZoom = 1;
   const cameraPanEnabled = scene.cameraPanEnabled === true;
   const cameraPanDirection = ["horizontal", "vertical", "diagonal"].includes(String(scene.cameraPanDirection))
     ? String(scene.cameraPanDirection)
@@ -1976,7 +1974,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   const cameraPanSpeed = clamp(Number(scene.cameraPanSpeed ?? 1) || 1, 0.1, 3);
   const cameraPanMotion = ["linear", "ease-out", "ease-in-out"].includes(String(scene.cameraPanMotion))
     ? String(scene.cameraPanMotion) : "ease-in-out";
-  const cameraZoomLoopEnabled = scene.cameraZoomLoopEnabled === true;
+  const cameraZoomLoopEnabled = false;
   const cameraZoomLoopAmount = clamp(Number(scene.cameraZoomLoopAmount ?? 8) || 0, 0, 25);
   const cameraZoomLoopSpeed = clamp(Number(scene.cameraZoomLoopSpeed ?? 1) || 1, 0.1, 3);
   const cameraZoomLoopMotion = ["linear", "ease-out", "ease-in-out"].includes(String(scene.cameraZoomLoopMotion))
@@ -2526,9 +2524,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       } else if (effect === "glitch") {
         inputFilter += ",noise=alls=4:allf=t+u";
       }
-      if (effect === "zoom") {
-        inputFilter += `,scale=w='iw*(0.72+0.28*${progress})':h='ih*(0.72+0.28*${progress})':eval=frame`;
-      } else if (effect === "pop") {
+      if (effect === "pop") {
         const popScale = `if(lt(${progress},0.7),0.72+0.36*${progress}/0.7,1.08-0.08*(${progress}-0.7)/0.3)`;
         inputFilter += `,scale=w='iw*(${popScale})':h='ih*(${popScale})':eval=frame`;
       }
@@ -2585,9 +2581,7 @@ for (let index = 0; index < scenes.length; index += 1) {
     const imageColorFilter = imageOpacity < 0.999 ? `colorchannelmixer=aa=${imageOpacity.toFixed(3)},` : "";
     const imageTransitionFilter = imageTransition === "crossfade"
       ? `fade=t=in:st=${imageStart}:d=${imageTransitionDuration}:alpha=1,`
-      : imageTransition === "zoom"
-        ? `scale=w='iw*(1.14-0.14*${imageTransitionProgress})':h='ih*(1.14-0.14*${imageTransitionProgress})':eval=frame,`
-        : imageTransition === "blur"
+      : imageTransition === "blur"
           ? `boxblur=luma_radius='min(12,max(0,12*(1-${imageTransitionProgress})))':luma_power=1,`
           : "";
     const imageBaseX = "main_w*" + imageX + "-overlay_w/2";
@@ -2685,17 +2679,15 @@ for (let index = 0; index < scenes.length; index += 1) {
     const popupInProgress = `(t-${popupStart})/${transition}`;
     const popupOutProgress = `(t-${popupEnd - transition})/${transition}`;
     const popupScaleStart = (effect) => ({
-      "fade-slide-up": "0.92", "fade-slide-down": "0.92", "zoom-soft": "0.68", bounce: "0.82", flip: "0.86",
+      "fade-slide-up": "0.92", "fade-slide-down": "0.92", bounce: "0.82", flip: "0.86",
     }[effect] ?? "1");
     const popupScaleIn = (effect) => ({
       "fade-slide-up": `0.92+0.08*(${popupInProgress})`,
-      "zoom-soft": `0.68+0.32*(${popupInProgress})`,
       bounce: `if(lt(${popupInProgress},0.65),0.82+0.22*(${popupInProgress})/0.65,1.04-0.04*((${popupInProgress})-0.65)/0.35)`,
       flip: `0.86+0.14*(${popupInProgress})`,
     }[effect] ?? "1");
     const popupScaleOut = (effect) => ({
       "fade-slide-down": `1-0.08*(${popupOutProgress})`,
-      "zoom-soft": `1-0.32*(${popupOutProgress})`,
       bounce: `if(lt(${popupOutProgress},0.35),1+0.03*(${popupOutProgress})/0.35,1.03-0.23*((${popupOutProgress})-0.35)/0.65)`,
       flip: `1-0.14*(${popupOutProgress})`,
     }[effect] ?? "1");

@@ -15,7 +15,6 @@ const sceneImageTransitionValues = [
   "fade-black",
   "slide-left",
   "slide-right",
-  "zoom",
   "blur",
 ];
 
