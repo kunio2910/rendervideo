@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
 
 const LOCAL_RENDERER_URL = "http://127.0.0.1:4179";
 const WHITEBOARD_TEMPLATES_KEY = "kito.whiteboard.templates.v1";
@@ -38,6 +38,7 @@ type WhiteboardWorkspaceProps = { onNotify: (message: string) => void };
 const initialFiles: WhiteboardFiles = { line: null, color: null, annotation: null, hand: null, audio: null, subtitle: null };
 const initialOptions: WhiteboardOptions = { drawSpeed: 1, colorFill: "hybrid", lineReveal: "skeleton", matchBg: "auto", aspectRatio: "auto", capLongEdge: 1080, audioStartMs: 0, bareTip: false };
 const initialCanvas = { width: 1920, height: 1080 };
+const MIN_MODULE_SIZE = 24;
 const getAspectRatioValue = (value: WhiteboardOptions["aspectRatio"], canvas: { width: number; height: number }) => {
   if (value === "9:16") return 9 / 16;
   if (value === "16:9") return 16 / 9;
@@ -64,6 +65,18 @@ const makeModule = (index: number, canvas = initialCanvas, startMs = 0): Whitebo
   subtitle: "",
   narrativeRole: "Nội dung chính của cảnh",
 });
+
+const clampModuleToCanvas = (module: WhiteboardModule, canvas: { width: number; height: number }): WhiteboardModule => {
+  const canvasWidth = Math.max(1, Math.round(Number(canvas.width) || initialCanvas.width));
+  const canvasHeight = Math.max(1, Math.round(Number(canvas.height) || initialCanvas.height));
+  const minWidth = Math.min(MIN_MODULE_SIZE, canvasWidth);
+  const minHeight = Math.min(MIN_MODULE_SIZE, canvasHeight);
+  const width = Math.min(canvasWidth, Math.max(minWidth, Math.round(Number(module.width) || minWidth)));
+  const height = Math.min(canvasHeight, Math.max(minHeight, Math.round(Number(module.height) || minHeight)));
+  const x = Math.min(Math.max(0, Math.round(Number(module.x) || 0)), Math.max(0, canvasWidth - width));
+  const y = Math.min(Math.max(0, Math.round(Number(module.y) || 0)), Math.max(0, canvasHeight - height));
+  return { ...module, x, y, width, height };
+};
 
 const cloneModules = (modules: WhiteboardModule[]) => modules.map((item) => ({ ...item, audioStartMs: Number(item.audioStartMs) || 0 }));
 const formatClock = (seconds: number | undefined) => {
@@ -129,7 +142,9 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
   };
   const updateSelectedModule = <K extends keyof WhiteboardModule>(key: K, value: WhiteboardModule[K]) => {
     if (!selectedModule) return;
-    setModules((current) => current.map((item) => item.id === selectedModule.id ? { ...item, [key]: value } : item));
+    setModules((current) => current.map((item) => item.id === selectedModule.id
+      ? clampModuleToCanvas({ ...item, [key]: value } as WhiteboardModule, canvas)
+      : item));
   };
   const updateSelectedNumber = (key: "x" | "y" | "width" | "height" | "startMs" | "endMs" | "audioStartMs", value: string) => {
     const parsed = Number(value);
@@ -152,14 +167,14 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
       setModules((current) => current.map((item) => {
         if (item.id !== moduleInteraction.moduleId) return item;
         if (moduleInteraction.mode === "move") {
-          return {
+          return clampModuleToCanvas({
             ...item,
             x: Math.max(0, Math.min(canvas.width - initial.width, initial.x + deltaX)),
             y: Math.max(0, Math.min(canvas.height - initial.height, initial.y + deltaY)),
-          };
+          }, canvas);
         }
         const handle = moduleInteraction.handle || "se";
-        const minSize = 24;
+        const minSize = MIN_MODULE_SIZE;
         let left = initial.x;
         let top = initial.y;
         let right = initial.x + initial.width;
@@ -168,7 +183,7 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
         if (handle.includes("e")) right = Math.min(canvas.width, Math.max(left + minSize, initial.x + initial.width + deltaX));
         if (handle.includes("n")) top = Math.max(0, Math.min(bottom - minSize, initial.y + deltaY));
         if (handle.includes("s")) bottom = Math.min(canvas.height, Math.max(top + minSize, initial.y + initial.height + deltaY));
-        return { ...item, x: left, y: top, width: Math.max(minSize, right - left), height: Math.max(minSize, bottom - top) };
+        return clampModuleToCanvas({ ...item, x: left, y: top, width: Math.max(minSize, right - left), height: Math.max(minSize, bottom - top) }, canvas);
       }));
     };
     const stopInteraction = () => setModuleInteraction(null);
@@ -178,7 +193,7 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopInteraction);
     };
-  }, [moduleInteraction, canvas.width, canvas.height]);
+  }, [moduleInteraction, canvas]);
   const reorderModules = (targetId: string) => {
     if (!draggingModuleId || draggingModuleId === targetId) return;
     const from = modules.findIndex((item) => item.id === draggingModuleId);
@@ -201,7 +216,7 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
   const applyTemplate = () => {
     const template = templates.find((item) => item.id === selectedTemplateId);
     if (!template) return;
-    const applied = cloneModules(template.modules);
+    const applied = cloneModules(template.modules).map((item) => clampModuleToCanvas(item, canvas));
     setModules(applied);
     setSelectedModuleId(applied[0]?.id ?? "");
   };
@@ -242,11 +257,19 @@ export function WhiteboardWorkspace({ onNotify }: WhiteboardWorkspaceProps) {
     } catch (renderError) { const message = renderError instanceof Error ? renderError.message : "Không thể render Whiteboard"; setError(message); onNotify(message); } finally { setBusy(false); }
   };
   const downloadUrl = job?.downloadUrl ? `${LOCAL_RENDERER_URL}${job.downloadUrl}` : "";
+  const handleLinePreviewLoad = (event: SyntheticEvent<HTMLImageElement>) => {
+    const nextCanvas = {
+      width: event.currentTarget.naturalWidth || initialCanvas.width,
+      height: event.currentTarget.naturalHeight || initialCanvas.height,
+    };
+    setCanvas(nextCanvas);
+    setModules((current) => current.map((item) => clampModuleToCanvas(item, nextCanvas)));
+  };
   return <>
     <header className="topbar whiteboard-topbar"><div className="studio-page-title"><span className="studio-page-kicker">KITO WHITEBOARD</span><h1>Render Whiteboard</h1><p>Tô màu theo line art, giữ chuyển động bàn tay và xuất MP4 độc lập với pipeline video hiện tại.</p></div><div className="whiteboard-header-badge"><span>●</span> Renderer riêng · Module tự tạo annotation</div></header>
     <section className="whiteboard-workspace" aria-labelledby="whiteboard-heading">
       <aside className="whiteboard-assets-panel"><div className="whiteboard-panel-heading"><div><span>INPUT</span><h2 id="whiteboard-heading">Tài nguyên</h2></div><small>PNG · JSON · audio</small></div><div className="whiteboard-file-list">{(["line", "color", "annotation", "hand", "subtitle"] as WhiteboardFileKey[]).map((fileKey) => <FilePicker key={fileKey} fileKey={fileKey} file={files[fileKey]} onChange={(file) => updateFile(fileKey, file)} />)}<AudioInput file={files.audio} audioUrl={audioUrl} onFileChange={(file) => updateFile("audio", file)} onUrlChange={updateAudioUrl} /></div><div className="whiteboard-safe-note"><span>i</span><p>Annotation JSON không bắt buộc. Nếu bỏ trống, dữ liệu từ Drawing Modules sẽ được tạo tự động và gửi cho local renderer.</p></div></aside>
-      <main className="whiteboard-stage"><div className="whiteboard-stage-heading"><div><span>PREVIEW · LINE ONLY</span><h2>Khung review</h2></div><div className="whiteboard-review-controls"><small>{files.line ? files.line.name : "Chưa chọn hình line"}</small><label className="whiteboard-review-ratio"><span>Tỉ lệ review</span><select value={options.aspectRatio} onChange={(event) => updateOption("aspectRatio", event.target.value as WhiteboardOptions["aspectRatio"])}><option value="auto">Theo ảnh</option><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option></select></label></div></div><div className="whiteboard-preview-grid"><div className="whiteboard-preview-card"><span>LINE ART · DRAWING MODULES</span>{linePreviewUrl ? <div className="whiteboard-preview-frame" style={{ aspectRatio: reviewAspectRatio }}><div ref={previewRef} className="whiteboard-preview-canvas" style={{ aspectRatio: `${canvas.width} / ${canvas.height}`, width: imageIsWiderThanReview ? "100%" : "auto", height: imageIsWiderThanReview ? "auto" : "100%" }}><img src={linePreviewUrl} alt="Xem trước line art" onLoad={(event) => setCanvas({ width: event.currentTarget.naturalWidth || initialCanvas.width, height: event.currentTarget.naturalHeight || initialCanvas.height })} /><div className="whiteboard-module-overlay-layer" aria-label="Vùng vẽ của Drawing Modules">{modules.map((module, index) => <button key={module.id} type="button" className={`whiteboard-module-overlay ${module.id === selectedModuleId ? "selected" : ""}`} style={{ left: `${Math.max(0, (module.x / canvas.width) * 100)}%`, top: `${Math.max(0, (module.y / canvas.height) * 100)}%`, width: `${Math.min(100, (module.width / canvas.width) * 100)}%`, height: `${Math.min(100, (module.height / canvas.height) * 100)}%` }} onPointerDown={(event) => startModuleInteraction(event, module, "move")} onClick={() => setSelectedModuleId(module.id)} title={`${index + 1}. ${module.name || `Module ${index + 1}`}`} aria-label={`Module ${index + 1}: kéo để di chuyển`}><span>{index + 1}</span>{module.id === selectedModuleId && (["n", "e", "s", "w"] as ModuleResizeHandle[]).map((handle) => <span key={handle} className={`whiteboard-resize-handle handle-${handle}`} onPointerDown={(event) => startModuleInteraction(event, module, "resize", handle)} title={`Kéo cạnh ${handle} để đổi kích thước`} />)}</button>)}</div></div></div> : <div className="whiteboard-empty-preview">Chọn line art để xem trước</div>}</div></div><div className="whiteboard-flow-note"><strong>Kéo vùng xanh:</strong> nắm phần bên trong để di chuyển, nắm một trong bốn cạnh để đổi kích thước. {modules.length ? `${modules.length} module sẽ được vẽ theo thứ tự.` : "Chưa có module: renderer sẽ dùng toàn bộ khung hình."}</div></main>
+      <main className="whiteboard-stage"><div className="whiteboard-stage-heading"><div><span>PREVIEW · LINE ONLY</span><h2>Khung review</h2></div><div className="whiteboard-review-controls"><small>{files.line ? files.line.name : "Chưa chọn hình line"}</small><label className="whiteboard-review-ratio"><span>Tỉ lệ review</span><select value={options.aspectRatio} onChange={(event) => updateOption("aspectRatio", event.target.value as WhiteboardOptions["aspectRatio"])}><option value="auto">Theo ảnh</option><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option></select></label></div></div><div className="whiteboard-preview-grid"><div className="whiteboard-preview-card"><span>LINE ART · DRAWING MODULES</span>{linePreviewUrl ? <div className="whiteboard-preview-frame" style={{ aspectRatio: reviewAspectRatio }}><div ref={previewRef} className="whiteboard-preview-canvas" style={{ aspectRatio: `${canvas.width} / ${canvas.height}`, width: imageIsWiderThanReview ? "100%" : "auto", height: imageIsWiderThanReview ? "auto" : "100%" }}><img src={linePreviewUrl} alt="Xem trước line art" onLoad={handleLinePreviewLoad} /><div className="whiteboard-module-overlay-layer" aria-label="Vùng vẽ của Drawing Modules">{modules.map((module, index) => <button key={module.id} type="button" className={`whiteboard-module-overlay ${module.id === selectedModuleId ? "selected" : ""}`} style={{ left: `${Math.max(0, (module.x / canvas.width) * 100)}%`, top: `${Math.max(0, (module.y / canvas.height) * 100)}%`, width: `${Math.min(100, (module.width / canvas.width) * 100)}%`, height: `${Math.min(100, (module.height / canvas.height) * 100)}%` }} onPointerDown={(event) => startModuleInteraction(event, module, "move")} onClick={() => setSelectedModuleId(module.id)} title={`${index + 1}. ${module.name || `Module ${index + 1}`}`} aria-label={`Module ${index + 1}: kéo để di chuyển`}><span>{index + 1}</span>{module.id === selectedModuleId && (["n", "e", "s", "w"] as ModuleResizeHandle[]).map((handle) => <span key={handle} className={`whiteboard-resize-handle handle-${handle}`} onPointerDown={(event) => startModuleInteraction(event, module, "resize", handle)} title={`Kéo cạnh ${handle} để đổi kích thước`} />)}</button>)}</div></div></div> : <div className="whiteboard-empty-preview">Chọn line art để xem trước</div>}</div></div><div className="whiteboard-flow-note"><strong>Kéo vùng xanh:</strong> nắm phần bên trong để di chuyển, nắm một trong bốn cạnh để đổi kích thước. {modules.length ? `${modules.length} module sẽ được vẽ theo thứ tự.` : "Chưa có module: renderer sẽ dùng toàn bộ khung hình."}</div>{job && <section className="whiteboard-render-log-panel" aria-label="Log render Whiteboard"><div className="whiteboard-render-log-heading"><strong>LOG RENDER WHITEBOARD</strong><span>{job.status} · {Math.round(job.progress || 0)}%</span></div><pre>{job.logTail || "Đang chờ log từ renderer…"}</pre></section>}</main>
       <aside className="whiteboard-settings-panel">
         <section className="whiteboard-module-editor" aria-labelledby="whiteboard-modules-heading"><div className="whiteboard-panel-heading"><div><span>DRAWING MODULES</span><h2 id="whiteboard-modules-heading">Drawing Modules <em>{modules.length} total</em></h2></div></div><p className="whiteboard-module-help">Kéo các module để đổi thứ tự vẽ. Có thể render ngay cả khi không nhập Annotation JSON.</p><div className="whiteboard-module-actions"><button type="button" className="button secondary" onClick={addModule}>＋ Add Module</button><button type="button" className="button secondary" onClick={deleteSelectedModule} disabled={!selectedModule}>Delete Selected</button></div>{modules.length > 0 && <div className="whiteboard-module-list">{modules.map((module, index) => <button key={module.id} type="button" className={`whiteboard-module-item ${module.id === selectedModuleId ? "selected" : ""}`} draggable onDragStart={() => setDraggingModuleId(module.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderModules(module.id)} onClick={() => setSelectedModuleId(module.id)}><span className="whiteboard-module-index">{index + 1}</span><span><strong>{module.name || `Module ${index + 1}`}</strong><small>{module.x}, {module.y} · {Math.max(0, module.endMs - module.startMs)} ms</small></span><span className="whiteboard-drag-handle" aria-hidden="true">⋮⋮</span></button>)}</div>}
           <div className="whiteboard-template-block"><label className="whiteboard-field"><span>Templates</span><select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}><option value="">No saved templates</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><div className="whiteboard-template-name"><input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Tên template mới" /><button type="button" className="button secondary" onClick={saveTemplate} disabled={!modules.length}>Save</button></div><div className="whiteboard-template-actions"><button type="button" className="button secondary" onClick={applyTemplate} disabled={!selectedTemplateId}>Apply</button><button type="button" className="button secondary danger" onClick={deleteTemplate} disabled={!selectedTemplateId}>Delete</button></div></div>

@@ -886,7 +886,7 @@ const runWhiteboardJob = async (job, uploads, options) => {
       "--cap-long-edge", String(options.capLongEdge),
       "--fps", String(renderFps),
     );
-    if (options.bareTip || !saved.hand) pythonArgs.push("--bare-tip");
+    if (options.bareTip) pythonArgs.push("--bare-tip");
     const args = renderer.kind === "python" ? pythonArgs : nativeArgs;
     const rendererLabel = renderer.kind === "python" ? "Python stream renderer" : "native renderer";
     job.log = String(job.log || "") + "[renderer] Sử dụng " + rendererLabel + " · draw speed " + options.drawSpeed.toFixed(2) + "×\n";
