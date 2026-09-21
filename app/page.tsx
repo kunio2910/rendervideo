@@ -4250,6 +4250,237 @@ function SettingsResourcePanel() {
   );
 }
 
+type StandaloneVideoRenderState = {
+  status: "idle" | "uploading" | "rendering" | "completed" | "failed";
+  progress: number;
+  message: string;
+  detail?: string;
+  downloadUrl?: string;
+  logTail?: string;
+  renderFps?: number;
+  elapsedSeconds?: number;
+  etaSeconds?: number | null;
+};
+
+const standaloneVideoInitialState: StandaloneVideoRenderState = {
+  status: "idle",
+  progress: 0,
+  message: "Chưa tạo video độc lập",
+};
+
+function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio }) {
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
+  const [audioStart, setAudioStart] = useState("0");
+  const [outputName, setOutputName] = useState("video-tao-doc-lap");
+  const [renderState, setRenderState] = useState<StandaloneVideoRenderState>(standaloneVideoInitialState);
+  const jobIdRef = useRef("");
+
+  const setFailure = (message: string) => {
+    jobIdRef.current = "";
+    setRenderState({ status: "failed", progress: 0, message, detail: message });
+  };
+
+  const renderStandaloneVideo = async () => {
+    const mediaSource = mediaFile?.name || mediaUrl.trim();
+    const audioSource = audioFile?.name || audioUrl.trim();
+    if (!mediaSource) {
+      setFailure("Hãy chọn hình/video từ máy hoặc nhập URL hình/video.");
+      return;
+    }
+    if (mediaUrl.trim() && !mediaFile && !isRemoteUrl(mediaUrl)) {
+      setFailure("URL hình/video phải bắt đầu bằng http:// hoặc https://.");
+      return;
+    }
+    if (audioUrl.trim() && !audioFile && !isRemoteUrl(audioUrl)) {
+      setFailure("URL âm thanh phải bắt đầu bằng http:// hoặc https://.");
+      return;
+    }
+
+    const audioStartSeconds = Math.max(0, Number(audioStart) || 0);
+    const mediaKind: "image" | "video" = mediaFile?.type.startsWith("video/") || isVideoMedia(mediaFile?.name || mediaUrl)
+      ? "video"
+      : "image";
+    const createObjectUrl = (file: File | null) => file ? URL.createObjectURL(file) : "";
+    const mediaPreviewUrl = createObjectUrl(mediaFile) || mediaUrl.trim();
+    const audioPreviewUrl = createObjectUrl(audioFile) || audioUrl.trim();
+    let duration = mediaKind === "image" ? 5 : 5;
+    try {
+      if (mediaPreviewUrl && mediaKind === "video") {
+        const detectedMediaDuration = await readMediaDuration(mediaPreviewUrl, "video");
+        if (Number.isFinite(detectedMediaDuration) && detectedMediaDuration > 0) duration = detectedMediaDuration;
+      }
+    } catch {
+      // URL media may block metadata access because of CORS. The renderer will still try the source.
+    } finally {
+      if (mediaFile && mediaPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(mediaPreviewUrl);
+    }
+    try {
+      if (audioPreviewUrl) {
+        const detectedAudioDuration = await readMediaDuration(audioPreviewUrl, "audio");
+        if (Number.isFinite(detectedAudioDuration) && detectedAudioDuration > 0) {
+          duration = Math.max(duration, audioStartSeconds + detectedAudioDuration);
+        }
+      }
+    } catch {
+      // Keep the visual duration as a safe fallback when audio metadata is unavailable.
+    } finally {
+      if (audioFile && audioPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(audioPreviewUrl);
+    }
+
+    let subtitles: SubtitleCue[] = [];
+    try {
+      if (subtitleFile) {
+        subtitles = parseSubtitleFileText(await subtitleFile.text()).map((cue, index) => ({
+          id: `standalone-subtitle-${index + 1}`,
+          text: cue.text,
+          start: cue.start,
+          end: cue.end,
+          visible: true,
+        }));
+        const subtitleEnd = subtitles.reduce((latest, cue) => Math.max(latest, cue.end), 0);
+        if (subtitleEnd > 0) duration = Math.max(duration, subtitleEnd + 0.5);
+      }
+    } catch {
+      setFailure("Không thể đọc file SRT. Hãy kiểm tra định dạng phụ đề.");
+      return;
+    }
+
+    const standaloneScene = createEmptyScene("standalone-video-scene", 1, 0);
+    standaloneScene.sceneName = "Video tạo độc lập";
+    standaloneScene.end = Math.max(1, Number(duration.toFixed(2)));
+    standaloneScene.background = mediaSource;
+    standaloneScene.backgroundVisible = true;
+    standaloneScene.sceneVisible = true;
+    standaloneScene.audioTracks = audioSource
+      ? [defaultSceneAudioTrack("standalone-audio-1", {
+          name: "Âm thanh độc lập",
+          source: audioSource,
+          start: Math.min(audioStartSeconds, Math.max(0, standaloneScene.end - 0.1)),
+          end: standaloneScene.end,
+          visible: true,
+        })]
+      : [];
+    standaloneScene.subtitleEnabled = subtitles.length > 0;
+    standaloneScene.subtitles = subtitles;
+
+    const standaloneProject = {
+      version: 2,
+      title: outputName.trim() || "video-tao-doc-lap",
+      aspectRatio,
+      resolution: aspectRatio === "16:9" ? "1920x1080" : "1080x1920",
+      fps: 30,
+      renderProfile: "quality",
+      renderEncoder: "auto",
+      background: "",
+      scenes: [standaloneScene],
+    };
+
+    setRenderState({
+      status: "uploading",
+      progress: 2,
+      message: "Đang gửi tài nguyên tới dịch vụ render…",
+      detail: "Video tạo độc lập không làm thay đổi project hiện tại.",
+    });
+    try {
+      const form = new FormData();
+      form.append("project", JSON.stringify(standaloneProject));
+      if (mediaFile) form.append("media", mediaFile, mediaFile.name);
+      if (audioFile) form.append("media", audioFile, audioFile.name);
+      const response = await fetch(`${LOCAL_RENDERER_URL}/api/render`, { method: "POST", body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.jobId) throw new Error(result.error || "Không thể khởi động render video.");
+      const jobId = String(result.jobId);
+      jobIdRef.current = jobId;
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
+        const statusResponse = await fetch(`${LOCAL_RENDERER_URL}/api/render/${encodeURIComponent(jobId)}`);
+        const status = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) throw new Error(status.error || "Không đọc được tiến độ tạo video.");
+        setRenderState((current) => ({
+          ...current,
+          status: status.status === "completed" ? "completed" : status.status === "failed" ? "failed" : "rendering",
+          progress: Math.min(100, Math.max(0, Number(status.progress) || 0)),
+          message: String(status.message || "Đang tạo video…"),
+          detail: String(status.detail || status.message || "Đang xử lý…"),
+          logTail: typeof status.logTail === "string" ? status.logTail : current.logTail,
+          renderFps: Number(status.renderFps) || current.renderFps,
+          elapsedSeconds: Number(status.elapsedSeconds) || current.elapsedSeconds,
+          etaSeconds: Number.isFinite(Number(status.etaSeconds)) ? Number(status.etaSeconds) : current.etaSeconds,
+          ...(status.status === "completed" && status.downloadUrl
+            ? { downloadUrl: `${LOCAL_RENDERER_URL}${status.downloadUrl}`, progress: 100, message: "Đã tạo video MP4 thành công." }
+            : {}),
+        }));
+        if (status.status === "completed") {
+          jobIdRef.current = "";
+          return;
+        }
+        if (status.status === "failed") {
+          jobIdRef.current = "";
+          throw new Error(status.message || "Tạo video thất bại.");
+        }
+      }
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "Không thể tạo video MP4.");
+    }
+  };
+
+  return (
+    <section className="settings-card standalone-video-card" aria-labelledby="standalone-video-heading">
+      <div className="settings-resource-heading">
+        <div>
+          <span className="settings-section-label">TẠO VIDEO ĐỘC LẬP</span>
+          <h3 id="standalone-video-heading">Tạo video</h3>
+          <p>Ghép một hình/video, âm thanh và phụ đề thành MP4 tải về. Dữ liệu này không thay đổi các cảnh đang biên soạn.</p>
+        </div>
+        <span className="settings-resource-badge">MP4</span>
+      </div>
+      <div className="standalone-video-form">
+        <div className="standalone-video-field-grid">
+          <label className="field standalone-video-field">
+            <span>Hình ảnh hoặc video</span>
+            <input type="url" inputMode="url" value={mediaUrl} placeholder="https://.../image.png hoặc video.mp4" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setMediaUrl(event.target.value)} />
+            <input type="file" accept="image/*,video/*" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setMediaFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <small>{mediaFile ? `Đã chọn: ${mediaFile.name}` : "Chọn file từ máy hoặc dùng URL."}</small>
+          </label>
+          <label className="field standalone-video-field">
+            <span>Âm thanh</span>
+            <input type="url" inputMode="url" value={audioUrl} placeholder="https://.../voice.mp3" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setAudioUrl(event.target.value)} />
+            <input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setAudioFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <small>{audioFile ? `Đã chọn: ${audioFile.name}` : "Tuỳ chọn · có thể dùng URL âm thanh."}</small>
+          </label>
+        </div>
+        <div className="standalone-video-field-grid standalone-video-secondary-fields">
+          <label className="field standalone-video-field">
+            <span>Phụ đề SRT</span>
+            <input type="file" accept=".srt,application/x-subrip,text/plain" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setSubtitleFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <small>{subtitleFile ? `Đã chọn: ${subtitleFile.name}` : "Tuỳ chọn · phụ đề sẽ được chèn vào video."}</small>
+          </label>
+          <label className="field standalone-video-field">
+            <span>Thời gian bắt đầu phát âm thanh</span>
+            <div className="number-with-unit"><input type="number" min="0" step="0.1" value={audioStart} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setAudioStart(event.target.value)} /><b>giây</b></div>
+            <small>Âm thanh sẽ bắt đầu sau số giây này.</small>
+          </label>
+        </div>
+        <label className="field standalone-video-name-field"><span>Tên file xuất</span><input value={outputName} onChange={(event) => setOutputName(event.target.value)} placeholder="video-tao-doc-lap" /></label>
+        <div className="settings-resource-actions">
+          <button type="button" className="button primary" onClick={() => void renderStandaloneVideo()} disabled={renderState.status === "uploading" || renderState.status === "rendering"}>{renderState.status === "uploading" || renderState.status === "rendering" ? `Đang tạo video · ${Math.round(renderState.progress)}%` : "▶ Tạo video MP4"}</button>
+          {renderState.downloadUrl && <a className="button ghost" href={renderState.downloadUrl} download={`${outputName.trim() || "video-tao-doc-lap"}.mp4`}>↓ Tải MP4 về máy</a>}
+        </div>
+        <div className="standalone-video-status" aria-live="polite">
+          <div className="standalone-video-status-heading"><strong>{renderState.message}</strong><b>{Math.round(renderState.progress)}%</b></div>
+          <div className="render-progress"><i style={{ width: `${Math.min(100, Math.max(0, renderState.progress))}%` }} /></div>
+          {renderState.detail && <small>{renderState.detail}</small>}
+          {renderState.status === "failed" && <p className="settings-resource-notice error">Hãy kiểm tra dịch vụ local renderer tại {LOCAL_RENDERER_URL} rồi thử lại.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SettingsWorkspace({
   projectItems,
   activeProjectId,
@@ -4501,6 +4732,7 @@ function SettingsWorkspace({
       <section className="settings-workspace" aria-label="Nội dung cài đặt clip và cảnh">
         <div className="settings-layout">
           <div className="settings-content">
+            <StandaloneVideoCreatePanel aspectRatio={aspectRatio} />
             <div className="settings-clip-grid">
               <section className="settings-card settings-clip-list-card">
                 <div className="settings-card-heading">
