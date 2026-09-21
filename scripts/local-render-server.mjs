@@ -37,6 +37,18 @@ let activeCacheSync = false;
 const whiteboardJobsRoot = path.join(jobsRoot, "whiteboard");
 const whiteboardRendererPath = process.env.KITO_WHITEBOARD_RENDERER ||
   path.join(root, "scripts", "whiteboard", "SRTWhiteboardPortable.exe");
+const whiteboardUserProfile = process.env.USERPROFILE || process.env.HOME || "";
+const whiteboardPythonScriptCandidates = [
+  process.env.KITO_WHITEBOARD_PYTHON_SCRIPT,
+  path.join(root, "scripts", "whiteboard", "render_stream_whiteboard.py"),
+  whiteboardUserProfile ? path.join(whiteboardUserProfile, ".codex", "skills", "srt-whiteboard-animation", "scripts", "render_stream_whiteboard.py") : "",
+].filter(Boolean);
+const whiteboardPythonCandidates = [
+  process.env.KITO_WHITEBOARD_PYTHON,
+  path.join(root, ".venv", "Scripts", "python.exe"),
+  path.join(root, ".venv", "bin", "python"),
+  whiteboardUserProfile ? path.join(whiteboardUserProfile, ".codex", "skills", "srt-whiteboard-animation", ".venv", "Scripts", "python.exe") : "",
+].filter(Boolean);
 const whiteboardJobs = new Map();
 let activeWhiteboardJobId = null;
 
@@ -154,6 +166,18 @@ const runCommand = (command, args) => new Promise((resolve, reject) => {
   });
 });
 
+const terminateProcessTree = (child) => {
+  if (!child || child.exitCode !== null) return;
+  if (process.platform === "win32" && child.pid) {
+    spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    return;
+  }
+  child.kill("SIGTERM");
+};
+
 const summarizeFfmpegFailure = (log) => {
   const lines = String(log || "")
     .replaceAll("\r", "")
@@ -261,14 +285,34 @@ const renderJobPayload = (job) => {
   };
 };
 
-const whiteboardRendererReady = async () => {
-  try {
-    await fs.access(whiteboardRendererPath);
-    return true;
-  } catch {
-    return false;
+const findExistingPath = async (candidates) => {
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // Try the next configured candidate.
+    }
   }
+  return null;
 };
+
+const resolveWhiteboardRenderer = async () => {
+  const [pythonScript, python] = await Promise.all([
+    findExistingPath(whiteboardPythonScriptCandidates),
+    findExistingPath(whiteboardPythonCandidates),
+  ]);
+  if (pythonScript && python) {
+    return { kind: "python", command: python, script: pythonScript };
+  }
+  const native = await findExistingPath([whiteboardRendererPath]);
+  if (native) {
+    return { kind: "native", command: native };
+  }
+  return null;
+};
+
+const whiteboardRendererReady = async () => Boolean(await resolveWhiteboardRenderer());
 
 const whiteboardJobPayload = (job) => {
   const elapsedSeconds = renderElapsedSeconds(job);
@@ -813,17 +857,39 @@ const runWhiteboardJob = async (job, uploads, options) => {
     job.log = `${String(job.log || "")}Whiteboard renderer: ${renderFps} FPS · ${job.totalFrames} total frames · ${totalDuration.toFixed(2)}s\n`;
     job.progress = 8;
     job.message = "Đang khởi động renderer Whiteboard…";
-    job.log = String(job.log || "") + "[renderer] Khởi động native renderer với draw speed " + options.drawSpeed.toFixed(2) + "×\n";
-    const args = [saved.line, saved.annotation, job.outputPath];
-    if (saved.hand) args.push(saved.hand);
-    if (saved.color) args.push("--color-reference", saved.color);
-    if (saved.audio) {
-      args.push("--audio", saved.audio);
-      if (Number(options.audioStartMs) > 0) args.push("--audio-start-ms", String(Math.round(Number(options.audioStartMs))));
+    const renderer = await resolveWhiteboardRenderer();
+    if (!renderer) {
+      throw new Error("Không tìm thấy Whiteboard renderer. Hãy cấu hình KITO_WHITEBOARD_PYTHON/KITO_WHITEBOARD_PYTHON_SCRIPT hoặc cài renderer portable.");
     }
-    if (saved.subtitle) args.push("--subtitle", saved.subtitle);
-    args.push("--draw-speed", String(options.drawSpeed), "--line-reveal", options.lineReveal, "--match-bg", options.matchBg, "--color-fill", options.colorFill, "--aspect-ratio", options.aspectRatio, "--cap-long-edge", String(options.capLongEdge));
-    if (options.bareTip) args.push("--bare-tip");
+    const nativeArgs = [saved.line, saved.annotation, job.outputPath];
+    if (saved.hand) nativeArgs.push(saved.hand);
+    if (saved.color) nativeArgs.push("--color-reference", saved.color);
+    if (saved.audio) {
+      nativeArgs.push("--audio", saved.audio);
+      if (Number(options.audioStartMs) > 0) nativeArgs.push("--audio-start-ms", String(Math.round(Number(options.audioStartMs))));
+    }
+    if (saved.subtitle) nativeArgs.push("--subtitle", saved.subtitle);
+    nativeArgs.push("--draw-speed", String(options.drawSpeed), "--line-reveal", options.lineReveal, "--match-bg", options.matchBg, "--color-fill", options.colorFill, "--aspect-ratio", options.aspectRatio, "--cap-long-edge", String(options.capLongEdge));
+    if (options.bareTip) nativeArgs.push("--bare-tip");
+    const pythonArgs = [renderer.script, saved.line, saved.annotation, job.outputPath];
+    if (saved.hand) pythonArgs.push(saved.hand);
+    if (saved.color) pythonArgs.push("--color-reference", saved.color);
+    if (saved.audio) {
+      pythonArgs.push("--audio", saved.audio);
+      if (Number(options.audioStartMs) > 0) pythonArgs.push("--audio-start-ms", String(Math.round(Number(options.audioStartMs))));
+    }
+    if (saved.subtitle) pythonArgs.push("--subtitle", saved.subtitle);
+    pythonArgs.push(
+      "--ink-path", options.lineReveal === "pixel" ? "grid" : "skeleton",
+      "--color-fill", options.colorFill === "contour-wipe" ? "contour-wipe" : "brush",
+      "--aspect-ratio", options.aspectRatio,
+      "--cap-long-edge", String(options.capLongEdge),
+      "--fps", String(renderFps),
+    );
+    if (options.bareTip || !saved.hand) pythonArgs.push("--bare-tip");
+    const args = renderer.kind === "python" ? pythonArgs : nativeArgs;
+    const rendererLabel = renderer.kind === "python" ? "Python stream renderer" : "native renderer";
+    job.log = String(job.log || "") + "[renderer] Sử dụng " + rendererLabel + " · draw speed " + options.drawSpeed.toFixed(2) + "×\n";
     job.status = "rendering";
     job.stage = "rendering";
     job.stageLabel = "Đang vẽ Whiteboard";
@@ -839,18 +905,24 @@ const runWhiteboardJob = async (job, uploads, options) => {
       job.elapsedSeconds = elapsed;
       const frameRatio = job.totalFrames > 0 ? job.renderedFrames / job.totalFrames : 0;
       const overrunSeconds = Math.max(0, elapsed - job.totalDuration);
-      const overrunProgress = Math.min(7, overrunSeconds / Math.max(5, job.totalDuration * 0.25));
-      job.progress = Math.max(job.progress, Math.min(99, Math.round(12 + frameRatio * 80 + overrunProgress)));
+      job.progress = Math.max(job.progress, Math.min(92, Math.round(12 + frameRatio * 80)));
       const mediaTime = Math.min(job.totalDuration, Math.max(Number(job.mediaTimeSeconds) || 0, estimatedMediaTime));
       const estimateMark = job.frameEstimate ? "≈" : "";
-      const phaseLabel = overrunSeconds > 0 ? " · đang hoàn tất renderer" : "";
+      const phaseLabel = overrunSeconds > 0 ? " · đang chờ renderer kết thúc" : "";
       job.detail = "Whiteboard · " + estimateMark + job.renderedFrames + "/" + job.totalFrames + " frame · " + job.renderFps + " FPS · " + formatRenderClock(mediaTime) + " / " + formatRenderClock(job.totalDuration) + phaseLabel;
       job.message = job.detail;
     };
     heartbeatTimer = setInterval(updateHeartbeat, 500);
     heartbeatTimer.unref?.();
-    const child = spawn(whiteboardRendererPath, args, { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(renderer.command, args, {
+      cwd: root,
+      windowsHide: true,
+      env: renderer.kind === "python" ? { ...process.env, PYTHONUTF8: "1" } : process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     job.child = child;
+    const renderTimeoutMs = Math.max(120_000, Math.min(1_800_000, Math.ceil(totalDuration * 6_000) + 60_000));
+    job.log = String(job.log || "") + "[renderer] Timeout: " + Math.ceil(renderTimeoutMs / 1000) + " giây\n";
     const consume = (chunk) => {
       const output = chunk.toString();
       job.log = (String(job.log || "") + output).slice(-60000);
@@ -884,21 +956,46 @@ const runWhiteboardJob = async (job, uploads, options) => {
     child.stdout.on("data", consume);
     child.stderr.on("data", consume);
     const result = await new Promise((resolve, reject) => {
-      child.once("error", reject);
-      child.once("exit", (code, signal) => resolve({ code, signal }));
+      let settled = false;
+      let timeoutId = null;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        callback(value);
+      };
+      timeoutId = setTimeout(() => {
+        const timeoutSeconds = Math.ceil(renderTimeoutMs / 1000);
+        job.log = (String(job.log || "") + "ERROR: Whiteboard renderer không kết thúc sau " + timeoutSeconds + " giây; đang dừng toàn bộ process tree.\n").slice(-60000);
+        job.detail = "Whiteboard renderer vượt quá " + timeoutSeconds + " giây và đã bị dừng";
+        job.message = job.detail;
+        terminateProcessTree(child);
+        finish(reject, new Error(job.detail));
+      }, renderTimeoutMs);
+      child.once("error", (error) => finish(reject, error));
+      child.once("exit", (code, signal) => finish(resolve, { code, signal }));
     });
     const exitCode = normalizeProcessExitCode(result.code);
     job.log = String(job.log || "") + "[renderer] Process kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : "") + "\n";
-    if (exitCode !== 0) throw new Error("Whiteboard renderer kết thúc với mã " + String(exitCode) + (result.signal ? " (" + result.signal + ")" : ""));
+    if (result.signal) throw new Error("Whiteboard renderer bị dừng bởi " + result.signal);
+    if (exitCode !== 0) throw new Error("Whiteboard renderer kết thúc với mã " + String(exitCode));
     await fs.access(job.outputPath);
-    job.progress = 99;
+    job.progress = 96;
     job.stage = "finalizing";
     job.stageLabel = "Lưu video";
     job.renderedFrames = job.totalFrames;
     job.detail = `Đã xử lý ${job.totalFrames} frame · đang lưu video vào thư viện render…`;
     job.message = job.detail;
     job.log = String(job.log || "") + "[finalize] Đã tạo file MP4, bắt đầu kiểm tra metadata và lưu vào thư viện render\n";
-    job.clip = await storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard", onWarning: (message) => { job.log = (String(job.log || "") + "[finalize] " + message + "\n").slice(-60000); } });
+    let clipStoreTimeoutId = null;
+    const clipStoreTimeout = new Promise((_, reject) => {
+      clipStoreTimeoutId = setTimeout(() => reject(new Error("Lưu video Whiteboard quá thời gian cho phép")), 45_000);
+    });
+    try {
+      job.clip = await Promise.race([storeRenderedClip({ sourcePath: job.outputPath, name: job.name, scope: "whiteboard", sceneName: "Whiteboard", onWarning: (message) => { job.log = (String(job.log || "") + "[finalize] " + message + "\n").slice(-60000); } }), clipStoreTimeout]);
+    } finally {
+      if (clipStoreTimeoutId) clearTimeout(clipStoreTimeoutId);
+    }
     job.downloadUrl = job.clip.downloadUrl;
     job.status = "completed";
     job.progress = 100;
@@ -1327,7 +1424,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (!(await whiteboardRendererReady())) {
-      sendJson(response, 503, { error: "Chưa tìm thấy Whiteboard renderer portable. Hãy chạy lại bước chuẩn bị desktop hoặc đặt KITO_WHITEBOARD_RENDERER." });
+      sendJson(response, 503, { error: "Chưa tìm thấy Whiteboard renderer. Hãy cấu hình KITO_WHITEBOARD_PYTHON/KITO_WHITEBOARD_PYTHON_SCRIPT hoặc đặt KITO_WHITEBOARD_RENDERER." });
       return;
     }
     try {
