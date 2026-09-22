@@ -1801,12 +1801,21 @@ const createTextOverlay = async (overlay, index) => {
   const height = Number.isFinite(requestedBoxHeight)
     ? Math.max(Math.round(previewPx(24)), Math.round(outputHeight * clamp(requestedBoxHeight / 100, 0.03, 0.4)))
     : intrinsicHeight;
+  const hasExplicitBoxHeight = Number.isFinite(requestedBoxHeight);
+  const textBlockHeight = lines.length * lineHeight;
+  const contentHeight = Math.max(0, height - paddingY * 2 - borderWidth * 2);
+  const textBlockOffsetY = hasExplicitBoxHeight
+    ? Math.max(0, (contentHeight - textBlockHeight) / 2)
+    : 0;
   const radius = Math.min(
     Math.round(previewPx(clamp(Number(overlay?.borderRadius ?? 6), 0, 24))),
     Math.floor(Math.min(width, height) / 2),
   );
   const textNodes = lines.map((line, lineIndex) => {
-    const y = paddingY + size * 0.86 + lineIndex * lineHeight;
+    // Match the browser Review, where the text is vertically centered inside
+    // the editable subtitle region. Without this, changing boxHeight only
+    // enlarged a transparent PNG while the glyphs stayed pinned to the top.
+    const y = paddingY + borderWidth + textBlockOffsetY + size * 0.86 + lineIndex * lineHeight;
     return `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="${escapeXml(font)}" font-weight="${fontWeight}" font-style="${fontStyle}" font-size="${size}" letter-spacing="${letterSpacing}" fill="${color}" fill-opacity="${textOpacity}" ${strokeWidth > 0 ? `stroke="${strokeColor}" stroke-opacity="${textOpacity}" stroke-width="${strokeWidth}" paint-order="stroke fill" stroke-linejoin="round"` : ""}>${escapeXml(line)}</text>`;
   }).join("");
   const baseShadowY = Math.max(1, previewPx(2));
@@ -1815,7 +1824,7 @@ const createTextOverlay = async (overlay, index) => {
     ? `<feDropShadow dx="0" dy="${previewPx(13)}" stdDeviation="${previewPx(8)}" flood-color="#000000" flood-opacity=".35"/>`
     : "";
   const svg = Buffer.from(`
-    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden" xmlns="http://www.w3.org/2000/svg">
       <defs><filter id="textBaseShadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="${baseShadowY}" stdDeviation="${baseShadowBlur}" flood-color="#000000" flood-opacity=".72"/>${liftedShadow}</filter></defs>
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
       <g filter="url(#textBaseShadow)">${textNodes}</g>

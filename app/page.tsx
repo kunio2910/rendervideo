@@ -4597,7 +4597,9 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
       x: subtitleX,
       y: subtitleY,
       boxWidth: subtitleReviewWidth,
-      boxHeight: subtitleReviewHeight,
+      // Keep the automatic height identical to the Review box. When the user
+      // enters a height explicitly, that value remains the source of truth.
+      boxHeight: subtitleReviewHeight ?? subtitleReviewBoxHeight,
     });
 
     const standaloneProject = {
