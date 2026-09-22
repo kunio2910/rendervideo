@@ -4279,19 +4279,111 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [subtitleSize, setSubtitleSize] = useState("22");
   const [subtitleColor, setSubtitleColor] = useState("#ffffff");
   const [subtitleFont, setSubtitleFont] = useState<OverlayTextFont>("Arial");
+  const [subtitleX, setSubtitleX] = useState(50);
+  const [subtitleY, setSubtitleY] = useState(82);
+  const [subtitleWidth, setSubtitleWidth] = useState("84");
+  const [subtitleHeight, setSubtitleHeight] = useState("");
   const [audioStart, setAudioStart] = useState("0");
   const [outputName, setOutputName] = useState("video-tao-doc-lap");
   const [renderState, setRenderState] = useState<StandaloneVideoRenderState>(standaloneVideoInitialState);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const jobIdRef = useRef("");
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const subtitleDragRef = useRef<{ startX: number; startY: number; subtitleX: number; subtitleY: number } | null>(null);
   const previewMediaSource = useMemo(() => {
     if (mediaFile) return URL.createObjectURL(mediaFile);
     return mediaUrl.trim();
   }, [mediaFile, mediaUrl]);
   const previewMediaIsVideo = mediaFile?.type.startsWith("video/") || isVideoMedia(mediaUrl);
+  const previewAudioSource = useMemo(() => {
+    if (audioFile) return URL.createObjectURL(audioFile);
+    return audioUrl.trim();
+  }, [audioFile, audioUrl]);
 
   useEffect(() => () => {
     if (previewMediaSource.startsWith("blob:")) URL.revokeObjectURL(previewMediaSource);
   }, [previewMediaSource]);
+  useEffect(() => () => {
+    if (previewAudioSource.startsWith("blob:")) URL.revokeObjectURL(previewAudioSource);
+  }, [previewAudioSource]);
+
+  const previewBusy = renderState.status === "uploading" || renderState.status === "rendering";
+  const subtitleReviewWidth = Math.max(40, Math.min(100, Number(subtitleWidth) || 84));
+  const subtitleReviewHeight = subtitleHeight.trim() === ""
+    ? undefined
+    : Math.max(3, Math.min(40, Number(subtitleHeight) || 12));
+  const clampReviewPosition = (value: number) => Math.max(2, Math.min(98, value));
+
+  const startSubtitleReviewDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (previewBusy) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    subtitleDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      subtitleX,
+      subtitleY,
+    };
+  };
+
+  const moveSubtitleReviewDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = subtitleDragRef.current;
+    const stage = event.currentTarget.parentElement;
+    if (!drag || !stage) return;
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    setSubtitleX(clampReviewPosition(drag.subtitleX + ((event.clientX - drag.startX) / rect.width) * 100));
+    setSubtitleY(clampReviewPosition(drag.subtitleY + ((event.clientY - drag.startY) / rect.height) * 100));
+  };
+
+  const stopSubtitleReviewDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    subtitleDragRef.current = null;
+  };
+
+  const moveSubtitleWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 5 : 1;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      setSubtitleX((current) => clampReviewPosition(current + (event.key === "ArrowRight" ? step : -step)));
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setSubtitleY((current) => clampReviewPosition(current + (event.key === "ArrowDown" ? step : -step)));
+    }
+  };
+
+  const toggleStandalonePreview = async () => {
+    const nextPlaying = !previewPlaying;
+    setPreviewPlaying(nextPlaying);
+    const video = previewVideoRef.current;
+    const audio = previewAudioRef.current;
+    if (!nextPlaying) {
+      video?.pause();
+      audio?.pause();
+      return;
+    }
+    let started = false;
+    if (video) {
+      try {
+        await video.play();
+        started = true;
+      } catch {
+        // Browser may reject playback when the media URL is unavailable.
+      }
+    }
+    if (audio && previewAudioSource) {
+      try {
+        await audio.play();
+        started = true;
+      } catch {
+        // Keep video preview available even if the audio URL cannot be played.
+      }
+    }
+    if (!started && (video || (audio && previewAudioSource))) {
+      setPreviewPlaying(false);
+    }
+  };
 
   const handleSubtitleFile = async (file: File | null) => {
     setSubtitleFile(file);
@@ -4335,11 +4427,12 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     const createObjectUrl = (file: File | null) => file ? URL.createObjectURL(file) : "";
     const mediaPreviewUrl = createObjectUrl(mediaFile) || mediaUrl.trim();
     const audioPreviewUrl = createObjectUrl(audioFile) || audioUrl.trim();
-    let duration = mediaKind === "image" ? 5 : 5;
+    let mediaDuration = mediaKind === "image" ? 0 : 5;
+    let audioDuration = 0;
     try {
       if (mediaPreviewUrl && mediaKind === "video") {
         const detectedMediaDuration = await readMediaDuration(mediaPreviewUrl, "video");
-        if (Number.isFinite(detectedMediaDuration) && detectedMediaDuration > 0) duration = detectedMediaDuration;
+        if (Number.isFinite(detectedMediaDuration) && detectedMediaDuration > 0) mediaDuration = detectedMediaDuration;
       }
     } catch {
       // URL media may block metadata access because of CORS. The renderer will still try the source.
@@ -4349,15 +4442,18 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     try {
       if (audioPreviewUrl) {
         const detectedAudioDuration = await readMediaDuration(audioPreviewUrl, "audio");
-        if (Number.isFinite(detectedAudioDuration) && detectedAudioDuration > 0) {
-          duration = Math.max(duration, audioStartSeconds + detectedAudioDuration);
-        }
+        if (Number.isFinite(detectedAudioDuration) && detectedAudioDuration > 0) audioDuration = detectedAudioDuration;
       }
     } catch {
       // Keep the visual duration as a safe fallback when audio metadata is unavailable.
     } finally {
       if (audioFile && audioPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(audioPreviewUrl);
     }
+
+    const audioEnd = audioDuration > 0 ? audioStartSeconds + audioDuration : 0;
+    let duration = mediaKind === "image"
+      ? audioEnd > 0 ? audioEnd : 5
+      : Math.max(mediaDuration > 0 ? mediaDuration : 5, audioEnd);
 
     let subtitles: SubtitleCue[] = [];
     try {
@@ -4398,6 +4494,10 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
       size: Math.max(8, Math.min(120, Number(subtitleSize) || 22)),
       color: subtitleColor,
       font: subtitleFont,
+      x: subtitleX,
+      y: subtitleY,
+      boxWidth: subtitleReviewWidth,
+      boxHeight: subtitleReviewHeight,
     });
 
     const standaloneProject = {
@@ -4507,10 +4607,13 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
             <label className="field standalone-video-field"><span>Kích thước chữ</span><div className="number-with-unit"><input type="number" min="8" max="120" step="1" value={subtitleSize} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleSize(event.target.value)} /><b>px</b></div></label>
             <label className="field standalone-video-field"><span>Màu chữ</span><input className="standalone-video-color-input" type="color" value={subtitleColor} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleColor(event.target.value)} /></label>
             <label className="field standalone-video-field"><span>Font chữ</span><select value={subtitleFont} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleFont(event.target.value as OverlayTextFont)}>{OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label>
+            <label className="field standalone-video-field"><span>Độ rộng vùng phụ đề</span><div className="number-with-unit"><input type="number" min="40" max="100" step="1" value={subtitleWidth} disabled={previewBusy} onChange={(event) => setSubtitleWidth(event.target.value)} /><b>%</b></div></label>
+            <label className="field standalone-video-field"><span>Chiều cao vùng phụ đề</span><div className="number-with-unit"><input type="number" min="3" max="40" step="0.1" value={subtitleHeight} placeholder="Tự động" disabled={previewBusy} onChange={(event) => setSubtitleHeight(event.target.value)} /><b>%</b></div></label>
           </div>
         </div>
         <label className="field standalone-video-name-field"><span>Tên file xuất</span><input value={outputName} onChange={(event) => setOutputName(event.target.value)} placeholder="video-tao-doc-lap" /></label>
         <div className="settings-resource-actions">
+          <button type="button" className="button secondary" onClick={() => void toggleStandalonePreview()} disabled={previewBusy}>{previewPlaying ? "■ Dừng xem thử" : "▶ Xem thử"}</button>
           <button type="button" className="button primary" onClick={() => void renderStandaloneVideo()} disabled={renderState.status === "uploading" || renderState.status === "rendering"}>{renderState.status === "uploading" || renderState.status === "rendering" ? `Đang tạo video · ${Math.round(renderState.progress)}%` : "▶ Tạo video MP4"}</button>
           {renderState.downloadUrl && <a className="button ghost" href={renderState.downloadUrl} download={`${outputName.trim() || "video-tao-doc-lap"}.mp4`}>↓ Tải MP4 về máy</a>}
         </div>
@@ -4526,11 +4629,31 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
           <div className={`standalone-video-review-stage ${aspectRatio === "16:9" ? "is-wide" : "is-vertical"}`}>
             {previewMediaSource
               ? previewMediaIsVideo
-                ? <video src={previewMediaSource} muted loop autoPlay playsInline preload="metadata" aria-label="Review hình hoặc video" />
+                ? <video ref={previewVideoRef} src={previewMediaSource} muted loop={previewPlaying} autoPlay={previewPlaying} playsInline preload="metadata" aria-label="Review hình hoặc video" />
                 : <img src={previewMediaSource} alt="Review tài nguyên video" />
               : <div className="standalone-video-review-empty">Chọn hình/video để xem trước</div>}
-            <div className="standalone-video-review-subtitle" style={{ color: subtitleColor, fontFamily: subtitleFont, fontSize: `${Math.max(12, Math.min(30, Number(subtitleSize) || 22))}px` }}>{subtitlePreviewText}</div>
+            <div
+              className="standalone-video-review-subtitle"
+              role="button"
+              tabIndex={0}
+              aria-label="Phụ đề xem trước. Kéo để di chuyển hoặc dùng các phím mũi tên."
+              onPointerDown={startSubtitleReviewDrag}
+              onPointerMove={moveSubtitleReviewDrag}
+              onPointerUp={stopSubtitleReviewDrag}
+              onPointerCancel={stopSubtitleReviewDrag}
+              onKeyDown={moveSubtitleWithKeyboard}
+              style={{
+                left: `${subtitleX}%`,
+                top: `${subtitleY}%`,
+                width: `${subtitleReviewWidth}%`,
+                ...(subtitleReviewHeight ? { height: `${subtitleReviewHeight}%` } : {}),
+                color: subtitleColor,
+                fontFamily: subtitleFont,
+                fontSize: `${Math.max(12, Math.min(30, Number(subtitleSize) || 22))}px`,
+              }}
+            >{subtitlePreviewText}</div>
           </div>
+          <audio ref={previewAudioRef} src={previewAudioSource || undefined} hidden preload="metadata" onEnded={() => setPreviewPlaying(false)} aria-label="Âm thanh xem thử" />
           <small className="standalone-video-review-note">Review hiển thị phụ đề mẫu và sẽ dùng đúng size, màu, font khi tạo MP4.</small>
         </aside>
       </div>
