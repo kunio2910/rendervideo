@@ -1170,7 +1170,7 @@ const sceneAudioTracksForRender = (scene, duration) => {
         id: String(track.id ?? `audio-${trackIndex + 1}`),
         name: String(track.name ?? `Âm thanh ${trackIndex + 1}`),
         source: String(track.source ?? track.url ?? track.file ?? "").trim(),
-        volume: audioVolume(track.volume, trackIndex === 0 ? 95 : 100),
+        volume: audioVolume(track.volume, 100),
         start,
         end,
         subtitleCueIds: Array.isArray(track.subtitleCueIds)
@@ -1944,7 +1944,7 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   // Legacy names remain available for diagnostics and source-level compatibility checks.
   const voice = resolvedSceneAudioTracks[0]?.path ?? null;
-  const voiceVolume = resolvedSceneAudioTracks[0]?.volume ?? audioVolume(scene.voiceVolume, 95);
+  const voiceVolume = resolvedSceneAudioTracks[0]?.volume ?? audioVolume(scene.voiceVolume, 100);
   const voiceStart = resolvedSceneAudioTracks[0]?.start ?? clamp(Number(scene.voiceStart ?? 0) || 0, 0, duration);
   const clip = path.join(renderDir, `scene-${index + 1}.mp4`);
   const frames = Math.max(1, Math.round(duration * fps));

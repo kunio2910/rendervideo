@@ -646,7 +646,7 @@ const defaultSceneAudioTrack = (
   id,
   name: "Thuyết minh",
   source: "",
-  volume: 95,
+  volume: 100,
   timingLinked: false,
   start: 0,
   end: 5,
@@ -1269,7 +1269,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   audioTracks: [defaultSceneAudioTrack(`${id}-audio-1`, { end: 5 })],
   voiceFile: "",
   voiceStart: 0,
-  voiceVolume: 95,
+  voiceVolume: 100,
   popupIn: "fade-slide-up",
   popupOut: "fade-slide-down",
   popupLayout: "image-top",
@@ -2893,7 +2893,7 @@ const syncLegacyVoiceFields = (scene: Scene, audioTracks: SceneAudioTrack[]): Sc
     audioTracks,
     voiceFile: primary?.source ?? "",
     voiceStart: primary?.start ?? 0,
-    voiceVolume: primary?.volume ?? 95,
+    voiceVolume: primary?.volume ?? 100,
   };
 };
 
@@ -3514,7 +3514,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
     const legacyAudioTrack = defaultSceneAudioTrack(`${id}-audio-1`, {
       name: "Thuyết minh",
       source: String(item.voiceFile ?? ""),
-      volume: clampVolume(item.voiceVolume, 95),
+      volume: clampVolume(item.voiceVolume, 100),
       start: Math.min(sceneDuration, Math.max(0, Number(item.voiceStart ?? 0) || 0)),
       end: sceneDuration,
     });
@@ -3608,7 +3608,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       audioTracks: normalizedAudioTracks,
       voiceFile: normalizedAudioTracks[0]?.source ?? "",
       voiceStart: normalizedAudioTracks[0]?.start ?? 0,
-      voiceVolume: normalizedAudioTracks[0]?.volume ?? 95,
+      voiceVolume: normalizedAudioTracks[0]?.volume ?? 100,
       backgroundVisible: item.backgroundVisible ?? true,
       sceneVisible: item.sceneVisible !== false,
     };
@@ -9983,7 +9983,7 @@ function Home() {
               voice: scene.voice ?? "",
               voiceFile: scene.voiceFile ?? "",
               voiceStart: Math.max(0, Number(scene.voiceStart ?? 0) || 0),
-              voiceVolume: clampVolume(scene.voiceVolume, 95),
+              voiceVolume: clampVolume(scene.voiceVolume, 100),
               audioTracks: (scene.audioTracks ?? []).map((track) => ({ ...track })),
               backgroundMusic,
               backgroundMusicVolume,
@@ -10880,7 +10880,7 @@ function Home() {
       audioTracks: [defaultSceneAudioTrack(`${nextId}-audio-1`, { end: 3 })],
       voiceFile: "",
       voiceStart: 0,
-      voiceVolume: 95,
+      voiceVolume: 100,
       sceneVisible: true,
       popupIn: "fade-slide-up",
       popupOut: "fade-slide-down",
@@ -10969,7 +10969,7 @@ function Home() {
     const id = `${scene.id}-audio-${currentTracks.length + 1}-${Date.now().toString(36)}`;
     const nextTrack = defaultSceneAudioTrack(id, {
       name: currentTracks.length === 0 ? "Thuyết minh" : `Âm thanh ${currentTracks.length + 1}`,
-      volume: currentTracks.length === 0 ? 95 : 100,
+      volume: 100,
       start: Number(start.toFixed(2)),
       end: Number(end.toFixed(2)),
       subtitleCueIds: [],
@@ -13456,7 +13456,7 @@ function Home() {
             audioTracks: audioTrackPayloads,
             ...(voiceFile ? { voiceFile } : {}),
             voiceStart: primaryAudioTrack?.start ?? Math.max(0, Number(item.voiceStart) || 0),
-            voiceVolume: primaryAudioTrack?.volume ?? Math.round(clampVolume(item.voiceVolume, 95)),
+            voiceVolume: primaryAudioTrack?.volume ?? Math.round(clampVolume(item.voiceVolume, 100)),
             popupIn: firstPopup.in,
             popupOut: firstPopup.out,
             popupWidth: firstPopup.width,
@@ -13877,7 +13877,7 @@ function Home() {
         voice: audioSource,
         voiceFile: audioSource,
         voiceStart: 0,
-        voiceVolume: 95,
+        voiceVolume: 100,
         start: 0,
         end: Number(duration.toFixed(2)),
         zoomStart: 0,
@@ -15444,7 +15444,7 @@ function Home() {
       if (kind === "audio") {
         const nextTrack = defaultSceneAudioTrack(createdId, {
           name: audioIndex === 1 ? "Thuyết minh" : `Âm thanh ${audioIndex}`,
-          volume: audioIndex === 1 ? 95 : 100,
+          volume: 100,
           start,
           end,
           subtitleCueIds: [],
