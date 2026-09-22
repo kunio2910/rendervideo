@@ -2066,7 +2066,21 @@ for (let index = 0; index < scenes.length; index += 1) {
   }
   const backgroundIsVideo = isVideoMedia(sceneBackground);
   // Legacy render check: d=1,trim=duration marks the old still-frame workaround; video backgrounds now use fps + trim below.
-  const backgroundFilter = backgroundIsVideo
+  const stillCamera = scene.stillCamera ?? {};
+  const stillAmount = clamp(Number(stillCamera.amount ?? 8) || 0, 0, 20) / 100;
+  const stillSpeed = clamp(Number(stillCamera.speed ?? 1) || 1, 0.1, 3);
+  const stillPhase = `on/${fps}*2*PI*${stillSpeed}/12`;
+  const stillZoom = stillCamera.direction === "in"
+    ? `1+${stillAmount}*(1-cos(${stillPhase}))/2`
+    : stillCamera.direction === "out"
+      ? `1+${stillAmount}*(1+cos(${stillPhase}))/2`
+      : `${1 + stillAmount}`;
+  const stillShift = `${stillAmount * 0.45}*sin(${stillPhase})`;
+  const backgroundFilter = !backgroundIsVideo && stillCamera.enabled === true
+    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+      `zoompan=z='${stillZoom}':x='(iw-iw/zoom)/2${stillCamera.direction === "horizontal" ? `-iw/zoom*(${stillShift})` : ""}':` +
+      `y='(ih-ih/zoom)/2${stillCamera.direction === "vertical" ? `-ih/zoom*(${stillShift})` : ""}':s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`
+    : backgroundIsVideo
     ? cameraPanEnabled || cameraZoomLoopEnabled
       ? `[0:v]scale=${Math.round(outputWidth * cameraVideoBaseZoom)}:${Math.round(outputHeight * cameraVideoBaseZoom)}:force_original_aspect_ratio=increase,scale=w='iw*${cameraZoomVideoExpression}':h='ih*${cameraZoomVideoExpression}':eval=frame,crop=${outputWidth}:${outputHeight}:x='(iw-${outputWidth})*${panXVideoExpression}':y='(ih-${outputHeight})*${panYVideoExpression}',fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`
       : `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,crop=${outputWidth}:${outputHeight},fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`

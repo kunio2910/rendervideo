@@ -680,6 +680,7 @@ type Scene = {
   centerY: number;
   zoomEnabled: boolean;
   cameraPanEnabled?: boolean;
+  stillCamera?: { enabled: boolean; direction: "horizontal" | "vertical" | "in" | "out"; amount: number; speed: number };
   cameraPanDirection?: "horizontal" | "vertical" | "diagonal";
   cameraPanAmount?: number;
   cameraPanSpeed?: number;
@@ -4292,6 +4293,9 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewTimelineTime, setPreviewTimelineTime] = useState(0);
   const [rulerVisible, setRulerVisible] = useState(false);
+  const [stillCamera, setStillCamera] = useState<NonNullable<Scene["stillCamera"]>>({ enabled: false, direction: "horizontal", amount: 8, speed: 1 });
+  const [cameraTime, setCameraTime] = useState(0);
+  const cameraClock = useRef(0);
   const [subtitleSettingsHydrated, setSubtitleSettingsHydrated] = useState(false);
   const jobIdRef = useRef("");
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -4306,6 +4310,35 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     if (audioFile) return URL.createObjectURL(audioFile);
     return audioUrl.trim();
   }, [audioFile, audioUrl]);
+
+  useEffect(() => {
+    if (!previewPlaying) return;
+    let frame = 0;
+    let previous = performance.now();
+    const tick = (now: number) => {
+      const audio = previewAudioRef.current;
+      cameraClock.current = audio && previewAudioSource && !audio.paused
+        ? audio.currentTime + Math.max(0, Number(audioStart) || 0)
+        : cameraClock.current + (now - previous) / 1000;
+      previous = now;
+      setCameraTime(cameraClock.current);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [previewPlaying, previewAudioSource, audioStart]);
+
+  const cameraPhase = cameraTime * Math.PI * 2 * stillCamera.speed / 12;
+  const cameraAmount = stillCamera.amount / 100;
+  const cameraZoom = stillCamera.direction === "in"
+    ? 1 + cameraAmount * (1 - Math.cos(cameraPhase)) / 2
+    : stillCamera.direction === "out"
+      ? 1 + cameraAmount * (1 + Math.cos(cameraPhase)) / 2
+      : 1 + cameraAmount;
+  const cameraShift = Math.sin(cameraPhase) * stillCamera.amount * 0.45;
+  const cameraTransform = stillCamera.enabled && !previewMediaIsVideo
+    ? `translate(${stillCamera.direction === "horizontal" ? cameraShift : 0}%, ${stillCamera.direction === "vertical" ? cameraShift : 0}%) scale(${cameraZoom})`
+    : undefined;
 
   useEffect(() => () => {
     if (previewMediaSource.startsWith("blob:")) URL.revokeObjectURL(previewMediaSource);
@@ -4537,6 +4570,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     standaloneScene.sceneName = "Video tạo độc lập";
     standaloneScene.end = Math.max(1, Number(duration.toFixed(2)));
     standaloneScene.background = mediaSource;
+    standaloneScene.stillCamera = { ...stillCamera, enabled: mediaKind === "image" && stillCamera.enabled };
     standaloneScene.backgroundVisible = true;
     standaloneScene.sceneVisible = true;
     standaloneScene.audioTracks = audioSource
@@ -4659,6 +4693,16 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
             <small>Âm thanh sẽ bắt đầu sau số giây này.</small>
           </label>
         </div>
+        {!previewMediaIsVideo && <div className="standalone-video-subtitle-settings">
+          <label><input type="checkbox" checked={stillCamera.enabled} onChange={(event) => setStillCamera((current) => ({ ...current, enabled: event.target.checked }))} /> Mô phỏng 3D · Camera chuyển động</label>
+          <small>Di chuyển và phóng ảnh nhẹ để tạo cảm giác chiều sâu. Không tách chủ thể và nền.</small>
+          <div className="standalone-video-subtitle-grid">
+            <label className="field"><span>Hướng camera</span><select value={stillCamera.direction} onChange={(event) => setStillCamera((current) => ({ ...current, direction: event.target.value as NonNullable<Scene["stillCamera"]>["direction"] }))}><option value="horizontal">Trái ↔ phải</option><option value="vertical">Lên ↔ xuống</option><option value="in">Tiến gần rồi lùi xa</option><option value="out">Lùi xa rồi tiến gần</option></select></label>
+            <label className="field"><span>Cường độ (%)</span><input type="number" min="0" max="20" value={stillCamera.amount} onChange={(event) => setStillCamera((current) => ({ ...current, amount: Math.max(0, Math.min(20, Number(event.target.value) || 0)) }))} /></label>
+            <label className="field"><span>Tốc độ (×)</span><input type="number" min="0.1" max="3" step="0.1" value={stillCamera.speed} onChange={(event) => setStillCamera((current) => ({ ...current, speed: Math.max(0.1, Math.min(3, Number(event.target.value) || 1)) }))} /></label>
+          </div>
+          <small>1×: một chu kỳ 12 giây. Bấm Xem thử để chạy camera.</small>
+        </div>}
         <div className="standalone-video-subtitle-settings">
           <div className="standalone-video-subtitle-heading">
             <div><strong>Định dạng phụ đề</strong><small>Áp dụng cho phụ đề SRT khi xuất video.</small></div>
@@ -4706,7 +4750,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
             {previewMediaSource
               ? previewMediaIsVideo
                 ? <video ref={previewVideoRef} src={previewMediaSource} muted loop={previewPlaying} autoPlay={previewPlaying} playsInline preload="metadata" aria-label="Review hình hoặc video" onTimeUpdate={(event) => { if (!previewAudioSource) setPreviewTimelineTime(event.currentTarget.currentTime); }} onEnded={() => { previewAudioRef.current?.pause(); setPreviewPlaying(false); }} />
-                : <img src={previewMediaSource} alt="Review tài nguyên video" />
+                : <img src={previewMediaSource} alt="Review tài nguyên video" style={{ transform: cameraTransform, transformOrigin: "center" }} />
               : <div className="standalone-video-review-empty">Chọn hình/video để xem trước</div>}
             {rulerVisible && (
               <div className="standalone-video-review-ruler" aria-hidden="true">
