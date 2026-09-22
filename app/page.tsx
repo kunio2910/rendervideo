@@ -4318,7 +4318,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     const tick = (now: number) => {
       const audio = previewAudioRef.current;
       cameraClock.current = audio && previewAudioSource && !audio.paused
-        ? audio.currentTime + Math.max(0, Number(audioStart) || 0)
+        ? audio.currentTime
         : cameraClock.current + (now - previous) / 1000;
       previous = now;
       setCameraTime(cameraClock.current);
@@ -4452,6 +4452,12 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
       audio?.pause();
       return;
     }
+    // Each preview run starts at the same first frame as the MP4.
+    cameraClock.current = 0;
+    setCameraTime(0);
+    setPreviewTimelineTime(0);
+    if (video) video.currentTime = 0;
+    if (audio) audio.currentTime = 0;
     let started = false;
     if (video) {
       try {

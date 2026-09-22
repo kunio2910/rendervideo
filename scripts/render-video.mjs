@@ -2077,7 +2077,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       : `${1 + stillAmount}`;
   const stillShift = `${stillAmount * 0.45}*sin(${stillPhase})`;
   const backgroundFilter = !backgroundIsVideo && stillCamera.enabled === true
-    ? `[0:v]scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},` +
+    ? `[0:v]format=gbrp,scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},setsar=1,` +
       `zoompan=z='${stillZoom}':x='(iw-iw/zoom)/2${stillCamera.direction === "horizontal" ? `-iw/zoom*(${stillShift})` : ""}':` +
       `y='(ih-ih/zoom)/2${stillCamera.direction === "vertical" ? `-ih/zoom*(${stillShift})` : ""}':s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`
     : backgroundIsVideo
