@@ -1633,6 +1633,17 @@ const server = http.createServer(async (request, response) => {
   sendJson(response, 404, { error: "Đường dẫn không tồn tại" });
 });
 
+server.on("error", (error) => {
+  if (error?.code === "EADDRINUSE") {
+    console.error(`Kito Local Renderer không khởi động được: cổng ${host}:${port} đang được sử dụng.`);
+    console.error(`Có thể local renderer đã chạy sẵn. Hãy dùng instance hiện tại hoặc đặt LOCAL_RENDER_PORT sang cổng khác.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.error("Kito Local Renderer không khởi động được:", error);
+  process.exitCode = 1;
+});
+
 server.listen(port, host, () => {
   console.log(`Kito Local Renderer: http://${host}:${port}`);
   console.log("Giữ cửa sổ này mở trong khi render từ website.");
