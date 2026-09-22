@@ -4,6 +4,12 @@ export type ImportedSubtitleCue = {
   end: number;
 };
 
+export type SubtitleSplitOptions = {
+  maxCharsPerLine?: number;
+  maxLines?: number;
+  minCueDuration?: number;
+};
+
 const decodeSubtitleEntities = (value: string) => value
   .replace(/&nbsp;/gi, " ")
   .replace(/&amp;/gi, "&")
@@ -69,4 +75,72 @@ export const parseSubtitleFileText = (source: string): ImportedSubtitleCue[] => 
   }
 
   return cues.sort((left, right) => left.start - right.start);
+};
+
+const splitWordsByLength = (text: string, maxChars: number) => {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (!words.length) return [];
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (current && next.length > maxChars) {
+      chunks.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+const mergeSubtitleChunks = (chunks: string[], maximum: number) => {
+  if (chunks.length <= maximum) return chunks;
+  const merged: string[] = [];
+  const groupSize = Math.ceil(chunks.length / maximum);
+  for (let index = 0; index < chunks.length; index += groupSize) {
+    merged.push(chunks.slice(index, index + groupSize).join(" "));
+  }
+  return merged.slice(0, maximum);
+};
+
+/**
+ * Split long imported cues while keeping every generated cue inside the
+ * original SRT time range. This lets the small Video-tab review avoid
+ * clipping a long sentence and makes the next text change with audio time.
+ */
+export const splitSubtitleCues = (
+  cues: ImportedSubtitleCue[],
+  options: SubtitleSplitOptions = {},
+): ImportedSubtitleCue[] => {
+  const maxCharsPerLine = Math.max(8, Math.round(options.maxCharsPerLine ?? 32));
+  const maxLines = Math.max(1, Math.round(options.maxLines ?? 2));
+  const maxCharsPerCue = Math.max(maxCharsPerLine, maxCharsPerLine * maxLines);
+  const minCueDuration = Math.max(0.1, options.minCueDuration ?? 0.55);
+
+  return cues.flatMap((cue) => {
+    const text = cue.text.replace(/\s+/g, " ").trim();
+    const duration = Math.max(0.05, cue.end - cue.start);
+    if (!text) return [];
+
+    const chunks = splitWordsByLength(text, maxCharsPerCue);
+    const maximumChunks = Math.max(1, Math.floor(duration / minCueDuration));
+    const safeChunks = mergeSubtitleChunks(chunks.length ? chunks : [text], maximumChunks);
+    if (safeChunks.length === 1) {
+      return [{ ...cue, text: safeChunks[0] }];
+    }
+
+    const totalWeight = safeChunks.reduce((total, chunk) => total + Math.max(1, chunk.length), 0);
+    let elapsed = 0;
+    return safeChunks.map((chunk, index) => {
+      const start = index === 0 ? cue.start : cue.start + elapsed;
+      elapsed += duration * (Math.max(1, chunk.length) / totalWeight);
+      const end = index === safeChunks.length - 1
+        ? cue.end
+        : Math.min(cue.end, cue.start + elapsed);
+      return { text: chunk, start, end };
+    });
+  });
 };

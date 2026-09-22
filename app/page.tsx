@@ -22,7 +22,7 @@ import {
   signInWithGoogle,
   signOutFromGoogle,
 } from "./lib/firebase";
-import { parseSubtitleFileText } from "./lib/subtitles";
+import { parseSubtitleFileText, splitSubtitleCues, type ImportedSubtitleCue } from "./lib/subtitles";
 import { WhiteboardWorkspace } from "./components/WhiteboardWorkspace";
 import {
   createWorkspaceBackup,
@@ -4279,7 +4279,8 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [audioUrl, setAudioUrl] = useState("");
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
   const [subtitlePreviewText, setSubtitlePreviewText] = useState("Phụ đề xem trước");
-  const [subtitlePreviewCues, setSubtitlePreviewCues] = useState<Array<{ text: string; start: number; end: number }>>([]);
+  const [subtitleSourceCues, setSubtitleSourceCues] = useState<ImportedSubtitleCue[]>([]);
+  const [autoSplitSubtitles, setAutoSplitSubtitles] = useState(true);
   const [subtitleSize, setSubtitleSize] = useState("22");
   const [subtitleColor, setSubtitleColor] = useState("#ffffff");
   const [subtitleFont, setSubtitleFont] = useState<OverlayTextFont>("Arial");
@@ -4397,6 +4398,21 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     : Math.max(3, Math.min(40, Number(subtitleHeight) || 12));
   const subtitleReviewBoxHeight = subtitleReviewHeight
     ?? Math.min(16, Math.max(6, (Number(subtitleSize) || 22) / 3));
+  const subtitleSplitOptions = useMemo(() => {
+    // The Review panel is capped at roughly 220px wide. Use its real visual
+    // scale so a split cue fits the same box the user sees before rendering.
+    const reviewWidth = 220 * (subtitleReviewWidth / 100);
+    const reviewHeight = (aspectRatio === "16:9" ? 220 * 9 / 16 : 220 * 16 / 9)
+      * (subtitleReviewBoxHeight / 100);
+    const fontSize = Math.max(12, Math.min(30, Number(subtitleSize) || 22));
+    const maxCharsPerLine = Math.max(8, Math.min(42, Math.floor((reviewWidth - 16) / (fontSize * 0.56))));
+    const maxLines = Math.max(1, Math.min(3, Math.floor((reviewHeight - 8) / (fontSize * 1.2))));
+    return { maxCharsPerLine, maxLines, minCueDuration: 0.55 };
+  }, [aspectRatio, subtitleReviewBoxHeight, subtitleReviewWidth, subtitleSize]);
+  const subtitlePreviewCues = useMemo(
+    () => autoSplitSubtitles ? splitSubtitleCues(subtitleSourceCues, subtitleSplitOptions) : subtitleSourceCues,
+    [autoSplitSubtitles, subtitleSourceCues, subtitleSplitOptions],
+  );
   const activePreviewSubtitle = subtitlePreviewCues.find((cue) => previewTimelineTime >= cue.start && previewTimelineTime < cue.end);
   const previewSubtitleText = subtitlePreviewCues.length
     ? activePreviewSubtitle?.text ?? ""
@@ -4484,16 +4500,16 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     setSubtitleFile(file);
     setPreviewTimelineTime(0);
     if (!file) {
-      setSubtitlePreviewCues([]);
+      setSubtitleSourceCues([]);
       setSubtitlePreviewText("Phụ đề xem trước");
       return;
     }
     try {
       const cues = parseSubtitleFileText(await file.text());
-      setSubtitlePreviewCues(cues);
+      setSubtitleSourceCues(cues);
       setSubtitlePreviewText(cues[0]?.text?.trim() || "Phụ đề xem trước");
     } catch {
-      setSubtitlePreviewCues([]);
+      setSubtitleSourceCues([]);
       setSubtitlePreviewText("Không đọc được phụ đề");
     }
   };
@@ -4557,7 +4573,11 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     let subtitles: SubtitleCue[] = [];
     try {
       if (subtitleFile) {
-        subtitles = parseSubtitleFileText(await subtitleFile.text()).map((cue, index) => ({
+        const sourceCues = parseSubtitleFileText(await subtitleFile.text());
+        const cues = autoSplitSubtitles
+          ? splitSubtitleCues(sourceCues, subtitleSplitOptions)
+          : sourceCues;
+        subtitles = cues.map((cue, index) => ({
           id: `standalone-subtitle-${index + 1}`,
           text: cue.text,
           start: cue.start,
@@ -4690,11 +4710,13 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
           </label>
         </div>
         <div className="standalone-video-field-grid standalone-video-secondary-fields">
-          <label className="field standalone-video-field">
+          <div className="field standalone-video-field">
             <span>Phụ đề SRT</span>
             <input type="file" accept=".srt,application/x-subrip,text/plain" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { void handleSubtitleFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
             <small>{subtitleFile ? `Đã chọn: ${subtitleFile.name}` : "Tuỳ chọn · phụ đề sẽ được chèn vào video."}</small>
-          </label>
+            <label className="field-checkbox-control standalone-video-subtitle-split-control"><input type="checkbox" checked={autoSplitSubtitles} disabled={previewBusy} onChange={(event) => setAutoSplitSubtitles(event.target.checked)} /><b>Tự chia đoạn dài theo vùng hiển thị</b></label>
+            {subtitleFile && subtitlePreviewCues.length > 0 && autoSplitSubtitles && <small>Đã chia thành {subtitlePreviewCues.length} đoạn để chữ tự chuyển theo audio.</small>}
+          </div>
           <label className="field standalone-video-field">
             <span>Thời gian bắt đầu phát âm thanh</span>
             <div className="number-with-unit"><input type="number" min="0" step="0.1" value={audioStart} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setAudioStart(event.target.value)} /><b>giây</b></div>
