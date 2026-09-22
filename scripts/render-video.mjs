@@ -1825,9 +1825,9 @@ const createTextOverlay = async (overlay, index) => {
     : "";
   const svg = Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden" xmlns="http://www.w3.org/2000/svg">
-      <defs><filter id="textBaseShadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="${baseShadowY}" stdDeviation="${baseShadowBlur}" flood-color="#000000" flood-opacity=".72"/>${liftedShadow}</filter></defs>
+      <defs><filter id="textBaseShadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="${baseShadowY}" stdDeviation="${baseShadowBlur}" flood-color="#000000" flood-opacity=".72"/>${liftedShadow}</filter><clipPath id="textClip"><rect x="0" y="0" width="${width}" height="${height}" rx="${radius}" /></clipPath></defs>
       <rect x="${borderWidth / 2}" y="${borderWidth / 2}" width="${Math.max(1, width - borderWidth)}" height="${Math.max(1, height - borderWidth)}" rx="${radius}" fill="${borderFill}" fill-opacity="${borderOpacity}" stroke="${borderColor}" stroke-opacity="${borderOpacity}" stroke-width="${borderWidth}" />
-      <g filter="url(#textBaseShadow)">${textNodes}</g>
+      <g clip-path="url(#textClip)" filter="url(#textBaseShadow)">${textNodes}</g>
     </svg>
   `);
   const filename = path.join(renderDir, `text-overlay-${index + 1}.png`);

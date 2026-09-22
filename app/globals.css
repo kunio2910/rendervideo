@@ -7611,6 +7611,7 @@ body {
 .standalone-video-ruler-label.left { top: 50%; left: 4px; transform: translateY(-50%); }
 .standalone-video-subtitle-outline { position: absolute; z-index: 3; box-sizing: border-box; border: 1px dashed rgba(93, 190, 255, .95); border-radius: 3px; background: rgba(91, 186, 255, .07); pointer-events: none; transform: translate(-50%, -50%); }
 .standalone-video-review-subtitle { position: absolute; z-index: 4; top: 82%; left: 50%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; padding: 4px 8px; font-weight: 750; line-height: 1.2; text-align: center; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); white-space: pre-line; transform: translate(-50%, -50%); cursor: grab; touch-action: none; user-select: none; }
+.standalone-video-review-subtitle-content { display: block; max-width: 100%; max-height: 100%; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; }
 .standalone-video-review-subtitle:active { cursor: grabbing; }
 .standalone-video-review-subtitle:focus-visible { outline: 2px solid #63b5ff; outline-offset: 2px; }
 .standalone-video-review-note { color: var(--studio-muted); font-size: 9px; line-height: 1.4; }

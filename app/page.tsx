@@ -4788,11 +4788,13 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
                 top: `${subtitleY}%`,
                 width: `${subtitleReviewWidth}%`,
                 height: `${subtitleReviewBoxHeight}%`,
+                overflow: "hidden",
+                clipPath: "inset(0)",
                 color: subtitleColor,
                 fontFamily: subtitleFont,
                 fontSize: `${Math.max(12, Math.min(30, Number(subtitleSize) || 22))}px`,
               }}
-            >{previewSubtitleText}</div>
+            ><span className="standalone-video-review-subtitle-content">{previewSubtitleText}</span></div>
           </div>
           <audio ref={previewAudioRef} src={previewAudioSource || undefined} hidden preload="metadata" onTimeUpdate={(event) => setPreviewTimelineTime(Math.max(0, (Number(audioStart) || 0) + event.currentTarget.currentTime))} onEnded={() => { previewVideoRef.current?.pause(); setPreviewPlaying(false); }} aria-label="Âm thanh xem thử" />
           <small className="standalone-video-review-note">Kéo phụ đề hoặc chọn rồi dùng phím mũi tên để căn chỉnh. Thước và đường bao chỉ dùng khi xem trước.</small>
