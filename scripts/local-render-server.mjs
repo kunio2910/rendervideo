@@ -185,7 +185,7 @@ const summarizeFfmpegFailure = (log) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const meaningful = lines.filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line));
-  return (meaningful.at(-1) || lines.at(-1) || "")
+  return (meaningful.toReversed().find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line)) || meaningful.at(-1) || lines.at(-1) || "")
     .replace(/\s+/g, " ")
     .slice(0, 360);
 };

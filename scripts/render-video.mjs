@@ -241,6 +241,7 @@ const videoEncoderArgs = resolvedVideoEncoder.codec === "libx264"
           "-rc", "vbr",
           "-cq", hardwareQuality,
         ];
+const cpuVideoEncoderArgs = ["-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf];
 const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
@@ -898,7 +899,8 @@ const summarizeProcessFailure = (output) => String(output || "")
   .map((line) => line.trim())
   .filter((line) => line && !/^frame=|^size=|^video:/i.test(line))
   .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line))
-  .at(-1)
+  .toReversed()
+  .find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line))
   ?.replace(/\s+/g, " ")
   .slice(0, 360) || "";
 
@@ -920,7 +922,10 @@ const run = (command, args) =>
         return;
       }
       const detail = summarizeProcessFailure(output);
-      reject(new Error(`${path.basename(command)} exited ${normalizedCode}${detail ? `: ${detail}` : ""}`));
+      const error = new Error(`${path.basename(command)} exited ${normalizedCode}${detail ? `: ${detail}` : ""}`);
+      error.code = normalizedCode;
+      error.output = output;
+      reject(error);
     });
   });
 
@@ -2940,6 +2945,16 @@ for (let index = 0; index < scenes.length; index += 1) {
   // Weather, subtitles and layered media can make a filter graph much longer
   // than Windows' process command-line limit. Keep the graph in a file so a
   // scene with all environmental effects can still be rendered reliably.
+  // Large scenes can contain many video/mask/subtitle inputs. Keep their
+  // demux queues and filter workers small so hardware encoders do not run out
+  // of memory while all overlays are active at once.
+  const sceneComplexity = sceneImageRenders.length
+    + subtitleRenders.length
+    + popupRenders.length
+    + decorationRenders.length
+    + weatherInputSpecs.length;
+  const sceneInputQueueSize = sceneComplexity > 10 ? 1 : ffmpegInputQueueSize;
+  const sceneFilterThreads = sceneComplexity > 10 ? 1 : ffmpegFilterThreads;
   const args = ["-y"];
   const addInputForDuration = (inputDuration, ...inputArgs) => {
     const inputIndex = inputArgs.indexOf("-i");
@@ -2951,7 +2966,7 @@ for (let index = 0; index < scenes.length; index += 1) {
           ...inputArgs.slice(inputIndex),
         ];
     args.push(
-      "-thread_queue_size", String(ffmpegInputQueueSize),
+      "-thread_queue_size", String(sceneInputQueueSize),
       ...boundedInputArgs,
     );
   };
@@ -3085,23 +3100,31 @@ for (let index = 0; index < scenes.length; index += 1) {
   const filterScriptPath = path.join(renderDir, `scene-${index + 1}-filtergraph.txt`);
   await fs.writeFile(filterScriptPath, filter, "utf8");
   args.push(
-    "-filter_threads", String(ffmpegFilterThreads),
-    "-filter_complex_threads", String(ffmpegFilterThreads),
+    "-filter_threads", String(sceneFilterThreads),
+    "-filter_complex_threads", String(sceneFilterThreads),
     "-filter_complex_script", filterScriptPath,
     "-map", "[composed]",
   );
   args.push(...audioMapArgs);
-  args.push(
+  const outputArgs = (encoderArgs) => [
     "-t", String(duration),
     "-r", String(fps),
-    ...videoEncoderArgs,
+    ...encoderArgs,
     "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     ...(scenes.length === 1 ? ["-movflags", "+faststart"] : []),
     clip,
-  );
+  ];
   console.log(`Rendering scene ${index + 1}/${scenes.length}: ${scene.sceneName ?? scene.title ?? `Cảnh ${index + 1}`}`);
-  await run(ffmpeg, args);
+  try {
+    await run(ffmpeg, [...args, ...outputArgs(videoEncoderArgs)]);
+  } catch (error) {
+    const hardwareEncoderFailed = resolvedVideoEncoder.codec !== "libx264"
+      && Number(error?.code) === -12;
+    if (!hardwareEncoderFailed) throw error;
+    console.warn(`Encoder ${encoderLabels[resolvedVideoEncoder.codec] ?? resolvedVideoEncoder.codec} thiếu tài nguyên ở cảnh ${index + 1}; chuyển sang CPU · libx264 và thử lại.`);
+    await run(ffmpeg, [...args, ...outputArgs(cpuVideoEncoderArgs)]);
+  }
   clipPaths.push(clip);
   console.log(`Scene complete ${index + 1}/${scenes.length}`);
 }
