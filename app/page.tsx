@@ -1960,7 +1960,7 @@ type EditorSectionClipboard =
       section: "layer";
     };
 
-type StudioTab = "compose" | "export" | "settings" | "studio" | "script" | "image" | "whiteboard";
+type StudioTab = "compose" | "export" | "settings" | "studio" | "video" | "script" | "image" | "whiteboard";
 type StudioTtsProvider = "elevenlabs" | "browser";
 type SavedSceneStructureTemplate = {
   id: string;
@@ -4275,10 +4275,37 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
+  const [subtitlePreviewText, setSubtitlePreviewText] = useState("Phụ đề xem trước");
+  const [subtitleSize, setSubtitleSize] = useState("22");
+  const [subtitleColor, setSubtitleColor] = useState("#ffffff");
+  const [subtitleFont, setSubtitleFont] = useState<OverlayTextFont>("Arial");
   const [audioStart, setAudioStart] = useState("0");
   const [outputName, setOutputName] = useState("video-tao-doc-lap");
   const [renderState, setRenderState] = useState<StandaloneVideoRenderState>(standaloneVideoInitialState);
   const jobIdRef = useRef("");
+  const previewMediaSource = useMemo(() => {
+    if (mediaFile) return URL.createObjectURL(mediaFile);
+    return mediaUrl.trim();
+  }, [mediaFile, mediaUrl]);
+  const previewMediaIsVideo = mediaFile?.type.startsWith("video/") || isVideoMedia(mediaUrl);
+
+  useEffect(() => () => {
+    if (previewMediaSource.startsWith("blob:")) URL.revokeObjectURL(previewMediaSource);
+  }, [previewMediaSource]);
+
+  const handleSubtitleFile = async (file: File | null) => {
+    setSubtitleFile(file);
+    if (!file) {
+      setSubtitlePreviewText("Phụ đề xem trước");
+      return;
+    }
+    try {
+      const firstCue = parseSubtitleFileText(await file.text())[0];
+      setSubtitlePreviewText(firstCue?.text?.trim() || "Phụ đề xem trước");
+    } catch {
+      setSubtitlePreviewText("Không đọc được phụ đề");
+    }
+  };
 
   const setFailure = (message: string) => {
     jobIdRef.current = "";
@@ -4367,6 +4394,11 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
       : [];
     standaloneScene.subtitleEnabled = subtitles.length > 0;
     standaloneScene.subtitles = subtitles;
+    standaloneScene.subtitleStyle = normalizeSubtitleStyle({
+      size: Math.max(8, Math.min(120, Number(subtitleSize) || 22)),
+      color: subtitleColor,
+      font: subtitleFont,
+    });
 
     const standaloneProject = {
       version: 2,
@@ -4439,7 +4471,8 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
         </div>
         <span className="settings-resource-badge">MP4</span>
       </div>
-      <div className="standalone-video-form">
+      <div className="standalone-video-content-grid">
+        <div className="standalone-video-form">
         <div className="standalone-video-field-grid">
           <label className="field standalone-video-field">
             <span>Hình ảnh hoặc video</span>
@@ -4457,7 +4490,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
         <div className="standalone-video-field-grid standalone-video-secondary-fields">
           <label className="field standalone-video-field">
             <span>Phụ đề SRT</span>
-            <input type="file" accept=".srt,application/x-subrip,text/plain" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setSubtitleFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <input type="file" accept=".srt,application/x-subrip,text/plain" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { void handleSubtitleFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
             <small>{subtitleFile ? `Đã chọn: ${subtitleFile.name}` : "Tuỳ chọn · phụ đề sẽ được chèn vào video."}</small>
           </label>
           <label className="field standalone-video-field">
@@ -4465,6 +4498,16 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
             <div className="number-with-unit"><input type="number" min="0" step="0.1" value={audioStart} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setAudioStart(event.target.value)} /><b>giây</b></div>
             <small>Âm thanh sẽ bắt đầu sau số giây này.</small>
           </label>
+        </div>
+        <div className="standalone-video-subtitle-settings">
+          <div className="standalone-video-subtitle-heading">
+            <div><strong>Định dạng phụ đề</strong><small>Áp dụng cho phụ đề SRT khi xuất video.</small></div>
+          </div>
+          <div className="standalone-video-subtitle-grid">
+            <label className="field standalone-video-field"><span>Kích thước chữ</span><div className="number-with-unit"><input type="number" min="8" max="120" step="1" value={subtitleSize} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleSize(event.target.value)} /><b>px</b></div></label>
+            <label className="field standalone-video-field"><span>Màu chữ</span><input className="standalone-video-color-input" type="color" value={subtitleColor} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleColor(event.target.value)} /></label>
+            <label className="field standalone-video-field"><span>Font chữ</span><select value={subtitleFont} disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setSubtitleFont(event.target.value as OverlayTextFont)}>{OVERLAY_TEXT_FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label>
+          </div>
         </div>
         <label className="field standalone-video-name-field"><span>Tên file xuất</span><input value={outputName} onChange={(event) => setOutputName(event.target.value)} placeholder="video-tao-doc-lap" /></label>
         <div className="settings-resource-actions">
@@ -4477,6 +4520,19 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
           {renderState.detail && <small>{renderState.detail}</small>}
           {renderState.status === "failed" && <p className="settings-resource-notice error">Hãy kiểm tra dịch vụ local renderer tại {LOCAL_RENDERER_URL} rồi thử lại.</p>}
         </div>
+        </div>
+        <aside className="standalone-video-review" aria-labelledby="standalone-video-review-heading">
+          <div className="standalone-video-review-heading"><strong id="standalone-video-review-heading">Review nhanh</strong><small>{aspectRatio}</small></div>
+          <div className={`standalone-video-review-stage ${aspectRatio === "16:9" ? "is-wide" : "is-vertical"}`}>
+            {previewMediaSource
+              ? previewMediaIsVideo
+                ? <video src={previewMediaSource} muted loop autoPlay playsInline preload="metadata" aria-label="Review hình hoặc video" />
+                : <img src={previewMediaSource} alt="Review tài nguyên video" />
+              : <div className="standalone-video-review-empty">Chọn hình/video để xem trước</div>}
+            <div className="standalone-video-review-subtitle" style={{ color: subtitleColor, fontFamily: subtitleFont, fontSize: `${Math.max(12, Math.min(30, Number(subtitleSize) || 22))}px` }}>{subtitlePreviewText}</div>
+          </div>
+          <small className="standalone-video-review-note">Review hiển thị phụ đề mẫu và sẽ dùng đúng size, màu, font khi tạo MP4.</small>
+        </aside>
       </div>
     </section>
   );
@@ -4733,7 +4789,6 @@ function SettingsWorkspace({
       <section className="settings-workspace" aria-label="Nội dung cài đặt clip và cảnh">
         <div className="settings-layout">
           <div className="settings-content">
-            <StandaloneVideoCreatePanel aspectRatio={aspectRatio} />
             <div className="settings-clip-grid">
               <section className="settings-card settings-clip-list-card">
                 <div className="settings-card-heading">
@@ -18267,6 +18322,16 @@ function Home() {
           </button>
           <button
             type="button"
+            className={`rail-item ${activeStudioTab === "video" ? "active" : ""}`}
+            onClick={() => setActiveStudioTab("video")}
+            aria-current={activeStudioTab === "video" ? "page" : undefined}
+            title="Tạo video độc lập từ hình/video, âm thanh và phụ đề"
+          >
+            <span className="rail-icon" aria-hidden="true">▶</span>
+            <span>Video</span>
+          </button>
+          <button
+            type="button"
             className={`rail-item ${activeStudioTab === "script" ? "active" : ""}`}
             onClick={() => setActiveStudioTab("script")}
             aria-current={activeStudioTab === "script" ? "page" : undefined}
@@ -22803,6 +22868,20 @@ function Home() {
                     <p className="export-help">Các file trong thư viện tài nguyên sẽ được dùng lại cho những lần render tiếp theo.</p>
                   </div>
                 </div>
+              </section>
+            </>
+          ) : activeStudioTab === "video" ? (
+            <>
+              <header className="topbar video-topbar">
+                <div className="studio-page-title">
+                  <span className="studio-page-kicker">KITO VIDEO STUDIO</span>
+                  <h1>Tạo video</h1>
+                  <p>Ghép hình/video, âm thanh và phụ đề thành MP4 độc lập.</p>
+                </div>
+              </header>
+              <section className="video-workspace" aria-labelledby="video-workspace-heading">
+                <h2 id="video-workspace-heading" className="sr-only">Tạo video độc lập</h2>
+                <StandaloneVideoCreatePanel aspectRatio={aspectRatio} />
               </section>
             </>
           ) : activeStudioTab === "whiteboard" ? (
