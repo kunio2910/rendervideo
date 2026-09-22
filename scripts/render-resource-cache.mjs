@@ -22,10 +22,12 @@ export const referenceName = (value, fallbackName = "resource") => {
   return path.basename(trimmed.replaceAll("\\", "/")) || fallbackName;
 };
 
-// Keep this key compatible with the cache used by earlier renderer versions.
-// It deliberately reuses an asset when several scenes use the same filename.
+// Remote URLs must be part of the key. Two different URLs often end with the
+// same filename (for example image.png); using only that filename would make
+// a later render reuse the previous image.
 export const resourceKey = (kind, value, fallbackName = "resource") => {
   const trimmed = String(value ?? "").trim();
+  if (isRemoteResourceUrl(trimmed)) return `${kind}:url:${trimmed}`;
   const name = referenceName(trimmed, fallbackName).toLowerCase();
   if (name && name !== fallbackName.toLowerCase()) return `${kind}:name:${name}`;
   return `${kind}:url:${trimmed}`;

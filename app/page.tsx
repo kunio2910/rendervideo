@@ -4676,14 +4676,14 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
         <div className="standalone-video-field-grid">
           <label className="field standalone-video-field">
             <span>Hình ảnh hoặc video</span>
-            <input type="url" inputMode="url" value={mediaUrl} placeholder="https://.../image.png hoặc video.mp4" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setMediaUrl(event.target.value)} />
-            <input type="file" accept="image/*,video/*" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setMediaFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <input type="url" inputMode="url" value={mediaUrl} placeholder="https://.../image.png hoặc video.mp4" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setMediaUrl(event.target.value); setMediaFile(null); }} />
+            <input type="file" accept="image/*,video/*" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setMediaFile(event.currentTarget.files?.[0] ?? null); setMediaUrl(""); event.currentTarget.value = ""; }} />
             <small>{mediaFile ? `Đã chọn: ${mediaFile.name}` : "Chọn file từ máy hoặc dùng URL."}</small>
           </label>
           <label className="field standalone-video-field">
             <span>Âm thanh</span>
-            <input type="url" inputMode="url" value={audioUrl} placeholder="https://.../voice.mp3" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => setAudioUrl(event.target.value)} />
-            <input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setAudioFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+            <input type="url" inputMode="url" value={audioUrl} placeholder="https://.../voice.mp3" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setAudioUrl(event.target.value); setAudioFile(null); }} />
+            <input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" disabled={renderState.status === "uploading" || renderState.status === "rendering"} onChange={(event) => { setAudioFile(event.currentTarget.files?.[0] ?? null); setAudioUrl(""); event.currentTarget.value = ""; }} />
             <small>{audioFile ? `Đã chọn: ${audioFile.name}` : "Tuỳ chọn · có thể dùng URL âm thanh."}</small>
           </label>
         </div>
