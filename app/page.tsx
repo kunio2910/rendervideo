@@ -14406,7 +14406,13 @@ function Home() {
         item.background ?? "",
         false,
       );
-      addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageEnabled);
+      const imageIsRequired = imageEnabled && scenePopupList(item).some((popup) => {
+        if (popup.visible === false || popup.imageVisible === false || safeTrim(popup.video)) return false;
+        const layout = popupDimensionLayout(popup.layout);
+        const hasText = Boolean(safeTrim(popup.title) || safeTrim(popup.body));
+        return layout === "image-only" || (!hasText && layout !== "content-only" && layout !== "quote");
+      });
+      addSourceCheck(`scene-${item.id}-image`, `Ảnh cảnh ${item.number}`, imageEnabled ? item.image : "", imageIsRequired);
       const visibleAudioTracks = narrationEnabled
         ? (item.audioTracks ?? []).filter((track) => track.visible !== false)
         : [];
@@ -14485,11 +14491,18 @@ function Home() {
     }
     const canRender = await runRenderPreflight(scope);
     if (!canRender) {
-      const shouldContinue = window.confirm("Chưa đủ tài nguyên, bạn có muốn tiếp tục ?");
-      if (!shouldContinue) {
-        setLocalRenderState((state) => ({ ...state, status: "failed", message: "Cần xử lý các mục kiểm tra trước khi render" }));
-        return;
-      }
+      const message = "Không thể render: hãy xử lý các mục báo lỗi trong phần kiểm tra trước render.";
+      setLocalRenderState((state) => ({
+        ...state,
+        status: "failed",
+        progress: 0,
+        message,
+        stage: "preparing",
+        stageLabel: "Kiểm tra đầu vào",
+        detail: message,
+      }));
+      onNotify(message);
+      return;
     }
     setLocalRenderState({
       status: "uploading",

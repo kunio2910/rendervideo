@@ -607,6 +607,13 @@ const runJob = async (job, project, files) => {
           job.message = job.detail;
           continue;
         }
+        const encoderFallbackMatch = line.match(/^Video encoder fallback:\s*(.+)$/i);
+        if (encoderFallbackMatch) {
+          job.videoEncoder = encoderFallbackMatch[1].trim();
+          job.detail = `Đã chuyển sang encoder dự phòng: ${job.videoEncoder}`;
+          job.message = job.detail;
+          continue;
+        }
         const sceneMatch = line.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/i);
         if (sceneMatch) {
           const scene = Number(sceneMatch[1]);

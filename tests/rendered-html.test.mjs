@@ -730,6 +730,13 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(renderer, /audioVolume/);
   assert.match(renderer, /resolveVideo/);
   assert.match(renderer, /resolveBackground/);
+  assert.match(renderer, /shouldFallbackFromHardwareEncoder/);
+  assert.match(renderer, /-1094995529/);
+  assert.match(renderer, /encoderPixelFormat/);
+  assert.match(renderer, /Video encoder fallback: CPU/);
+  assert.match(localServer, /Video encoder fallback/);
+  assert.match(page, /const imageIsRequired = imageEnabled/);
+  assert.match(page, /Không thể render: hãy xử lý các mục báo lỗi/);
   assert.match(renderer, /cacheRemoteResource/);
   assert.match(localServer, /\/api\/cache\/sync/);
   assert.match(localServer, /\/api\/rendered-clips/);

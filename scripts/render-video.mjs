@@ -242,6 +242,23 @@ const videoEncoderArgs = resolvedVideoEncoder.codec === "libx264"
           "-cq", hardwareQuality,
         ];
 const cpuVideoEncoderArgs = ["-c:v", "libx264", "-preset", videoPreset, "-crf", videoCrf];
+const encoderPixelFormat = (encoderArgs) =>
+  encoderArgs.includes("h264_qsv") ? "nv12" : "yuv420p";
+const hardwareEncoderFailureCodes = new Set([
+  -12, // AVERROR(ENOMEM)
+  -22, // AVERROR(EINVAL)
+  -1094995529, // AVERROR_INVALIDDATA
+]);
+const shouldFallbackFromHardwareEncoder = (error, encoder) => {
+  if (encoder === "libx264") return false;
+  const code = Number(error?.code);
+  if (hardwareEncoderFailureCodes.has(code)) return true;
+  const output = String(error?.output ?? "").toLowerCase();
+  return output.includes(String(encoder).toLowerCase())
+    || /h264_(?:qsv|amf|nvenc)/i.test(output);
+};
+let activeVideoEncoder = resolvedVideoEncoder.codec;
+let activeVideoEncoderArgs = videoEncoderArgs;
 const audioBitrate = renderProfile === "fast" ? "128k" : "192k";
 const PREVIEW_REFERENCE_WIDTH = 472;
 const PREVIEW_REFERENCE_HEIGHT = PREVIEW_REFERENCE_WIDTH * 16 / 9;
@@ -3118,20 +3135,23 @@ for (let index = 0; index < scenes.length; index += 1) {
     "-t", String(duration),
     "-r", String(fps),
     ...encoderArgs,
-    "-pix_fmt", "yuv420p",
+    "-pix_fmt", encoderPixelFormat(encoderArgs),
     "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
     ...(scenes.length === 1 ? ["-movflags", "+faststart"] : []),
     clip,
   ];
   console.log(`Rendering scene ${index + 1}/${scenes.length}: ${scene.sceneName ?? scene.title ?? `Cảnh ${index + 1}`}`);
   try {
-    await run(ffmpeg, [...args, ...outputArgs(videoEncoderArgs)]);
+    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)]);
   } catch (error) {
-    const hardwareEncoderFailed = resolvedVideoEncoder.codec !== "libx264"
-      && Number(error?.code) === -12;
+    const hardwareEncoderFailed = shouldFallbackFromHardwareEncoder(error, activeVideoEncoder);
     if (!hardwareEncoderFailed) throw error;
-    console.warn(`Encoder ${encoderLabels[resolvedVideoEncoder.codec] ?? resolvedVideoEncoder.codec} thiếu tài nguyên ở cảnh ${index + 1}; chuyển sang CPU · libx264 và thử lại.`);
-    await run(ffmpeg, [...args, ...outputArgs(cpuVideoEncoderArgs)]);
+    const failedEncoderLabel = encoderLabels[activeVideoEncoder] ?? activeVideoEncoder;
+    activeVideoEncoder = "libx264";
+    activeVideoEncoderArgs = cpuVideoEncoderArgs;
+    console.warn(`Encoder ${failedEncoderLabel} lỗi ở cảnh ${index + 1} (mã ${Number(error?.code) || "không rõ"}); chuyển sang CPU · libx264 và thử lại.`);
+    console.log("Video encoder fallback: CPU · libx264");
+    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)]);
   }
   clipPaths.push(clip);
   console.log(`Scene complete ${index + 1}/${scenes.length}`);
