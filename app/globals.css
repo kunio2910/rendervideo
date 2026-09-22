@@ -4090,6 +4090,46 @@ body {
   flex: 0 0 auto;
   font-size: 9px;
 }
+.preflight-bypass-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(221,161,62,.38);
+  border-radius: 9px;
+  background: rgba(221,161,62,.08);
+  cursor: pointer;
+}
+.preflight-bypass-toggle input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  accent-color: #dda13e;
+}
+.preflight-bypass-toggle span {
+  display: block;
+  min-width: 0;
+}
+.preflight-bypass-toggle strong,
+.preflight-bypass-toggle small {
+  display: block;
+}
+.preflight-bypass-toggle strong {
+  color: var(--studio-ink);
+  font-size: 10px;
+}
+.preflight-bypass-toggle small {
+  margin-top: 3px;
+  color: var(--studio-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+.studio-shell[data-theme="dark"] .preflight-bypass-toggle {
+  border-color: rgba(221,161,62,.48);
+  background: rgba(221,161,62,.12);
+}
 .preflight-list,
 .asset-library-list {
   display: grid;

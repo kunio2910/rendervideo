@@ -1740,6 +1740,7 @@ type PreflightCheck = {
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
+  bypassable?: boolean;
 };
 
 type AutoClipTemplate = "current" | "story-map" | "vertical";
@@ -6428,6 +6429,7 @@ function Home() {
   const [assetLibrary, setAssetLibrary] = useState<AssetLibraryItem[]>([]);
   const [workspaceBackupBusy, setWorkspaceBackupBusy] = useState(false);
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
+  const [allowRenderWithMissingResources, setAllowRenderWithMissingResources] = useState(false);
   const [previewZoom, setPreviewZoom] = useState(PREVIEW_ZOOM_DEFAULT);
   const [previewImagesVisible, setPreviewImagesVisible] = useState(true);
   const [previewEffectsVisible, setPreviewEffectsVisible] = useState(true);
@@ -14332,7 +14334,11 @@ function Home() {
     }
   };
 
-  const runRenderPreflight = async (scope: "project" | "scene" = "project") => {
+  const runRenderPreflight = async (
+    scope: "project" | "scene" = "project",
+    options: { allowMissingResources?: boolean } = {},
+  ) => {
+    const allowMissingResources = options.allowMissingResources ?? allowRenderWithMissingResources;
     const checks: PreflightCheck[] = [];
     const selectedFileNames = new Set(localRenderFiles.map((file) => file.name));
     const renderScenes = scope === "scene" ? [scene] : visibleScenes;
@@ -14359,6 +14365,7 @@ function Home() {
           label,
           status: required ? "error" : "warning",
           detail: required ? "Chưa chọn tài nguyên." : "Đang dùng giá trị mặc định hoặc bỏ qua.",
+          bypassable: true,
         });
         return;
       }
@@ -14373,7 +14380,7 @@ function Home() {
             detail: "URL hợp lệ; dịch vụ render sẽ tải tài nguyên từ mạng.",
           });
         } catch {
-          checks.push({ id, label, status: "error", detail: "URL không hợp lệ." });
+          checks.push({ id, label, status: "error", detail: "URL không hợp lệ.", bypassable: false });
         }
         return;
       }
@@ -14381,7 +14388,13 @@ function Home() {
       if (selectedFileNames.has(fileName)) {
         checks.push({ id, label, status: "ok", detail: `Đã có ${fileName} trong thư viện.` });
       } else {
-        checks.push({ id, label, status: "error", detail: `Thiếu file cục bộ “${fileName}”.` });
+        checks.push({
+          id,
+          label,
+          status: "error",
+          detail: `Thiếu file cục bộ “${fileName}”.`,
+          bypassable: true,
+        });
       }
     };
 
@@ -14476,12 +14489,14 @@ function Home() {
       }));
     }
     setPreflightChecks(checks);
-    return !checks.some((check) => check.status === "error");
+    return !checks.some((check) => (
+      check.status === "error" && !(allowMissingResources && check.bypassable)
+    ));
   };
 
   const startLocalRender = async (scope: "project" | "scene" = "project") => {
-    const renderPayload = buildRenderPayload(scope);
-    if (!renderPayload) {
+    const rawRenderPayload = buildRenderPayload(scope);
+    if (!rawRenderPayload) {
       setLocalRenderState({
         status: "failed",
         progress: 0,
@@ -14489,9 +14504,13 @@ function Home() {
       });
       return;
     }
-    const canRender = await runRenderPreflight(scope);
+    const canRender = await runRenderPreflight(scope, {
+      allowMissingResources: allowRenderWithMissingResources,
+    });
     if (!canRender) {
-      const message = "Không thể render: hãy xử lý các mục báo lỗi trong phần kiểm tra trước render.";
+      const message = allowRenderWithMissingResources
+        ? "Không thể render: vẫn còn lỗi hệ thống hoặc URL không hợp lệ không thể bypass."
+        : "Không thể render: hãy xử lý các mục báo lỗi trong phần kiểm tra trước render hoặc bật bypass tài nguyên thiếu.";
       setLocalRenderState((state) => ({
         ...state,
         status: "failed",
@@ -14504,6 +14523,58 @@ function Home() {
       onNotify(message);
       return;
     }
+
+    const selectedFileNames = new Set(
+      localRenderFiles.map((file) => fileNameOnly(file.name).toLowerCase()),
+    );
+    const canResolveRenderSource = (value: unknown) => {
+      const source = safeTrim(value);
+      if (!source) return false;
+      if (isRemoteUrl(source)) return true;
+      return selectedFileNames.has(fileNameOnly(source).toLowerCase());
+    };
+    const renderPayload = allowRenderWithMissingResources
+      ? (() => {
+          const next = JSON.parse(JSON.stringify(rawRenderPayload)) as typeof rawRenderPayload;
+          if (next.background && !canResolveRenderSource(next.background)) next.background = "";
+          if (next.backgroundMusic && !canResolveRenderSource(next.backgroundMusic)) next.backgroundMusic = "";
+          next.scenes = next.scenes.map((sourceScene) => {
+            const nextScene = { ...sourceScene };
+            const hasProjectFallback = canResolveRenderSource(next.background);
+            if (nextScene.background && !canResolveRenderSource(nextScene.background)) {
+              nextScene.background = "";
+              nextScene.backgroundVisible = hasProjectFallback;
+            }
+            if (nextScene.image && !canResolveRenderSource(nextScene.image)) {
+              nextScene.image = "";
+              nextScene.imageVisible = false;
+            }
+            if (nextScene.popupVideo && !canResolveRenderSource(nextScene.popupVideo)) {
+              nextScene.popupVideo = "";
+            }
+            nextScene.audioTracks = (nextScene.audioTracks ?? []).filter((track) => canResolveRenderSource(track.source));
+            nextScene.voiceFile = canResolveRenderSource(nextScene.voiceFile)
+              ? nextScene.voiceFile
+              : nextScene.audioTracks[0]?.source ?? "";
+            nextScene.popups = (nextScene.popups ?? []).map((popup) => ({
+              ...popup,
+              ...(popup.image && !canResolveRenderSource(popup.image)
+                ? { image: "", imageVisible: false }
+                : {}),
+              ...(popup.video && !canResolveRenderSource(popup.video) ? { video: "" } : {}),
+            }));
+            nextScene.sceneImages = (nextScene.sceneImages ?? []).filter((image) => (
+              canResolveRenderSource(image.url ?? image.asset)
+            ));
+            nextScene.mapDecorations = (nextScene.mapDecorations ?? []).filter((decoration) => (
+              !["sticker", "animated-sticker"].includes(String(decoration.type ?? ""))
+              || canResolveRenderSource(decoration.asset)
+            ));
+            return nextScene;
+          });
+          return next;
+        })()
+      : rawRenderPayload;
     setLocalRenderState({
       status: "uploading",
       progress: 2,
@@ -23909,6 +23980,19 @@ function Home() {
                   Kiểm tra lại
                 </button>
               </div>
+              <label className="preflight-bypass-toggle">
+                <input
+                  type="checkbox"
+                  checked={allowRenderWithMissingResources}
+                  onChange={(event) => setAllowRenderWithMissingResources(event.target.checked)}
+                />
+                <span>
+                  <strong>Cho phép bypass tài nguyên thiếu</strong>
+                  <small>
+                    Khi bật, ảnh/âm thanh/video cục bộ chưa chọn sẽ được bỏ qua hoặc dùng nền mặc định. Lỗi FFmpeg, máy chủ local và URL không hợp lệ vẫn chặn render.
+                  </small>
+                </span>
+              </label>
               {preflightChecks.length ? (
                 <ul className="preflight-list">
                   {preflightChecks.map((check) => (
