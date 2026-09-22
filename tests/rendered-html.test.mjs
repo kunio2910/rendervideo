@@ -459,6 +459,9 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /renderStageSteps/);
   assert.match(page, /formatRenderDuration/);
   assert.match(page, /Video đã render · Nối nhanh/);
+  assert.match(page, /standalone-video-fullscreen-toggle/);
+  assert.match(page, /Mở Review nhanh toàn màn hình/);
+  assert.match(page, /setReviewFullscreen\(\(current\) => !current\)/);
   assert.match(page, /selectedRenderedClipIds/);
   assert.match(page, /startLocalConcat/);
   assert.match(page, /rendered-clips-card/);
@@ -484,6 +487,8 @@ test("keeps preview and FFmpeg render settings aligned", async () => {
   assert.match(page, /transformOrigin: `\$\{scene\.centerX\}% \$\{scene\.centerY\}%`/);
   assert.match(page, /transitionDuration: previewPlaybackMode \? "0ms"/);
   assert.match(css, /transform-origin: center bottom/);
+  assert.match(css, /standalone-video-review\.is-fullscreen/);
+  assert.match(css, /standalone-video-review\.is-fullscreen[\s\S]{0,240}height: min\(82vh, 900px\)/);
   assert.match(css, /phone-preview\.is-playing \.popup-resize-handle/);
   assert.match(css, /aspect-ratio: 9 \/ 16/);
   assert.match(css, /preview-control-panel/);

@@ -4294,6 +4294,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewTimelineTime, setPreviewTimelineTime] = useState(0);
   const [rulerVisible, setRulerVisible] = useState(false);
+  const [reviewFullscreen, setReviewFullscreen] = useState(false);
   const [stillCamera, setStillCamera] = useState<NonNullable<Scene["stillCamera"]>>({ enabled: false, direction: "horizontal", amount: 8, speed: 1 });
   const [cameraTime, setCameraTime] = useState(0);
   const cameraClock = useRef(0);
@@ -4398,6 +4399,20 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
       // localStorage may be unavailable in private browsing or restricted contexts.
     }
   }, [subtitleSettingsHydrated, subtitleSize, subtitleColor, subtitleFont, subtitleX, subtitleY, subtitleWidth, subtitleHeight]);
+
+  useEffect(() => {
+    if (!reviewFullscreen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setReviewFullscreen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [reviewFullscreen]);
 
   const previewBusy = renderState.status === "uploading" || renderState.status === "rendering";
   const subtitleReviewWidth = Math.max(40, Math.min(100, Number(subtitleWidth) || 84));
@@ -4766,7 +4781,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
           {renderState.status === "failed" && <p className="settings-resource-notice error">Hãy kiểm tra dịch vụ local renderer tại {LOCAL_RENDERER_URL} rồi thử lại.</p>}
         </div>
         </div>
-        <aside className="standalone-video-review" aria-labelledby="standalone-video-review-heading">
+        <aside className={`standalone-video-review ${reviewFullscreen ? "is-fullscreen" : ""}`} aria-labelledby="standalone-video-review-heading">
           <div className="standalone-video-review-heading">
             <strong id="standalone-video-review-heading">Review nhanh</strong>
             <div className="standalone-video-review-actions">
@@ -4780,6 +4795,23 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" /><path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" /></svg>
                 <span className="sr-only">Thước</span>
+              </button>
+              <button
+                type="button"
+                className={`standalone-video-fullscreen-toggle ${reviewFullscreen ? "active" : ""}`}
+                aria-label={reviewFullscreen ? "Thu nhỏ Review nhanh" : "Mở Review nhanh toàn màn hình"}
+                aria-pressed={reviewFullscreen}
+                title={reviewFullscreen ? "Thu nhỏ Review nhanh (Esc)" : "Mở Review nhanh toàn màn hình"}
+                onClick={() => setReviewFullscreen((current) => !current)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {reviewFullscreen ? (
+                    <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                  ) : (
+                    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                  )}
+                </svg>
+                <span className="sr-only">Toàn màn hình</span>
               </button>
               <small>{aspectRatio}</small>
             </div>
