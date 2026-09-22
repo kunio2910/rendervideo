@@ -4276,6 +4276,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [audioUrl, setAudioUrl] = useState("");
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
   const [subtitlePreviewText, setSubtitlePreviewText] = useState("Phụ đề xem trước");
+  const [subtitlePreviewCues, setSubtitlePreviewCues] = useState<Array<{ text: string; start: number; end: number }>>([]);
   const [subtitleSize, setSubtitleSize] = useState("22");
   const [subtitleColor, setSubtitleColor] = useState("#ffffff");
   const [subtitleFont, setSubtitleFont] = useState<OverlayTextFont>("Arial");
@@ -4287,6 +4288,8 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [outputName, setOutputName] = useState("video-tao-doc-lap");
   const [renderState, setRenderState] = useState<StandaloneVideoRenderState>(standaloneVideoInitialState);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewTimelineTime, setPreviewTimelineTime] = useState(0);
+  const [rulerVisible, setRulerVisible] = useState(false);
   const jobIdRef = useRef("");
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -4313,11 +4316,18 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const subtitleReviewHeight = subtitleHeight.trim() === ""
     ? undefined
     : Math.max(3, Math.min(40, Number(subtitleHeight) || 12));
+  const subtitleReviewBoxHeight = subtitleReviewHeight
+    ?? Math.min(16, Math.max(6, (Number(subtitleSize) || 22) / 3));
+  const activePreviewSubtitle = subtitlePreviewCues.find((cue) => previewTimelineTime >= cue.start && previewTimelineTime < cue.end);
+  const previewSubtitleText = subtitlePreviewCues.length
+    ? activePreviewSubtitle?.text ?? ""
+    : subtitlePreviewText;
   const clampReviewPosition = (value: number) => Math.max(2, Math.min(98, value));
 
   const startSubtitleReviewDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (previewBusy) return;
     event.preventDefault();
+    event.currentTarget.focus();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     subtitleDragRef.current = {
       startX: event.clientX,
@@ -4387,14 +4397,18 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
 
   const handleSubtitleFile = async (file: File | null) => {
     setSubtitleFile(file);
+    setPreviewTimelineTime(0);
     if (!file) {
+      setSubtitlePreviewCues([]);
       setSubtitlePreviewText("Phụ đề xem trước");
       return;
     }
     try {
-      const firstCue = parseSubtitleFileText(await file.text())[0];
-      setSubtitlePreviewText(firstCue?.text?.trim() || "Phụ đề xem trước");
+      const cues = parseSubtitleFileText(await file.text());
+      setSubtitlePreviewCues(cues);
+      setSubtitlePreviewText(cues[0]?.text?.trim() || "Phụ đề xem trước");
     } catch {
+      setSubtitlePreviewCues([]);
       setSubtitlePreviewText("Không đọc được phụ đề");
     }
   };
@@ -4625,13 +4639,42 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
         </div>
         </div>
         <aside className="standalone-video-review" aria-labelledby="standalone-video-review-heading">
-          <div className="standalone-video-review-heading"><strong id="standalone-video-review-heading">Review nhanh</strong><small>{aspectRatio}</small></div>
+          <div className="standalone-video-review-heading">
+            <strong id="standalone-video-review-heading">Review nhanh</strong>
+            <div className="standalone-video-review-actions">
+              <button
+                type="button"
+                className={`standalone-video-ruler-toggle ${rulerVisible ? "active" : ""}`}
+                aria-label={rulerVisible ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                aria-pressed={rulerVisible}
+                title={rulerVisible ? "Tắt thước căn chỉnh" : "Bật thước căn chỉnh"}
+                onClick={() => setRulerVisible((current) => !current)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" /><path d="M8 5v4M12 5v7M16 5v4M8 19v-4M12 19v-7M16 19v-4" /></svg>
+                <span className="sr-only">Thước</span>
+              </button>
+              <small>{aspectRatio}</small>
+            </div>
+          </div>
           <div className={`standalone-video-review-stage ${aspectRatio === "16:9" ? "is-wide" : "is-vertical"}`}>
             {previewMediaSource
               ? previewMediaIsVideo
-                ? <video ref={previewVideoRef} src={previewMediaSource} muted loop={previewPlaying} autoPlay={previewPlaying} playsInline preload="metadata" aria-label="Review hình hoặc video" />
+                ? <video ref={previewVideoRef} src={previewMediaSource} muted loop={previewPlaying} autoPlay={previewPlaying} playsInline preload="metadata" aria-label="Review hình hoặc video" onTimeUpdate={(event) => { if (!previewAudioSource) setPreviewTimelineTime(event.currentTarget.currentTime); }} onEnded={() => { previewAudioRef.current?.pause(); setPreviewPlaying(false); }} />
                 : <img src={previewMediaSource} alt="Review tài nguyên video" />
               : <div className="standalone-video-review-empty">Chọn hình/video để xem trước</div>}
+            {rulerVisible && (
+              <div className="standalone-video-review-ruler" aria-hidden="true">
+                <span className="standalone-video-ruler-line vertical" />
+                <span className="standalone-video-ruler-line horizontal" />
+                <span className="standalone-video-ruler-label top">50%</span>
+                <span className="standalone-video-ruler-label left">50%</span>
+              </div>
+            )}
+            <div
+              className="standalone-video-subtitle-outline"
+              aria-hidden="true"
+              style={{ left: `${subtitleX}%`, top: `${subtitleY}%`, width: `${subtitleReviewWidth}%`, height: `${subtitleReviewBoxHeight}%` }}
+            />
             <div
               className="standalone-video-review-subtitle"
               role="button"
@@ -4646,15 +4689,15 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
                 left: `${subtitleX}%`,
                 top: `${subtitleY}%`,
                 width: `${subtitleReviewWidth}%`,
-                ...(subtitleReviewHeight ? { height: `${subtitleReviewHeight}%` } : {}),
+                height: `${subtitleReviewBoxHeight}%`,
                 color: subtitleColor,
                 fontFamily: subtitleFont,
                 fontSize: `${Math.max(12, Math.min(30, Number(subtitleSize) || 22))}px`,
               }}
-            >{subtitlePreviewText}</div>
+            >{previewSubtitleText}</div>
           </div>
-          <audio ref={previewAudioRef} src={previewAudioSource || undefined} hidden preload="metadata" onEnded={() => setPreviewPlaying(false)} aria-label="Âm thanh xem thử" />
-          <small className="standalone-video-review-note">Review hiển thị phụ đề mẫu và sẽ dùng đúng size, màu, font khi tạo MP4.</small>
+          <audio ref={previewAudioRef} src={previewAudioSource || undefined} hidden preload="metadata" onTimeUpdate={(event) => setPreviewTimelineTime(Math.max(0, (Number(audioStart) || 0) + event.currentTarget.currentTime))} onEnded={() => { previewVideoRef.current?.pause(); setPreviewPlaying(false); }} aria-label="Âm thanh xem thử" />
+          <small className="standalone-video-review-note">Kéo phụ đề hoặc chọn rồi dùng phím mũi tên để căn chỉnh. Thước và đường bao chỉ dùng khi xem trước.</small>
         </aside>
       </div>
     </section>

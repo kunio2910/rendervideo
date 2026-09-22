@@ -7592,13 +7592,25 @@ body {
 .standalone-video-review { display: grid; gap: 9px; padding: 13px; border: 1px solid var(--studio-line); border-radius: 10px; background: var(--panel-bg); }
 .standalone-video-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--studio-ink); }
 .standalone-video-review-heading strong { font-size: 11px; }
+.standalone-video-review-actions { display: flex; align-items: center; gap: 7px; }
 .standalone-video-review-heading small { color: var(--studio-muted); font: 700 9px var(--font-mono); }
+.standalone-video-ruler-toggle { display: grid; width: 27px; height: 27px; place-items: center; padding: 0; border: 1px solid var(--studio-line); border-radius: 7px; background: var(--panel-soft); color: var(--studio-muted); cursor: pointer; }
+.standalone-video-ruler-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+.standalone-video-ruler-toggle:hover, .standalone-video-ruler-toggle.active { border-color: #4d9bde; background: #e7f3ff; color: #1974bb; }
 .standalone-video-review-stage { position: relative; width: min(100%, 220px); margin: 0 auto; overflow: hidden; border: 1px solid #26394d; border-radius: 9px; background: #111a25; box-shadow: 0 8px 18px rgba(16, 27, 39, .14); }
 .standalone-video-review-stage.is-vertical { aspect-ratio: 9 / 16; }
 .standalone-video-review-stage.is-wide { width: 100%; aspect-ratio: 16 / 9; }
 .standalone-video-review-stage > img, .standalone-video-review-stage > video { display: block; width: 100%; height: 100%; object-fit: cover; }
 .standalone-video-review-empty { display: grid; place-items: center; height: 100%; min-height: 170px; padding: 18px; color: #aebdca; text-align: center; font-size: 10px; }
-.standalone-video-review-subtitle { position: absolute; top: 82%; left: 50%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 4px 8px; font-weight: 750; line-height: 1.2; text-align: center; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); white-space: pre-line; transform: translate(-50%, -50%); cursor: grab; touch-action: none; user-select: none; }
+.standalone-video-review-ruler { position: absolute; z-index: 2; inset: 0; pointer-events: none; background-image: repeating-linear-gradient(to right, rgba(255, 255, 255, .16) 0, rgba(255, 255, 255, .16) 1px, transparent 1px, transparent 10%), repeating-linear-gradient(to bottom, rgba(255, 255, 255, .16) 0, rgba(255, 255, 255, .16) 1px, transparent 1px, transparent 10%); }
+.standalone-video-ruler-line { position: absolute; display: block; background: rgba(111, 201, 255, .9); box-shadow: 0 0 0 1px rgba(10, 45, 70, .35); }
+.standalone-video-ruler-line.vertical { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); }
+.standalone-video-ruler-line.horizontal { top: 50%; right: 0; left: 0; height: 1px; transform: translateY(-50%); }
+.standalone-video-ruler-label { position: absolute; padding: 2px 3px; border-radius: 3px; background: rgba(8, 20, 31, .75); color: #d9f3ff; font: 700 7px var(--font-mono); }
+.standalone-video-ruler-label.top { top: 4px; left: 50%; transform: translateX(-50%); }
+.standalone-video-ruler-label.left { top: 50%; left: 4px; transform: translateY(-50%); }
+.standalone-video-subtitle-outline { position: absolute; z-index: 3; box-sizing: border-box; border: 1px dashed rgba(93, 190, 255, .95); border-radius: 3px; background: rgba(91, 186, 255, .07); pointer-events: none; transform: translate(-50%, -50%); }
+.standalone-video-review-subtitle { position: absolute; z-index: 4; top: 82%; left: 50%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 4px 8px; font-weight: 750; line-height: 1.2; text-align: center; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); white-space: pre-line; transform: translate(-50%, -50%); cursor: grab; touch-action: none; user-select: none; }
 .standalone-video-review-subtitle:active { cursor: grabbing; }
 .standalone-video-review-subtitle:focus-visible { outline: 2px solid #63b5ff; outline-offset: 2px; }
 .standalone-video-review-note { color: var(--studio-muted); font-size: 9px; line-height: 1.4; }
@@ -7607,6 +7619,7 @@ body {
 .studio-shell[data-theme="dark"] .standalone-video-field input[type="url"], .studio-shell[data-theme="dark"] .standalone-video-field input[type="number"], .studio-shell[data-theme="dark"] .standalone-video-field input[type="file"], .studio-shell[data-theme="dark"] .standalone-video-name-field input { background: #202832; }
 .studio-shell[data-theme="dark"] .standalone-video-subtitle-settings { background: rgba(32, 40, 50, .72); }
 .studio-shell[data-theme="dark"] .standalone-video-subtitle-grid select, .studio-shell[data-theme="dark"] .standalone-video-subtitle-grid input[type="number"], .studio-shell[data-theme="dark"] .standalone-video-color-input { background: #202832; }
+.studio-shell[data-theme="dark"] .standalone-video-ruler-toggle:hover, .studio-shell[data-theme="dark"] .standalone-video-ruler-toggle.active { background: #193b57; color: #83cbff; }
 .settings-empty-state { display: grid; place-items: center; }
 .settings-empty-card { max-width: 420px; padding: 30px; border: 1px solid var(--studio-line); border-radius: 15px; background: var(--panel-bg); text-align: center; }
 .settings-empty-card h2 { margin: 8px 0 6px; font: 700 22px "Fraunces", Georgia, serif; }
