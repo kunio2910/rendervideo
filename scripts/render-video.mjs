@@ -2088,12 +2088,20 @@ for (let index = 0; index < scenes.length; index += 1) {
     ? `1+${stillAmount}*(1-cos(${stillPhase}))/2`
     : stillCamera.direction === "out"
       ? `1+${stillAmount}*(1+cos(${stillPhase}))/2`
-      : `${1 + stillAmount}`;
+      : stillCamera.direction === "breathing"
+        ? `1+${stillAmount * 0.35}*(1-cos(${stillPhase}))/2`
+        : `${1 + stillAmount}`;
   const stillShift = `${stillAmount * 0.45}*sin(${stillPhase})`;
+  const stillShiftX = ["horizontal", "diagonal", "orbit"].includes(stillCamera.direction) ? stillShift : "0";
+  const stillShiftY = stillCamera.direction === "diagonal"
+    ? `-(${stillShift})`
+    : stillCamera.direction === "orbit"
+      ? `${stillAmount * 0.3}*cos(${stillPhase})`
+      : stillCamera.direction === "vertical" ? stillShift : "0";
   const backgroundFilter = !backgroundIsVideo && stillCamera.enabled === true
     ? `[0:v]format=gbrp,scale=${outputWidth * 2}:${outputHeight * 2}:force_original_aspect_ratio=increase,crop=${outputWidth * 2}:${outputHeight * 2},setsar=1,` +
-      `zoompan=z='${stillZoom}':x='(iw-iw/zoom)/2${stillCamera.direction === "horizontal" ? `-iw/zoom*(${stillShift})` : ""}':` +
-      `y='(ih-ih/zoom)/2${stillCamera.direction === "vertical" ? `-ih/zoom*(${stillShift})` : ""}':s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`
+      `zoompan=z='${stillZoom}':x='(iw-iw/zoom)/2-iw/zoom*(${stillShiftX})':` +
+      `y='(ih-ih/zoom)/2-ih/zoom*(${stillShiftY})':s=${outputWidth}x${outputHeight}:fps=${fps}:d=${frames},setsar=1[bg];`
     : backgroundIsVideo
     ? cameraPanEnabled || cameraZoomLoopEnabled
       ? `[0:v]scale=${Math.round(outputWidth * cameraVideoBaseZoom)}:${Math.round(outputHeight * cameraVideoBaseZoom)}:force_original_aspect_ratio=increase,scale=w='iw*${cameraZoomVideoExpression}':h='ih*${cameraZoomVideoExpression}':eval=frame,crop=${outputWidth}:${outputHeight}:x='(iw-${outputWidth})*${panXVideoExpression}':y='(ih-${outputHeight})*${panYVideoExpression}',fps=${fps},trim=duration=${duration},setpts=PTS-STARTPTS,setsar=1[bg];`

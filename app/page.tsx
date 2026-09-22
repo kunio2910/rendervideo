@@ -680,7 +680,7 @@ type Scene = {
   centerY: number;
   zoomEnabled: boolean;
   cameraPanEnabled?: boolean;
-  stillCamera?: { enabled: boolean; direction: "horizontal" | "vertical" | "in" | "out"; amount: number; speed: number };
+  stillCamera?: { enabled: boolean; direction: "horizontal" | "vertical" | "in" | "out" | "diagonal" | "orbit" | "breathing"; amount: number; speed: number };
   cameraPanDirection?: "horizontal" | "vertical" | "diagonal";
   cameraPanAmount?: number;
   cameraPanSpeed?: number;
@@ -4335,10 +4335,18 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
     ? 1 + cameraAmount * (1 - Math.cos(cameraPhase)) / 2
     : stillCamera.direction === "out"
       ? 1 + cameraAmount * (1 + Math.cos(cameraPhase)) / 2
-      : 1 + cameraAmount;
+      : stillCamera.direction === "breathing"
+        ? 1 + cameraAmount * 0.35 * (1 - Math.cos(cameraPhase)) / 2
+        : 1 + cameraAmount;
   const cameraShift = Math.sin(cameraPhase) * stillCamera.amount * 0.45;
+  const cameraShiftX = ["horizontal", "diagonal", "orbit"].includes(stillCamera.direction) ? cameraShift : 0;
+  const cameraShiftY = stillCamera.direction === "diagonal"
+    ? -cameraShift
+    : stillCamera.direction === "orbit"
+      ? Math.cos(cameraPhase) * stillCamera.amount * 0.3
+      : stillCamera.direction === "vertical" ? cameraShift : 0;
   const cameraTransform = stillCamera.enabled && !previewMediaIsVideo
-    ? `translate(${stillCamera.direction === "horizontal" ? cameraShift : 0}%, ${stillCamera.direction === "vertical" ? cameraShift : 0}%) scale(${cameraZoom})`
+    ? `translate(${cameraShiftX}%, ${cameraShiftY}%) scale(${cameraZoom})`
     : undefined;
 
   useEffect(() => () => {
@@ -4727,7 +4735,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
           <label><input type="checkbox" checked={stillCamera.enabled} onChange={(event) => setStillCamera((current) => ({ ...current, enabled: event.target.checked }))} /> Mô phỏng 3D · Camera chuyển động</label>
           <small>Di chuyển và phóng ảnh nhẹ để tạo cảm giác chiều sâu. Không tách chủ thể và nền.</small>
           <div className="standalone-video-subtitle-grid">
-            <label className="field"><span>Hướng camera</span><select value={stillCamera.direction} onChange={(event) => setStillCamera((current) => ({ ...current, direction: event.target.value as NonNullable<Scene["stillCamera"]>["direction"] }))}><option value="horizontal">Trái ↔ phải</option><option value="vertical">Lên ↔ xuống</option><option value="in">Tiến gần rồi lùi xa</option><option value="out">Lùi xa rồi tiến gần</option></select></label>
+            <label className="field"><span>Kiểu chuyển động</span><select value={stillCamera.direction} onChange={(event) => setStillCamera((current) => ({ ...current, direction: event.target.value as NonNullable<Scene["stillCamera"]>["direction"] }))}><option value="horizontal">Trái ↔ phải</option><option value="vertical">Lên ↔ xuống</option><option value="in">Tiến gần rồi lùi xa</option><option value="out">Lùi xa rồi tiến gần</option><option value="diagonal">Trôi chéo</option><option value="orbit">Lượn vòng nhẹ</option><option value="breathing">Nhịp thở</option></select></label>
             <label className="field"><span>Cường độ (%)</span><input type="number" min="0" max="20" value={stillCamera.amount} onChange={(event) => setStillCamera((current) => ({ ...current, amount: Math.max(0, Math.min(20, Number(event.target.value) || 0)) }))} /></label>
             <label className="field"><span>Tốc độ (×)</span><input type="number" min="0.1" max="3" step="0.1" value={stillCamera.speed} onChange={(event) => setStillCamera((current) => ({ ...current, speed: Math.max(0.1, Math.min(3, Number(event.target.value) || 1)) }))} /></label>
           </div>
