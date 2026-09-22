@@ -614,6 +614,12 @@ const runJob = async (job, project, files) => {
           job.message = job.detail;
           continue;
         }
+        const watchdogMatch = line.match(/^FFmpeg watchdog:\s*(.+)$/i);
+        if (watchdogMatch) {
+          job.detail = watchdogMatch[1].trim();
+          job.message = job.detail;
+          continue;
+        }
         const sceneMatch = line.match(/Rendering scene\s+(\d+)\/(\d+):\s*(.+)/i);
         if (sceneMatch) {
           const scene = Number(sceneMatch[1]);

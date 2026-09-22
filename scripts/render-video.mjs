@@ -54,6 +54,18 @@ const encoderLabels = {
   h264_nvenc: "NVIDIA NVENC",
 };
 
+// Hardware encoders can finish emitting video frames but never return from
+// their final flush/mux step. Keep a bounded wait so a stuck encoder can be
+// replaced by libx264 instead of leaving the local render job alive forever.
+const ffmpegIdleTimeoutMs = Math.max(
+  30_000,
+  Number(process.env.FFMPEG_IDLE_TIMEOUT_MS ?? 120_000) || 120_000,
+);
+const ffmpegFinalizationTimeoutMs = Math.max(
+  15_000,
+  Number(process.env.FFMPEG_FINALIZATION_TIMEOUT_MS ?? 60_000) || 60_000,
+);
+
 const normalizeRenderEncoder = (value) =>
   renderEncoderModes.includes(String(value)) ? String(value) : "auto";
 
@@ -251,6 +263,7 @@ const hardwareEncoderFailureCodes = new Set([
 ]);
 const shouldFallbackFromHardwareEncoder = (error, encoder) => {
   if (encoder === "libx264") return false;
+  if (error?.timedOut === true) return true;
   const code = Number(error?.code);
   if (hardwareEncoderFailureCodes.has(code)) return true;
   const output = String(error?.output ?? "").toLowerCase();
@@ -921,28 +934,111 @@ const summarizeProcessFailure = (output) => String(output || "")
   ?.replace(/\s+/g, " ")
   .slice(0, 360) || "";
 
-const run = (command, args) =>
+const parseFfmpegProgress = (text) => {
+  const frames = [...String(text).matchAll(/(?:^|\s)frame=\s*(\d+)/g)]
+    .map((match) => Number(match[1]))
+    .filter(Number.isFinite);
+  const times = [...String(text).matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)]
+    .map((match) => Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]))
+    .filter(Number.isFinite);
+  return {
+    frame: frames.length ? Math.max(...frames) : null,
+    time: times.length ? Math.max(...times) : null,
+  };
+};
+
+const run = (command, args, { expectedFrames = 0, label = path.basename(command) } = {}) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let output = "";
+    let settled = false;
+    let watchdogTimer = null;
+    let forceKillTimer = null;
+    let timeoutError = null;
+    let lastProgressAt = Date.now();
+    let lastFrame = -1;
+    let lastTime = -1;
+    const expectedFrameCount = Math.max(0, Number(expectedFrames) || 0);
+    const finalFrameThreshold = Math.max(0, expectedFrameCount - 1);
+    const clearWatchdog = () => {
+      if (watchdogTimer) clearInterval(watchdogTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      watchdogTimer = null;
+      forceKillTimer = null;
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearWatchdog();
+      callback(value);
+    };
+    const killStuckProcess = () => {
+      if (settled || timeoutError) return;
+      const finalizing = expectedFrameCount > 0 && lastFrame >= finalFrameThreshold;
+      const timeoutMs = finalizing ? ffmpegFinalizationTimeoutMs : ffmpegIdleTimeoutMs;
+      const phase = finalizing ? "đóng file sau frame cuối" : "đang xử lý";
+      timeoutError = new Error(
+        `FFmpeg watchdog: ${label} không có tiến triển trong ${Math.ceil(timeoutMs / 1000)} giây khi ${phase}`,
+      );
+      timeoutError.code = "ETIMEDOUT";
+      timeoutError.timedOut = true;
+      timeoutError.output = output;
+      process.stdout.write(`${timeoutError.message}\n`);
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // The process may have exited between the watchdog check and kill.
+      }
+      forceKillTimer = setTimeout(() => {
+        if (child.exitCode === null) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // The process may have exited while the forced kill was queued.
+          }
+        }
+      }, 5_000);
+      forceKillTimer.unref?.();
+    };
+    watchdogTimer = setInterval(() => {
+      const finalizing = expectedFrameCount > 0 && lastFrame >= finalFrameThreshold;
+      const timeoutMs = finalizing ? ffmpegFinalizationTimeoutMs : ffmpegIdleTimeoutMs;
+      if (Date.now() - lastProgressAt >= timeoutMs) killStuckProcess();
+    }, 1_000);
+    watchdogTimer.unref?.();
     const collect = (chunk) => {
-      output = `${output}${chunk.toString()}`.slice(-12000);
+      const text = chunk.toString();
+      output = `${output}${text}`.slice(-12000);
       process.stdout.write(chunk);
+      const progress = parseFfmpegProgress(text);
+      const advanced = (progress.frame !== null && progress.frame > lastFrame)
+        || (progress.time !== null && progress.time > lastTime);
+      if (progress.frame !== null) lastFrame = Math.max(lastFrame, progress.frame);
+      if (progress.time !== null) lastTime = Math.max(lastTime, progress.time);
+      if (advanced) lastProgressAt = Date.now();
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.once("error", reject);
+    child.once("error", (error) => {
+      error.output = output;
+      finish(reject, error);
+    });
     child.once("exit", (code) => {
+      if (timeoutError) {
+        timeoutError.output = output;
+        finish(reject, timeoutError);
+        return;
+      }
       const normalizedCode = normalizeProcessExitCode(code);
       if (normalizedCode === 0) {
-        resolve();
+        finish(resolve);
         return;
       }
       const detail = summarizeProcessFailure(output);
       const error = new Error(`${path.basename(command)} exited ${normalizedCode}${detail ? `: ${detail}` : ""}`);
       error.code = normalizedCode;
       error.output = output;
-      reject(error);
+      finish(reject, error);
     });
   });
 
@@ -3137,21 +3233,29 @@ for (let index = 0; index < scenes.length; index += 1) {
     ...encoderArgs,
     "-pix_fmt", encoderPixelFormat(encoderArgs),
     "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
+    "-shortest",
     ...(scenes.length === 1 ? ["-movflags", "+faststart"] : []),
     clip,
   ];
   console.log(`Rendering scene ${index + 1}/${scenes.length}: ${scene.sceneName ?? scene.title ?? `Cảnh ${index + 1}`}`);
   try {
-    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)]);
+    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)], {
+      expectedFrames: frames,
+      label: `cảnh ${index + 1}/${scenes.length}`,
+    });
   } catch (error) {
     const hardwareEncoderFailed = shouldFallbackFromHardwareEncoder(error, activeVideoEncoder);
     if (!hardwareEncoderFailed) throw error;
     const failedEncoderLabel = encoderLabels[activeVideoEncoder] ?? activeVideoEncoder;
     activeVideoEncoder = "libx264";
     activeVideoEncoderArgs = cpuVideoEncoderArgs;
-    console.warn(`Encoder ${failedEncoderLabel} lỗi ở cảnh ${index + 1} (mã ${Number(error?.code) || "không rõ"}); chuyển sang CPU · libx264 và thử lại.`);
+    const failureCode = error?.timedOut ? "timeout" : Number(error?.code) || "không rõ";
+    console.warn(`Encoder ${failedEncoderLabel} lỗi ở cảnh ${index + 1} (mã ${failureCode}); chuyển sang CPU · libx264 và thử lại.`);
     console.log("Video encoder fallback: CPU · libx264");
-    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)]);
+    await run(ffmpeg, [...args, ...outputArgs(activeVideoEncoderArgs)], {
+      expectedFrames: frames,
+      label: `cảnh ${index + 1}/${scenes.length} · CPU fallback`,
+    });
   }
   clipPaths.push(clip);
   console.log(`Scene complete ${index + 1}/${scenes.length}`);
