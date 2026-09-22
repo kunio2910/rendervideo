@@ -4269,6 +4269,8 @@ const standaloneVideoInitialState: StandaloneVideoRenderState = {
   message: "Chưa tạo video độc lập",
 };
 
+const STANDALONE_VIDEO_SUBTITLE_SETTINGS_KEY = "kito-video-studio-standalone-subtitle-settings";
+
 function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio }) {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaUrl, setMediaUrl] = useState("");
@@ -4290,6 +4292,7 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewTimelineTime, setPreviewTimelineTime] = useState(0);
   const [rulerVisible, setRulerVisible] = useState(false);
+  const [subtitleSettingsHydrated, setSubtitleSettingsHydrated] = useState(false);
   const jobIdRef = useRef("");
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -4310,6 +4313,49 @@ function StandaloneVideoCreatePanel({ aspectRatio }: { aspectRatio: AspectRatio 
   useEffect(() => () => {
     if (previewAudioSource.startsWith("blob:")) URL.revokeObjectURL(previewAudioSource);
   }, [previewAudioSource]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STANDALONE_VIDEO_SUBTITLE_SETTINGS_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Record<string, unknown>;
+        const savedSize = Number(saved.size);
+        const savedX = Number(saved.x);
+        const savedY = Number(saved.y);
+        const savedWidth = Number(saved.width);
+        const savedHeight = saved.height === "" || saved.height === undefined ? "" : Number(saved.height);
+        if (Number.isFinite(savedSize)) setSubtitleSize(String(Math.max(8, Math.min(120, savedSize))));
+        if (typeof saved.color === "string" && /^#[0-9a-f]{6}$/i.test(saved.color)) setSubtitleColor(saved.color);
+        if (isOverlayTextFont(saved.font)) setSubtitleFont(saved.font);
+        if (Number.isFinite(savedX)) setSubtitleX(Math.max(2, Math.min(98, savedX)));
+        if (Number.isFinite(savedY)) setSubtitleY(Math.max(2, Math.min(98, savedY)));
+        if (Number.isFinite(savedWidth)) setSubtitleWidth(String(Math.max(40, Math.min(100, savedWidth))));
+        if (savedHeight === "" || (typeof savedHeight === "number" && Number.isFinite(savedHeight))) {
+          setSubtitleHeight(savedHeight === "" ? "" : String(Math.max(3, Math.min(40, savedHeight))));
+        }
+      }
+    } catch {
+      // Keep the defaults when localStorage is unavailable or contains invalid data.
+    }
+    setSubtitleSettingsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!subtitleSettingsHydrated) return;
+    try {
+      window.localStorage.setItem(STANDALONE_VIDEO_SUBTITLE_SETTINGS_KEY, JSON.stringify({
+        size: subtitleSize,
+        color: subtitleColor,
+        font: subtitleFont,
+        x: subtitleX,
+        y: subtitleY,
+        width: subtitleWidth,
+        height: subtitleHeight,
+      }));
+    } catch {
+      // localStorage may be unavailable in private browsing or restricted contexts.
+    }
+  }, [subtitleSettingsHydrated, subtitleSize, subtitleColor, subtitleFont, subtitleX, subtitleY, subtitleWidth, subtitleHeight]);
 
   const previewBusy = renderState.status === "uploading" || renderState.status === "rendering";
   const subtitleReviewWidth = Math.max(40, Math.min(100, Number(subtitleWidth) || 84));
