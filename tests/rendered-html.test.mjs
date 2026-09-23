@@ -338,6 +338,11 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /repeat\(7, 27px\)/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
+  assert.doesNotMatch(page, /<span>Whiteboard<\/span>/);
+  assert.doesNotMatch(page, /<span>Kịch bản<\/span>/);
+  assert.doesNotMatch(page, /aria-label="Kiểm tra cảnh đang chọn"/);
+  assert.match(page, /aria-label="Mở Review tổng quan"/);
+  assert.match(page, /aria-label="Mở Cấu trúc cảnh"/);
   assert.match(page, /type StudioTab = "compose" \| "export" \| "settings"/);
   assert.match(page, /activeStudioTab === "settings"/);
   assert.match(page, /SettingsWorkspace/);

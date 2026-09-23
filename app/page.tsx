@@ -18683,27 +18683,6 @@ function Home() {
           </button>
           <button
             type="button"
-            className={`rail-item ${activeStudioTab === "whiteboard" ? "active" : ""}`}
-            onClick={() => setActiveStudioTab("whiteboard")}
-            aria-current={activeStudioTab === "whiteboard" ? "page" : undefined}
-            title="Tạo video Whiteboard từ line art và color reference"
-          >
-            <span className="rail-icon" aria-hidden="true">✍</span>
-            <span>Whiteboard</span>
-          </button>
-          <button
-            type="button"
-            className={`rail-item rail-scene-check ${sceneStructureOpen ? "active" : ""}`}
-            aria-label="Kiểm tra cảnh đang chọn"
-            aria-pressed={sceneStructureOpen}
-            title="Kiểm tra cảnh · Mở Cấu trúc cảnh"
-            onClick={openSceneStructure}
-          >
-            <span className="rail-icon" aria-hidden="true">✓</span>
-            <span>Kiểm tra<br />cảnh</span>
-          </button>
-          <button
-            type="button"
             className={`rail-item ${activeStudioTab === "export" ? "active" : ""}`}
             onClick={() => setActiveStudioTab("export")}
             aria-current={activeStudioTab === "export" ? "page" : undefined}
@@ -18741,16 +18720,6 @@ function Home() {
           >
             <span className="rail-icon" aria-hidden="true">▶</span>
             <span>Video</span>
-          </button>
-          <button
-            type="button"
-            className={`rail-item ${activeStudioTab === "script" ? "active" : ""}`}
-            onClick={() => setActiveStudioTab("script")}
-            aria-current={activeStudioTab === "script" ? "page" : undefined}
-            title="Soạn kịch bản và chuẩn bị workflow dựng clip"
-          >
-            <span className="rail-icon" aria-hidden="true">✓</span>
-            <span>Kịch bản</span>
           </button>
           <button
             type="button"
