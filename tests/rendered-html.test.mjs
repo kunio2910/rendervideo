@@ -347,11 +347,15 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Tạo nhóm động/);
   assert.match(page, /sceneMotionGroupPreviewPlaying/);
   assert.match(page, /scene-motion-group-review-frame/);
+  assert.match(page, /data-scene-review-id=\{sceneStructureScene\.id\}/);
+  assert.match(page, /Chỉ cảnh này/);
   assert.match(page, /Chạy thử/);
   assert.match(page, /updateSceneMotionGroupText/);
   assert.match(page, /updateSceneMotionGroupImage/);
   assert.match(css, /\.scene-motion-group-review-frame/);
   assert.match(css, /\.scene-motion-group-content-card/);
+  assert.match(css, /width: min\(1040px, calc\(100vw - 48px\)\)/);
+  assert.match(css, /background: #237fc4/);
   assert.match(page, /Giữ Ctrl\/Cmd \+ click để chọn nhiều thẻ/);
   assert.match(page, /event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/);
   assert.match(page, /Mờ → rõ → tối → chữ → reverse/);

@@ -12867,8 +12867,8 @@ body {
 }
 .scene-motion-group-dialog {
   display: flex;
-  width: min(720px, 100%);
-  max-height: min(790px, calc(100dvh - 48px));
+  width: min(1040px, calc(100vw - 48px));
+  max-height: min(900px, calc(100dvh - 40px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #6c62a9;
@@ -12908,8 +12908,8 @@ body {
 }
 .scene-motion-group-dialog header p { margin: 0 0 3px; color: #b9adff; font: 800 8px var(--font-mono); letter-spacing: .1em; }
 .scene-motion-group-dialog header h2 { margin: 0; color: #fff; font-size: 17px; line-height: 1.2; }
-.scene-motion-group-dialog header small { display: block; margin-top: 4px; color: #a9b1cf; font-size: 9px; }
-.scene-motion-group-body { min-height: 0; overflow: auto; padding: 20px; scrollbar-color: #6d7097 #11182b; }
+.scene-motion-group-dialog header small { display: block; margin-top: 4px; color: #d5ddef; font-size: 9px; }
+.scene-motion-group-body { min-height: 0; overflow: auto; padding: 24px; scrollbar-color: #8291b7 #11182b; }
 .scene-motion-group-preset { display: grid; gap: 5px; padding: 12px; border: 1px solid rgba(152, 137, 239, .35); border-radius: 9px; background: rgba(73, 61, 145, .23); }
 .scene-motion-group-preset strong { color: #f4efff; font-size: 12px; }
 .scene-motion-group-preset span { color: #e0e5f5; font-size: 10px; line-height: 1.5; }
@@ -12924,9 +12924,9 @@ body {
 .scene-motion-group-section-heading strong { font-size: 12px; }
 .scene-motion-group-review-heading span,
 .scene-motion-group-section-heading span { color: #c5d0e6; font: 700 9px var(--font-mono); }
-.scene-motion-group-play-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid #8f83ed; border-radius: 7px; background: #3a3273; color: #fff !important; cursor: pointer; font-size: 10px; font-weight: 800; }
+.scene-motion-group-play-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 13px; border: 1px solid #a8dbff; border-radius: 7px; background: #237fc4; color: #fff !important; cursor: pointer; font-size: 11px; font-weight: 850; box-shadow: 0 5px 14px rgba(21, 110, 183, .28); }
 .scene-motion-group-play-button:hover,
-.scene-motion-group-play-button:focus-visible { border-color: #c5bdff; background: #51489a; outline: 0; }
+.scene-motion-group-play-button:focus-visible { border-color: #fff; background: #3199e4; outline: 0; }
 .scene-motion-group-play-button span { color: #fff; font-size: 11px; }
 .scene-motion-group-review-frame { display: grid; place-items: center; min-height: 250px; padding: 12px; border: 1px solid #354866; border-radius: 8px; background: radial-gradient(circle at 50% 15%, #273b5b, #0a1220 72%); }
 .scene-motion-group-review-frame .phone-preview { width: min(100%, 280px); height: min(54vh, 390px); margin: 0 auto; border-color: #7888ad; box-shadow: 0 14px 36px rgba(0, 0, 0, .38); }
@@ -12948,7 +12948,13 @@ body {
 .scene-motion-group-dialog .scene-structure-quick-note { color: #cbd6e9; }
 .scene-motion-group-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .scene-motion-group-footer { justify-content: flex-end; border-top: 1px solid #374264; background: rgba(5, 9, 20, .3); }
-.scene-motion-group-footer .button { min-height: 35px; padding-inline: 14px; font-size: 10px; }
+.scene-motion-group-footer .button { min-height: 39px; padding-inline: 17px; border-radius: 8px; font-size: 11px; font-weight: 850; }
+.scene-motion-group-footer .button.primary { border: 1px solid #a8dbff; background: #237fc4; color: #fff !important; box-shadow: 0 6px 16px rgba(21, 110, 183, .28); }
+.scene-motion-group-footer .button.primary:hover:not(:disabled),
+.scene-motion-group-footer .button.primary:focus-visible { border-color: #fff; background: #3199e4; outline: 0; }
+.scene-motion-group-footer .button.secondary { border: 1px solid #8ba5c4; background: #30445f; color: #f5f9ff !important; }
+.scene-motion-group-footer .button.secondary:hover:not(:disabled),
+.scene-motion-group-footer .button.secondary:focus-visible { border-color: #d5e8ff; background: #405b7a; outline: 0; }
 
 @media (max-width: 620px) {
   .scene-structure-quick-editor-overlay { align-items: end; padding: 10px; }
@@ -12963,7 +12969,7 @@ body {
   .scene-structure-quick-grid-2,
   .scene-structure-quick-grid-3 { grid-template-columns: 1fr 1fr; }
   .scene-motion-group-overlay { align-items: end; padding: 10px; }
-  .scene-motion-group-dialog { max-height: calc(100dvh - 20px); border-radius: 12px; }
+  .scene-motion-group-dialog { width: 100%; max-height: calc(100dvh - 20px); border-radius: 12px; }
   .scene-motion-group-dialog > header,
   .scene-motion-group-footer { padding: 14px; }
   .scene-motion-group-body { padding: 14px; }

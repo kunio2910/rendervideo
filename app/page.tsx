@@ -17239,6 +17239,7 @@ function Home() {
       .filter((item) => item.kind === "text")
       .map((item) => sceneStructureTexts.find((text) => text.id === item.id))
       .filter((text): text is TextOverlay => Boolean(text));
+    const motionGroupReviewDuration = Math.max(0.1, sceneStructureScene.end - sceneStructureScene.start);
     return (
       <div
         className="scene-motion-group-overlay"
@@ -17271,11 +17272,11 @@ function Home() {
                 </span>
               ))}
             </div>
-            <section className="scene-motion-group-review" aria-label="Review nhóm chuyển động">
+            <section className="scene-motion-group-review" data-scene-review-id={sceneStructureScene.id} aria-label={`Review riêng cảnh ${sceneStructureScene.number}`}>
               <div className="scene-motion-group-review-heading">
                 <div>
-                  <strong>Review cảnh</strong>
-                  <span>{formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(sceneStructureDuration)}</span>
+                  <strong>Review cảnh {String(sceneStructureScene.number).padStart(2, "0")}</strong>
+                  <span>Chỉ cảnh này · {formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(motionGroupReviewDuration)}</span>
                 </div>
                 <button type="button" className="scene-motion-group-play-button" onClick={toggleSceneMotionGroupPreview}>
                   <span aria-hidden="true">{sceneMotionGroupPreviewPlaying ? "Ⅱ" : "▶"}</span>
@@ -17296,9 +17297,9 @@ function Home() {
                 className="scene-motion-group-review-scrubber"
                 type="range"
                 min={0}
-                max={Math.max(0.1, sceneStructureDuration)}
+                max={motionGroupReviewDuration}
                 step={0.01}
-                value={Math.min(sceneMotionGroupPreviewTime, sceneStructureDuration)}
+                value={Math.min(sceneMotionGroupPreviewTime, motionGroupReviewDuration)}
                 aria-label="Mốc thời gian review nhóm chuyển động"
                 onChange={(event) => {
                   setSceneMotionGroupPreviewPlaying(false);
