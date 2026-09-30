@@ -12924,15 +12924,45 @@ body {
 .scene-motion-group-section-heading strong { font-size: 12px; }
 .scene-motion-group-review-heading span,
 .scene-motion-group-section-heading span { color: #5b7187; font: 700 9px var(--font-mono); }
+.scene-motion-group-review-actions { display: flex; align-items: center; gap: 7px; }
 .scene-motion-group-play-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 13px; border: 1px solid #a8dbff; border-radius: 7px; background: #237fc4; color: #fff !important; cursor: pointer; font-size: 11px; font-weight: 850; box-shadow: 0 5px 14px rgba(21, 110, 183, .28); }
 .scene-motion-group-play-button:hover,
 .scene-motion-group-play-button:focus-visible { border-color: #fff; background: #3199e4; outline: 0; }
 .scene-motion-group-play-button span { color: #fff; font-size: 11px; }
+.scene-motion-group-replay-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 36px; padding: 0 12px; border: 1px solid #93abc1; border-radius: 7px; background: #fff; color: #244761 !important; cursor: pointer; font-size: 11px; font-weight: 850; }
+.scene-motion-group-replay-button:hover,
+.scene-motion-group-replay-button:focus-visible { border-color: #237fc4; background: #eaf6ff; color: #155f96 !important; outline: 0; }
+.scene-motion-group-replay-button span { color: inherit; font-size: 15px; line-height: 1; }
 .scene-motion-group-review-frame { display: grid; place-items: center; min-height: 250px; padding: 12px; border: 1px solid #b8ccdf; border-radius: 8px; background: radial-gradient(circle at 50% 15%, #eaf5ff, #dce8f3 72%); }
 .scene-motion-group-review-frame .phone-preview { width: min(100%, 280px); height: min(54vh, 390px); margin: 0 auto; border-color: #8ca8c0; box-shadow: 0 14px 36px rgba(32, 67, 101, .2); }
 .scene-motion-group-review-frame .phone-preview.preview-landscape { width: min(100%, 420px); height: min(32vh, 245px); }
 .scene-motion-group-focus-preview { isolation: isolate; }
 .scene-motion-group-focus-background { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(145deg, #f5fbff, #e5eff7); color: #6b8297; font: 800 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.scene-motion-group-effect-timeline { display: grid; gap: 8px; padding: 11px; border: 1px solid #bfd0df; border-radius: 8px; background: #fff; }
+.scene-motion-group-timeline-ruler { display: grid; grid-template-columns: 55px 1fr 70px; align-items: center; color: #60778c; font: 750 9px var(--font-mono); }
+.scene-motion-group-timeline-ruler strong { color: #24445f; text-align: center; }
+.scene-motion-group-timeline-ruler span:last-child { text-align: right; }
+.scene-motion-group-timeline-canvas { position: relative; display: grid; gap: 6px; padding-block: 2px; cursor: crosshair; }
+.scene-motion-group-timeline-cursor-lane { position: absolute; z-index: 4; inset: -3px 0 -3px 138px; pointer-events: none; }
+.scene-motion-group-timeline-cursor { position: absolute; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: #e44a63; box-shadow: 0 0 0 1px rgba(255,255,255,.75); }
+.scene-motion-group-timeline-row { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 24px; }
+.scene-motion-group-timeline-row > span { overflow: hidden; color: #38566f; font: 750 9px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.scene-motion-group-timeline-track { position: relative; height: 18px; overflow: hidden; border: 1px solid #c7d5e1; border-radius: 5px; background: repeating-linear-gradient(90deg, #f2f6f9 0, #f2f6f9 calc(25% - 1px), #dce6ee 25%); }
+.scene-motion-group-timeline-track > i { position: absolute; top: 2px; bottom: 2px; min-width: 2px; border-radius: 3px; }
+.scene-motion-group-timeline-track .is-image-effect,
+.scene-motion-group-timeline-legend .is-image-effect { background: #2f8ed0; }
+.scene-motion-group-timeline-track .is-hold { background: #a9cfea; }
+.scene-motion-group-timeline-track .is-dark-in,
+.scene-motion-group-timeline-legend .is-dark-in { background: #59697b; }
+.scene-motion-group-timeline-track .is-dark-hold { background: #273647; }
+.scene-motion-group-timeline-track .is-dark-out { background: #8596a7; }
+.scene-motion-group-timeline-track .is-text-in,
+.scene-motion-group-timeline-legend .is-text-in { background: #9a67d4; }
+.scene-motion-group-timeline-track .is-text-hold { background: #c2a5e4; }
+.scene-motion-group-timeline-track .is-text-out { background: #7442ad; }
+.scene-motion-group-timeline-legend { display: flex; flex-wrap: wrap; gap: 12px; padding-left: 138px; color: #5b7287; font-size: 9px; }
+.scene-motion-group-timeline-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.scene-motion-group-timeline-legend i { width: 12px; height: 6px; border-radius: 2px; }
 .scene-motion-group-review-scrubber { width: 100%; accent-color: #9a8cff; cursor: pointer; }
 .scene-motion-group-review-note { color: #536c83; font-size: 10px; line-height: 1.45; }
 .scene-motion-group-content-editor { display: grid; gap: 10px; margin: 16px 0; padding: 13px; border: 1px solid #bccddd; border-radius: 10px; background: #f7fafd; }
@@ -12980,6 +13010,10 @@ body {
   .scene-motion-group-review-frame .phone-preview.preview-landscape { height: min(27vh, 190px); }
   .scene-motion-group-review-heading,
   .scene-motion-group-section-heading { align-items: stretch; flex-direction: column; }
+  .scene-motion-group-review-actions { justify-content: flex-end; }
+  .scene-motion-group-timeline-row { grid-template-columns: 92px minmax(0, 1fr); }
+  .scene-motion-group-timeline-cursor-lane { left: 100px; }
+  .scene-motion-group-timeline-legend { padding-left: 100px; }
 }
 
 @media (max-width: 760px) {

@@ -6590,6 +6590,7 @@ function Home() {
   const [sceneMotionGroupDraft, setSceneMotionGroupDraft] = useState<SceneMotionGroupDraft>(defaultSceneMotionGroupDraft);
   const [sceneMotionGroupPreviewPlaying, setSceneMotionGroupPreviewPlaying] = useState(false);
   const [sceneMotionGroupPreviewTime, setSceneMotionGroupPreviewTime] = useState(0);
+  const [sceneMotionGroupReplayToken, setSceneMotionGroupReplayToken] = useState(0);
   const [imageTimingCheckOpen, setImageTimingCheckOpen] = useState(false);
   const [imageTimingCheckResult, setImageTimingCheckResult] = useState<SceneImageTimingCheckView | null>(null);
   const [imageTimingCheckSelectedImageId, setImageTimingCheckSelectedImageId] = useState("");
@@ -16500,6 +16501,12 @@ function Home() {
     setSceneMotionGroupPreviewPlaying(true);
   };
 
+  const replaySceneMotionGroupPreview = () => {
+    setSceneMotionGroupPreviewPlaying(false);
+    setSceneMotionGroupPreviewTime(0);
+    setSceneMotionGroupReplayToken((token) => token + 1);
+  };
+
   const updateSceneMotionGroupText = (id: string, patch: Partial<Pick<TextOverlay, "name" | "text">>) => {
     updateSceneStructureQuickScene((currentScene) => {
       const overlays = currentScene.textOverlays ?? [];
@@ -16540,6 +16547,7 @@ function Home() {
     } : defaultSceneMotionGroupDraft());
     setSceneMotionGroupPreviewTime(0);
     setSceneMotionGroupPreviewPlaying(false);
+    setSceneMotionGroupReplayToken((token) => token + 1);
     setSceneMotionGroupDialogOpen(true);
   };
 
@@ -16605,8 +16613,9 @@ function Home() {
           ...image,
           start: 0,
           duration: Number(duration.toFixed(2)),
-          transition: "blur" as SceneImageTransition,
-          transitionEnd: Number(Math.min(duration, imageRevealDuration).toFixed(2)),
+          transitionEnd: normalizeSceneImageTransition(image.transition) === "cut"
+            ? image.transitionEnd
+            : Number(Math.min(duration, imageRevealDuration).toFixed(2)),
         };
       });
       const nextTexts = (currentScene.textOverlays ?? []).map((overlay) => {
@@ -16622,9 +16631,6 @@ function Home() {
         const textSpan = Math.max(0.1, textEnd - textStart);
         return {
           ...next,
-          textEffect: "fade" as TextOverlayEffect,
-          textEffectDuration: Number(Math.min(textFadeInDuration, textSpan / 2).toFixed(2)),
-          textEffectReverse: true,
           fadeInStart: 0,
           fadeInEnd: Number(Math.min(textSpan, textFadeInDuration).toFixed(2)),
           fadeOutStart: Number(Math.max(0, textSpan - textFadeOutDuration).toFixed(2)),
@@ -17252,6 +17258,20 @@ function Home() {
       .filter((item) => item.kind === "text")
       .map((item) => sceneStructureTexts.find((text) => text.id === item.id))
       .filter((text): text is TextOverlay => Boolean(text));
+    const motionGroupDarkItems = sceneMotionGroupTargetItems.filter((item) => item.token.startsWith("effect:dark:"));
+    const timelineDuration = Math.max(0.1, sceneMotionGroupReviewDuration);
+    const timelineProgress = (time: number) => Math.min(1, Math.max(0, time / timelineDuration));
+    const timelinePosition = (time: number) => `${timelineProgress(time) * 100}%`;
+    const seekMotionGroupTimeline = (event: React.PointerEvent<HTMLDivElement>) => {
+      const timelineTrack = event.currentTarget.querySelector<HTMLElement>(".scene-motion-group-timeline-track");
+      const bounds = timelineTrack?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+      const nextTime = Math.min(
+        timelineDuration,
+        Math.max(0, (event.clientX - bounds.left) / Math.max(1, bounds.width) * timelineDuration),
+      );
+      setSceneMotionGroupPreviewPlaying(false);
+      setSceneMotionGroupPreviewTime(Number(nextTime.toFixed(2)));
+    };
     return (
       <div
         className="scene-motion-group-overlay"
@@ -17290,10 +17310,15 @@ function Home() {
                   <strong>Review cảnh {String(sceneStructureScene.number).padStart(2, "0")}</strong>
                   <span>Chỉ nội dung nhóm · {formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(sceneMotionGroupReviewDuration)}</span>
                 </div>
-                <button type="button" className="scene-motion-group-play-button" onClick={toggleSceneMotionGroupPreview}>
-                  <span aria-hidden="true">{sceneMotionGroupPreviewPlaying ? "Ⅱ" : "▶"}</span>
-                  {sceneMotionGroupPreviewPlaying ? "Dừng thử" : "Chạy thử"}
-                </button>
+                <div className="scene-motion-group-review-actions">
+                  <button type="button" className="scene-motion-group-replay-button" onClick={replaySceneMotionGroupPreview}>
+                    <span aria-hidden="true">↺</span> Chạy lại
+                  </button>
+                  <button type="button" className="scene-motion-group-play-button" onClick={toggleSceneMotionGroupPreview}>
+                    <span aria-hidden="true">{sceneMotionGroupPreviewPlaying ? "Ⅱ" : "▶"}</span>
+                    {sceneMotionGroupPreviewPlaying ? "Dừng thử" : "Chạy thử"}
+                  </button>
+                </div>
               </div>
               <div className="scene-motion-group-review-frame">
                 {renderSceneStructureLivePreview(sceneMotionGroupReviewStart + sceneMotionGroupPreviewTime, {
@@ -17302,9 +17327,64 @@ function Home() {
                   previewPlaying: sceneMotionGroupPreviewPlaying,
                   imagesVisible: true,
                   effectsVisible: true,
-                  playbackKey: "motion-group-review",
+                  playbackKey: `motion-group-review-${sceneMotionGroupReplayToken}`,
                   layerTokens: sceneMotionGroupTargetTokens,
                 })}
+              </div>
+              <div className="scene-motion-group-effect-timeline" aria-label="Timeline hiệu ứng của nhóm">
+                <div className="scene-motion-group-timeline-ruler">
+                  <span>0s</span>
+                  <strong>Timeline hiệu ứng</strong>
+                  <span>{formatPreciseTime(timelineDuration)}</span>
+                </div>
+                <div className="scene-motion-group-timeline-canvas" onPointerDown={seekMotionGroupTimeline}>
+                  <div className="scene-motion-group-timeline-cursor-lane" aria-hidden="true">
+                    <i className="scene-motion-group-timeline-cursor" style={{ left: timelinePosition(sceneMotionGroupPreviewTime) }} />
+                  </div>
+                  {motionGroupImages.map((image) => (
+                    <div className="scene-motion-group-timeline-row" key={`timeline-image-${image.id}`}>
+                      <span title={image.name || "Hình ảnh"}>IMG · {image.name || "Hình ảnh"}</span>
+                      <div className="scene-motion-group-timeline-track">
+                        <i className="is-image-effect" style={{ left: 0, width: timelinePosition(Math.min(timelineDuration, sceneMotionGroupDraft.imageRevealDuration)) }} title={`Hiệu ứng riêng: ${reviewImageTransitionLabel(image.transition)}`} />
+                        <i className="is-hold" style={{ left: timelinePosition(Math.min(timelineDuration, sceneMotionGroupDraft.imageRevealDuration)), right: 0 }} title="Giữ hình" />
+                      </div>
+                    </div>
+                  ))}
+                  {motionGroupDarkItems.map((item) => {
+                    const fadeInEnd = sceneMotionGroupDraft.darkStart + sceneMotionGroupDraft.darkFadeInDuration;
+                    const holdEnd = fadeInEnd + sceneMotionGroupDraft.darkHoldDuration;
+                    const fadeOutEnd = holdEnd + sceneMotionGroupDraft.darkFadeOutDuration;
+                    return (
+                      <div className="scene-motion-group-timeline-row" key={`timeline-${item.token}`}>
+                        <span title={item.label}>FX · {item.label}</span>
+                        <div className="scene-motion-group-timeline-track">
+                          <i className="is-dark-in" style={{ left: timelinePosition(sceneMotionGroupDraft.darkStart), width: timelinePosition(sceneMotionGroupDraft.darkFadeInDuration) }} title="Tối dần" />
+                          <i className="is-dark-hold" style={{ left: timelinePosition(fadeInEnd), width: timelinePosition(sceneMotionGroupDraft.darkHoldDuration) }} title="Giữ tối" />
+                          <i className="is-dark-out" style={{ left: timelinePosition(holdEnd), width: timelinePosition(Math.max(0, fadeOutEnd - holdEnd)) }} title="Sáng dần" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {motionGroupTexts.map((text) => {
+                    const fadeInEnd = sceneMotionGroupDraft.textStart + sceneMotionGroupDraft.textFadeInDuration;
+                    const holdEnd = fadeInEnd + sceneMotionGroupDraft.textHoldDuration;
+                    return (
+                      <div className="scene-motion-group-timeline-row" key={`timeline-text-${text.id}`}>
+                        <span title={text.name || text.text}>T · {text.name || "Chữ"}</span>
+                        <div className="scene-motion-group-timeline-track">
+                          <i className="is-text-in" style={{ left: timelinePosition(sceneMotionGroupDraft.textStart), width: timelinePosition(sceneMotionGroupDraft.textFadeInDuration) }} title={`Hiện dần · giữ hiệu ứng ${TEXT_OVERLAY_EFFECT_OPTIONS.find((option) => option.value === text.textEffect)?.label ?? "Không hiệu ứng"}`} />
+                          <i className="is-text-hold" style={{ left: timelinePosition(fadeInEnd), width: timelinePosition(sceneMotionGroupDraft.textHoldDuration) }} title="Giữ chữ" />
+                          <i className="is-text-out" style={{ left: timelinePosition(holdEnd), width: timelinePosition(sceneMotionGroupDraft.textFadeOutDuration) }} title="Reverse chữ" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="scene-motion-group-timeline-legend">
+                  <span><i className="is-image-effect" />Hiệu ứng hình</span>
+                  <span><i className="is-dark-in" />Hiệu ứng tối</span>
+                  <span><i className="is-text-in" />Hiệu ứng chữ</span>
+                </div>
               </div>
               <input
                 className="scene-motion-group-review-scrubber"
@@ -17401,7 +17481,7 @@ function Home() {
                 <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.textFadeOutDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, textFadeOutDuration: value }))} />
               </label>
             </div>
-            <p className="scene-structure-quick-note">Hệ thống dùng lại các hiệu ứng hiện có của hình, lớp tối và chữ. Các thẻ ngoài nhóm không bị thay đổi.</p>
+            <p className="scene-structure-quick-note">Nhóm chỉ điều phối thời gian. Kiểu hiệu ứng riêng của hình và chữ được giữ nguyên; lớp tối chạy độc lập nên không ghi đè hiệu ứng của từng thẻ.</p>
           </div>
           <footer className="scene-motion-group-footer">
             <button type="button" className="button secondary" onClick={() => setSceneMotionGroupDialogOpen(false)}>Hủy</button>
@@ -18638,7 +18718,7 @@ function Home() {
       : [];
 
     return (
-      <div key={`scene-structure-preview-${sceneStructureScene.id}-${focusOnly ? "motion-group" : "scene"}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-scope={focusOnly ? "motion-group" : "scene"} data-preview-images-visible={renderImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!renderImagesVisible ? "preview-images-hidden" : ""} ${focusOnly ? "motion-group-focus-preview" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
+      <div key={`scene-structure-preview-${sceneStructureScene.id}-${focusOnly ? "motion-group" : "scene"}-${staticFrame ? "static" : "live"}-${playbackKey}`} data-scene-id={sceneStructureScene.id} data-preview-scope={focusOnly ? "motion-group" : "scene"} data-preview-images-visible={renderImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!renderImagesVisible ? "preview-images-hidden" : ""} ${focusOnly ? "motion-group-focus-preview" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
         {!focusOnly && renderImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
