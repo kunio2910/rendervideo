@@ -7966,6 +7966,13 @@ function Home() {
   const sceneMotionGroupHasRequiredLayers = ["image:", "text:", "effect:dark:"].every((prefix) =>
     selectedSceneMotionTokens.some((token) => token.startsWith(prefix)),
   );
+  const sceneMotionGroupCanEdit = Boolean(selectedSceneMotionGroup);
+  const sceneMotionGroupCanOpen = sceneMotionGroupHasRequiredLayers || sceneMotionGroupCanEdit;
+  const sceneMotionGroupTargetTokens = selectedSceneMotionGroup
+    ? selectedSceneMotionGroup.layerTokens.filter((token) => sceneStructureItems.some((item) => item.token === token))
+    : selectedSceneMotionTokens;
+  const sceneMotionGroupTargetTokenSet = new Set(sceneMotionGroupTargetTokens);
+  const sceneMotionGroupTargetItems = sceneStructureItems.filter((item) => sceneMotionGroupTargetTokenSet.has(item.token));
   const sceneMotionGroupForToken = (token: string) => (sceneStructureScene.motionGroups ?? []).find((group) => group.layerTokens.includes(token));
   const sceneStructureTicks = (() => {
     const step = sceneStructureDuration <= 10 ? 1 : sceneStructureDuration <= 30 ? 5 : 10;
@@ -16452,7 +16459,7 @@ function Home() {
   };
 
   const openSceneMotionGroupDialog = () => {
-    if (!sceneMotionGroupHasRequiredLayers) {
+    if (!sceneMotionGroupCanOpen) {
       setToast("Hãy chọn ít nhất 1 hình ảnh, 1 lớp chữ và 1 hiệu ứng tối trong cùng cảnh.");
       window.setTimeout(() => setToast(""), 3200);
       return;
@@ -16473,7 +16480,7 @@ function Home() {
   };
 
   const applySceneMotionGroup = () => {
-    if (!hydrated || !sceneMotionGroupHasRequiredLayers) return;
+    if (!hydrated || !sceneMotionGroupCanOpen) return;
     const duration = Math.max(0.1, sceneStructureDuration);
     const clampStart = (value: number) => Math.min(Math.max(0, duration - 0.1), Math.max(0, Number(value) || 0));
     const clampPhase = (value: number, available: number) => Math.min(
@@ -16503,13 +16510,13 @@ function Home() {
       sceneMotionGroupDraft.textFadeOutDuration,
       Math.max(0, textAvailable - textFadeInDuration - textHoldDuration),
     );
-    const selectedTokens = new Set(selectedSceneMotionTokens);
+    const selectedTokens = new Set(sceneMotionGroupTargetTokens);
     const groupId = selectedSceneMotionGroup?.id || `motion-group-${Date.now()}`;
     const group: SceneMotionGroup = {
       id: groupId,
       name: SCENE_MOTION_PRESET_OPTIONS[0].label,
       preset: "fade-dark-text-reverse",
-      layerTokens: [...selectedSceneMotionTokens],
+      layerTokens: [...sceneMotionGroupTargetTokens],
       imageRevealDuration: Number(imageRevealDuration.toFixed(2)),
       darkStart: Number(darkStart.toFixed(2)),
       darkFadeInDuration: Number(darkFadeInDuration.toFixed(2)),
@@ -17195,7 +17202,7 @@ function Home() {
               <span>{preset.description}</span>
             </div>
             <div className="scene-motion-group-layers" aria-label="Các thẻ thuộc nhóm">
-              {selectedSceneMotionItems.map((item) => (
+              {sceneMotionGroupTargetItems.map((item) => (
                 <span key={item.token} className={`scene-motion-group-layer scene-motion-group-layer-${item.kind}`}>
                   <i>{item.icon}</i>{item.label}
                 </span>
@@ -17243,7 +17250,7 @@ function Home() {
           </div>
           <footer className="scene-motion-group-footer">
             <button type="button" className="button secondary" onClick={() => setSceneMotionGroupDialogOpen(false)}>Hủy</button>
-            <button type="button" className="button primary" disabled={!sceneMotionGroupHasRequiredLayers} onClick={applySceneMotionGroup}>Áp dụng cho thẻ đã chọn</button>
+            <button type="button" className="button primary" disabled={!sceneMotionGroupCanOpen} onClick={applySceneMotionGroup}>Áp dụng cho nhóm</button>
           </footer>
         </section>
       </div>
@@ -24568,10 +24575,12 @@ function Home() {
                   <button
                     type="button"
                     className="scene-motion-group-button"
-                    disabled={!sceneMotionGroupHasRequiredLayers}
+                    disabled={!sceneMotionGroupCanOpen}
                     aria-label={selectedSceneMotionGroup ? "Chỉnh nhóm nội dung động" : "Tạo nhóm nội dung động"}
-                    title={sceneMotionGroupHasRequiredLayers
-                      ? "Gom hình ảnh, lớp tối và chữ đã chọn thành một nhóm chuyển động"
+                    title={sceneMotionGroupCanEdit
+                      ? "Mở lại toàn bộ nhóm chuyển động của thẻ đang chọn để chỉnh sửa"
+                      : sceneMotionGroupHasRequiredLayers
+                        ? "Gom hình ảnh, lớp tối và chữ đã chọn thành một nhóm chuyển động"
                       : "Chọn ít nhất một hình ảnh, một lớp tối và một lớp chữ để tạo nhóm động"}
                     onClick={openSceneMotionGroupDialog}
                   >

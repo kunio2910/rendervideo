@@ -339,6 +339,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /type SceneMotionGroup =/);
   assert.match(page, /motionGroups/);
   assert.match(page, /sceneMotionGroupDialogOpen/);
+  assert.match(page, /sceneMotionGroupCanOpen/);
+  assert.match(page, /sceneMotionGroupTargetTokens/);
+  assert.match(page, /Mở lại toàn bộ nhóm chuyển động/);
   assert.match(page, /Tạo nhóm động/);
   assert.match(page, /Mờ → rõ → tối → chữ → reverse/);
   assert.match(css, /\.scene-motion-group-overlay/);
