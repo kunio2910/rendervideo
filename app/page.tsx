@@ -15583,6 +15583,9 @@ function Home() {
       || sceneStructureLockForToken(item.token).time
       || sceneStructureItemPointerDrag.current
     ) return;
+    // Modifier-click is selection, not a timeline drag. Returning before
+    // preventDefault lets the click handler receive Ctrl/Cmd + click and Shift + click.
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
     const flowContent = sceneStructureFlowContentRef.current;
     if (!flowContent) return;
     event.preventDefault();
@@ -24568,9 +24571,11 @@ function Home() {
                   </svg>
                   Kiểm tra ảnh
                 </button>
-                {selectedSceneStructureTokenSet.size > 1 && (
+                {selectedSceneStructureTokenSet.size > 1 ? (
                   <span className="scene-structure-selection-status">{selectedSceneStructureTokenSet.size} thẻ đã chọn · Kéo hoặc ←/→ để di chuyển cùng lúc</span>
-                )}
+                ) : sceneStructureViewMode === "timeline" ? (
+                  <span className="scene-structure-selection-hint">Giữ Ctrl/Cmd + click để chọn nhiều thẻ</span>
+                ) : null}
                 {sceneStructureViewMode === "timeline" && selectedSceneMotionItems.length > 0 && (
                   <button
                     type="button"

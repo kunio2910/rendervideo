@@ -343,6 +343,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneMotionGroupTargetTokens/);
   assert.match(page, /Mở lại toàn bộ nhóm chuyển động/);
   assert.match(page, /Tạo nhóm động/);
+  assert.match(page, /Giữ Ctrl\/Cmd \+ click để chọn nhiều thẻ/);
+  assert.match(page, /event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/);
   assert.match(page, /Mờ → rõ → tối → chữ → reverse/);
   assert.match(css, /\.scene-motion-group-overlay/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);

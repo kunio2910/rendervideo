@@ -11448,6 +11448,11 @@ body {
   background: #45bd79;
   box-shadow: 0 0 0 4px rgba(69, 189, 121, .12);
 }
+.scene-structure-selection-hint {
+  color: #9fb7cb;
+  font: 700 9px var(--font-mono);
+  white-space: nowrap;
+}
 .scene-structure-tool-group,
 .scene-structure-zoom-control {
   display: inline-flex;
