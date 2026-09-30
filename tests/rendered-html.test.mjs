@@ -336,6 +336,12 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /\.subtitle-track/);
   assert.match(css, /\.scene-structure-link-control/);
   assert.match(css, /repeat\(7, 27px\)/);
+  assert.match(page, /type SceneMotionGroup =/);
+  assert.match(page, /motionGroups/);
+  assert.match(page, /sceneMotionGroupDialogOpen/);
+  assert.match(page, /Tạo nhóm động/);
+  assert.match(page, /Mờ → rõ → tối → chữ → reverse/);
+  assert.match(css, /\.scene-motion-group-overlay/);
   assert.doesNotMatch(page, /<EditorFieldGroup title="Phụ đề"/);
   assert.doesNotMatch(page, /id="editor-subtitle"/);
   assert.doesNotMatch(page, /<span>Whiteboard<\/span>/);

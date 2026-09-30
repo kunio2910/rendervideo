@@ -366,6 +366,88 @@ type SceneStructureItem = {
   subtitleCueIds?: string[];
 };
 
+type SceneMotionPreset = "fade-dark-text-reverse";
+
+type SceneMotionGroup = {
+  id: string;
+  name: string;
+  preset: SceneMotionPreset;
+  layerTokens: string[];
+  imageRevealDuration: number;
+  darkStart: number;
+  darkFadeInDuration: number;
+  darkHoldDuration: number;
+  darkFadeOutDuration: number;
+  textStart: number;
+  textFadeInDuration: number;
+  textHoldDuration: number;
+  textFadeOutDuration: number;
+};
+
+type SceneMotionGroupDraft = Omit<SceneMotionGroup, "id" | "name" | "preset" | "layerTokens">;
+
+const SCENE_MOTION_PRESET_OPTIONS: Array<{
+  value: SceneMotionPreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "fade-dark-text-reverse",
+    label: "Mờ → rõ → tối → chữ → reverse",
+    description: "Tối ưu cho một hình, một lớp tối và một hoặc nhiều lớp chữ trong cùng thẻ cảnh.",
+  },
+];
+
+const defaultSceneMotionGroupDraft = (): SceneMotionGroupDraft => ({
+  imageRevealDuration: 0.8,
+  darkStart: 1.5,
+  darkFadeInDuration: 0.5,
+  darkHoldDuration: 0.4,
+  darkFadeOutDuration: 0.6,
+  textStart: 2,
+  textFadeInDuration: 0.6,
+  textHoldDuration: 1.2,
+  textFadeOutDuration: 0.6,
+});
+
+const normalizeSceneMotionGroups = (value: unknown, sceneDuration: number): SceneMotionGroup[] => {
+  if (!Array.isArray(value)) return [];
+  const safeDuration = Math.max(0.1, Number(sceneDuration) || 0.1);
+  return value
+    .filter(isRecord)
+    .map((raw, index) => {
+      const clampDuration = (candidate: unknown, fallback: number) => Math.min(
+        safeDuration,
+        Math.max(0, Number.isFinite(Number(candidate)) ? Number(candidate) : fallback),
+      );
+      const layerTokens = Array.isArray(raw.layerTokens)
+        ? Array.from(new Set(raw.layerTokens.map((token) => String(token)).filter(Boolean)))
+        : [];
+      const fallback = defaultSceneMotionGroupDraft();
+      return {
+        id: String(raw.id ?? `motion-group-${index + 1}`),
+        name: String(raw.name ?? SCENE_MOTION_PRESET_OPTIONS[0].label).trim() || SCENE_MOTION_PRESET_OPTIONS[0].label,
+        preset: raw.preset === "fade-dark-text-reverse" ? raw.preset : "fade-dark-text-reverse",
+        layerTokens,
+        imageRevealDuration: clampDuration(raw.imageRevealDuration, fallback.imageRevealDuration),
+        darkStart: clampDuration(raw.darkStart, fallback.darkStart),
+        darkFadeInDuration: clampDuration(raw.darkFadeInDuration, fallback.darkFadeInDuration),
+        darkHoldDuration: clampDuration(raw.darkHoldDuration, fallback.darkHoldDuration),
+        darkFadeOutDuration: clampDuration(raw.darkFadeOutDuration, fallback.darkFadeOutDuration),
+        textStart: clampDuration(raw.textStart, fallback.textStart),
+        textFadeInDuration: clampDuration(raw.textFadeInDuration, fallback.textFadeInDuration),
+        textHoldDuration: clampDuration(raw.textHoldDuration, fallback.textHoldDuration),
+        textFadeOutDuration: clampDuration(raw.textFadeOutDuration, fallback.textFadeOutDuration),
+      } satisfies SceneMotionGroup;
+    });
+};
+
+const sceneMotionGroupSupportsToken = (token: string) => (
+  token.startsWith("image:")
+  || token.startsWith("text:")
+  || token.startsWith("effect:dark:")
+);
+
 type SceneStructureTemplateKind = "image" | "text" | "popup" | "effect" | "audio";
 
 type SceneStructureViewMode = "timeline" | "list" | "storyboard" | "table" | "tree" | "script" | "subtitles" | "info";
@@ -709,6 +791,7 @@ type Scene = {
   layerOrder?: string[];
   sceneStructureLocks?: Record<string, SceneStructureLockState>;
   sceneStructureLinks?: SceneStructureLinkState;
+  motionGroups?: SceneMotionGroup[];
   subtitleEnabled: boolean;
   subtitleStart: number;
   subtitleStyle: SubtitleStyle;
@@ -1261,6 +1344,7 @@ const createEmptyScene = (id = "scene-01", number = 1, start = 0): Scene => ({
   mapDecorations: [],
   sceneImages: [],
   layerOrder: [],
+  motionGroups: [],
   subtitleEnabled: true,
   subtitleStart: 0,
   subtitleStyle: defaultSubtitleStyle(),
@@ -3512,6 +3596,10 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
         { duration: sceneDuration, name: `Hình ảnh ${imageIndex + 1}` },
       ))
       : [];
+    const motionGroups = normalizeSceneMotionGroups(
+      (item as Scene & { motionGroups?: unknown }).motionGroups,
+      sceneDuration,
+    );
     const rawAudioTracks = (item as Scene & { audioTracks?: unknown }).audioTracks;
     const legacyAudioTrack = defaultSceneAudioTrack(`${id}-audio-1`, {
       name: "Thuyết minh",
@@ -3560,6 +3648,7 @@ const ensureUniqueSceneIds = (items?: Scene[]) => {
       ...popupSceneFields(firstPopup ?? defaultPopupConfig(`${id}-popup-1`)),
       popups,
       mapDecorations,
+      motionGroups,
       narration: String(item.narration ?? ""),
       zoomStart,
       zoomEnd,
@@ -6497,6 +6586,8 @@ function Home() {
   const [sceneStructureImageSyncIncludeHidden, setSceneStructureImageSyncIncludeHidden] = useState(readSceneImageSyncIncludeHiddenPreference);
   const [sceneStructureImageSyncNotice, setSceneStructureImageSyncNotice] = useState("");
   const [sceneStructureImageSyncPreviewOpen, setSceneStructureImageSyncPreviewOpen] = useState(false);
+  const [sceneMotionGroupDialogOpen, setSceneMotionGroupDialogOpen] = useState(false);
+  const [sceneMotionGroupDraft, setSceneMotionGroupDraft] = useState<SceneMotionGroupDraft>(defaultSceneMotionGroupDraft);
   const [imageTimingCheckOpen, setImageTimingCheckOpen] = useState(false);
   const [imageTimingCheckResult, setImageTimingCheckResult] = useState<SceneImageTimingCheckView | null>(null);
   const [imageTimingCheckSelectedImageId, setImageTimingCheckSelectedImageId] = useState("");
@@ -7866,6 +7957,16 @@ function Home() {
       .filter((token) => sceneStructureItems.some((item) => item.token === token)),
   );
   const selectedSceneStructureItems = sceneStructureItems.filter((item) => selectedSceneStructureTokenSet.has(item.token));
+  const selectedSceneMotionItems = selectedSceneStructureItems.filter((item) => sceneMotionGroupSupportsToken(item.token));
+  const selectedSceneMotionTokens = selectedSceneMotionItems.map((item) => item.token);
+  const selectedSceneMotionTokenSet = new Set(selectedSceneMotionTokens);
+  const selectedSceneMotionGroup = (sceneStructureScene.motionGroups ?? []).find((group) =>
+    group.layerTokens.some((token) => selectedSceneMotionTokenSet.has(token)),
+  );
+  const sceneMotionGroupHasRequiredLayers = ["image:", "text:", "effect:dark:"].every((prefix) =>
+    selectedSceneMotionTokens.some((token) => token.startsWith(prefix)),
+  );
+  const sceneMotionGroupForToken = (token: string) => (sceneStructureScene.motionGroups ?? []).find((group) => group.layerTokens.includes(token));
   const sceneStructureTicks = (() => {
     const step = sceneStructureDuration <= 10 ? 1 : sceneStructureDuration <= 30 ? 5 : 10;
     const ticks = Array.from(
@@ -13550,6 +13651,10 @@ function Home() {
               spriteDelay: image.spriteDelay,
               transparent: image.transparent === true,
              })),
+             motionGroups: (item.motionGroups ?? []).map((group) => ({
+              ...group,
+              layerTokens: [...group.layerTokens],
+             })),
              layerOrder: Array.isArray(item.layerOrder) ? [...item.layerOrder] : [],
              subtitleEnabled: item.subtitleEnabled !== false,
              subtitleStart: item.subtitleStart,
@@ -16346,6 +16451,146 @@ function Home() {
     }));
   };
 
+  const openSceneMotionGroupDialog = () => {
+    if (!sceneMotionGroupHasRequiredLayers) {
+      setToast("Hãy chọn ít nhất 1 hình ảnh, 1 lớp chữ và 1 hiệu ứng tối trong cùng cảnh.");
+      window.setTimeout(() => setToast(""), 3200);
+      return;
+    }
+    const group = selectedSceneMotionGroup;
+    setSceneMotionGroupDraft(group ? {
+      imageRevealDuration: group.imageRevealDuration,
+      darkStart: group.darkStart,
+      darkFadeInDuration: group.darkFadeInDuration,
+      darkHoldDuration: group.darkHoldDuration,
+      darkFadeOutDuration: group.darkFadeOutDuration,
+      textStart: group.textStart,
+      textFadeInDuration: group.textFadeInDuration,
+      textHoldDuration: group.textHoldDuration,
+      textFadeOutDuration: group.textFadeOutDuration,
+    } : defaultSceneMotionGroupDraft());
+    setSceneMotionGroupDialogOpen(true);
+  };
+
+  const applySceneMotionGroup = () => {
+    if (!hydrated || !sceneMotionGroupHasRequiredLayers) return;
+    const duration = Math.max(0.1, sceneStructureDuration);
+    const clampStart = (value: number) => Math.min(Math.max(0, duration - 0.1), Math.max(0, Number(value) || 0));
+    const clampPhase = (value: number, available: number) => Math.min(
+      Math.max(0, available),
+      Math.max(0, Number(value) || 0),
+    );
+    const imageRevealDuration = Math.max(0.05, clampPhase(sceneMotionGroupDraft.imageRevealDuration, duration));
+    const darkStart = clampStart(sceneMotionGroupDraft.darkStart);
+    const darkAvailable = Math.max(0.1, duration - darkStart);
+    const darkFadeInDuration = clampPhase(sceneMotionGroupDraft.darkFadeInDuration, darkAvailable);
+    const darkHoldDuration = clampPhase(sceneMotionGroupDraft.darkHoldDuration, Math.max(0, darkAvailable - darkFadeInDuration));
+    const darkFadeOutDuration = clampPhase(
+      sceneMotionGroupDraft.darkFadeOutDuration,
+      Math.max(0, darkAvailable - darkFadeInDuration - darkHoldDuration),
+    );
+    const textStart = clampStart(sceneMotionGroupDraft.textStart);
+    const textAvailable = Math.max(0.1, duration - textStart);
+    const textFadeInDuration = Math.min(
+      Math.max(0.05, Number(sceneMotionGroupDraft.textFadeInDuration) || 0.05),
+      textAvailable,
+    );
+    const textHoldDuration = clampPhase(
+      sceneMotionGroupDraft.textHoldDuration,
+      Math.max(0, textAvailable - textFadeInDuration),
+    );
+    const textFadeOutDuration = clampPhase(
+      sceneMotionGroupDraft.textFadeOutDuration,
+      Math.max(0, textAvailable - textFadeInDuration - textHoldDuration),
+    );
+    const selectedTokens = new Set(selectedSceneMotionTokens);
+    const groupId = selectedSceneMotionGroup?.id || `motion-group-${Date.now()}`;
+    const group: SceneMotionGroup = {
+      id: groupId,
+      name: SCENE_MOTION_PRESET_OPTIONS[0].label,
+      preset: "fade-dark-text-reverse",
+      layerTokens: [...selectedSceneMotionTokens],
+      imageRevealDuration: Number(imageRevealDuration.toFixed(2)),
+      darkStart: Number(darkStart.toFixed(2)),
+      darkFadeInDuration: Number(darkFadeInDuration.toFixed(2)),
+      darkHoldDuration: Number(darkHoldDuration.toFixed(2)),
+      darkFadeOutDuration: Number(darkFadeOutDuration.toFixed(2)),
+      textStart: Number(textStart.toFixed(2)),
+      textFadeInDuration: Number(textFadeInDuration.toFixed(2)),
+      textHoldDuration: Number(textHoldDuration.toFixed(2)),
+      textFadeOutDuration: Number(textFadeOutDuration.toFixed(2)),
+    };
+    setScenes((items) => items.map((currentScene) => {
+      if (currentScene.id !== sceneStructureScene.id) return currentScene;
+      const existingGroups = (currentScene.motionGroups ?? []).filter((currentGroup) => (
+        currentGroup.id !== groupId
+        && !currentGroup.layerTokens.some((token) => selectedTokens.has(token))
+      ));
+      const nextImages = (currentScene.sceneImages ?? []).map((image) => {
+        if (!selectedTokens.has(`image:${image.id}`)) return image;
+        const locked = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`image:${image.id}`]).time;
+        if (locked) return image;
+        return {
+          ...image,
+          start: 0,
+          duration: Number(duration.toFixed(2)),
+          transition: "blur" as SceneImageTransition,
+          transitionEnd: Number(Math.min(duration, imageRevealDuration).toFixed(2)),
+        };
+      });
+      const nextTexts = (currentScene.textOverlays ?? []).map((overlay) => {
+        if (!selectedTokens.has(`text:${overlay.id}`)) return overlay;
+        const textEnd = Math.min(
+          duration,
+          Math.max(textStart + 0.1, textStart + textFadeInDuration + textHoldDuration + textFadeOutDuration),
+        );
+        const locked = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`text:${overlay.id}`]).time;
+        const next = locked
+          ? { ...overlay }
+          : { ...overlay, start: Number(textStart.toFixed(2)), end: Number(textEnd.toFixed(2)) };
+        const textSpan = Math.max(0.1, textEnd - textStart);
+        return {
+          ...next,
+          textEffect: "fade" as TextOverlayEffect,
+          textEffectDuration: Number(Math.min(textFadeInDuration, textSpan / 2).toFixed(2)),
+          textEffectReverse: true,
+          fadeInStart: 0,
+          fadeInEnd: Number(Math.min(textSpan, textFadeInDuration).toFixed(2)),
+          fadeOutStart: Number(Math.max(0, textSpan - textFadeOutDuration).toFixed(2)),
+          fadeOutEnd: textSpan,
+        };
+      });
+      const currentEffects = normalizeSceneEffects(currentScene.effects);
+      const nextDarkEffects = currentEffects.sceneStartDarkEffects.map((effect) => {
+        if (!selectedTokens.has(`effect:dark:${effect.id}`)) return effect;
+        const timing = normalizeSceneDarkEffectTiming({
+          start: darkStart,
+          fadeInDuration: darkFadeInDuration,
+          holdDuration: darkHoldDuration,
+          fadeOutDuration: darkFadeOutDuration,
+        }, effect, duration);
+        return { ...effect, enabled: true, ...timing };
+      });
+      const firstEffect = nextDarkEffects[0] ?? defaultSceneDarkEffect();
+      return {
+        ...currentScene,
+        motionGroups: [...existingGroups, group],
+        sceneImages: nextImages,
+        textOverlays: nextTexts,
+        effects: {
+          ...currentEffects,
+          sceneStartDarkEffects: nextDarkEffects,
+          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+          sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+          sceneStartDarkIntensity: firstEffect.intensity,
+        },
+      };
+    }));
+    setSceneMotionGroupDialogOpen(false);
+    setToast("Đã áp dụng nhóm chuyển động cho các thẻ đã chọn. Có thể hoàn tác bằng Ctrl+Z.");
+    window.setTimeout(() => setToast(""), 3200);
+  };
+
   const playSceneStructure = () => {
     if (sceneStructurePreviewMode && playing) {
       setPlaying(false);
@@ -16920,6 +17165,90 @@ function Home() {
       ? <video src={item.thumbnail} muted loop playsInline preload="metadata" aria-hidden="true" />
       : <img src={item.thumbnail} alt="" />
     : <span>{fallback}</span>;
+
+  const renderSceneMotionGroupDialog = () => {
+    if (!sceneMotionGroupDialogOpen) return null;
+    const preset = SCENE_MOTION_PRESET_OPTIONS.find((option) => option.value === "fade-dark-text-reverse") ?? SCENE_MOTION_PRESET_OPTIONS[0];
+    return (
+      <div
+        className="scene-motion-group-overlay"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setSceneMotionGroupDialogOpen(false);
+        }}
+      >
+        <section className="scene-motion-group-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-motion-group-heading">
+          <header>
+            <div>
+              <span className="scene-motion-group-icon" aria-hidden="true">✦</span>
+              <div>
+                <p>NHÓM NỘI DUNG ĐỘNG</p>
+                <h2 id="scene-motion-group-heading">{selectedSceneMotionGroup ? "Chỉnh nhóm chuyển động" : "Tạo nhóm chuyển động"}</h2>
+                <small>Chỉ áp dụng cho các thẻ đã chọn trong cảnh này.</small>
+              </div>
+            </div>
+            <button type="button" className="scene-structure-quick-close" aria-label="Đóng nhóm chuyển động" title="Đóng" onClick={() => setSceneMotionGroupDialogOpen(false)}>×</button>
+          </header>
+          <div className="scene-motion-group-body">
+            <div className="scene-motion-group-preset">
+              <strong>{preset.label}</strong>
+              <span>{preset.description}</span>
+            </div>
+            <div className="scene-motion-group-layers" aria-label="Các thẻ thuộc nhóm">
+              {selectedSceneMotionItems.map((item) => (
+                <span key={item.token} className={`scene-motion-group-layer scene-motion-group-layer-${item.kind}`}>
+                  <i>{item.icon}</i>{item.label}
+                </span>
+              ))}
+            </div>
+            <div className="scene-motion-group-grid">
+              <label className="scene-structure-quick-field">
+                <span>Hình mờ → rõ (giây)</span>
+                <NumericInput min={0.05} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.imageRevealDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, imageRevealDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Bắt đầu làm tối (giây)</span>
+                <NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.05} value={sceneMotionGroupDraft.darkStart} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, darkStart: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Tối dần (giây)</span>
+                <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.darkFadeInDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, darkFadeInDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Giữ tối (giây)</span>
+                <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.darkHoldDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, darkHoldDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Sáng dần (giây)</span>
+                <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.darkFadeOutDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, darkFadeOutDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Chữ bắt đầu (giây)</span>
+                <NumericInput min={0} max={Math.max(0, sceneStructureDuration - 0.1)} step={0.05} value={sceneMotionGroupDraft.textStart} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, textStart: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Chữ hiện dần (giây)</span>
+                <NumericInput min={0.05} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.textFadeInDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, textFadeInDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Giữ chữ (giây)</span>
+                <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.textHoldDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, textHoldDuration: value }))} />
+              </label>
+              <label className="scene-structure-quick-field">
+                <span>Reverse chữ (giây)</span>
+                <NumericInput min={0} max={sceneStructureDuration} step={0.05} value={sceneMotionGroupDraft.textFadeOutDuration} onCommit={(value) => setSceneMotionGroupDraft((draft) => ({ ...draft, textFadeOutDuration: value }))} />
+              </label>
+            </div>
+            <p className="scene-structure-quick-note">Hệ thống dùng lại các hiệu ứng hiện có của hình, lớp tối và chữ. Các thẻ ngoài nhóm không bị thay đổi.</p>
+          </div>
+          <footer className="scene-motion-group-footer">
+            <button type="button" className="button secondary" onClick={() => setSceneMotionGroupDialogOpen(false)}>Hủy</button>
+            <button type="button" className="button primary" disabled={!sceneMotionGroupHasRequiredLayers} onClick={applySceneMotionGroup}>Áp dụng cho thẻ đã chọn</button>
+          </footer>
+        </section>
+      </div>
+    );
+  };
 
   const renderSceneStructureQuickEditor = () => {
     const item = sceneStructureQuickEditItem;
@@ -24235,6 +24564,20 @@ function Home() {
                 {selectedSceneStructureTokenSet.size > 1 && (
                   <span className="scene-structure-selection-status">{selectedSceneStructureTokenSet.size} thẻ đã chọn · Kéo hoặc ←/→ để di chuyển cùng lúc</span>
                 )}
+                {sceneStructureViewMode === "timeline" && selectedSceneMotionItems.length > 0 && (
+                  <button
+                    type="button"
+                    className="scene-motion-group-button"
+                    disabled={!sceneMotionGroupHasRequiredLayers}
+                    aria-label={selectedSceneMotionGroup ? "Chỉnh nhóm nội dung động" : "Tạo nhóm nội dung động"}
+                    title={sceneMotionGroupHasRequiredLayers
+                      ? "Gom hình ảnh, lớp tối và chữ đã chọn thành một nhóm chuyển động"
+                      : "Chọn ít nhất một hình ảnh, một lớp tối và một lớp chữ để tạo nhóm động"}
+                    onClick={openSceneMotionGroupDialog}
+                  >
+                    <span aria-hidden="true">✦</span> {selectedSceneMotionGroup ? "Chỉnh nhóm động" : "Tạo nhóm động"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="scene-structure-save-button"
@@ -24567,7 +24910,7 @@ function Home() {
                           <span className="scene-structure-flow-line" aria-hidden="true"><i /></span>
                           <button
                             type="button"
-                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${selectedSceneStructureTokenSet.has(item.token) ? "is-selected" : ""} ${isLive ? "is-live" : ""} ${item.token === sceneStructureItemDragToken ? "is-dragging" : ""} ${item.timingMode !== "none" ? "is-movable" : ""} ${sceneStructureLockForToken(item.token).layer ? "is-layer-locked" : ""} ${sceneStructureLockForToken(item.token).position ? "is-position-locked" : ""} ${sceneStructureLockForToken(item.token).time ? "is-time-locked" : ""}`}
+                            className={`scene-structure-card scene-structure-card-${item.kind} ${item.token === selectedSceneStructureItem?.token ? "active" : ""} ${selectedSceneStructureTokenSet.has(item.token) ? "is-selected" : ""} ${isLive ? "is-live" : ""} ${item.token === sceneStructureItemDragToken ? "is-dragging" : ""} ${item.timingMode !== "none" ? "is-movable" : ""} ${sceneStructureLockForToken(item.token).layer ? "is-layer-locked" : ""} ${sceneStructureLockForToken(item.token).position ? "is-position-locked" : ""} ${sceneStructureLockForToken(item.token).time ? "is-time-locked" : ""} ${sceneMotionGroupForToken(item.token) ? "is-motion-grouped" : ""}`}
                             style={{
                               left: `${leftPercent}%`,
                               width: `${widthPercent}%`,
@@ -24625,6 +24968,9 @@ function Home() {
                               <small>{formatPreciseTime(item.start)} → {formatPreciseTime(item.end)}</small>
                             </span>
                             <span className="scene-structure-card-kind">{sceneStructureKindLabel(item.kind)}</span>
+                            {sceneMotionGroupForToken(item.token) && (
+                              <span className="scene-structure-card-motion" title="Thẻ thuộc nhóm nội dung động">✦ Nhóm động</span>
+                            )}
                             <span className="scene-structure-card-locks" aria-label="Trạng thái khóa">
                               {sceneStructureLockForToken(item.token).layer && <i title="Khóa layer">L</i>}
                               {sceneStructureLockForToken(item.token).position && <i title="Khóa vị trí">V</i>}
@@ -25099,6 +25445,7 @@ function Home() {
           </section>
           {renderSceneStructureHoverPreview()}
           {renderSceneStructureQuickEditor()}
+          {renderSceneMotionGroupDialog()}
         </div>
       )}
       {imageTimingCheckOpen && imageTimingCheckResult && (
