@@ -7023,7 +7023,7 @@ function Home() {
     }
     return 0;
   };
-  const sceneStartDarkOverlayItemsAtTime = (localTime: number) => sceneStartDarkEffects
+  const sceneStartDarkOverlayItemsAtTime = (localTime: number, effects = sceneStartDarkEffects) => effects
     .filter((effect) => {
       const start = Math.max(0, Number(effect.start) || 0);
       const end = start + Math.max(0, Number(effect.fadeInDuration) || 0)
@@ -16609,11 +16609,13 @@ function Home() {
         if (!selectedTokens.has(`image:${image.id}`)) return image;
         const locked = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`image:${image.id}`]).time;
         if (locked) return image;
+        const hasOwnImageTransition = normalizeSceneImageTransition(image.transition) !== "cut";
         return {
           ...image,
           start: 0,
           duration: Number(duration.toFixed(2)),
-          transitionEnd: normalizeSceneImageTransition(image.transition) === "cut"
+          transition: hasOwnImageTransition ? image.transition : "blur" as SceneImageTransition,
+          transitionEnd: hasOwnImageTransition
             ? image.transitionEnd
             : Number(Math.min(duration, imageRevealDuration).toFixed(2)),
         };
@@ -16625,16 +16627,22 @@ function Home() {
           Math.max(textStart + 0.1, textStart + textFadeInDuration + textHoldDuration + textFadeOutDuration),
         );
         const locked = normalizeSceneStructureLockState(currentScene.sceneStructureLocks?.[`text:${overlay.id}`]).time;
+        const hasOwnTextEffect = normalizeTextOverlayEffect(overlay.textEffect) !== "none";
         const next = locked
           ? { ...overlay }
           : { ...overlay, start: Number(textStart.toFixed(2)), end: Number(textEnd.toFixed(2)) };
         const textSpan = Math.max(0.1, textEnd - textStart);
         return {
           ...next,
-          fadeInStart: 0,
-          fadeInEnd: Number(Math.min(textSpan, textFadeInDuration).toFixed(2)),
-          fadeOutStart: Number(Math.max(0, textSpan - textFadeOutDuration).toFixed(2)),
-          fadeOutEnd: textSpan,
+          ...(hasOwnTextEffect ? {} : {
+            textEffect: "fade" as TextOverlayEffect,
+            textEffectDuration: Number(Math.min(textFadeInDuration, textSpan / 2).toFixed(2)),
+            textEffectReverse: true,
+            fadeInStart: 0,
+            fadeInEnd: Number(Math.min(textSpan, textFadeInDuration).toFixed(2)),
+            fadeOutStart: Number(Math.max(0, textSpan - textFadeOutDuration).toFixed(2)),
+            fadeOutEnd: textSpan,
+          }),
         };
       });
       const currentEffects = normalizeSceneEffects(currentScene.effects);
@@ -17329,6 +17337,8 @@ function Home() {
                   effectsVisible: true,
                   playbackKey: `motion-group-review-${sceneMotionGroupReplayToken}`,
                   layerTokens: sceneMotionGroupTargetTokens,
+                  motionGroupDraft: sceneMotionGroupDraft,
+                  motionGroupTime: sceneMotionGroupPreviewTime,
                 })}
               </div>
               <div className="scene-motion-group-effect-timeline" aria-label="Timeline hiệu ứng của nhóm">
@@ -18660,6 +18670,8 @@ function Home() {
       effectsVisible?: boolean;
       playbackKey?: string | number;
       layerTokens?: string[];
+      motionGroupDraft?: SceneMotionGroupDraft;
+      motionGroupTime?: number;
     } = {},
   ) => {
     const staticFrame = options.staticFrame === true;
@@ -18668,8 +18680,26 @@ function Home() {
     const renderEffectsVisible = options.effectsVisible ?? previewEffectsVisible;
     const previewIsPlaying = !staticFrame && (options.previewPlaying ?? playing);
     const playbackKey = options.playbackKey ?? playbackRestartToken;
+    const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
     const focusOnly = options.layerTokens !== undefined;
     const focusedLayerTokens = new Set(options.layerTokens ?? []);
+    const motionGroupDraft = options.motionGroupDraft;
+    const motionGroupTime = options.motionGroupTime ?? localTime;
+    const motionGroupDarkToken = options.layerTokens?.find((token) => token.startsWith("effect:dark:"));
+    const motionGroupDarkId = motionGroupDarkToken?.slice("effect:dark:".length);
+    const motionGroupDarkSource = motionGroupDarkId
+      ? liveSceneEffects.sceneStartDarkEffects.find((effect) => effect.id === motionGroupDarkId)
+      : null;
+    const motionGroupPreviewDarkEffects = motionGroupDraft && motionGroupDarkToken
+      ? [defaultSceneDarkEffect(motionGroupDarkId || "motion-group-preview-dark", {
+        ...(motionGroupDarkSource ?? {}),
+        enabled: true,
+        start: motionGroupDraft.darkStart,
+        fadeInDuration: motionGroupDraft.darkFadeInDuration,
+        holdDuration: motionGroupDraft.darkHoldDuration,
+        fadeOutDuration: motionGroupDraft.darkFadeOutDuration,
+      })]
+      : null;
     const layerIsFocused = (token: string) => !focusOnly || focusedLayerTokens.has(token);
     const renderSceneImages = sceneStructureImages.filter((image) => layerIsFocused(`image:${image.id}`));
     const renderSceneTexts = sceneStructureTexts.filter((overlay) => layerIsFocused(`text:${overlay.id}`));
@@ -18695,16 +18725,18 @@ function Home() {
         ? renderSceneImages
           .filter((image) => image.visible !== false && safeTrim(image.url))
           .filter((image) => {
-            const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
-            const end = Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
-            return localTime >= start
-              && (localTime < end
-                || (holdsSceneStructureFinalFrame && end >= sceneStructureDuration && localTime <= end));
+            const start = motionGroupDraft ? 0 : Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
+            const end = motionGroupDraft
+              ? sceneStructureDuration
+              : Math.min(sceneStructureDuration, start + Math.max(0.1, Number(image.duration) || 0.1));
+            const previewTime = motionGroupDraft ? motionGroupTime : localTime;
+            return previewTime >= start
+              && (previewTime < end
+                || (holdsSceneStructureFinalFrame && end >= sceneStructureDuration && previewTime <= end));
           })
           .map((image) => image.id)
         : [],
     );
-    const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
     const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
       if (!renderEffectsVisible || focusOnly) return [];
       if (!previewIsPlaying) {
@@ -18714,7 +18746,10 @@ function Home() {
     };
 
     const liveDarkOverlayItems = renderEffectsVisible
-      ? sceneStartDarkOverlayItemsAtTime(localTime).filter((item) => layerIsFocused(`effect:dark:${item.effect.id}`))
+      ? sceneStartDarkOverlayItemsAtTime(
+        motionGroupPreviewDarkEffects ? motionGroupTime : localTime,
+        motionGroupPreviewDarkEffects ?? sceneStartDarkEffects,
+      ).filter((item) => motionGroupPreviewDarkEffects || layerIsFocused(`effect:dark:${item.effect.id}`))
       : [];
 
     return (
@@ -18766,8 +18801,21 @@ function Home() {
         {renderSceneTexts
           .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
           .map((overlay, index) => {
-            const start = Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
-            const end = Math.min(sceneStructureDuration, Math.max(start + 0.1, Number(overlay.end) || sceneStructureDuration));
+            const timelineTime = motionGroupDraft ? motionGroupTime : localTime;
+            const start = motionGroupDraft
+              ? Math.min(sceneStructureDuration, Math.max(0, Number(motionGroupDraft.textStart) || 0))
+              : Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
+            const end = motionGroupDraft
+              ? Math.min(
+                sceneStructureDuration,
+                Math.max(
+                  start + 0.1,
+                  start + Math.max(0, motionGroupDraft.textFadeInDuration)
+                    + Math.max(0, motionGroupDraft.textHoldDuration)
+                    + Math.max(0, motionGroupDraft.textFadeOutDuration),
+                ),
+              )
+              : Math.min(sceneStructureDuration, Math.max(start + 0.1, Number(overlay.end) || sceneStructureDuration));
             const effectDuration = textOverlayEffectDuration(overlay, start, end);
             const effectReverseDelay = overlay.textEffectReverse
               ? Math.max(0, end - start - effectDuration * 2)
@@ -18776,10 +18824,26 @@ function Home() {
               overlay,
               start,
               end,
-              localTime,
+              timelineTime,
               previewMode,
             );
-            if (localTime < start || localTime >= end) return null;
+            const groupTextOpacity = motionGroupDraft
+              ? (() => {
+                const elapsed = timelineTime - start;
+                const fadeIn = Math.max(0.05, motionGroupDraft.textFadeInDuration);
+                const fadeOut = Math.max(0.05, motionGroupDraft.textFadeOutDuration);
+                const fadeOutStart = Math.max(start + fadeIn, end - fadeOut);
+                if (elapsed < 0 || timelineTime >= end) return 0;
+                if (timelineTime < start + fadeIn) return Math.min(1, Math.max(0, elapsed / fadeIn));
+                if (timelineTime >= fadeOutStart) return Math.min(1, Math.max(0, (end - timelineTime) / fadeOut));
+                return 1;
+              })()
+              : 1;
+            const fadePlaybackStyle = textOverlayFadePlaybackStyle(overlay, start, end, timelineTime, previewMode);
+            const combinedTextOpacity = motionGroupDraft
+              ? groupTextOpacity * Number(blurPlaybackStyle.opacity ?? 1) * Number(fadePlaybackStyle.opacity ?? 1)
+              : undefined;
+            if (timelineTime < start || timelineTime >= end) return null;
             return (
               <div
                 key={`live-text-${overlay.id}-${previewIsPlaying ? playbackKey : "idle"}`}
@@ -18792,7 +18856,8 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   ...blurPlaybackStyle,
-                  ...textOverlayFadePlaybackStyle(overlay, start, end, localTime, previewMode),
+                  ...fadePlaybackStyle,
+                  ...(motionGroupDraft ? { opacity: combinedTextOpacity } : {}),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
@@ -18817,16 +18882,23 @@ function Home() {
         {renderSceneImages
           .filter((image) => image.visible !== false && activeLiveImageIds.has(image.id))
           .map((image, index) => {
+            const timelineTime = motionGroupDraft ? motionGroupTime : localTime;
             const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
             const imageIsVideo = image.mediaType === "video" || isVideoMedia(image.url);
             const squareSize = Math.min(image.width, image.height);
             const width = image.shape === "square" ? squareSize : image.width;
             const height = image.shape === "square" ? squareSize : image.height;
             const transition = normalizeSceneImageTransition(image.transition);
-            const transitionDuration = sceneImageTransitionDuration(image);
-            const imageStart = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
-            const transitionProgress = staticFrame && transition !== "cut" && transitionDuration > 0
-              ? Math.min(1, Math.max(0, (localTime - imageStart) / transitionDuration))
+            const transitionDuration = motionGroupDraft
+              ? Math.max(0.05, motionGroupDraft.imageRevealDuration)
+              : sceneImageTransitionDuration(image);
+            const imageStart = motionGroupDraft
+              ? 0
+              : Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
+            const transitionProgress = motionGroupDraft
+              ? Math.min(1, Math.max(0, timelineTime / transitionDuration))
+              : staticFrame && transition !== "cut" && transitionDuration > 0
+                ? Math.min(1, Math.max(0, (localTime - imageStart) / transitionDuration))
               : 1;
             const transitionTransform = transition === "slide-left"
               ? `translate(-50%, -50%) translateX(${(transitionProgress - 1) * 110}%)`
@@ -18835,6 +18907,9 @@ function Home() {
                 : undefined;
             const transitionFilter = transition === "blur"
               ? `blur(${Math.max(0, (1 - transitionProgress) * 12).toFixed(2)}px)`
+              : undefined;
+            const groupFilter = motionGroupDraft
+              ? `blur(${Math.max(0, (1 - transitionProgress) * 8).toFixed(2)}px)`
               : undefined;
             return (
               <div
@@ -18851,7 +18926,7 @@ function Home() {
                   border: image.borderWidth > 0 ? `${image.borderWidth}px solid ${image.borderColor}` : undefined,
                   opacity: (image.opacity / 100) * (transition === "crossfade" ? transitionProgress : 1),
                   transform: transitionTransform,
-                  filter: transitionFilter,
+                  filter: [groupFilter, transitionFilter].filter(Boolean).join(" ") || undefined,
                   transformOrigin: "center center",
                 }}
               >
@@ -18867,7 +18942,7 @@ function Home() {
                       playsInline
                       preload="metadata"
                       onLoadedMetadata={(event) => {
-                        syncPreviewVideoToTimeline(event.currentTarget, image.start, localTime, previewIsPlaying);
+                        syncPreviewVideoToTimeline(event.currentTarget, motionGroupDraft ? 0 : image.start, motionGroupDraft ? motionGroupTime : localTime, previewIsPlaying);
                       }}
                       onEnded={holdPreviewVideoLastFrame}
                     />

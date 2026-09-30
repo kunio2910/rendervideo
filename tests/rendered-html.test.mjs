@@ -355,9 +355,14 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Chạy lại/);
   assert.match(page, /scene-motion-group-effect-timeline/);
   assert.match(page, /Timeline hiệu ứng của nhóm/);
+  assert.match(page, /motionGroupDraft\?: SceneMotionGroupDraft/);
+  assert.match(page, /motionGroupDraft: sceneMotionGroupDraft/);
+  assert.match(page, /motionGroupTime: sceneMotionGroupPreviewTime/);
+  assert.match(page, /motionGroupPreviewDarkEffects/);
+  assert.match(page, /groupTextOpacity/);
   assert.match(page, /normalizeSceneImageTransition\(image\.transition\) === "cut"/);
-  assert.doesNotMatch(page, /transition: "blur" as SceneImageTransition/);
-  assert.doesNotMatch(page, /textEffect: "fade" as TextOverlayEffect/);
+  assert.match(page, /hasOwnImageTransition/);
+  assert.match(page, /hasOwnTextEffect/);
   assert.match(page, /layerTokens\?: string\[\]/);
   assert.match(page, /data-preview-scope=\{focusOnly \? "motion-group" : "scene"\}/);
   assert.match(page, /layerTokens: sceneMotionGroupTargetTokens/);
