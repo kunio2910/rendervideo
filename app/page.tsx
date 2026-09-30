@@ -394,7 +394,7 @@ const SCENE_MOTION_PRESET_OPTIONS: Array<{
   {
     value: "fade-dark-text-reverse",
     label: "Mờ → rõ → tối → chữ → reverse",
-    description: "Tối ưu cho một hình, một lớp tối và một hoặc nhiều lớp chữ trong cùng thẻ cảnh.",
+    description: "Tối ưu cho một hình và một hoặc nhiều lớp chữ; lớp tối sẽ được áp dụng nếu bạn chọn thêm hiệu ứng tối.",
   },
 ];
 
@@ -7963,9 +7963,10 @@ function Home() {
   const selectedSceneMotionGroup = (sceneStructureScene.motionGroups ?? []).find((group) =>
     group.layerTokens.some((token) => selectedSceneMotionTokenSet.has(token)),
   );
-  const sceneMotionGroupHasRequiredLayers = ["image:", "text:", "effect:dark:"].every((prefix) =>
+  const sceneMotionGroupHasRequiredLayers = ["image:", "text:"].every((prefix) =>
     selectedSceneMotionTokens.some((token) => token.startsWith(prefix)),
   );
+  const sceneMotionGroupHasDarkLayer = selectedSceneMotionTokens.some((token) => token.startsWith("effect:dark:"));
   const sceneMotionGroupCanEdit = Boolean(selectedSceneMotionGroup);
   const sceneMotionGroupCanOpen = sceneMotionGroupHasRequiredLayers || sceneMotionGroupCanEdit;
   const sceneMotionGroupTargetTokens = selectedSceneMotionGroup
@@ -16463,7 +16464,7 @@ function Home() {
 
   const openSceneMotionGroupDialog = () => {
     if (!sceneMotionGroupCanOpen) {
-      setToast("Hãy chọn ít nhất 1 hình ảnh, 1 lớp chữ và 1 hiệu ứng tối trong cùng cảnh.");
+      setToast("Hãy chọn ít nhất 1 hình ảnh và 1 lớp chữ trong cùng cảnh.");
       window.setTimeout(() => setToast(""), 3200);
       return;
     }
@@ -16582,18 +16583,21 @@ function Home() {
         return { ...effect, enabled: true, ...timing };
       });
       const firstEffect = nextDarkEffects[0] ?? defaultSceneDarkEffect();
+      const darkEffectWasSelected = Array.from(selectedTokens).some((token) => token.startsWith("effect:dark:"));
       return {
         ...currentScene,
         motionGroups: [...existingGroups, group],
         sceneImages: nextImages,
         textOverlays: nextTexts,
-        effects: {
-          ...currentEffects,
-          sceneStartDarkEffects: nextDarkEffects,
-          sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
-          sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
-          sceneStartDarkIntensity: firstEffect.intensity,
-        },
+        effects: darkEffectWasSelected
+          ? {
+            ...currentEffects,
+            sceneStartDarkEffects: nextDarkEffects,
+            sceneStartDarkEnabled: nextDarkEffects.some((effect) => effect.enabled),
+            sceneStartDarkDuration: Math.max(0.1, firstEffect.end - firstEffect.start),
+            sceneStartDarkIntensity: firstEffect.intensity,
+          }
+          : currentEffects,
       };
     }));
     setSceneMotionGroupDialogOpen(false);
@@ -24585,8 +24589,10 @@ function Home() {
                     title={sceneMotionGroupCanEdit
                       ? "Mở lại toàn bộ nhóm chuyển động của thẻ đang chọn để chỉnh sửa"
                       : sceneMotionGroupHasRequiredLayers
-                        ? "Gom hình ảnh, lớp tối và chữ đã chọn thành một nhóm chuyển động"
-                      : "Chọn ít nhất một hình ảnh, một lớp tối và một lớp chữ để tạo nhóm động"}
+                        ? sceneMotionGroupHasDarkLayer
+                          ? "Gom hình ảnh, lớp tối và chữ đã chọn thành một nhóm chuyển động"
+                          : "Gom hình ảnh và chữ đã chọn thành một nhóm chuyển động; hiệu ứng tối là tùy chọn"
+      : "Chọn ít nhất một hình ảnh và một lớp chữ để tạo nhóm động"}
                     onClick={openSceneMotionGroupDialog}
                   >
                     <span aria-hidden="true">✦</span> {selectedSceneMotionGroup ? "Chỉnh nhóm động" : "Tạo nhóm động"}

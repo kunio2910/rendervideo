@@ -341,6 +341,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneMotionGroupDialogOpen/);
   assert.match(page, /sceneMotionGroupCanOpen/);
   assert.match(page, /sceneMotionGroupTargetTokens/);
+  assert.match(page, /sceneMotionGroupHasDarkLayer/);
+  assert.match(page, /Hãy chọn ít nhất 1 hình ảnh và 1 lớp chữ/);
   assert.match(page, /Mở lại toàn bộ nhóm chuyển động/);
   assert.match(page, /Tạo nhóm động/);
   assert.match(page, /Giữ Ctrl\/Cmd \+ click để chọn nhiều thẻ/);
