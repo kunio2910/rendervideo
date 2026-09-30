@@ -349,6 +349,10 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /scene-motion-group-review-frame/);
   assert.match(page, /data-scene-review-id=\{sceneStructureScene\.id\}/);
   assert.match(page, /Chỉ cảnh này/);
+  assert.match(page, /layerTokens\?: string\[\]/);
+  assert.match(page, /data-preview-scope=\{focusOnly \? "motion-group" : "scene"\}/);
+  assert.match(page, /layerTokens: sceneMotionGroupTargetTokens/);
+  assert.match(page, /scene-motion-group-focus-background/);
   assert.match(page, /Chạy thử/);
   assert.match(page, /updateSceneMotionGroupText/);
   assert.match(page, /updateSceneMotionGroupImage/);
@@ -356,6 +360,8 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(css, /\.scene-motion-group-content-card/);
   assert.match(css, /width: min\(1040px, calc\(100vw - 48px\)\)/);
   assert.match(css, /background: #237fc4/);
+  assert.match(css, /background: linear-gradient\(155deg, #ffffff, #f4f8fc 55%, #eef4fa\)/);
+  assert.match(css, /\.scene-motion-group-focus-preview/);
   assert.match(page, /Giữ Ctrl\/Cmd \+ click để chọn nhiều thẻ/);
   assert.match(page, /event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/);
   assert.match(page, /Mờ → rõ → tối → chữ → reverse/);

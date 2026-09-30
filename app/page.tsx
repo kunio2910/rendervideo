@@ -17291,6 +17291,7 @@ function Home() {
                   imagesVisible: true,
                   effectsVisible: true,
                   playbackKey: "motion-group-review",
+                  layerTokens: sceneMotionGroupTargetTokens,
                 })}
               </div>
               <input
@@ -18566,6 +18567,7 @@ function Home() {
       imagesVisible?: boolean;
       effectsVisible?: boolean;
       playbackKey?: string | number;
+      layerTokens?: string[];
     } = {},
   ) => {
     const staticFrame = options.staticFrame === true;
@@ -18574,6 +18576,11 @@ function Home() {
     const renderEffectsVisible = options.effectsVisible ?? previewEffectsVisible;
     const previewIsPlaying = !staticFrame && (options.previewPlaying ?? playing);
     const playbackKey = options.playbackKey ?? playbackRestartToken;
+    const focusOnly = options.layerTokens !== undefined;
+    const focusedLayerTokens = new Set(options.layerTokens ?? []);
+    const layerIsFocused = (token: string) => !focusOnly || focusedLayerTokens.has(token);
+    const renderSceneImages = sceneStructureImages.filter((image) => layerIsFocused(`image:${image.id}`));
+    const renderSceneTexts = sceneStructureTexts.filter((overlay) => layerIsFocused(`text:${overlay.id}`));
     const holdsSceneStructureFinalFrame = previewMode
       && !previewIsPlaying
       && localTime >= sceneStructureDuration;
@@ -18593,7 +18600,7 @@ function Home() {
       : "none";
     const activeLiveImageIds = new Set(
       renderImagesVisible
-        ? sceneStructureImages
+        ? renderSceneImages
           .filter((image) => image.visible !== false && safeTrim(image.url))
           .filter((image) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(image.start) || 0));
@@ -18607,7 +18614,7 @@ function Home() {
     );
     const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
     const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
-      if (!renderEffectsVisible) return [];
+      if (!renderEffectsVisible || focusOnly) return [];
       if (!previewIsPlaying) {
         return liveSceneEffects.weatherEffects.filter((effect) => effect.type === type && effect.enabled);
       }
@@ -18615,12 +18622,12 @@ function Home() {
     };
 
     const liveDarkOverlayItems = renderEffectsVisible
-      ? sceneStartDarkOverlayItemsAtTime(localTime)
+      ? sceneStartDarkOverlayItemsAtTime(localTime).filter((item) => layerIsFocused(`effect:dark:${item.effect.id}`))
       : [];
 
     return (
-      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-images-visible={renderImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!renderImagesVisible ? "preview-images-hidden" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
-        {renderImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
+      <div key={`scene-structure-preview-${sceneStructureScene.id}-${focusOnly ? "motion-group" : "scene"}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-scope={focusOnly ? "motion-group" : "scene"} data-preview-images-visible={renderImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!renderImagesVisible ? "preview-images-hidden" : ""} ${focusOnly ? "motion-group-focus-preview" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
+        {!focusOnly && renderImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
               key={sceneStructureBackgroundSource}
@@ -18646,7 +18653,9 @@ function Home() {
             />
           )
         ) : (
-          <div className="scene-structure-live-empty-background">Chưa có nền bản đồ</div>
+          <div className={focusOnly ? "scene-motion-group-focus-background" : "scene-structure-live-empty-background"}>
+            {focusOnly ? "Review riêng nhóm" : "Chưa có nền bản đồ"}
+          </div>
         )}
 
         {liveWeatherEffectsAtTime("light-flicker").map((effect) => {
@@ -18662,7 +18671,7 @@ function Home() {
         {liveWeatherEffectsAtTime("star-twinkle").map((effect) => <div key={`live-star-twinkle-${effect.id}`} className="scene-effect-layer star-twinkle-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--star-twinkle-intensity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100)}`, ["--star-color" as string]: effect.color, ["--weather-blur" as string]: `${effect.blur}px`, ["--weather-glow" as string]: `${4 + effect.glow * 0.08}px` }}>{weatherParticleInstances(STAR_TWINKLE_SEEDS, effect).map(({ seed: star, index }) => renderStarTwinkleParticle(effect, star, index, `live-star-twinkle-${effect.id}`))}</div>)}
         {liveWeatherEffectsAtTime("thunder").map((effect) => <div key={`live-thunder-${effect.id}`} className="scene-effect-layer thunder-effect" aria-hidden="true" style={{ ...weatherEffectLayerStyle(effect), ["--thunder-opacity" as string]: `${(effect.intensity / 100) * (effect.opacity / 100) * 0.78}`, ["--thunder-speed" as string]: `${weatherEffectFlickerDuration(weatherEffectFlickerSpeed(effect), 3.6)}s`, ["--weather-color" as string]: effect.color, ["--light-flicker-size" as string]: `${effect.size / 100}`, ["--thunder-glow" as string]: `${effect.glow / 100}`, ["--weather-blur" as string]: `${effect.blur}px` }} />)}
 
-        {sceneStructureTexts
+        {renderSceneTexts
           .filter((overlay) => overlay.visible !== false && safeTrim(overlay.text))
           .map((overlay, index) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(overlay.start) || 0));
@@ -18713,7 +18722,7 @@ function Home() {
             );
           })}
 
-        {sceneStructureImages
+        {renderSceneImages
           .filter((image) => image.visible !== false && activeLiveImageIds.has(image.id))
           .map((image, index) => {
             const imageSource = sceneImageSpritePreviewUrls[image.id] || assetPreviewSource(image.url);
@@ -18777,7 +18786,7 @@ function Home() {
             );
           })}
 
-        {sceneStructureDecorations
+        {!focusOnly && sceneStructureDecorations
           .filter((decoration) => decoration.visible !== false && decorationHasContent(decoration))
           .filter((decoration) => {
             const start = Math.min(sceneStructureDuration, Math.max(0, Number(decoration.start) || 0));
@@ -18817,7 +18826,7 @@ function Home() {
             );
           })}
 
-        {sceneStructurePopups
+        {!focusOnly && sceneStructurePopups
           .filter((popup) => popup.visible !== false)
           .map((popup, index) => {
             const popupStart = Math.min(sceneStructureDuration, Math.max(0, Number(popup.start) || 0));
@@ -18861,7 +18870,7 @@ function Home() {
             );
           })}
 
-        {(previewMode || staticFrame) && liveSubtitle && (
+        {!focusOnly && (previewMode || staticFrame) && liveSubtitle && (
           <div
             className="subtitle-overlay scene-structure-live-layer"
             style={{
