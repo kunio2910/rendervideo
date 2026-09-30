@@ -6588,6 +6588,8 @@ function Home() {
   const [sceneStructureImageSyncPreviewOpen, setSceneStructureImageSyncPreviewOpen] = useState(false);
   const [sceneMotionGroupDialogOpen, setSceneMotionGroupDialogOpen] = useState(false);
   const [sceneMotionGroupDraft, setSceneMotionGroupDraft] = useState<SceneMotionGroupDraft>(defaultSceneMotionGroupDraft);
+  const [sceneMotionGroupPreviewPlaying, setSceneMotionGroupPreviewPlaying] = useState(false);
+  const [sceneMotionGroupPreviewTime, setSceneMotionGroupPreviewTime] = useState(0);
   const [imageTimingCheckOpen, setImageTimingCheckOpen] = useState(false);
   const [imageTimingCheckResult, setImageTimingCheckResult] = useState<SceneImageTimingCheckView | null>(null);
   const [imageTimingCheckSelectedImageId, setImageTimingCheckSelectedImageId] = useState("");
@@ -16462,6 +16464,49 @@ function Home() {
     }));
   };
 
+  useEffect(() => {
+    if (!sceneMotionGroupDialogOpen || !sceneMotionGroupPreviewPlaying) return;
+    const interval = window.setInterval(() => {
+      setSceneMotionGroupPreviewTime((currentTime) => Math.min(sceneStructureDuration, currentTime + 0.05));
+    }, 50);
+    return () => window.clearInterval(interval);
+  }, [sceneMotionGroupDialogOpen, sceneMotionGroupPreviewPlaying, sceneStructureDuration]);
+
+  useEffect(() => {
+    if (sceneMotionGroupPreviewPlaying && sceneMotionGroupPreviewTime >= sceneStructureDuration) {
+      setSceneMotionGroupPreviewPlaying(false);
+    }
+  }, [sceneMotionGroupPreviewPlaying, sceneMotionGroupPreviewTime, sceneStructureDuration]);
+
+  const toggleSceneMotionGroupPreview = () => {
+    if (sceneMotionGroupPreviewPlaying) {
+      setSceneMotionGroupPreviewPlaying(false);
+      return;
+    }
+    if (sceneMotionGroupPreviewTime >= sceneStructureDuration) setSceneMotionGroupPreviewTime(0);
+    setSceneMotionGroupPreviewPlaying(true);
+  };
+
+  const updateSceneMotionGroupText = (id: string, patch: Partial<Pick<TextOverlay, "name" | "text">>) => {
+    updateSceneStructureQuickScene((currentScene) => {
+      const overlays = currentScene.textOverlays ?? [];
+      const nextOverlays = overlays.map((overlay) => overlay.id === id ? { ...overlay, ...patch } : overlay);
+      const firstOverlay = nextOverlays[0];
+      return {
+        ...currentScene,
+        textOverlays: nextOverlays,
+        ...(firstOverlay ? textOverlaySceneFields(firstOverlay) : {}),
+      };
+    });
+  };
+
+  const updateSceneMotionGroupImage = (id: string, patch: Partial<Pick<SceneImage, "name" | "url">>) => {
+    updateSceneStructureQuickScene((currentScene) => ({
+      ...currentScene,
+      sceneImages: (currentScene.sceneImages ?? []).map((image) => image.id === id ? { ...image, ...patch } : image),
+    }));
+  };
+
   const openSceneMotionGroupDialog = () => {
     if (!sceneMotionGroupCanOpen) {
       setToast("Hãy chọn ít nhất 1 hình ảnh và 1 lớp chữ trong cùng cảnh.");
@@ -16480,6 +16525,8 @@ function Home() {
       textHoldDuration: group.textHoldDuration,
       textFadeOutDuration: group.textFadeOutDuration,
     } : defaultSceneMotionGroupDraft());
+    setSceneMotionGroupPreviewTime(0);
+    setSceneMotionGroupPreviewPlaying(false);
     setSceneMotionGroupDialogOpen(true);
   };
 
@@ -16600,6 +16647,7 @@ function Home() {
           : currentEffects,
       };
     }));
+    setSceneMotionGroupPreviewPlaying(false);
     setSceneMotionGroupDialogOpen(false);
     setToast("Đã áp dụng nhóm chuyển động cho các thẻ đã chọn. Có thể hoàn tác bằng Ctrl+Z.");
     window.setTimeout(() => setToast(""), 3200);
@@ -17183,6 +17231,14 @@ function Home() {
   const renderSceneMotionGroupDialog = () => {
     if (!sceneMotionGroupDialogOpen) return null;
     const preset = SCENE_MOTION_PRESET_OPTIONS.find((option) => option.value === "fade-dark-text-reverse") ?? SCENE_MOTION_PRESET_OPTIONS[0];
+    const motionGroupImages = sceneMotionGroupTargetItems
+      .filter((item) => item.kind === "image")
+      .map((item) => sceneStructureImages.find((image) => image.id === item.id))
+      .filter((image): image is SceneImage => Boolean(image));
+    const motionGroupTexts = sceneMotionGroupTargetItems
+      .filter((item) => item.kind === "text")
+      .map((item) => sceneStructureTexts.find((text) => text.id === item.id))
+      .filter((text): text is TextOverlay => Boolean(text));
     return (
       <div
         className="scene-motion-group-overlay"
@@ -17198,7 +17254,7 @@ function Home() {
               <div>
                 <p>NHÓM NỘI DUNG ĐỘNG</p>
                 <h2 id="scene-motion-group-heading">{selectedSceneMotionGroup ? "Chỉnh nhóm chuyển động" : "Tạo nhóm chuyển động"}</h2>
-                <small>Chỉ áp dụng cho các thẻ đã chọn trong cảnh này.</small>
+                <small>Review và chỉnh trực tiếp nội dung của nhóm trong cảnh này.</small>
               </div>
             </div>
             <button type="button" className="scene-structure-quick-close" aria-label="Đóng nhóm chuyển động" title="Đóng" onClick={() => setSceneMotionGroupDialogOpen(false)}>×</button>
@@ -17215,6 +17271,84 @@ function Home() {
                 </span>
               ))}
             </div>
+            <section className="scene-motion-group-review" aria-label="Review nhóm chuyển động">
+              <div className="scene-motion-group-review-heading">
+                <div>
+                  <strong>Review cảnh</strong>
+                  <span>{formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(sceneStructureDuration)}</span>
+                </div>
+                <button type="button" className="scene-motion-group-play-button" onClick={toggleSceneMotionGroupPreview}>
+                  <span aria-hidden="true">{sceneMotionGroupPreviewPlaying ? "Ⅱ" : "▶"}</span>
+                  {sceneMotionGroupPreviewPlaying ? "Dừng thử" : "Chạy thử"}
+                </button>
+              </div>
+              <div className="scene-motion-group-review-frame">
+                {renderSceneStructureLivePreview(sceneMotionGroupPreviewTime, {
+                  staticFrame: !sceneMotionGroupPreviewPlaying,
+                  previewMode: true,
+                  previewPlaying: sceneMotionGroupPreviewPlaying,
+                  imagesVisible: true,
+                  effectsVisible: true,
+                  playbackKey: "motion-group-review",
+                })}
+              </div>
+              <input
+                className="scene-motion-group-review-scrubber"
+                type="range"
+                min={0}
+                max={Math.max(0.1, sceneStructureDuration)}
+                step={0.01}
+                value={Math.min(sceneMotionGroupPreviewTime, sceneStructureDuration)}
+                aria-label="Mốc thời gian review nhóm chuyển động"
+                onChange={(event) => {
+                  setSceneMotionGroupPreviewPlaying(false);
+                  setSceneMotionGroupPreviewTime(Number(event.target.value));
+                }}
+              />
+              <small className="scene-motion-group-review-note">Bấm Chạy thử để xem trình tự mờ → rõ → chữ xuất hiện và reverse theo timeline.</small>
+            </section>
+            {(motionGroupImages.length > 0 || motionGroupTexts.length > 0) && (
+              <section className="scene-motion-group-content-editor" aria-label="Chỉnh nội dung hình và chữ">
+                <div className="scene-motion-group-section-heading">
+                  <strong>Nội dung trong nhóm</strong>
+                  <span>Thay đổi sẽ cập nhật trực tiếp vào cảnh hiện tại.</span>
+                </div>
+                {motionGroupImages.map((image) => (
+                  <article className="scene-motion-group-content-card" key={`motion-image-${image.id}`}>
+                    <div className="scene-motion-group-content-thumb">
+                      {assetPreviewSource(image.url) ? <img src={assetPreviewSource(image.url)} alt="" /> : <span>Hình</span>}
+                    </div>
+                    <div className="scene-motion-group-content-fields">
+                      <strong>Hình ảnh · {image.name || "Chưa đặt tên"}</strong>
+                      <label className="scene-structure-quick-field">
+                        <span>Tên hình</span>
+                        <input type="text" value={image.name} onChange={(event) => updateSceneMotionGroupImage(image.id, { name: event.target.value })} />
+                      </label>
+                      <label className="scene-structure-quick-field">
+                        <span>Nguồn hình / URL</span>
+                        <input type="text" value={image.url} onChange={(event) => updateSceneMotionGroupImage(image.id, { url: event.target.value })} />
+                      </label>
+                    </div>
+                  </article>
+                ))}
+                {motionGroupTexts.map((text) => (
+                  <article className="scene-motion-group-content-card scene-motion-group-text-card" key={`motion-text-${text.id}`}>
+                    <div className="scene-motion-group-text-mark" aria-hidden="true">T</div>
+                    <div className="scene-motion-group-content-fields">
+                      <strong>Chữ · {text.name || "Chưa đặt tên"}</strong>
+                      <label className="scene-structure-quick-field">
+                        <span>Tên lớp chữ</span>
+                        <input type="text" value={text.name} onChange={(event) => updateSceneMotionGroupText(text.id, { name: event.target.value })} />
+                      </label>
+                      <label className="scene-structure-quick-field">
+                        <span>Nội dung chữ</span>
+                        <textarea value={text.text} onChange={(event) => updateSceneMotionGroupText(text.id, { text: event.target.value })} />
+                      </label>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            )}
             <div className="scene-motion-group-grid">
               <label className="scene-structure-quick-field">
                 <span>Hình mờ → rõ (giây)</span>
@@ -18424,11 +18558,22 @@ function Home() {
 
   const renderSceneStructureLivePreview = (
     localTime = sceneStructureLocalTime,
-    options: { staticFrame?: boolean } = {},
+    options: {
+      staticFrame?: boolean;
+      previewMode?: boolean;
+      previewPlaying?: boolean;
+      imagesVisible?: boolean;
+      effectsVisible?: boolean;
+      playbackKey?: string | number;
+    } = {},
   ) => {
     const staticFrame = options.staticFrame === true;
-    const previewIsPlaying = !staticFrame && playing;
-    const holdsSceneStructureFinalFrame = sceneStructurePreviewMode
+    const previewMode = options.previewMode ?? sceneStructurePreviewMode;
+    const renderImagesVisible = options.imagesVisible ?? previewImagesVisible;
+    const renderEffectsVisible = options.effectsVisible ?? previewEffectsVisible;
+    const previewIsPlaying = !staticFrame && (options.previewPlaying ?? playing);
+    const playbackKey = options.playbackKey ?? playbackRestartToken;
+    const holdsSceneStructureFinalFrame = previewMode
       && !previewIsPlaying
       && localTime >= sceneStructureDuration;
     const liveSubtitleStyle = normalizeSubtitleStyle(sceneStructureScene.subtitleStyle);
@@ -18446,7 +18591,7 @@ function Home() {
       ? `inset(0 ${Math.max(0, 100 - liveSubtitleProgress * 100)}% 0 0)`
       : "none";
     const activeLiveImageIds = new Set(
-      previewImagesVisible
+      renderImagesVisible
         ? sceneStructureImages
           .filter((image) => image.visible !== false && safeTrim(image.url))
           .filter((image) => {
@@ -18461,20 +18606,20 @@ function Home() {
     );
     const liveSceneEffects = normalizeSceneEffects(sceneStructureScene.effects);
     const liveWeatherEffectsAtTime = (type: SceneWeatherEffectType) => {
-      if (!previewEffectsVisible) return [];
+      if (!renderEffectsVisible) return [];
       if (!previewIsPlaying) {
         return liveSceneEffects.weatherEffects.filter((effect) => effect.type === type && effect.enabled);
       }
       return activeSceneWeatherEffects(liveSceneEffects, type, localTime);
     };
 
-    const liveDarkOverlayItems = previewEffectsVisible
+    const liveDarkOverlayItems = renderEffectsVisible
       ? sceneStartDarkOverlayItemsAtTime(localTime)
       : [];
 
     return (
-      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-images-visible={previewImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!previewImagesVisible ? "preview-images-hidden" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
-        {previewImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
+      <div key={`scene-structure-preview-${sceneStructureScene.id}-${staticFrame ? "static" : "live"}`} data-scene-id={sceneStructureScene.id} data-preview-images-visible={renderImagesVisible ? "true" : "false"} className={`phone-preview scene-structure-live-preview ${aspectRatio === "16:9" ? "preview-landscape" : "preview-portrait"} ${previewIsPlaying ? "is-playing" : "is-paused"} ${!renderImagesVisible ? "preview-images-hidden" : ""} ${staticFrame ? "is-playback-paused scene-structure-static-frame" : ""}`} aria-label={staticFrame ? `Khung hình xem trước tại ${formatPreciseTime(localTime)}` : "Màn hình xem trước đang chạy thử"}>
+        {renderImagesVisible && sceneStructureScene.backgroundVisible !== false && sceneStructureBackgroundSource ? (
           isVideoMedia(sceneStructureBackgroundValue) ? (
             <video
               key={sceneStructureBackgroundSource}
@@ -18530,12 +18675,12 @@ function Home() {
               start,
               end,
               localTime,
-              sceneStructurePreviewMode,
+              previewMode,
             );
             if (localTime < start || localTime >= end) return null;
             return (
               <div
-                key={`live-text-${overlay.id}-${previewIsPlaying ? playbackRestartToken : "idle"}`}
+                key={`live-text-${overlay.id}-${previewIsPlaying ? playbackKey : "idle"}`}
                 className={`map-text-overlay scene-structure-live-layer text-effect-${overlay.textEffect ?? "none"} ${overlay.textEffectReverse === true ? "text-effect-reverse" : ""} ${previewIsPlaying ? "is-playing" : ""}`}
                 style={{
                   left: `${overlay.x}%`,
@@ -18545,7 +18690,7 @@ function Home() {
                   ...(Number.isFinite(Number(overlay.height)) ? { height: `${overlay.height}%` } : {}),
                   color: colorWithAlpha(overlay.color, overlay.opacity / 100, "#ffffff"),
                   ...blurPlaybackStyle,
-                  ...textOverlayFadePlaybackStyle(overlay, start, end, localTime, sceneStructurePreviewMode),
+                  ...textOverlayFadePlaybackStyle(overlay, start, end, localTime, previewMode),
                   fontSize: `${overlay.size}px`,
                   fontFamily: overlay.font,
                   fontWeight: overlay.style.includes("bold") ? 700 : 400,
@@ -18715,7 +18860,7 @@ function Home() {
             );
           })}
 
-        {(sceneStructurePreviewMode || staticFrame) && liveSubtitle && (
+        {(previewMode || staticFrame) && liveSubtitle && (
           <div
             className="subtitle-overlay scene-structure-live-layer"
             style={{

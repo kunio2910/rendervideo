@@ -345,6 +345,13 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /Hãy chọn ít nhất 1 hình ảnh và 1 lớp chữ/);
   assert.match(page, /Mở lại toàn bộ nhóm chuyển động/);
   assert.match(page, /Tạo nhóm động/);
+  assert.match(page, /sceneMotionGroupPreviewPlaying/);
+  assert.match(page, /scene-motion-group-review-frame/);
+  assert.match(page, /Chạy thử/);
+  assert.match(page, /updateSceneMotionGroupText/);
+  assert.match(page, /updateSceneMotionGroupImage/);
+  assert.match(css, /\.scene-motion-group-review-frame/);
+  assert.match(css, /\.scene-motion-group-content-card/);
   assert.match(page, /Giữ Ctrl\/Cmd \+ click để chọn nhiều thẻ/);
   assert.match(page, /event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/);
   assert.match(page, /Mờ → rõ → tối → chữ → reverse/);
