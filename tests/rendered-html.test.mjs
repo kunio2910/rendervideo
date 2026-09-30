@@ -348,7 +348,9 @@ test("keeps editor safety and render checks in the source", async () => {
   assert.match(page, /sceneMotionGroupPreviewPlaying/);
   assert.match(page, /scene-motion-group-review-frame/);
   assert.match(page, /data-scene-review-id=\{sceneStructureScene\.id\}/);
-  assert.match(page, /Chỉ cảnh này/);
+  assert.match(page, /Chỉ nội dung nhóm/);
+  assert.match(page, /sceneMotionGroupReviewStart \+ sceneMotionGroupPreviewTime/);
+  assert.match(page, /sceneMotionGroupImageItems/);
   assert.match(page, /layerTokens\?: string\[\]/);
   assert.match(page, /data-preview-scope=\{focusOnly \? "motion-group" : "scene"\}/);
   assert.match(page, /layerTokens: sceneMotionGroupTargetTokens/);

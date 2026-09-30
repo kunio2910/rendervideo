@@ -7976,6 +7976,19 @@ function Home() {
     : selectedSceneMotionTokens;
   const sceneMotionGroupTargetTokenSet = new Set(sceneMotionGroupTargetTokens);
   const sceneMotionGroupTargetItems = sceneStructureItems.filter((item) => sceneMotionGroupTargetTokenSet.has(item.token));
+  const sceneMotionGroupImageItems = sceneMotionGroupTargetItems.filter((item) => item.kind === "image");
+  const sceneMotionGroupReviewStart = Math.min(
+    ...(sceneMotionGroupImageItems.length ? sceneMotionGroupImageItems : sceneMotionGroupTargetItems).map((item) => item.start),
+    sceneStructureDuration,
+  );
+  const sceneMotionGroupReviewEnd = Math.max(
+    sceneMotionGroupReviewStart + 0.1,
+    ...sceneMotionGroupTargetItems.map((item) => item.end),
+  );
+  const sceneMotionGroupReviewDuration = Math.max(
+    0.1,
+    Math.min(sceneStructureDuration, sceneMotionGroupReviewEnd) - sceneMotionGroupReviewStart,
+  );
   const sceneMotionGroupForToken = (token: string) => (sceneStructureScene.motionGroups ?? []).find((group) => group.layerTokens.includes(token));
   const sceneStructureTicks = (() => {
     const step = sceneStructureDuration <= 10 ? 1 : sceneStructureDuration <= 30 ? 5 : 10;
@@ -16467,23 +16480,23 @@ function Home() {
   useEffect(() => {
     if (!sceneMotionGroupDialogOpen || !sceneMotionGroupPreviewPlaying) return;
     const interval = window.setInterval(() => {
-      setSceneMotionGroupPreviewTime((currentTime) => Math.min(sceneStructureDuration, currentTime + 0.05));
+      setSceneMotionGroupPreviewTime((currentTime) => Math.min(sceneMotionGroupReviewDuration, currentTime + 0.05));
     }, 50);
     return () => window.clearInterval(interval);
-  }, [sceneMotionGroupDialogOpen, sceneMotionGroupPreviewPlaying, sceneStructureDuration]);
+  }, [sceneMotionGroupDialogOpen, sceneMotionGroupPreviewPlaying, sceneMotionGroupReviewDuration]);
 
   useEffect(() => {
-    if (sceneMotionGroupPreviewPlaying && sceneMotionGroupPreviewTime >= sceneStructureDuration) {
+    if (sceneMotionGroupPreviewPlaying && sceneMotionGroupPreviewTime >= sceneMotionGroupReviewDuration) {
       setSceneMotionGroupPreviewPlaying(false);
     }
-  }, [sceneMotionGroupPreviewPlaying, sceneMotionGroupPreviewTime, sceneStructureDuration]);
+  }, [sceneMotionGroupPreviewPlaying, sceneMotionGroupPreviewTime, sceneMotionGroupReviewDuration]);
 
   const toggleSceneMotionGroupPreview = () => {
     if (sceneMotionGroupPreviewPlaying) {
       setSceneMotionGroupPreviewPlaying(false);
       return;
     }
-    if (sceneMotionGroupPreviewTime >= sceneStructureDuration) setSceneMotionGroupPreviewTime(0);
+    if (sceneMotionGroupPreviewTime >= sceneMotionGroupReviewDuration) setSceneMotionGroupPreviewTime(0);
     setSceneMotionGroupPreviewPlaying(true);
   };
 
@@ -17239,7 +17252,6 @@ function Home() {
       .filter((item) => item.kind === "text")
       .map((item) => sceneStructureTexts.find((text) => text.id === item.id))
       .filter((text): text is TextOverlay => Boolean(text));
-    const motionGroupReviewDuration = Math.max(0.1, sceneStructureScene.end - sceneStructureScene.start);
     return (
       <div
         className="scene-motion-group-overlay"
@@ -17276,7 +17288,7 @@ function Home() {
               <div className="scene-motion-group-review-heading">
                 <div>
                   <strong>Review cảnh {String(sceneStructureScene.number).padStart(2, "0")}</strong>
-                  <span>Chỉ cảnh này · {formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(motionGroupReviewDuration)}</span>
+                  <span>Chỉ nội dung nhóm · {formatPreciseTime(sceneMotionGroupPreviewTime)} / {formatPreciseTime(sceneMotionGroupReviewDuration)}</span>
                 </div>
                 <button type="button" className="scene-motion-group-play-button" onClick={toggleSceneMotionGroupPreview}>
                   <span aria-hidden="true">{sceneMotionGroupPreviewPlaying ? "Ⅱ" : "▶"}</span>
@@ -17284,7 +17296,7 @@ function Home() {
                 </button>
               </div>
               <div className="scene-motion-group-review-frame">
-                {renderSceneStructureLivePreview(sceneMotionGroupPreviewTime, {
+                {renderSceneStructureLivePreview(sceneMotionGroupReviewStart + sceneMotionGroupPreviewTime, {
                   staticFrame: !sceneMotionGroupPreviewPlaying,
                   previewMode: true,
                   previewPlaying: sceneMotionGroupPreviewPlaying,
@@ -17298,9 +17310,9 @@ function Home() {
                 className="scene-motion-group-review-scrubber"
                 type="range"
                 min={0}
-                max={motionGroupReviewDuration}
+                max={sceneMotionGroupReviewDuration}
                 step={0.01}
-                value={Math.min(sceneMotionGroupPreviewTime, motionGroupReviewDuration)}
+                value={Math.min(sceneMotionGroupPreviewTime, sceneMotionGroupReviewDuration)}
                 aria-label="Mốc thời gian review nhóm chuyển động"
                 onChange={(event) => {
                   setSceneMotionGroupPreviewPlaying(false);
