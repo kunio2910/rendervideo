@@ -2108,23 +2108,66 @@ for (let index = 0; index < scenes.length; index += 1) {
       ),
     );
     const sequenceVideoPath = path.join(renderDir, `scene-${index + 1}-image-sequence.mp4`);
-    const sequenceLabels = videoImageRenders.map((_, imageIndex) => `[${imageIndex}:v]setpts=PTS-STARTPTS[sequenceInput${imageIndex}]`);
-    const sequenceFilter = `${sequenceLabels.join(";")};` +
-      `${videoImageRenders.map((_, imageIndex) => `[sequenceInput${imageIndex}]`).join("")}` +
-      `concat=n=${videoImageRenders.length}:v=1:a=0:unsafe=1[sceneImageSequence]`;
+    const sequenceAudioEnabled = videoImageRenders.some(({ rendered: image }) => image.audio);
+    const sequenceAudioInputIndices = [];
+    let sequenceMissingAudioCount = 0;
+    const sequenceVideoInputs = videoImageRenders.map(({ rendered: image }, imageIndex) => {
+      if (image.audio) {
+        sequenceAudioInputIndices[imageIndex] = imageIndex;
+      } else {
+        sequenceAudioInputIndices[imageIndex] = videoImageRenders.length + sequenceMissingAudioCount;
+        sequenceMissingAudioCount += 1;
+      }
+      return `[${imageIndex}:v]setpts=PTS-STARTPTS[sequenceVideoInput${imageIndex}]`;
+    });
+    const sequenceAudioInputs = sequenceAudioEnabled
+      ? videoImageRenders.map(({ scene: image }, imageIndex) => {
+          const clipDuration = Math.max(0.1, Number(image.duration ?? 0) || 0);
+          const audioInput = sequenceAudioInputIndices[imageIndex];
+          return `[${audioInput}:a:0]aresample=async=1:first_pts=0,apad,atrim=duration=${clipDuration.toFixed(3)},asetpts=PTS-STARTPTS[sequenceAudioInput${imageIndex}]`;
+        })
+      : [];
+    const sequenceVideoLabels = videoImageRenders.map((_, imageIndex) => `[sequenceVideoInput${imageIndex}]`);
+    const sequenceAudioLabels = videoImageRenders.map((_, imageIndex) => `[sequenceAudioInput${imageIndex}]`);
+    const sequenceFilter = [
+      ...sequenceVideoInputs,
+      ...sequenceAudioInputs,
+      `${sequenceVideoLabels.map((_, imageIndex) => `${sequenceVideoLabels[imageIndex]}${sequenceAudioEnabled ? sequenceAudioLabels[imageIndex] : ""}`).join("")}` +
+        `concat=n=${videoImageRenders.length}:v=1:a=${sequenceAudioEnabled ? 1 : 0}:unsafe=1[sceneImageSequence]` +
+        (sequenceAudioEnabled ? `[sceneImageAudioSequence]` : ""),
+    ].join(";");
+    const sequenceMissingAudioArgs = sequenceAudioEnabled
+      ? videoImageRenders.flatMap(({ rendered: image, scene: sourceImage }) => image.audio
+          ? []
+          : [
+              "-f", "lavfi",
+              "-t", String(Math.max(0.1, Number(sourceImage.duration ?? 0) || 0)),
+              "-i", "anullsrc=r=48000:cl=stereo",
+            ])
+      : [];
     await run(ffmpeg, [
       "-y",
       ...videoImageRenders.flatMap(({ rendered: image }) => [
         "-thread_queue_size", "4", "-i", image.path,
       ]),
+      ...sequenceMissingAudioArgs,
       "-filter_complex", sequenceFilter,
       "-map", "[sceneImageSequence]",
-      "-an",
       "-c:v", "libx264",
       "-preset", "veryfast",
       "-crf", "18",
       "-pix_fmt", "yuv420p",
       "-r", "60",
+      ...(sequenceAudioEnabled
+        ? [
+            "-map", "[sceneImageAudioSequence]",
+            "-c:a", "aac",
+            "-b:a", audioBitrate,
+            "-ar", "48000",
+            "-ac", "2",
+          ]
+        : ["-an"]),
+      "-shortest",
       "-movflags", "+faststart",
       sequenceVideoPath,
     ], {
@@ -2146,7 +2189,7 @@ for (let index = 0; index < scenes.length; index += 1) {
       path: sequenceVideoPath,
       frameSequence: false,
       video: true,
-      audio: false,
+      audio: sequenceAudioEnabled,
     };
     sceneImageScenes = [sequenceScene, ...trailingImageRenders.map(({ scene: image }) => image)];
     sceneImageRenders = [
