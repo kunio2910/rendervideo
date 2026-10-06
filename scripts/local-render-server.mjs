@@ -184,7 +184,11 @@ const summarizeFfmpegFailure = (log) => {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const meaningful = lines.filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line));
+  const meaningful = lines
+    // Do not mistake stream metadata such as gbr/unknown/unknown for an
+    // FFmpeg error. The real fatal line appears after the stream mapping.
+    .filter((line) => !/^(?:input\s+#|stream\s+#|stream mapping:|metadata:|press \[q\])/i.test(line))
+    .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|failure/i.test(line));
   return (meaningful.toReversed().find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line)) || meaningful.at(-1) || lines.at(-1) || "")
     .replace(/\s+/g, " ")
     .slice(0, 360);

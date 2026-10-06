@@ -928,7 +928,10 @@ const summarizeProcessFailure = (output) => String(output || "")
   .split("\n")
   .map((line) => line.trim())
   .filter((line) => line && !/^frame=|^size=|^video:/i.test(line))
-  .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|unknown|failure/i.test(line))
+  // FFmpeg stream metadata commonly contains gbr/unknown/unknown. Those
+  // lines describe an input and must never be reported as the fatal error.
+  .filter((line) => !/^(?:input\s+#|stream\s+#|stream mapping:|metadata:|press \[q\])/i.test(line))
+  .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|failure/i.test(line))
   .toReversed()
   .find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line))
   ?.replace(/\s+/g, " ")
@@ -2051,18 +2054,108 @@ for (let index = 0; index < scenes.length; index += 1) {
     const rendered = await createMapDecoration(decoration, index * 100 + decorationIndex);
     if (rendered) decorationRenders.push({ scene: decoration, rendered });
   }
-  const sceneImageScenes = sortSceneImagesByStart(
+  let sceneImageScenes = sortSceneImagesByStart(
     Array.isArray(scene.sceneImages)
       ? scene.sceneImages.filter((image) => image && image.visible !== false && String(image.url ?? image.asset ?? "").trim())
       : [],
   );
   const sceneImagePlaybackEnd = (imageIndex) =>
     sceneImagePlaybackEndAt(sceneImageScenes, imageIndex, duration);
-  const sceneImageRenders = [];
+  let sceneImageRenders = [];
   for (let imageIndex = 0; imageIndex < sceneImageScenes.length; imageIndex += 1) {
     const image = sceneImageScenes[imageIndex];
     const rendered = await createSceneImage(image, index * 100 + imageIndex);
     if (rendered) sceneImageRenders.push({ scene: image, rendered });
+  }
+  // A long whiteboard scene often contains a sequence of video layers that
+  // never overlap except for their transitions. Opening every source and its
+  // mask in one filter graph can make FFmpeg wait on dozens of demux queues
+  // before it emits the first frame. When the sequence is compatible, use one
+  // concat input for the video run and keep any trailing still layer separate.
+  // This preserves the timeline and mask while making the graph streamable.
+  const firstNonVideoImageIndex = sceneImageRenders.findIndex(({ rendered }) => !rendered.video);
+  const videoImageRenders = firstNonVideoImageIndex < 0
+    ? sceneImageRenders
+    : sceneImageRenders.slice(0, firstNonVideoImageIndex);
+  const trailingImageRenders = firstNonVideoImageIndex < 0
+    ? []
+    : sceneImageRenders.slice(firstNonVideoImageIndex);
+  const firstVideoImage = videoImageRenders[0];
+  const firstVideoScene = firstVideoImage?.scene;
+  const firstVideoRender = firstVideoImage?.rendered;
+  const videoSequenceCompatible = videoImageRenders.length > 10
+    && videoImageRenders.every(({ scene: image, rendered: imageRender }, imageIndex) => {
+      if (!imageRender.video || !imageRender.animated || !imageRender.path) return false;
+      if (imageIndex > 0) {
+        const previous = videoImageRenders[imageIndex - 1].scene;
+        const previousStart = Number(previous.start ?? 0) || 0;
+        const previousDuration = Number(previous.duration ?? 0) || 0;
+        const currentStart = Number(image.start ?? 0) || 0;
+        if (currentStart > previousStart + previousDuration + 0.25) return false;
+      }
+      return ["x", "y", "width", "height", "transparent", "fillMap"]
+        .every((key) => String(image[key] ?? "") === String(firstVideoScene?.[key] ?? ""));
+    })
+    && Boolean(firstVideoRender?.maskPath);
+  if (videoSequenceCompatible) {
+    const lastVideoScene = videoImageRenders.at(-1)?.scene ?? firstVideoScene;
+    const sequenceStart = Math.max(0, Number(firstVideoScene?.start ?? 0) || 0);
+    const sequenceEnd = Math.min(
+      duration,
+      Math.max(
+        sequenceStart + 0.1,
+        (Number(lastVideoScene?.start ?? 0) || 0) + (Number(lastVideoScene?.duration ?? 0) || 0),
+      ),
+    );
+    const sequenceVideoPath = path.join(renderDir, `scene-${index + 1}-image-sequence.mp4`);
+    const sequenceLabels = videoImageRenders.map((_, imageIndex) => `[${imageIndex}:v]setpts=PTS-STARTPTS[sequenceInput${imageIndex}]`);
+    const sequenceFilter = `${sequenceLabels.join(";")};` +
+      `${videoImageRenders.map((_, imageIndex) => `[sequenceInput${imageIndex}]`).join("")}` +
+      `concat=n=${videoImageRenders.length}:v=1:a=0:unsafe=1[sceneImageSequence]`;
+    await run(ffmpeg, [
+      "-y",
+      ...videoImageRenders.flatMap(({ rendered: image }) => [
+        "-thread_queue_size", "4", "-i", image.path,
+      ]),
+      "-filter_complex", sequenceFilter,
+      "-map", "[sceneImageSequence]",
+      "-an",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "18",
+      "-pix_fmt", "yuv420p",
+      "-r", "60",
+      "-movflags", "+faststart",
+      sequenceVideoPath,
+    ], {
+      expectedFrames: Math.max(1, Math.round((sequenceEnd - sequenceStart) * 60)),
+      label: `gộp ${videoImageRenders.length} layer video của cảnh ${index + 1}`,
+    });
+    const sequenceScene = {
+      ...firstVideoScene,
+      id: `${firstVideoScene?.id ?? `image-sequence-${index + 1}`}-concat`,
+      start: sequenceStart,
+      // The combined input must stay available until the next trailing layer
+      // starts. The overlay repeats its last frame after the source sequence
+      // ends, so use the full scene duration for input queue budgeting.
+      duration: duration,
+      transition: firstVideoScene?.transition ?? "crossfade",
+    };
+    const sequenceRender = {
+      ...firstVideoRender,
+      path: sequenceVideoPath,
+      frameSequence: false,
+      video: true,
+      audio: false,
+    };
+    sceneImageScenes = [sequenceScene, ...trailingImageRenders.map(({ scene: image }) => image)];
+    sceneImageRenders = [
+      { scene: sequenceScene, rendered: sequenceRender },
+      ...trailingImageRenders,
+    ];
+    console.warn(
+      `Cảnh ${index + 1}: gộp ${videoImageRenders.length} video nối tiếp thành một input concat để tránh filtergraph FFmpeg bị treo.`,
+    );
   }
   const sceneAudioTracks = sceneAudioTracksForRender(scene, duration);
   const resolvedSceneAudioTracks = [];
@@ -3074,7 +3167,14 @@ for (let index = 0; index < scenes.length; index += 1) {
     + popupRenders.length
     + decorationRenders.length
     + weatherInputSpecs.length;
-  const sceneInputQueueSize = sceneComplexity > 10 ? 1 : ffmpegInputQueueSize;
+  // Complex scenes often contain paired video/audio inputs. A queue of one
+  // packet can deadlock FFmpeg while it is opening many demuxers: each input
+  // waits for the filter graph while the graph waits for another input packet.
+  // Keep a bounded larger queue for complex graphs to avoid the deadlock
+  // without allowing an unbounded memory increase.
+  const sceneInputQueueSize = sceneComplexity > 10
+    ? Math.max(8, Math.min(32, ffmpegInputQueueSize * 4))
+    : ffmpegInputQueueSize;
   const sceneFilterThreads = sceneComplexity > 10 ? 1 : ffmpegFilterThreads;
   const args = ["-y"];
   const addInputForDuration = (inputDuration, ...inputArgs) => {
@@ -3151,7 +3251,21 @@ for (let index = 0; index < scenes.length; index += 1) {
   // A scene image video is already an FFmpeg input for the visual layer. If
   // that same input contains an audio stream, reuse it here so the audio is
   // mixed into the scene without downloading or opening the video twice.
-  const sceneImageAudioSources = sceneImageRenders.flatMap(({ scene: image, rendered: imageRender }, imageIndex) => {
+  //
+  // Do not attach all of those audio streams to a very large video graph.
+  // With many video layers FFmpeg can block before emitting the first frame:
+  // the video filters wait for packets from the audio demuxers while the
+  // audio mix waits for the video graph. Explicit scene audio tracks and the
+  // project background music remain available through the normal audio path.
+  const deferLayerAudio = sceneImageRenders.length > 10;
+  if (deferLayerAudio) {
+    console.warn(
+      `Cảnh ${index + 1}: bỏ audio nhúng của ${sceneImageRenders.length} layer video khỏi filtergraph phức tạp để tránh FFmpeg bị treo; audio/narration khai báo riêng vẫn được giữ.`,
+    );
+  }
+  const sceneImageAudioSources = deferLayerAudio
+    ? []
+    : sceneImageRenders.flatMap(({ scene: image, rendered: imageRender }, imageIndex) => {
     if (!imageRender.video || !imageRender.audio) return [];
     const imageStart = Math.min(duration, Math.max(0, Number(image.start ?? 0) || 0));
     const imageEnd = sceneImagePlaybackEnd(imageIndex);
