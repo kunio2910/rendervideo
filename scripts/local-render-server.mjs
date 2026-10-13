@@ -188,8 +188,13 @@ const summarizeFfmpegFailure = (log) => {
     // Do not mistake stream metadata such as gbr/unknown/unknown for an
     // FFmpeg error. The real fatal line appears after the stream mapping.
     .filter((line) => !/^(?:input\s+#|stream\s+#|stream mapping:|metadata:|press \[q\])/i.test(line))
-    .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|failure/i.test(line));
-  return (meaningful.toReversed().find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line)) || meaningful.at(-1) || lines.at(-1) || "")
+    .filter((line) => /error|failed|invalid|cannot|unable|no option|not found|failure|watchdog|timeout|timed out/i.test(line));
+  const withoutRuntimeFooter = lines.filter((line) => !/^Node\.js v\d/i.test(line));
+  const detail = meaningful.toReversed().find((line) => !/^(conversion failed!?|error while processing.*)$/i.test(line))
+    || meaningful.at(-1)
+    || withoutRuntimeFooter.at(-1)
+    || "Không có log lỗi chi tiết từ renderer";
+  return detail
     .replace(/\s+/g, " ")
     .slice(0, 360);
 };
@@ -755,7 +760,7 @@ const runJob = async (job, project, files) => {
     const normalizedExitCode = normalizeProcessExitCode(exitCode);
     if (normalizedExitCode !== 0) {
       const detail = summarizeFfmpegFailure(job.log);
-      throw new Error(`FFmpeg kết thúc với mã lỗi ${normalizedExitCode}${detail ? `: ${detail}` : ""}`);
+      throw new Error(`Renderer Node.js kết thúc với mã lỗi ${normalizedExitCode}${detail ? `: ${detail}` : ""}`);
     }
     job.stage = "finalizing";
     job.stageLabel = "Hoàn tất video";
